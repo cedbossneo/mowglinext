@@ -1,6 +1,6 @@
 ## Quickfix while waiting for OpenMower to fix multi-arch build
 # Get an image with git and apt-get update
-FROM ghcr.io/nekraus//open_mower_ros_mowgli:Mowgli-compatible
+FROM ghcr.io/nekraus/open_mower_ros_mowgli:Mowgli-compatible
 
 # Set timezone
 ENV TZ=Europe/Paris
