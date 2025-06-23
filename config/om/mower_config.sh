@@ -120,3 +120,17 @@ export OM_WHEEL_TICKS_PER_M=300.0
 
 # Heatmap UNSET or om_gps_accuracy
 export OM_HEATMAP_SENSOR_IDS=om_gps_accuracy
+
+################################
+##    External MQTT Broker    ##
+################################
+# Set thes in order to publish status data to your external MQTT broker.
+# This is for use with smart home.
+
+# export OM_MQTT_ENABLE=False
+# export OM_MQTT_HOSTNAME="your_mqtt_broker"
+# export OM_MQTT_PORT="1883"
+# export OM_MQTT_USER=""
+# export OM_MQTT_PASSWORD=""
+# export OM_MQTT_TOPIC_PREFIX="openmower"
+
