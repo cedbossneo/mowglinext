@@ -3,7 +3,7 @@ name: Upstream
 on:
   workflow_dispatch:
   push:
-    branches: [ "cedbossneo" ]
+    branches: [ "cedbossneo", "v2" ]
     paths:
       - docker/openmower_upstream/**
       - .github/workflows/docker-publish-upstream.yml

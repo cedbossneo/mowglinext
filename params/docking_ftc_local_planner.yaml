@@ -1,8 +1,9 @@
 DockingFTCPlanner:
   acceleration: 0.05
+  check_obstacles: false
+  oscillation_recovery: false
   debug_pid: false
   forward_only: false
-  check_obstacles: false
   goal_timeout: 20.0
   kd_ang: 0.0
   kd_lat: 0.0
