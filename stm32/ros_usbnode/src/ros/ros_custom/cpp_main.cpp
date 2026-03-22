@@ -58,9 +58,10 @@
 
 // Status message
 #include "mowgli/status.h"
-#include "mowgli/WheelTick.h"
+#include "xbot_msgs/WheelTick.h"
 
 #include "mower_msgs/Status.h"
+#include "mower_msgs/ESCStatus.h"
 #include "mower_msgs/MowerControlSrv.h"
 #include "mower_msgs/EmergencyStopSrv.h"
 #include "mower_msgs/HighLevelControlSrv.h"
@@ -590,31 +591,17 @@ extern "C" void broadcast_handler()
 		om_mower_status_msg.stamp = nh.now();
 		om_mower_status_msg.mower_status = mower_msgs::Status::MOWER_STATUS_OK;
 		om_mower_status_msg.raspberry_pi_power = true;
-		om_mower_status_msg.gps_power = true;
+		om_mower_status_msg.is_charging = chargecontrol_is_charging;
 		om_mower_status_msg.esc_power = true;
 
 		om_mower_status_msg.rain_detected = RAIN_Sense();
-		om_mower_status_msg.emergency = Emergency_State();
-		om_mower_status_msg.v_charge = chargerInputVoltage;
-		om_mower_status_msg.charge_current = current;
-		om_mower_status_msg.v_battery = battery_voltage;
-		om_mower_status_msg.left_esc_status.current = (float)left_power/100;
-		om_mower_status_msg.left_esc_status.tacho =
-		om_mower_status_msg.left_esc_status.rpm = left_wheel_speed_val;
 
-		om_mower_status_msg.right_esc_status.current = (float)right_power/100;
-		om_mower_status_msg.right_esc_status.tacho =
-		om_mower_status_msg.right_esc_status.rpm = right_wheel_speed_val;
-
-		om_mower_status_msg.mow_esc_status.temperature_motor = blade_temperature;
-		om_mower_status_msg.mow_esc_status.tacho =
-		om_mower_status_msg.mow_esc_status.rpm = BLADEMOTOR_u16RPM;
-		om_mower_status_msg.mow_esc_status.current = (float)BLADEMOTOR_u16Power / 1000.0;
-		om_mower_status_msg.mow_esc_status.temperature_pcb = BLADEMOTOR_u32Error;
-		om_mower_status_msg.mow_esc_status.status = mower_msgs::ESCStatus::ESC_STATUS_OK;
-		om_mower_status_msg.left_esc_status.status = mower_msgs::ESCStatus::ESC_STATUS_OK;
-		om_mower_status_msg.right_esc_status.status = mower_msgs::ESCStatus::ESC_STATUS_OK;
 		om_mower_status_msg.mow_enabled = target_blade_on_off;
+		om_mower_status_msg.mower_esc_status = mower_msgs::ESCStatus::ESC_STATUS_OK;
+		om_mower_status_msg.mower_esc_temperature = blade_temperature;
+		om_mower_status_msg.mower_esc_current = (float)BLADEMOTOR_u16Power / 1000.0;
+		om_mower_status_msg.mower_motor_temperature = blade_temperature;
+		om_mower_status_msg.mower_motor_rpm = BLADEMOTOR_u16RPM;
 		pubOMStatus.publish(&om_mower_status_msg);
 
 	}

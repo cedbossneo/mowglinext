@@ -67,8 +67,6 @@ namespace ros
 const int SPIN_OK = 0;
 const int SPIN_ERR = -1;
 const int SPIN_TIMEOUT = -2;
-const int SPIN_TX_STOP_REQUESTED = -3;
-const int SPIN_TIME_RECV = -4;
 
 const uint8_t SYNC_SECONDS  = 5;
 const uint8_t MODE_FIRST_FF = 0;
@@ -102,7 +100,7 @@ template<class Hardware,
          int MAX_SUBSCRIBERS = 25,
          int MAX_PUBLISHERS = 25,
          int INPUT_SIZE = 512,
-         int OUTPUT_SIZE = 1024>
+         int OUTPUT_SIZE = 512>
 class NodeHandle_ : public NodeHandleBase_
 {
 protected:
@@ -121,7 +119,7 @@ protected:
   uint8_t message_out[OUTPUT_SIZE] = {0};
 
   Publisher * publishers[MAX_PUBLISHERS] = {nullptr};
-  Subscriber_ * subscribers[MAX_SUBSCRIBERS] = {nullptr};
+  Subscriber_ * subscribers[MAX_SUBSCRIBERS] {nullptr};
 
   /*
    * Setup Functions
@@ -203,9 +201,6 @@ public:
         mode_ = MODE_FIRST_FF;
       }
     }
-
-    bool tx_stop_requested = false;
-    bool saw_time_msg = false;
 
     /* while available buffer, read data */
     while (true)
@@ -308,7 +303,6 @@ public:
           }
           else if (topic_ == TopicInfo::ID_TIME)
           {
-            saw_time_msg = true;
             syncTime(message_in);
           }
           else if (topic_ == TopicInfo::ID_PARAMETER_REQUEST)
@@ -319,7 +313,6 @@ public:
           else if (topic_ == TopicInfo::ID_TX_STOP)
           {
             configured_ = false;
-            tx_stop_requested = true;
           }
           else
           {
@@ -337,7 +330,7 @@ public:
       last_sync_time = c_time;
     }
 
-    return saw_time_msg ? SPIN_TIME_RECV : (tx_stop_requested ? SPIN_TX_STOP_REQUESTED : SPIN_OK);
+    return SPIN_OK;
   }
 
 

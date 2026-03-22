@@ -54,7 +54,7 @@ public:
     this->waiting = true;
   }
 
-  virtual void call(const MReq & request, MRes & response) 
+  virtual void call(const MReq & request, MRes & response) override
   {
     if (!pub.nh_->connected()) return;
     ret = &response;
