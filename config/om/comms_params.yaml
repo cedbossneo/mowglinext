@@ -1,3 +1,0 @@
-# Comms parameters for Mowgli/CUSTOM configuration
-# Not used when OM_NO_COMMS=true, but provided as fallback
-ll_serial_port: "/dev/ttyS0"

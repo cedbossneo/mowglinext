@@ -1,4 +1,0 @@
-# GPS parameters for Mowgli/CUSTOM configuration
-# These values can be overridden by OM_* environment variables in mower_config.sh
-serial_port: "/dev/gps"
-baudrate: 921600
