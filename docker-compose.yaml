@@ -137,6 +137,7 @@ services:
     environment:
       ROS_MASTER_URI: http://${ROS_IP}:11311
       ROS_IP: ${ROS_IP}
+      OM_HEATMAP_SENSOR_IDS: ""
       OM_PARAMS_PATH: /opt/open_mower_ros/src/open_mower/params
       OM_NO_COMMS: true #FALSE if you are using other board than mowgli
       ROSCONSOLE_CONFIG_FILE: /config/rosconsole.config   # comment this line out to enable more logs
