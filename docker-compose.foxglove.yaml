@@ -153,13 +153,10 @@ services:
     depends_on:
       - rosserial
     restart: unless-stopped
+
   foxglove_bridge:
     container_name: mowgli-foxglove
-    build:
-      context: .
-      dockerfile: docker/foxglove/Dockerfile
-      args:
-        IMAGE: ${IMAGE}
+    image: ghcr.io/mowglifrenchtouch/mowgli-docker:v2-foxglove
     network_mode: host
     environment:
       ROS_MASTER_URI: http://${ROS_IP}:11311
