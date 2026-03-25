@@ -2,6 +2,30 @@ version: '3'
 
 services:
 
+  gui:
+    container_name: openmower-gui
+    labels:
+      "com.centurylinklabs.watchtower.enable": true
+      project: openmower
+      app: gui
+    image: ghcr.io/cedbossneo/openmower-gui:v2
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      ROS_IP: ${ROS_IP}
+      ROS_MASTER_URI: http://${ROS_IP}:11311
+      MOWER_CONFIG_FILE: /config/mower_config.sh
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DB_PATH: /db
+    depends_on:
+      - roscore
+    volumes:
+      - /dev:/dev
+      - ./config/db:/db
+      - ./config/om:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+      
   web:
     container_name: mowgli-web
     image: nginx
