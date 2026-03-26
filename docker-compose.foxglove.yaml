@@ -65,7 +65,7 @@ services:
     labels:
       project: openmower
       app: roscore
-    image: ${IMAGE}
+    image: ghcr.io/mowglifrenchtouch/foxglove-bridge:v2
     network_mode: host
     #pull_policy: always
     tty: true
@@ -88,7 +88,7 @@ services:
     labels:
       project: openmower
       app: rosserial
-    image: ${IMAGE}
+    image: ghcr.io/mowglifrenchtouch/foxglove-bridge:v2
     network_mode: host
     #pull_policy: always
     tty: true
@@ -124,7 +124,7 @@ services:
     labels:
       project: openmower
       app: openmower
-    image: ${IMAGE}
+    image: ghcr.io/mowglifrenchtouch/foxglove-bridge:v2
     network_mode: host
     #pull_policy: always
     tty: true
@@ -156,13 +156,17 @@ services:
 
   foxglove_bridge:
     container_name: mowgli-foxglove
-    image: ghcr.io/mowglifrenchtouch/mowgli-docker:v2-foxglove
+    image: ghcr.io/mowglifrenchtouch/foxglove-bridge:v2
     network_mode: host
     environment:
-      ROS_MASTER_URI: http://${ROS_IP}:11311
-      ROS_IP: ${ROS_IP}
-    command: ["/usr/local/bin/start-foxglove.sh"]
+    ROS_MASTER_URI: http://${ROS_IP}:11311
+    ROS_IP: ${ROS_IP}
+    command: ["foxglove"]
+    volumes:
+      - ./config/om:/config
+      - ./ros:/root/.ros/
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
-      - roscore
+     - roscore
       - openmower
     restart: unless-stopped
