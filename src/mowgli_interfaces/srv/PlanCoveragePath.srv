@@ -1,0 +1,6 @@
+uint32 area_index
+float32 mow_angle
+float32 mow_width
+---
+CoveragePath[] paths
+bool success

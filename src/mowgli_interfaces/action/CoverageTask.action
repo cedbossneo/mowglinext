@@ -1,0 +1,11 @@
+# Goal
+uint32 area_index
+---
+# Result
+bool success
+float32 coverage_percent
+---
+# Feedback
+float32 progress_percent
+uint32 current_path_index
+uint32 total_paths

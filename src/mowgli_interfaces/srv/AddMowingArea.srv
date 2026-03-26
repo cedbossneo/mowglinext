@@ -1,0 +1,4 @@
+MapArea area
+bool is_navigation_area
+---
+bool success

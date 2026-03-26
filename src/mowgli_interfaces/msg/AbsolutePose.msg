@@ -1,0 +1,24 @@
+uint8 SOURCE_GPS=1
+uint8 SOURCE_LIGHTHOUSE=2
+uint8 SOURCE_SENSOR_FUSION=100
+
+uint16 FLAG_GPS_RTK=1
+uint16 FLAG_GPS_RTK_FIXED=2
+uint16 FLAG_GPS_RTK_FLOAT=4
+uint16 FLAG_GPS_DEAD_RECKONING=8
+uint16 FLAG_SENSOR_FUSION_RECENT_ABSOLUTE_POSE=1
+uint16 FLAG_SENSOR_FUSION_DEAD_RECKONING=8
+
+std_msgs/Header header
+uint32 sensor_stamp
+uint32 received_stamp
+uint8 source
+uint16 flags
+uint8 orientation_valid
+uint8 motion_vector_valid
+float32 position_accuracy
+float32 orientation_accuracy
+geometry_msgs/PoseWithCovariance pose
+geometry_msgs/Vector3 motion_vector
+float64 vehicle_heading
+float64 motion_heading

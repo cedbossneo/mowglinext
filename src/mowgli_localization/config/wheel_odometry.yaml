@@ -1,0 +1,18 @@
+# Wheel odometry node parameters.
+#
+# wheel_distance   – lateral distance between the driven wheels (track width)
+#                    in metres.  Measure centre-to-centre of the tyre contact
+#                    patches for best accuracy.
+#
+# ticks_per_meter  – encoder resolution expressed as ticks per metre of wheel
+#                    travel.  Derive from: (ticks_per_revolution) / (π × wheel_diameter).
+#
+# publish_tf       – set true to have this node broadcast odom → base_link TF
+#                    directly.  Leave false (default) when robot_localization's
+#                    EKF owns the odom → base_link transform (the normal case).
+
+wheel_odometry:
+  ros__parameters:
+    wheel_distance: 0.35
+    ticks_per_meter: 1000.0
+    publish_tf: false

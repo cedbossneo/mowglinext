@@ -1,0 +1,88 @@
+cmake_minimum_required(VERSION 3.8)
+project(mowgli_behavior)
+
+# ---------------------------------------------------------------------------
+# Compiler flags
+# ---------------------------------------------------------------------------
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(behaviortree_cpp REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
+find_package(mowgli_interfaces REQUIRED)
+
+# ---------------------------------------------------------------------------
+# Executable: behavior_tree_node
+# ---------------------------------------------------------------------------
+
+add_executable(behavior_tree_node
+  src/behavior_tree_node.cpp
+  src/condition_nodes.cpp
+  src/action_nodes.cpp
+  src/register_nodes.cpp
+)
+
+target_include_directories(behavior_tree_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(behavior_tree_node
+  ament_index_cpp
+  rclcpp
+  rclcpp_action
+  behaviortree_cpp
+  tf2
+  tf2_geometry_msgs
+  nav2_msgs
+  nav_msgs
+  geometry_msgs
+  action_msgs
+  mowgli_interfaces
+)
+
+# ---------------------------------------------------------------------------
+# Install
+# ---------------------------------------------------------------------------
+
+install(TARGETS behavior_tree_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY trees/
+  DESTINATION share/${PROJECT_NAME}/trees
+)
+
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+# ---------------------------------------------------------------------------
+# Linting (optional, enabled when testing is ON)
+# ---------------------------------------------------------------------------
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()

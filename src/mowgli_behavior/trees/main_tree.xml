@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  main_tree.xml — Mowgli BehaviorTree.CPP v4 main tree
+
+  State constants (HighLevelStatus.msg):
+    HIGH_LEVEL_STATE_NULL       = 0
+    HIGH_LEVEL_STATE_IDLE       = 1
+    HIGH_LEVEL_STATE_AUTONOMOUS = 2
+    HIGH_LEVEL_STATE_RECORDING  = 3
+
+  HighLevelControl commands (HighLevelControl.srv):
+    COMMAND_START = 1
+    COMMAND_HOME  = 2
+    COMMAND_S1    = 3
+    COMMAND_S2    = 4
+-->
+<root BTCPP_format="4" main_tree_to_execute="MowgliMain">
+
+  <BehaviorTree ID="MowgliMain">
+    <!--
+      ReactiveSequence re-evaluates every child on each tick.
+      The emergency check is therefore always first, interrupting
+      any lower-priority behaviour the moment an emergency fires.
+    -->
+    <ReactiveSequence name="Root">
+
+      <!-- ================================================================
+           1. Safety: emergency guard
+           If no emergency    → Inverter(IsEmergency) returns SUCCESS → continue
+           If active emergency → Inverter returns FAILURE
+                               → Fallback runs EmergencyHandler
+           ================================================================ -->
+      <Fallback name="EmergencyGuard">
+        <Inverter>
+          <IsEmergency/>
+        </Inverter>
+
+        <Sequence name="EmergencyHandler">
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="0" state_name="EMERGENCY"/>
+          <!-- Keep re-publishing at ~1 Hz while emergency persists -->
+          <WaitForDuration duration_sec="1.0"/>
+        </Sequence>
+      </Fallback>
+
+      <!-- ================================================================
+           2. Main logic
+           Checked in priority order:
+             a. Battery-critical → dock immediately
+             b. START command    → mow
+             c. HOME command     → dock (explicit user request)
+             d. S1 command       → recording / waypoint capture
+             e. Default idle
+           ================================================================ -->
+      <Fallback name="MainLogic">
+
+        <!-- ---------------------------------------------------------------
+             a. Docking sequence: triggered when battery is critically low
+             --------------------------------------------------------------- -->
+        <Sequence name="DockingSequence">
+          <NeedsDocking threshold="20.0"/>
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="1" state_name="DOCKING"/>
+          <NavigateToPose goal="{dock_pose}"/>
+          <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
+        </Sequence>
+
+        <!-- ---------------------------------------------------------------
+             b. Mowing sequence: COMMAND_START = 1
+             --------------------------------------------------------------- -->
+        <Sequence name="MowingSequence">
+          <IsCommand command="1"/>
+          <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
+          <NavigateToPose goal="{undock_pose}"/>
+          <SetMowerEnabled enabled="true"/>
+          <PublishHighLevelStatus state="2" state_name="MOWING"/>
+          <PlanCoveragePath area_index="0"/>
+          <SetMowerEnabled enabled="false"/>
+          <PublishHighLevelStatus state="1" state_name="MOWING_COMPLETE"/>
+        </Sequence>
+
+        <!-- ---------------------------------------------------------------
+             c. Explicit home / docking command: COMMAND_HOME = 2
+             --------------------------------------------------------------- -->
+        <Sequence name="HomeSequence">
+          <IsCommand command="2"/>
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
+          <NavigateToPose goal="{dock_pose}"/>
+          <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
+        </Sequence>
+
+        <!-- ---------------------------------------------------------------
+             d. Recording sequence: COMMAND_S1 = 3
+             --------------------------------------------------------------- -->
+        <Sequence name="RecordingSequence">
+          <IsCommand command="3"/>
+          <PublishHighLevelStatus state="3" state_name="RECORDING"/>
+          <WaitForDuration duration_sec="0.5"/>
+        </Sequence>
+
+        <!-- ---------------------------------------------------------------
+             e. Default idle: nothing else to do
+             --------------------------------------------------------------- -->
+        <Sequence name="IdleSequence">
+          <PublishHighLevelStatus state="1" state_name="IDLE"/>
+          <WaitForDuration duration_sec="0.5"/>
+        </Sequence>
+
+      </Fallback>
+    </ReactiveSequence>
+  </BehaviorTree>
+
+</root>

@@ -1,0 +1,448 @@
+<?xml version="1.0"?>
+<!--
+  mowgli.urdf.xacro
+  URDF/Xacro description of the Mowgli robot mower.
+  Approximate dimensions based on YardForce Classic 500.
+
+  Coordinate conventions (REP-103):
+    x  forward
+    y  left
+    z  up
+
+  Key dimensions:
+    Base:          0.55 m long, 0.40 m wide, 0.25 m high
+    Drive wheels:  radius 0.10 m, width 0.05 m, track 0.35 m
+    Caster:        radius 0.04 m (front)
+    Blade disc:    radius 0.15 m, height 0.02 m (centred under base)
+    Wheel ground clearance sets base_link at z = wheel_radius = 0.10 m
+    above base_footprint.
+-->
+<robot name="mowgli" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ================================================================
+       Properties
+       ================================================================ -->
+  <xacro:property name="base_length"     value="0.55"/>
+  <xacro:property name="base_width"      value="0.40"/>
+  <xacro:property name="base_height"     value="0.25"/>
+
+  <xacro:property name="wheel_radius"    value="0.10"/>
+  <xacro:property name="wheel_width"     value="0.05"/>
+  <xacro:property name="wheel_track"     value="0.35"/>  <!-- centre-to-centre -->
+  <xacro:property name="wheel_mass"      value="0.5"/>
+
+  <xacro:property name="caster_radius"   value="0.04"/>
+  <xacro:property name="caster_mass"     value="0.2"/>
+
+  <xacro:property name="base_mass"       value="8.0"/>
+
+  <xacro:property name="blade_radius"    value="0.15"/>
+  <xacro:property name="blade_height"    value="0.02"/>
+  <xacro:property name="blade_mass"      value="0.3"/>
+
+  <!-- Derived: base_link is wheel_radius above ground -->
+  <xacro:property name="base_z_offset"   value="${wheel_radius}"/>
+
+  <!-- ================================================================
+       Inertia macros
+       ================================================================ -->
+
+  <!-- Solid cylinder: axis along z -->
+  <xacro:macro name="cylinder_inertia" params="m r h">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia
+        ixx="${(1.0/12.0)*m*(3*r*r + h*h)}"
+        ixy="0" ixz="0"
+        iyy="${(1.0/12.0)*m*(3*r*r + h*h)}"
+        iyz="0"
+        izz="${0.5*m*r*r}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- Solid cylinder: axis along y (for wheels) -->
+  <xacro:macro name="wheel_inertia" params="m r h">
+    <inertial>
+      <mass value="${m}"/>
+      <!-- Rotate the standard cylinder inertia so the rolling axis is y -->
+      <inertia
+        ixx="${(1.0/12.0)*m*(3*r*r + h*h)}"
+        ixy="0" ixz="0"
+        iyy="${0.5*m*r*r}"
+        iyz="0"
+        izz="${(1.0/12.0)*m*(3*r*r + h*h)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- Solid box -->
+  <xacro:macro name="box_inertia" params="m x y z">
+    <inertial>
+      <mass value="${m}"/>
+      <inertia
+        ixx="${(1.0/12.0)*m*(y*y + z*z)}"
+        ixy="0" ixz="0"
+        iyy="${(1.0/12.0)*m*(x*x + z*z)}"
+        iyz="0"
+        izz="${(1.0/12.0)*m*(x*x + y*y)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ================================================================
+       base_footprint  (on the ground plane)
+       ================================================================ -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_to_base_link" type="fixed">
+    <parent link="base_footprint"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 ${base_z_offset}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================
+       base_link  (geometric centre of chassis at wheel axle height)
+       ================================================================ -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${base_length} ${base_width} ${base_height}"/>
+      </geometry>
+      <material name="mowgli_green">
+        <color rgba="0.18 0.55 0.18 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+      <geometry>
+        <box size="${base_length} ${base_width} ${base_height}"/>
+      </geometry>
+    </collision>
+    <xacro:box_inertia m="${base_mass}"
+                       x="${base_length}"
+                       y="${base_width}"
+                       z="${base_height}"/>
+  </link>
+
+  <!-- ================================================================
+       Drive wheel macro
+       ================================================================ -->
+  <xacro:macro name="drive_wheel" params="side y_reflect">
+    <link name="${side}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+        <material name="dark_grey">
+          <color rgba="0.2 0.2 0.2 1.0"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+        </geometry>
+      </collision>
+      <xacro:wheel_inertia m="${wheel_mass}"
+                           r="${wheel_radius}"
+                           h="${wheel_width}"/>
+    </link>
+
+    <joint name="${side}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="${side}_wheel_link"/>
+      <!-- Wheels sit at x=0 (mid-axle), y = ±track/2, z = 0 (ground) -->
+      <origin xyz="0 ${y_reflect * wheel_track/2} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.1" friction="0.1"/>
+    </joint>
+
+    <!-- Gazebo friction for realistic wheel contact -->
+    <gazebo reference="${side}_wheel_link">
+      <mu1>1.0</mu1>
+      <mu2>0.5</mu2>
+      <kp>1e6</kp>
+      <kd>1.0</kd>
+      <minDepth>0.001</minDepth>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:drive_wheel side="left"  y_reflect="1"/>
+  <xacro:drive_wheel side="right" y_reflect="-1"/>
+
+  <!-- ================================================================
+       Front caster
+       ================================================================ -->
+  <link name="front_caster_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+      <material name="light_grey">
+        <color rgba="0.7 0.7 0.7 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="${caster_radius}"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="${caster_mass}"/>
+      <inertia
+        ixx="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"
+        ixy="0" ixz="0"
+        iyy="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"
+        iyz="0"
+        izz="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"/>
+    </inertial>
+  </link>
+
+  <joint name="front_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="front_caster_link"/>
+    <!-- Front of base, at ground level (z = -wheel_radius + caster_radius) -->
+    <origin xyz="${base_length/2 - caster_radius}
+                 0
+                 ${-wheel_radius + caster_radius}"
+            rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="front_caster_link">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+    <kp>1e6</kp>
+    <kd>1.0</kd>
+  </gazebo>
+
+  <!-- ================================================================
+       Blade disc  (centred under base, just below chassis)
+       ================================================================ -->
+  <link name="blade_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${blade_radius}" length="${blade_height}"/>
+      </geometry>
+      <material name="silver">
+        <color rgba="0.75 0.75 0.75 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="${blade_radius}" length="${blade_height}"/>
+      </geometry>
+    </collision>
+    <xacro:cylinder_inertia m="${blade_mass}"
+                            r="${blade_radius}"
+                            h="${blade_height}"/>
+  </link>
+
+  <joint name="blade_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="blade_link"/>
+    <!-- Hang blade flush below the chassis floor -->
+    <origin xyz="0 0 ${-(blade_height/2)}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================
+       IMU link  (centre of base)
+       ================================================================ -->
+  <link name="imu_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.01"/>
+      </geometry>
+      <material name="blue_chip">
+        <color rgba="0.0 0.2 0.8 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.03 0.01"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0"
+               iyy="1e-6" iyz="0"
+               izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 ${base_height/2}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================
+       GPS link  (top centre of base)
+       ================================================================ -->
+  <link name="gps_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.05 0.02"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0.1 0.1 0.1 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.05 0.02"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0"
+               iyy="1e-5" iyz="0"
+               izz="1e-5"/>
+    </inertial>
+  </link>
+
+  <joint name="gps_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="gps_link"/>
+    <!-- Mounted on top surface, centred -->
+    <origin xyz="0 0 ${base_height + 0.01}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================
+       LiDAR link  (front-top of base, 0.20 m forward, 0.25 m high)
+       ================================================================ -->
+  <link name="lidar_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.06"/>
+      </geometry>
+      <material name="dark_sensor">
+        <color rgba="0.15 0.15 0.15 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.04" length="0.06"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.18"/>
+      <inertia ixx="1e-4" ixy="0" ixz="0"
+               iyy="1e-4" iyz="0"
+               izz="1e-4"/>
+    </inertial>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="lidar_link"/>
+    <origin xyz="0.20 0 0.25" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================================================================
+       Gazebo plugins
+       ================================================================ -->
+
+  <!-- Differential drive controller -->
+  <gazebo>
+    <plugin name="diff_drive" filename="libgazebo_ros_diff_drive.so">
+      <ros>
+        <namespace></namespace>
+      </ros>
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${wheel_track}</wheel_separation>
+      <wheel_diameter>${2 * wheel_radius}</wheel_diameter>
+      <max_wheel_torque>20.0</max_wheel_torque>
+      <max_wheel_acceleration>2.0</max_wheel_acceleration>
+      <command_topic>cmd_vel</command_topic>
+      <odometry_topic>wheel_odom</odometry_topic>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>false</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
+      <update_rate>50.0</update_rate>
+    </plugin>
+  </gazebo>
+
+  <!-- IMU sensor -->
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <visualize>false</visualize>
+      <imu>
+        <angular_velocity>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>0.009</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>0.009</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>0.009</stddev></noise></z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x><noise type="gaussian"><mean>0.0</mean><stddev>0.021</stddev></noise></x>
+          <y><noise type="gaussian"><mean>0.0</mean><stddev>0.021</stddev></noise></y>
+          <z><noise type="gaussian"><mean>0.0</mean><stddev>0.021</stddev></noise></z>
+        </linear_acceleration>
+      </imu>
+      <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <namespace></namespace>
+          <remapping>~/out:=imu/data</remapping>
+        </ros>
+        <initial_orientation_as_reference>false</initial_orientation_as_reference>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- 2-D LiDAR sensor (360 deg, 8 m range) -->
+  <gazebo reference="lidar_link">
+    <sensor name="lidar_sensor" type="ray">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <visualize>false</visualize>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.10</min>
+          <max>8.0</max>
+          <resolution>0.01</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="lidar_plugin" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace></namespace>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>lidar_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <!-- Base link colour in Gazebo -->
+  <gazebo reference="base_link">
+    <material>Gazebo/Green</material>
+  </gazebo>
+
+</robot>

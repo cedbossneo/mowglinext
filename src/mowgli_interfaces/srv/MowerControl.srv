@@ -1,0 +1,4 @@
+uint8 mow_enabled
+uint8 mow_direction
+---
+bool success

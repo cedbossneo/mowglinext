@@ -1,0 +1,85 @@
+slam_toolbox:
+  ros__parameters:
+    # Solver
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+
+    # Mode: mapping | localization | lifelong
+    mode: mapping
+    map_file_name: ""
+    map_start_pose: [0.0, 0.0, 0.0]
+    map_start_at_dock: true
+
+    # Logging
+    debug_logging: false
+    throttle_scans: 1
+
+    # TF / map update
+    transform_publish_period: 0.02    # seconds (50 Hz)
+    map_update_interval: 2.0          # seconds
+    resolution: 0.05                  # metres/cell
+
+    # Scan range
+    max_laser_range: 8.0              # metres
+
+    # Timing constraints
+    minimum_time_interval: 0.5        # seconds between processed scans
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+
+    # Memory
+    stack_size_to_use: 40000000
+
+    # Interactive mode (RViz plugin)
+    enable_interactive_mode: false
+
+    # Scan matching
+    use_scan_matching: true
+    use_scan_barycenter: true
+
+    # Minimum motion before adding a new node
+    minimum_travel_distance: 0.3     # metres
+    minimum_travel_heading: 0.3      # radians (~17 deg)
+
+    # Scan buffer
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 8.0
+
+    # Link matching thresholds
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+
+    # Loop closure
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # Correlation search
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # Loop search space
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # Variance penalties
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+
+    # Angular search offsets
+    fine_search_angle_offset: 0.00349    # ~0.2 deg
+    coarse_search_angle_offset: 0.349    # ~20 deg
+    coarse_angle_resolution: 0.0349      # ~2 deg
+
+    # Response penalties
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
