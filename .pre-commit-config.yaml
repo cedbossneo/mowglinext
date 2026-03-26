@@ -1,0 +1,71 @@
+---
+# Mowgli ROS2 pre-commit hook configuration.
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # ─── General file hygiene ─────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-case-conflict
+
+  # ─── YAML ─────────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # ROS2 launch files use YAML; exclude auto-generated ones.
+        exclude: ^(build|install|log)/
+
+  # ─── XML (package.xml, launch files, URDF, xacro) ────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-xml
+        exclude: ^(build|install|log)/
+
+  # ─── C++ formatting with clang-format ────────────────────────────────────
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v18.1.8
+    hooks:
+      - id: clang-format
+        types_or: [c, c++]
+        args: [-style=file]
+        # .clang-format at repo root is picked up automatically.
+        exclude: ^(build|install|log)/
+
+  # ─── Python (ROS2 nodes, launch scripts) ─────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        exclude: ^(build|install|log)/
+      - id: ruff-format
+        exclude: ^(build|install|log)/
+
+  # ─── CMakeLists.txt style ─────────────────────────────────────────────────
+  - repo: https://github.com/cmake-lint/cmake-lint
+    rev: 1.4.3
+    hooks:
+      - id: cmakelint
+        args: [--linelength=100]
+        exclude: ^(build|install|log)/
+
+  # ─── Secrets detection ────────────────────────────────────────────────────
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: ^(build|install|log)/

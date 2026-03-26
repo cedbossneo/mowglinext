@@ -1,0 +1,136 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Shared configuration fragments
+# ---------------------------------------------------------------------------
+x-ros-env: &ros-env
+  ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
+  # Use FastDDS (default for Humble). Point to a custom XML profile when
+  # running across multiple hosts; leave unset for single-host setups.
+  FASTRTPS_DEFAULT_PROFILES_FILE: "${FASTRTPS_DEFAULT_PROFILES_FILE:-}"
+  RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+  RCUTILS_COLORIZED_OUTPUT: "1"
+  RCUTILS_LOGGING_USE_STDOUT: "1"
+
+x-runtime-base: &runtime-base
+  image: mowgli-ros2:runtime
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: runtime
+  environment:
+    <<: *ros-env
+  # host network gives ROS2 DDS the best discovery behaviour on a single host
+  network_mode: host
+  restart: unless-stopped
+  # Shared map storage persisted across container restarts
+  volumes:
+    - mowgli_maps:/ros2_ws/maps
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # --------------------------------------------------------------------------
+  # mowgli — main robot service
+  # Runs the full hardware bridge, localisation, Nav2, and behaviour tree.
+  # Requires physical hardware attached via USB serial.
+  # --------------------------------------------------------------------------
+  mowgli:
+    <<: *runtime-base
+    container_name: mowgli
+    image: mowgli-ros2:runtime
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    devices:
+      # Hardware bridge serial port — adjust if your device appears elsewhere
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    environment:
+      <<: *ros-env
+      # Path inside the container where maps are stored / loaded from
+      MOWGLI_MAP_DIR: /ros2_ws/maps
+    command: ["ros2", "launch", "mowgli_bringup", "mowgli.launch.py"]
+    # Uncomment to expose ROS2 web bridge if ros-humble-rosbridge-server is installed
+    # ports:
+    #   - "9090:9090"
+
+  # --------------------------------------------------------------------------
+  # simulation — Gazebo headless + Nav2 running against the simulated robot.
+  # Port 8080 is exposed for the Gazebo web client (gz-web).
+  # --------------------------------------------------------------------------
+  simulation:
+    container_name: mowgli_simulation
+    image: mowgli-ros2:simulation
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: simulation
+    environment:
+      <<: *ros-env
+      # Run Gazebo in headless/server mode
+      DISPLAY: ""
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    network_mode: host
+    ports:
+      - "8080:8080"
+    volumes:
+      - mowgli_maps:/ros2_ws/maps
+    restart: unless-stopped
+    command: ["ros2", "launch", "mowgli_bringup", "simulation.launch.py"]
+
+  # --------------------------------------------------------------------------
+  # nav — navigation stack only (Nav2 + localisation).
+  # Useful when driving the robot from an external hardware bridge or replaying
+  # a bag file. Expects odometry and sensor data on the ROS2 DDS bus.
+  # --------------------------------------------------------------------------
+  nav:
+    <<: *runtime-base
+    container_name: mowgli_nav
+    image: mowgli-ros2:runtime
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["ros2", "launch", "mowgli_bringup", "navigation.launch.py"]
+
+  # --------------------------------------------------------------------------
+  # dev — interactive development container.
+  # Source tree is bind-mounted so colcon builds see live changes without
+  # rebuilding the image. A ccache volume speeds up incremental compilation.
+  # --------------------------------------------------------------------------
+  dev:
+    container_name: mowgli_dev
+    image: mowgli-ros2:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: dev
+    environment:
+      <<: *ros-env
+      RCUTILS_LOGGING_SEVERITY_THRESHOLD: DEBUG
+    network_mode: host
+    volumes:
+      - ./src:/ros2_ws/src
+      - ./build:/ros2_ws/build
+      - ./install:/ros2_ws/install
+      - ./log:/ros2_ws/log
+      - mowgli_maps:/ros2_ws/maps
+      - mowgli_ccache:/ccache
+    stdin_open: true
+    tty: true
+    command: ["bash"]
+
+# ---------------------------------------------------------------------------
+# Named volumes
+# ---------------------------------------------------------------------------
+volumes:
+  # Persistent map storage shared between mowgli, nav, and dev services
+  mowgli_maps:
+    driver: local
+
+  # ccache volume: survives container restarts, dramatically cuts build times
+  mowgli_ccache:
+    driver: local

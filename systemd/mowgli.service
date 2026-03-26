@@ -1,0 +1,54 @@
+[Unit]
+Description=Mowgli ROS2 Autonomous Mower
+Documentation=https://github.com/cedricziel/mowgli-ros2
+After=network-online.target
+Wants=network-online.target
+# Ensure the serial bridge to the Mowgli firmware is available before starting.
+# Remove or adjust if the hardware UART path differs on your board.
+After=dev-ttyUSB0.device
+Wants=dev-ttyUSB0.device
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+
+# Workspace location — install tree synced here by `make deploy`
+WorkingDirectory=/opt/mowgli_ros2
+
+# ros2_entrypoint.sh sources /opt/ros/humble/setup.bash and
+# /opt/mowgli_ros2/install/setup.bash before exec-ing its arguments.
+ExecStart=/opt/mowgli_ros2/scripts/ros2_entrypoint.sh \
+    ros2 launch mowgli_bringup mowgli.launch.py
+
+# Graceful shutdown — send SIGINT so ROS2 nodes can clean up lifecycle state.
+KillSignal=SIGINT
+KillMode=process
+TimeoutStopSec=15
+
+# Restart policy — restart on abnormal exit but not on clean shutdown.
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Environment
+Environment=ROS_DISTRO=humble
+Environment=ROS_DOMAIN_ID=42
+# Disable ROS2 colored output so journald output is clean.
+Environment=RCUTILS_COLORIZED_OUTPUT=0
+# Log to stdout; journald captures it automatically.
+Environment=RCUTILS_LOGGING_USE_STDOUT=1
+
+# Security hardening — restrict what the mowing process can reach.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# Allow writes only to the workspace (maps, logs) and serial devices.
+ReadWritePaths=/opt/mowgli_ros2 /dev/ttyUSB0 /tmp
+# Allow access to hardware devices (IMU, GPS, LiDAR via udev symlinks).
+DeviceAllow=char-ttyUSB rw
+DeviceAllow=char-ttyACM rw
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+# ─── Colcon build artifacts ───────────────────────────────────────────────────
+build/
+install/
+log/
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+.eggs/
+dist/
+*.dist-info/
+
+# ─── IDEs ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ─── Editors ──────────────────────────────────────────────────────────────────
+*.swp
+*.swo
+*~
+.#*
+\#*#
+
+# ─── CMake / tooling ──────────────────────────────────────────────────────────
+compile_commands.json
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile.cmake
+
+# ─── Caches ───────────────────────────────────────────────────────────────────
+.cache/
+.ccache/
+
+# ─── OS artefacts ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+# Ignore local .env overrides; the committed docker-compose.yml is canonical.
+.env
+.env.local
+
+# ─── Maps backups (generated locally) ────────────────────────────────────────
+maps_backup/
+
+# ─── Pre-commit cache ─────────────────────────────────────────────────────────
+.pre-commit-cache/

@@ -1,0 +1,156 @@
+# =============================================================================
+# Dockerfile.dev — Full development toolchain
+#
+# Designed for mounting source as a volume so changes are immediately
+# available without rebuilding the image. Includes compilers, debuggers,
+# profiling tools, and editor helpers.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.override.yml \
+#       up dev
+#
+# Or standalone:
+#   docker build -f Dockerfile.dev -t mowgli-dev .
+#   docker run -it --rm \
+#       -v $(pwd)/src:/ros2_ws/src \
+#       -v $(pwd)/build:/ros2_ws/build \
+#       -v $(pwd)/install:/ros2_ws/install \
+#       -v $(pwd)/log:/ros2_ws/log \
+#       --network host \
+#       mowgli-dev bash
+# =============================================================================
+FROM ros:humble-ros-base AS dev
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# ---- Runtime dependencies (mirrors base stage in Dockerfile) ----------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-nav2-bringup \
+    ros-humble-nav2-bt-navigator \
+    ros-humble-nav2-controller \
+    ros-humble-nav2-planner \
+    ros-humble-nav2-behaviors \
+    ros-humble-nav2-regulated-pure-pursuit-controller \
+    ros-humble-nav2-smac-planner \
+    ros-humble-nav2-costmap-2d \
+    ros-humble-nav2-map-server \
+    ros-humble-nav2-lifecycle-manager \
+    ros-humble-nav2-waypoint-follower \
+    ros-humble-nav2-velocity-smoother \
+    ros-humble-slam-toolbox \
+    ros-humble-robot-localization \
+    ros-humble-twist-mux \
+    ros-humble-behaviortree-cpp \
+    ros-humble-xacro \
+    ros-humble-robot-state-publisher \
+    ros-humble-joint-state-publisher \
+    ros-humble-tf2-ros \
+    ros-humble-tf2-eigen \
+    ros-humble-tf2-geometry-msgs \
+    ros-humble-ros-gz-sim \
+    ros-humble-ros-gz-bridge \
+ && true
+
+# ---- Build tools ------------------------------------------------------------
+RUN apt-get install -y --no-install-recommends \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    python3-vcstool \
+    ros-humble-ament-cmake \
+    ros-humble-rosidl-default-generators \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    git-lfs \
+ && true
+
+# ---- Compiler cache (significantly speeds up incremental builds) -------------
+RUN apt-get install -y --no-install-recommends ccache \
+ && true
+
+ENV PATH="/usr/lib/ccache:${PATH}"
+ENV CCACHE_DIR="/ccache"
+VOLUME ["/ccache"]
+
+# ---- Debuggers and profilers -------------------------------------------------
+RUN apt-get install -y --no-install-recommends \
+    gdb \
+    gdbserver \
+    valgrind \
+    linux-tools-generic \
+    strace \
+    ltrace \
+ || apt-get install -y --no-install-recommends \
+    gdb \
+    gdbserver \
+    valgrind \
+    strace \
+    ltrace \
+ && true
+
+# ---- Static analysis and code quality ----------------------------------------
+RUN apt-get install -y --no-install-recommends \
+    clang \
+    clang-tidy \
+    clang-format \
+    cppcheck \
+    python3-pytest \
+    python3-flake8 \
+    python3-mypy \
+ && true
+
+# ---- Editor / language-server helpers ----------------------------------------
+RUN apt-get install -y --no-install-recommends \
+    bear \
+    python3-pip \
+ && pip3 install --no-cache-dir \
+    compdb \
+    catkin-pkg \
+    empy \
+ && true
+
+# ---- Convenience utilities ---------------------------------------------------
+RUN apt-get install -y --no-install-recommends \
+    bash-completion \
+    python3-argcomplete \
+    vim \
+    nano \
+    curl \
+    wget \
+    htop \
+    tree \
+    tmux \
+    iproute2 \
+    iputils-ping \
+    ros-humble-rqt \
+    ros-humble-rqt-graph \
+    ros-humble-rqt-console \
+    ros-humble-rviz2 \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---- Workspace layout -------------------------------------------------------
+WORKDIR /ros2_ws
+
+# Source volume will be bind-mounted at runtime; provide an empty placeholder
+# so the layer cache is valid even without a mount.
+RUN mkdir -p src build install log
+
+# Initialise rosdep once at image build time
+RUN rosdep update --rosdistro humble
+
+# ---- Shell initialisation ---------------------------------------------------
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc && \
+    echo "[ -f /ros2_ws/install/setup.bash ] && source /ros2_ws/install/setup.bash" >> /root/.bashrc && \
+    echo "eval \"\$(register-python-argcomplete3 ros2)\"" >> /root/.bashrc && \
+    echo "export RCUTILS_COLORIZED_OUTPUT=1" >> /root/.bashrc && \
+    echo "export RCUTILS_LOGGING_USE_STDOUT=1" >> /root/.bashrc
+
+COPY scripts/ros2_entrypoint.sh /ros2_entrypoint.sh
+RUN chmod +x /ros2_entrypoint.sh
+
+ENTRYPOINT ["/ros2_entrypoint.sh"]
+
+# Default: open an interactive shell so developers can run colcon commands
+# manually. Override CMD in docker-compose.override.yml as needed.
+CMD ["bash"]

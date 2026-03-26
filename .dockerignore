@@ -1,0 +1,39 @@
+# Version control
+.git
+.gitignore
+.gitmodules
+
+# Colcon build artefacts (built inside the container, not from the host)
+build/
+install/
+log/
+
+# Python byte-code
+*.pyc
+*.pyo
+__pycache__/
+
+# Editor / IDE metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Docker files (not needed inside the image)
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# CI / tooling configs that don't affect the build
+.github/
+.pre-commit-config.yaml
+*.md
+
+# Host-side ccache (separate Docker volume used instead)
+.ccache/

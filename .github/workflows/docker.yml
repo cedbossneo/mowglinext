@@ -1,0 +1,118 @@
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  # github.repository is "owner/repo", lower-cased automatically by GHCR
+  IMAGE_NAME: ${{ github.repository }}/mowgli-ros2
+
+jobs:
+  # ─── Build, Test & Push ──────────────────────────────────────────────────────
+  docker-build:
+    name: Build Docker image (${{ matrix.target }})
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: runtime
+            suffix: ""
+          - target: simulation
+            suffix: "-sim"
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
+          tags: |
+            # Branch push: tag as branch name
+            type=ref,event=branch
+            # Tag push: tag as semver (v1.2.3 → 1.2.3 + latest)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # Always include full SHA
+            type=sha,prefix=sha-,format=short
+
+      - name: Build image (with inline test run)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          # Build the 'build' stage first so tests run, then produce the target stage.
+          # The build stage in the Dockerfile already runs colcon test and will fail
+          # the image build if any test fails.
+          build-args: |
+            BUILD_TYPE=Release
+          # Cache from GHCR to speed up repeated builds
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}:buildcache,mode=max
+          # Push only on non-PR events (tags and main branch pushes)
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Enable provenance for supply-chain attestation
+          provenance: true
+          sbom: true
+
+  # ─── Notify on failure ───────────────────────────────────────────────────────
+  notify-failure:
+    name: Notify on failure
+    runs-on: ubuntu-22.04
+    needs: docker-build
+    if: failure() && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Create GitHub issue on repeated failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Docker build failed on main — ${new Date().toISOString().split('T')[0]}`;
+            const body = `The Docker CI workflow failed on \`main\`.\n\n` +
+              `Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            // Only create an issue; do not spam if one already exists for today.
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-failure',
+            });
+            if (!issues.data.some(i => i.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['ci-failure'],
+              });
+            }
