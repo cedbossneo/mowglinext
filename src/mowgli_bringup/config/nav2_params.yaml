@@ -8,57 +8,14 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /odometry/filtered_map
+    odom_topic: /wheel_odom
     bt_loop_duration: 10
     default_server_timeout: 20
     # Default Nav2 recovery/navigate BT
-    default_nav_to_pose_bt_xml: ""
-    default_nav_through_poses_bt_xml: ""
-    plugin_lib_names:
-      - nav2_compute_path_to_pose_action_bt_node
-      - nav2_compute_path_through_poses_action_bt_node
-      - nav2_smooth_path_action_bt_node
-      - nav2_follow_path_action_bt_node
-      - nav2_spin_action_bt_node
-      - nav2_wait_action_bt_node
-      - nav2_assisted_teleop_action_bt_node
-      - nav2_back_up_action_bt_node
-      - nav2_drive_on_heading_bt_node
-      - nav2_clear_costmap_service_bt_node
-      - nav2_is_stuck_condition_bt_node
-      - nav2_goal_reached_condition_bt_node
-      - nav2_goal_updated_condition_bt_node
-      - nav2_globally_updated_goal_condition_bt_node
-      - nav2_is_path_valid_condition_bt_node
-      - nav2_initial_pose_received_condition_bt_node
-      - nav2_reinitialize_global_localization_service_bt_node
-      - nav2_rate_controller_bt_node
-      - nav2_distance_controller_bt_node
-      - nav2_speed_controller_bt_node
-      - nav2_truncate_path_action_bt_node
-      - nav2_truncate_path_local_action_bt_node
-      - nav2_goal_updater_node_bt_node
-      - nav2_recovery_node_bt_node
-      - nav2_pipeline_sequence_bt_node
-      - nav2_round_robin_node_bt_node
-      - nav2_transform_available_condition_bt_node
-      - nav2_time_expired_condition_bt_node
-      - nav2_path_expiring_timer_condition
-      - nav2_distance_traveled_condition_bt_node
-      - nav2_single_trigger_bt_node
-      - nav2_navigate_through_poses_action_bt_node
-      - nav2_navigate_to_pose_action_bt_node
-      - nav2_remove_passed_goals_action_bt_node
-      - nav2_planner_selector_bt_node
-      - nav2_controller_selector_bt_node
-      - nav2_goal_checker_selector_bt_node
-      - nav2_controller_cancel_bt_node
-      - nav2_path_longer_on_approach_bt_node
-      - nav2_wait_cancel_bt_node
-      - nav2_spin_cancel_bt_node
-      - nav2_back_up_cancel_bt_node
-      - nav2_assisted_teleop_cancel_bt_node
-      - nav2_drive_on_heading_cancel_bt_node
+    default_nav_to_pose_bt_xml: /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_to_pose_w_replanning_and_recovery.xml
+    default_nav_through_poses_bt_xml: /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_through_poses_w_replanning_and_recovery.xml
+    # plugin_lib_names: auto-loaded in Jazzy — no manual list needed.
+    enable_stamped_cmd_vel: false
 
 bt_navigator_navigate_through_poses_rclcpp_node:
   ros__parameters:
@@ -78,15 +35,15 @@ controller_server:
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 0.3
+    failure_tolerance: 5.0
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["stopped_goal_checker"]
-    controller_plugins: ["FollowPath"]
+    controller_plugins: ["FollowPath", "FollowCoveragePath"]
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      required_movement_radius: 0.05
+      movement_time_allowance: 600.0
 
     stopped_goal_checker:
       plugin: "nav2_controller::StoppedGoalChecker"
@@ -94,32 +51,77 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
 
+    # RPP for transit/dock navigation, wrapped in RotationShimController
+    # to rotate-in-place toward the path before driving.
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      angular_dist_threshold: 0.785  # 45° — rotate in place if heading error > this
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 0.5
+      max_angular_accel: 1.5
+      # RPP parameters (passed through to primary controller)
       desired_linear_vel: 0.3
-      lookahead_dist: 0.6
-      min_lookahead_dist: 0.3
-      max_lookahead_dist: 0.9
+      lookahead_dist: 0.4
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.6
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.4
-      transform_tolerance: 0.1
+      rotate_to_heading_angular_vel: 0.5
+      transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
-      approach_velocity_scaling_dist: 1.0
-      use_collision_detection: true
-      max_allowed_time_to_collision_up_to_carrot: 1.0
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: false
       use_regulated_linear_velocity_scaling: true
       use_fixed_curvature_lookahead: false
-      curvature_lookahead_dist: 0.25
+      curvature_lookahead_dist: 0.6
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.25
-      use_rotate_to_heading: true
+      use_rotate_to_heading: false
       allow_reversing: false
-      rotate_to_heading_min_angle: 0.785
-      max_angular_accel: 3.2
+      max_angular_accel: 1.5
       max_angular_vel: 0.5
-      max_robot_pose_search_dist: 10.0
+      max_robot_pose_search_dist: 100.0
+
+    # FTC controller for coverage path following (path-indexed, no densification needed).
+    # PID gains from OpenMower ftc_local_planner tuning.
+    FollowCoveragePath:
+      plugin: "mowgli_nav2_plugins::FTCController"
+      speed_fast: 0.3
+      speed_fast_threshold: 1.5
+      speed_fast_threshold_angle: 5.0
+      speed_slow: 0.1
+      speed_angular: 20.0
+      acceleration: 0.5
+      # PID lateral (cross-track correction)
+      kp_lat: 25.0
+      ki_lat: 0.06153
+      ki_lat_max: 10.0
+      kd_lat: 1.23
+      # PID longitudinal (along-track speed)
+      kp_lon: 1.0
+      ki_lon: 0.0
+      ki_lon_max: 10.0
+      kd_lon: 0.0
+      # PID angular (heading correction)
+      kp_ang: 1.0
+      ki_ang: 0.0
+      ki_ang_max: 10.0
+      kd_ang: 0.0
+      # Limits
+      max_cmd_vel_speed: 0.5
+      max_cmd_vel_ang: 0.8
+      max_goal_distance_error: 1.0
+      max_goal_angle_error: 10.0
+      goal_timeout: 10.0
+      max_follow_distance: 1.0
+      forward_only: true
+      check_obstacles: true
+      obstacle_lookahead: 5
+      obstacle_footprint: true
+      oscillation_recovery: true
+      oscillation_recovery_min_duration: 5.0
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -210,11 +212,11 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.3, 0.0, 0.5]
-    min_velocity: [-0.3, 0.0, -0.5]
+    max_velocity: [0.5, 0.0, 0.8]
+    min_velocity: [-0.5, 0.0, -0.8]
     max_accel: [0.5, 0.0, 3.2]
     max_decel: [-0.5, 0.0, -3.2]
-    odom_topic: /odometry/filtered_map
+    odom_topic: /wheel_odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
@@ -233,11 +235,10 @@ global_costmap:
       robot_radius: 0.22
       resolution: 0.05
       track_unknown_space: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-
-      static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        map_subscribe_transient_local: true
+      rolling_window: true
+      width: 20
+      height: 20
+      plugins: ["obstacle_layer", "inflation_layer"]
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -316,17 +317,12 @@ map_saver:
 
 # ---------------------------------------------------------------------------
 # Lifecycle manager
+# Note: Nav2's navigation_launch.py creates its own lifecycle_manager_navigation
+# with the correct node list. This section provides parameters that get merged
+# via RewrittenYaml.
 # ---------------------------------------------------------------------------
 lifecycle_manager:
   ros__parameters:
     use_sim_time: false
     autostart: true
-    node_names:
-      - map_server
-      - controller_server
-      - smoother_server
-      - planner_server
-      - behavior_server
-      - bt_navigator
-      - waypoint_follower
-      - velocity_smoother
+    bond_timeout: 10.0

@@ -76,17 +76,17 @@ void LocalizationMonitorNode::create_subscribers()
   wheel_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     "/wheel_odom",
     rclcpp::QoS(10),
-    [this](const nav_msgs::msg::Odometry::SharedPtr msg) { on_wheel_odom(msg); });
+    [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { on_wheel_odom(msg); });
 
   abs_pose_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
     "/gps/absolute_pose",
     rclcpp::QoS(10),
-    [this](const mowgli_interfaces::msg::AbsolutePose::SharedPtr msg) { on_absolute_pose(msg); });
+    [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg) { on_absolute_pose(msg); });
 
   slam_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
     "/slam_toolbox/pose",
     rclcpp::QoS(10),
-    [this](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+    [this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg) {
       on_slam_pose(msg);
     });
 }
@@ -103,13 +103,13 @@ void LocalizationMonitorNode::create_timer()
 // Subscription callbacks
 // ---------------------------------------------------------------------------
 
-void LocalizationMonitorNode::on_wheel_odom(const nav_msgs::msg::Odometry::SharedPtr msg)
+void LocalizationMonitorNode::on_wheel_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
   last_wheel_odom_stamp_ = msg->header.stamp;
 }
 
 void LocalizationMonitorNode::on_absolute_pose(
-  const mowgli_interfaces::msg::AbsolutePose::SharedPtr msg)
+  mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
 {
   using Flags = mowgli_interfaces::msg::AbsolutePose;
 
@@ -122,7 +122,7 @@ void LocalizationMonitorNode::on_absolute_pose(
 }
 
 void LocalizationMonitorNode::on_slam_pose(
-  const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
+  geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg)
 {
   last_slam_stamp_ = msg->header.stamp;
 }

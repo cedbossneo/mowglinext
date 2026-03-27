@@ -10,7 +10,9 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "nav_msgs/msg/path.hpp"
 
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
@@ -154,24 +156,85 @@ private:
 // PlanCoveragePath
 // ---------------------------------------------------------------------------
 
-/// Calls the mowgli_coverage_planner/plan_coverage_path service and returns
-/// SUCCESS when the planner acknowledges the request.
+/// Calls the coverage planner service asynchronously and waits for the result.
 ///
 /// Input ports:
 ///   area_index (uint32_t, default "0") – index of the mowing area to plan.
-class PlanCoveragePath : public BT::SyncActionNode {
+class PlanCoveragePath : public BT::StatefulActionNode {
 public:
   PlanCoveragePath(const std::string& name, const BT::NodeConfig& config)
-    : BT::SyncActionNode(name, config) {}
+    : BT::StatefulActionNode(name, config) {}
 
   static BT::PortsList providedPorts() {
-    return {BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan")};
+    return {
+      BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
+      BT::InputPort<std::string>("boundary", "", "Mowing boundary points (optional)"),
+      BT::OutputPort<std::string>("first_waypoint", "First waypoint as 'x;y;yaw'")
+    };
   }
 
-  BT::NodeStatus tick() override;
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void           onHalted() override;
 
 private:
   rclcpp::Client<mowgli_interfaces::srv::PlanCoveragePath>::SharedPtr client_;
+  rclcpp::Client<mowgli_interfaces::srv::PlanCoveragePath>::SharedFuture future_;
+  uint32_t area_index_{0};
+};
+
+// ---------------------------------------------------------------------------
+// FollowCoveragePath
+// ---------------------------------------------------------------------------
+
+/// Subscribes to the coverage path topic, sends it to Nav2 FollowPath action,
+/// and returns SUCCESS when the robot has traversed the entire path.
+///
+/// Input ports:
+///   path_topic (string, default "/coverage_planner_node/coverage_path")
+class FollowCoveragePath : public BT::StatefulActionNode {
+public:
+  using FollowPathAction = nav2_msgs::action::FollowPath;
+  using GoalHandle = rclcpp_action::ClientGoalHandle<FollowPathAction>;
+
+  FollowCoveragePath(const std::string& name, const BT::NodeConfig& config)
+    : BT::StatefulActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return {
+      BT::InputPort<std::string>("path_topic",
+        "/coverage_planner_node/coverage_path",
+        "Topic with the coverage path to follow")
+    };
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void           onHalted() override;
+
+private:
+  rclcpp_action::Client<FollowPathAction>::SharedPtr action_client_;
+  std::shared_future<GoalHandle::SharedPtr> goal_handle_future_;
+  GoalHandle::SharedPtr goal_handle_;
+  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
+  nav_msgs::msg::Path latest_path_;
+  bool path_received_{false};
+};
+
+// ---------------------------------------------------------------------------
+// ClearCommand
+// ---------------------------------------------------------------------------
+
+/// Resets the current_command in BTContext to 0 (no command), preventing the
+/// BT from re-entering a completed sequence.
+class ClearCommand : public BT::SyncActionNode {
+public:
+  ClearCommand(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus tick() override;
 };
 
 // ---------------------------------------------------------------------------

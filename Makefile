@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-ROS_DISTRO    ?= humble
+ROS_DISTRO    ?= jazzy
 BUILD_TYPE    ?= Release
 DOCKER_IMAGE  ?= mowgli-ros2
 DOCKER_TAG    ?= latest
@@ -31,7 +31,7 @@ help:
 	@echo "  docker         Build production Docker image (runtime stage)"
 	@echo "  docker-sim     Build simulation Docker image"
 	@echo "  docker-dev     Build development Docker image"
-	@echo "  run-sim        Run headless simulation (connect Foxglove to ws://localhost:9090)"
+	@echo "  run-sim        Run headless simulation (connect Foxglove to ws://localhost:8765)"
 	@echo "  run-sim-gui    Run simulation with Gazebo GUI via noVNC (http://localhost:6080/vnc.html)"
 	@echo "  run-hardware   Run hardware stack via docker compose"
 	@echo "  foxglove       Open Foxglove Studio with the Mowgli layout"
@@ -96,9 +96,33 @@ docker-dev:
 	docker build -f Dockerfile.dev \
 	  -t $(DOCKER_IMAGE)-dev:$(DOCKER_TAG) .
 
+sim-build:
+	@echo "Compiling workspace inside simulation container..."
+	docker compose exec simulation bash -c "\
+	  source /opt/ros/$(ROS_DISTRO)/setup.bash && \
+	  cd /ros2_ws && \
+	  colcon build \
+	    --cmake-args -DCMAKE_BUILD_TYPE=Release \
+	    --parallel-workers \$$(nproc) \
+	    --event-handlers console_cohesion+"
+
+sim-build-pkg:
+	@echo "Compiling $(PKG) inside simulation container..."
+	docker compose exec simulation bash -c "\
+	  source /opt/ros/$(ROS_DISTRO)/setup.bash && \
+	  source /ros2_ws/install/setup.bash && \
+	  cd /ros2_ws && \
+	  colcon build \
+	    --packages-select $(PKG) \
+	    --cmake-args -DCMAKE_BUILD_TYPE=Release \
+	    --parallel-workers \$$(nproc)"
+
+sim-restart:
+	docker compose restart simulation
+
 run-sim:
 	@echo "Starting headless simulation..."
-	@echo "  Foxglove Studio: ws://localhost:9090"
+	@echo "  Foxglove Studio: ws://localhost:8765"
 	@echo "  Import layout:   foxglove/mowgli_sim.json"
 	@echo ""
 	docker compose up simulation
@@ -106,7 +130,7 @@ run-sim:
 run-sim-gui:
 	@echo "Starting simulation with Gazebo GUI..."
 	@echo "  Gazebo GUI:      http://localhost:6080/vnc.html"
-	@echo "  Foxglove Studio: ws://localhost:9090"
+	@echo "  Foxglove Studio: ws://localhost:8765"
 	@echo ""
 	docker compose up simulation-gui
 
@@ -115,12 +139,12 @@ run-hardware:
 
 foxglove:
 	@echo "Opening Foxglove Studio..."
-	@echo "Make sure to connect to ws://localhost:9090 (Rosbridge)"
+	@echo "Make sure to connect to ws://localhost:8765 (Foxglove Bridge)"
 	@echo "Import the layout from foxglove/mowgli_sim.json"
 	@open -a "Foxglove Studio" 2>/dev/null || \
 	  (echo "Foxglove Studio not found. Install from https://foxglove.dev/download" && \
 	   echo "Or use the web version: https://app.foxglove.dev" && \
-	   open "https://app.foxglove.dev/?ds=rosbridge-websocket&ds.url=ws%3A%2F%2Flocalhost%3A9090")
+	   open "https://app.foxglove.dev/?ds=foxglove-websocket&ds.url=ws%3A%2F%2Flocalhost%3A8765")
 
 # ─── Code Quality ──────────────────────────────────────────────────────────────
 

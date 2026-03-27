@@ -11,8 +11,8 @@
 set -e
 
 # Source ROS2 base installation
-# shellcheck source=/opt/ros/humble/setup.bash
-source /opt/ros/humble/setup.bash
+# shellcheck source=/opt/ros/jazzy/setup.bash
+source /opt/ros/jazzy/setup.bash
 
 # Source the workspace overlay if it has been built (not present in dev before
 # first colcon build, but always present in runtime/simulation images).

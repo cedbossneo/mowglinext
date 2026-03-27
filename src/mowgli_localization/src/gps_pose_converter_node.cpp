@@ -74,7 +74,7 @@ void GpsPoseConverterNode::create_subscribers()
   abs_pose_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
     "/gps/absolute_pose",
     rclcpp::QoS(10),
-    [this](const mowgli_interfaces::msg::AbsolutePose::SharedPtr msg) {
+    [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg) {
       on_absolute_pose(msg);
     });
 }
@@ -84,7 +84,7 @@ void GpsPoseConverterNode::create_subscribers()
 // ---------------------------------------------------------------------------
 
 void GpsPoseConverterNode::on_absolute_pose(
-  const mowgli_interfaces::msg::AbsolutePose::SharedPtr msg)
+  mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
 {
   // Compute the xy position variance; a negative return value means the fix
   // quality is insufficient and we should drop this measurement.

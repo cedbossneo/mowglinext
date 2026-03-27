@@ -60,7 +60,7 @@ private:
   // ---------------------------------------------------------------------------
   // Callback
   // ---------------------------------------------------------------------------
-  void on_absolute_pose(const mowgli_interfaces::msg::AbsolutePose::SharedPtr msg);
+  void on_absolute_pose(mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg);
 
   // ---------------------------------------------------------------------------
   // Internal helpers

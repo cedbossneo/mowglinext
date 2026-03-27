@@ -35,7 +35,7 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.hpp"
 
 #include "mowgli_interfaces/msg/wheel_tick.hpp"
 
@@ -59,7 +59,7 @@ private:
   // ---------------------------------------------------------------------------
   // Callback
   // ---------------------------------------------------------------------------
-  void on_wheel_tick(const mowgli_interfaces::msg::WheelTick::SharedPtr msg);
+  void on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSharedPtr msg);
 
   // ---------------------------------------------------------------------------
   // Internal helpers

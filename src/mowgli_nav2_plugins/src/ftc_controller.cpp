@@ -20,8 +20,8 @@
 #include <nav2_costmap_2d/costmap_2d.hpp>
 #include <nav2_util/node_utils.hpp>
 
-#include <tf2/utils.h>
-#include <tf2_ros/transform_listener.h>
+#include <tf2/utils.hpp>
+#include <tf2_ros/transform_listener.hpp>
 
 namespace mowgli_nav2_plugins
 {

@@ -3,70 +3,71 @@
 # Installs all runtime ROS2 dependencies. Both runtime and simulation stages
 # inherit from here, keeping the image lean.
 # =============================================================================
-FROM ros:humble-ros-base AS base
+FROM ros:jazzy-ros-base AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Navigation
-    ros-humble-nav2-bringup \
-    ros-humble-nav2-bt-navigator \
-    ros-humble-nav2-controller \
-    ros-humble-nav2-planner \
-    ros-humble-nav2-behaviors \
-    ros-humble-nav2-regulated-pure-pursuit-controller \
-    ros-humble-nav2-smac-planner \
-    ros-humble-nav2-costmap-2d \
-    ros-humble-nav2-map-server \
-    ros-humble-nav2-lifecycle-manager \
-    ros-humble-nav2-waypoint-follower \
-    ros-humble-nav2-velocity-smoother \
+    ros-jazzy-nav2-bringup \
+    ros-jazzy-nav2-bt-navigator \
+    ros-jazzy-nav2-controller \
+    ros-jazzy-nav2-planner \
+    ros-jazzy-nav2-behaviors \
+    ros-jazzy-nav2-regulated-pure-pursuit-controller \
+    ros-jazzy-nav2-smac-planner \
+    ros-jazzy-nav2-costmap-2d \
+    ros-jazzy-nav2-map-server \
+    ros-jazzy-nav2-lifecycle-manager \
+    ros-jazzy-nav2-waypoint-follower \
+    ros-jazzy-nav2-velocity-smoother \
     # SLAM and localization
-    ros-humble-slam-toolbox \
-    ros-humble-robot-localization \
+    ros-jazzy-slam-toolbox \
+    ros-jazzy-robot-localization \
     # Motion control
-    ros-humble-twist-mux \
+    ros-jazzy-twist-mux \
     # Behavior trees
-    ros-humble-behaviortree-cpp \
+    ros-jazzy-behaviortree-cpp-v4 \
     # Robot description / TF
-    ros-humble-xacro \
-    ros-humble-robot-state-publisher \
-    ros-humble-joint-state-publisher \
-    ros-humble-tf2-ros \
-    ros-humble-tf2-eigen \
-    ros-humble-tf2-geometry-msgs \
+    ros-jazzy-xacro \
+    ros-jazzy-robot-state-publisher \
+    ros-jazzy-joint-state-publisher \
+    ros-jazzy-tf2-ros \
+    ros-jazzy-tf2-eigen \
+    ros-jazzy-tf2-geometry-msgs \
     # Grid map
-    ros-humble-grid-map-core \
-    ros-humble-grid-map-ros \
-    ros-humble-grid-map-msgs \
+    ros-jazzy-grid-map-core \
+    ros-jazzy-grid-map-ros \
+    ros-jazzy-grid-map-msgs \
     # Diagnostics
-    ros-humble-diagnostic-msgs \
-    ros-humble-diagnostic-updater \
-    # Rosbridge (for GUI)
-    ros-humble-rosbridge-server \
-    ros-humble-rosapi \
+    ros-jazzy-diagnostic-msgs \
+    ros-jazzy-diagnostic-updater \
+    # Foxglove Bridge (binary WebSocket bridge for Foxglove Studio)
+    ros-jazzy-foxglove-bridge \
+    # Rotation shim controller for transit navigation
+    ros-jazzy-nav2-rotation-shim-controller \
     # Simulation bridge (needed at runtime for ros_gz_bridge topic bridging)
-    ros-humble-ros-gz-sim \
-    ros-humble-ros-gz-bridge \
+    ros-jazzy-ros-gz-sim \
+    ros-jazzy-ros-gz-bridge \
     # Utilities
     python3-argcomplete \
  && rm -rf /var/lib/apt/lists/*
 
 # =============================================================================
-# Stage 2: build
-# Compiles all workspace packages from source and runs tests.
+# Stage 2: deps
+# Installs build tools and resolves rosdep dependencies. Cached as long as
+# package.xml files don't change.
 # =============================================================================
-FROM base AS build
+FROM base AS deps
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG BUILD_TYPE=Release
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
-    ros-humble-ament-cmake \
-    ros-humble-rosidl-default-generators \
+    ros-jazzy-ament-cmake \
+    ros-jazzy-rosidl-default-generators \
     build-essential \
     cmake \
     git \
@@ -74,30 +75,81 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /ros2_ws
 
-# Copy source tree
-COPY src/ src/
+# Copy only package.xml + CMakeLists.txt to resolve rosdep deps (cache layer).
+# This ensures the expensive rosdep install is only re-run when package
+# definitions change, NOT when source code changes.
+COPY src/mowgli_interfaces/package.xml    src/mowgli_interfaces/package.xml
+COPY src/mowgli_interfaces/CMakeLists.txt src/mowgli_interfaces/CMakeLists.txt
+COPY src/mowgli_hardware/package.xml      src/mowgli_hardware/package.xml
+COPY src/mowgli_hardware/CMakeLists.txt   src/mowgli_hardware/CMakeLists.txt
+COPY src/mowgli_localization/package.xml  src/mowgli_localization/package.xml
+COPY src/mowgli_localization/CMakeLists.txt src/mowgli_localization/CMakeLists.txt
+COPY src/mowgli_map/package.xml           src/mowgli_map/package.xml
+COPY src/mowgli_map/CMakeLists.txt        src/mowgli_map/CMakeLists.txt
+COPY src/mowgli_coverage_planner/package.xml src/mowgli_coverage_planner/package.xml
+COPY src/mowgli_coverage_planner/CMakeLists.txt src/mowgli_coverage_planner/CMakeLists.txt
+COPY src/mowgli_nav2_plugins/package.xml  src/mowgli_nav2_plugins/package.xml
+COPY src/mowgli_nav2_plugins/CMakeLists.txt src/mowgli_nav2_plugins/CMakeLists.txt
+COPY src/mowgli_behavior/package.xml      src/mowgli_behavior/package.xml
+COPY src/mowgli_behavior/CMakeLists.txt   src/mowgli_behavior/CMakeLists.txt
+COPY src/mowgli_monitoring/package.xml    src/mowgli_monitoring/package.xml
+COPY src/mowgli_monitoring/CMakeLists.txt src/mowgli_monitoring/CMakeLists.txt
+COPY src/mowgli_simulation/package.xml    src/mowgli_simulation/package.xml
+COPY src/mowgli_simulation/CMakeLists.txt src/mowgli_simulation/CMakeLists.txt
+COPY src/mowgli_bringup/package.xml       src/mowgli_bringup/package.xml
+COPY src/mowgli_bringup/CMakeLists.txt    src/mowgli_bringup/CMakeLists.txt
 
-# Install any rosdep dependencies not already satisfied by the base stage
-RUN rosdep update --rosdistro humble \
+# Resolve rosdep dependencies (cached until package.xml changes)
+RUN rosdep update --rosdistro jazzy \
  && rosdep install \
       --from-paths src \
       --ignore-src \
-      --rosdistro humble \
+      --rosdistro jazzy \
       -y \
  || true
 
-# Build workspace
+# =============================================================================
+# Stage 3: build-interfaces
+# Build only mowgli_interfaces (msg/srv/action definitions). These rarely
+# change and are a dependency for all other packages.
+# =============================================================================
+FROM deps AS build-interfaces
+
+# Copy the full mowgli_interfaces package
+COPY src/mowgli_interfaces/ src/mowgli_interfaces/
+
 RUN /bin/bash -c "\
-    source /opt/ros/humble/setup.bash && \
+    source /opt/ros/jazzy/setup.bash && \
+    colcon build \
+      --packages-select mowgli_interfaces \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release \
+      --parallel-workers \$(nproc) \
+    "
+
+# =============================================================================
+# Stage 4: build
+# Compiles all remaining workspace packages from source.
+# =============================================================================
+FROM build-interfaces AS build
+
+ARG BUILD_TYPE=Release
+
+# Now copy the rest of the source tree
+COPY src/ src/
+
+# Build all packages (mowgli_interfaces is already built and cached)
+RUN /bin/bash -c "\
+    source /opt/ros/jazzy/setup.bash && \
+    source install/setup.bash && \
     colcon build \
       --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
       --parallel-workers \$(nproc) \
       --event-handlers console_cohesion+ \
     "
 
-# Run unit tests only (skip ament lint tests which require specific formatting)
+# Run unit tests (non-blocking)
 RUN /bin/bash -c "\
-    source /opt/ros/humble/setup.bash && \
+    source /opt/ros/jazzy/setup.bash && \
     source install/setup.bash && \
     colcon test \
       --ctest-args -L 'gtest' --output-on-failure \
@@ -105,7 +157,7 @@ RUN /bin/bash -c "\
     " || true
 
 # =============================================================================
-# Stage 3: runtime
+# Stage 5: runtime
 # Minimal image containing only what is needed to run the robot.
 # =============================================================================
 FROM base AS runtime
@@ -129,7 +181,7 @@ ENTRYPOINT ["/ros2_entrypoint.sh"]
 CMD ["ros2", "launch", "mowgli_bringup", "mowgli.launch.py"]
 
 # =============================================================================
-# Stage 4: simulation
+# Stage 6: simulation
 # Extends runtime with a full Gazebo installation for headless/web simulation.
 # =============================================================================
 FROM runtime AS simulation
@@ -137,11 +189,10 @@ FROM runtime AS simulation
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Gazebo Fortress is the LTS pairing for ROS2 Humble
-    gz-fortress \
-    ros-humble-ros-gz-sim \
-    ros-humble-ros-gz-bridge \
-    ros-humble-ros-gz-interfaces \
+    # Gazebo Harmonic comes via ros-jazzy-ros-gz-sim (Jazzy default pairing)
+    ros-jazzy-ros-gz-sim \
+    ros-jazzy-ros-gz-bridge \
+    ros-jazzy-ros-gz-interfaces \
     # VNC + lightweight desktop for Gazebo GUI access from macOS
     tigervnc-standalone-server \
     tigervnc-common \
@@ -159,8 +210,8 @@ RUN chmod +x /ros2_ws/scripts/start_vnc.sh
 # Copy Foxglove layout for easy import
 COPY foxglove/ /ros2_ws/foxglove/
 
-# Rosbridge WebSocket port (Foxglove connects here)
-EXPOSE 9090
+# Foxglove Bridge WebSocket port
+EXPOSE 8765
 # noVNC web port (Gazebo GUI via browser)
 EXPOSE 6080
 

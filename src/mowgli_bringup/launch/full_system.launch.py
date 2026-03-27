@@ -14,7 +14,7 @@ Brings up all subsystems:
   8. Localization monitor      — mowgli_localization
   9. Diagnostics               — mowgli_monitoring
   10. MQTT bridge (optional)   — mowgli_monitoring
-  11. rosbridge_server (optional) — for GUI
+  11. foxglove_bridge (optional)  — for GUI
 """
 
 import os
@@ -75,16 +75,16 @@ def generate_launch_description() -> LaunchDescription:
         description="Launch the MQTT bridge node when true.",
     )
 
-    enable_rosbridge_arg = DeclareLaunchArgument(
-        "enable_rosbridge",
+    enable_foxglove_arg = DeclareLaunchArgument(
+        "enable_foxglove",
         default_value="true",
-        description="Launch rosbridge_websocket for the GUI when true.",
+        description="Launch foxglove_bridge for the GUI when true.",
     )
 
-    rosbridge_port_arg = DeclareLaunchArgument(
-        "rosbridge_port",
-        default_value="9090",
-        description="Port number for the rosbridge WebSocket server.",
+    foxglove_port_arg = DeclareLaunchArgument(
+        "foxglove_port",
+        default_value="8765",
+        description="Port number for the Foxglove Bridge WebSocket server.",
     )
 
     # ------------------------------------------------------------------
@@ -95,8 +95,8 @@ def generate_launch_description() -> LaunchDescription:
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
     enable_mqtt = LaunchConfiguration("enable_mqtt")
-    enable_rosbridge = LaunchConfiguration("enable_rosbridge")
-    rosbridge_port = LaunchConfiguration("rosbridge_port")
+    enable_foxglove = LaunchConfiguration("enable_foxglove")
+    foxglove_port = LaunchConfiguration("foxglove_port")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -107,7 +107,7 @@ def generate_launch_description() -> LaunchDescription:
     localization_params = os.path.join(localization_dir, "config", "localization.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
     mqtt_params = os.path.join(monitoring_dir, "config", "mqtt_bridge.yaml")
-    rosbridge_params = os.path.join(bringup_dir, "config", "rosbridge.yaml")
+    foxglove_params = os.path.join(bringup_dir, "config", "foxglove_bridge.yaml")
 
     # ------------------------------------------------------------------
     # 1. mowgli.launch.py — hardware bridge, RSP, twist_mux
@@ -250,27 +250,18 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 11. rosbridge_server (optional) — for GUI
+    # 11. Foxglove Bridge (optional) — binary WebSocket bridge for GUI
     # ------------------------------------------------------------------
-    rosbridge_node = Node(
-        condition=IfCondition(enable_rosbridge),
-        package="rosbridge_server",
-        executable="rosbridge_websocket",
-        name="rosbridge_websocket",
+    foxglove_bridge_node = Node(
+        condition=IfCondition(enable_foxglove),
+        package="foxglove_bridge",
+        executable="foxglove_bridge",
+        name="foxglove_bridge",
         output="screen",
         parameters=[
-            rosbridge_params,
-            {"port": rosbridge_port},
+            foxglove_params,
+            {"port": foxglove_port},
         ],
-    )
-
-    rosapi_node = Node(
-        condition=IfCondition(enable_rosbridge),
-        package="rosapi",
-        executable="rosapi_node",
-        name="rosapi",
-        output="screen",
-        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # ------------------------------------------------------------------
@@ -284,8 +275,8 @@ def generate_launch_description() -> LaunchDescription:
             slam_arg,
             map_arg,
             enable_mqtt_arg,
-            enable_rosbridge_arg,
-            rosbridge_port_arg,
+            enable_foxglove_arg,
+            foxglove_port_arg,
             # Subsystem includes
             mowgli_launch,
             navigation_launch,
@@ -298,7 +289,6 @@ def generate_launch_description() -> LaunchDescription:
             localization_monitor_node,
             diagnostics_node,
             mqtt_bridge_node,
-            rosbridge_node,
-            rosapi_node,
+            foxglove_bridge_node,
         ]
     )

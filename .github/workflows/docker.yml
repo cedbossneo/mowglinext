@@ -20,7 +20,7 @@ jobs:
   # ─── Build, Test & Push ──────────────────────────────────────────────────────
   docker-build:
     name: Build Docker image (${{ matrix.target }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
@@ -88,7 +88,7 @@ jobs:
   # ─── Notify on failure ───────────────────────────────────────────────────────
   notify-failure:
     name: Notify on failure
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs: docker-build
     if: failure() && github.ref == 'refs/heads/main'
 

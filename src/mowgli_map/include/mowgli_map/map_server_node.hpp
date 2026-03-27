@@ -96,13 +96,13 @@ private:
   // ── ROS callbacks ────────────────────────────────────────────────────────
 
   /// Convert incoming nav_msgs/OccupancyGrid to the occupancy layer.
-  void on_occupancy_grid(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
+  void on_occupancy_grid(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg);
 
   /// Update mow blade state from mower status.
-  void on_mower_status(const mowgli_interfaces::msg::Status::SharedPtr msg);
+  void on_mower_status(mowgli_interfaces::msg::Status::ConstSharedPtr msg);
 
   /// Update mow_progress and confidence layers based on robot position.
-  void on_odom(const nav_msgs::msg::Odometry::SharedPtr msg);
+  void on_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
 
   // ── Timer callback ───────────────────────────────────────────────────────
 

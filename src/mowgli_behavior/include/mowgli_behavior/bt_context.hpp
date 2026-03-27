@@ -5,6 +5,8 @@
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
+#include "tf2_ros/buffer.hpp"
+#include "tf2_ros/transform_listener.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
@@ -53,6 +55,12 @@ struct BTContext {
   double dock_x{0.0};
   double dock_y{0.0};
   double dock_yaw{0.0};
+
+  // -----------------------------------------------------------------------
+  // TF buffer (shared across all BT nodes)
+  // -----------------------------------------------------------------------
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener;
 };
 
 }  // namespace mowgli_behavior

@@ -36,7 +36,7 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.hpp"
 
 namespace mowgli_localization
 {
@@ -85,7 +85,7 @@ void WheelOdometryNode::create_subscribers()
   wheel_tick_sub_ = create_subscription<mowgli_interfaces::msg::WheelTick>(
     "/wheel_ticks",
     rclcpp::QoS(10),
-    [this](const mowgli_interfaces::msg::WheelTick::SharedPtr msg) {
+    [this](mowgli_interfaces::msg::WheelTick::ConstSharedPtr msg) {
       on_wheel_tick(msg);
     });
 }
@@ -94,7 +94,7 @@ void WheelOdometryNode::create_subscribers()
 // Callback
 // ---------------------------------------------------------------------------
 
-void WheelOdometryNode::on_wheel_tick(const mowgli_interfaces::msg::WheelTick::SharedPtr msg)
+void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSharedPtr msg)
 {
   using Flags = mowgli_interfaces::msg::WheelTick;
 

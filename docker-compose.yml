@@ -5,7 +5,7 @@ version: "3.9"
 # ---------------------------------------------------------------------------
 x-ros-env: &ros-env
   ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-0}"
-  # Use FastDDS (default for Humble). Point to a custom XML profile when
+  # Use FastDDS (default for Jazzy). Point to a custom XML profile when
   # running across multiple hosts; leave unset for single-host setups.
   FASTRTPS_DEFAULT_PROFILES_FILE: "${FASTRTPS_DEFAULT_PROFILES_FILE:-}"
   RMW_IMPLEMENTATION: rmw_fastrtps_cpp
@@ -77,9 +77,14 @@ services:
       DISPLAY: ""
       LIBGL_ALWAYS_SOFTWARE: "1"
     ports:
-      - "9090:9090"   # Rosbridge WebSocket (Foxglove connects here)
+      - "8765:8765"   # Foxglove Bridge WebSocket
     volumes:
       - mowgli_maps:/ros2_ws/maps
+      # Bind-mount source, build, and install trees for live dev without image rebuild
+      - ./src:/ros2_ws/src
+      - sim_build:/ros2_ws/build
+      - sim_install:/ros2_ws/install
+      - sim_log:/ros2_ws/log
     restart: unless-stopped
     command: >-
       ros2 launch mowgli_bringup sim_full_system.launch.py
@@ -101,7 +106,7 @@ services:
       <<: *ros-env
       LIBGL_ALWAYS_SOFTWARE: "1"
     ports:
-      - "9090:9090"   # Rosbridge WebSocket (Foxglove connects here)
+      - "8765:8765"   # Foxglove Bridge WebSocket
       - "6080:6080"   # noVNC web client
     volumes:
       - mowgli_maps:/ros2_ws/maps
@@ -160,4 +165,12 @@ volumes:
 
   # ccache volume: survives container restarts, dramatically cuts build times
   mowgli_ccache:
+    driver: local
+
+  # Simulation build artifacts (persistent across restarts for fast recompilation)
+  sim_build:
+    driver: local
+  sim_install:
+    driver: local
+  sim_log:
     driver: local

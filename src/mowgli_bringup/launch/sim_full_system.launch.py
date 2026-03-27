@@ -113,10 +113,29 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "use_sim_time": "true",
-            "slam": slam,
+            "slam": "False",
             "map": map_yaml,
             "use_ekf": "False",
         }.items(),
+    )
+
+    # ------------------------------------------------------------------
+    # 2b. Static map→odom TF (identity) for simulation
+    #     In simulation without SLAM, Nav2 still needs the map→odom TF.
+    #     Gazebo provides odom→base_link via the diff-drive plugin.
+    # ------------------------------------------------------------------
+    static_map_odom_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_map_odom_tf",
+        output="screen",
+        arguments=[
+            "--x", "0", "--y", "0", "--z", "0",
+            "--roll", "0", "--pitch", "0", "--yaw", "0",
+            "--frame-id", "map",
+            "--child-frame-id", "odom",
+        ],
+        parameters=[{"use_sim_time": True}],
     )
 
     # ------------------------------------------------------------------
@@ -176,32 +195,23 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 7. Rosbridge WebSocket — allows Foxglove Studio to connect
-    #    Foxglove Studio supports rosbridge protocol natively.
-    #    Connect via: ws://localhost:9090 (Rosbridge protocol)
+    # 7. Foxglove Bridge — binary WebSocket bridge for Foxglove Studio
+    #    Connect via: ws://localhost:8765 (Foxglove WebSocket protocol)
     # ------------------------------------------------------------------
-    rosbridge_node = Node(
-        package="rosbridge_server",
-        executable="rosbridge_websocket",
-        name="rosbridge_websocket",
+    foxglove_bridge_node = Node(
+        package="foxglove_bridge",
+        executable="foxglove_bridge",
+        name="foxglove_bridge",
         output="screen",
         parameters=[
             {
-                "port": 9090,
-                "address": "",
+                "port": 8765,
+                "address": "0.0.0.0",
                 "use_sim_time": True,
-                "unregister_timeout": 10.0,
-                "send_action_goals_in_order": True,
+                "send_buffer_limit": 10000000,
+                "num_threads": 0,
             },
         ],
-    )
-
-    rosapi_node = Node(
-        package="rosapi",
-        executable="rosapi_node",
-        name="rosapi",
-        output="screen",
-        parameters=[{"use_sim_time": True}],
     )
 
     # ------------------------------------------------------------------
@@ -218,12 +228,12 @@ def generate_launch_description() -> LaunchDescription:
             # Subsystem includes
             simulation_launch,
             navigation_launch,
+            static_map_odom_tf,
             # Individual nodes
             behavior_tree_node,
             map_server_node,
             coverage_planner_node,
             diagnostics_node,
-            rosbridge_node,
-            rosapi_node,
+            foxglove_bridge_node,
         ]
     )

@@ -104,7 +104,7 @@ private:
   {
     sub_cmd_vel_ = create_subscription<geometry_msgs::msg::Twist>(
       "~/cmd_vel", 10,
-      [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
+      [this](geometry_msgs::msg::Twist::ConstSharedPtr msg) {
         on_cmd_vel(msg);
       });
   }
@@ -391,7 +391,7 @@ private:
   // cmd_vel subscriber
   // ---------------------------------------------------------------------------
 
-  void on_cmd_vel(const geometry_msgs::msg::Twist::SharedPtr msg)
+  void on_cmd_vel(geometry_msgs::msg::Twist::ConstSharedPtr msg)
   {
     LlCmdVel pkt{};
     pkt.type      = PACKET_ID_LL_CMD_VEL;

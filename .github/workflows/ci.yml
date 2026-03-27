@@ -11,20 +11,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ROS_DISTRO: humble
+  ROS_DISTRO: jazzy
 
 jobs:
   # ─── Build & Test ────────────────────────────────────────────────────────────
   build-and-test:
     name: Build & Test (ROS2 ${{ matrix.ros_distro }} / Ubuntu ${{ matrix.ubuntu }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - ros_distro: humble
-            ubuntu: "22.04"
+          - ros_distro: jazzy
+            ubuntu: "24.04"
 
     steps:
       - name: Checkout
@@ -84,7 +84,7 @@ jobs:
   # ─── Formatting Check ────────────────────────────────────────────────────────
   format-check:
     name: Formatting (clang-format)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -93,8 +93,8 @@ jobs:
       - name: Install clang-format
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-format-14
-          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-14 100
+          sudo apt-get install -y clang-format-17
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-17 100
 
       - name: Check formatting
         run: |
@@ -109,7 +109,7 @@ jobs:
   # ─── Static Analysis ─────────────────────────────────────────────────────────
   static-analysis:
     name: Static Analysis (cppcheck)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

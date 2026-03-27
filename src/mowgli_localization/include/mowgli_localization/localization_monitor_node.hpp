@@ -76,9 +76,9 @@ private:
   // ---------------------------------------------------------------------------
   // Callbacks
   // ---------------------------------------------------------------------------
-  void on_wheel_odom (const nav_msgs::msg::Odometry::SharedPtr msg);
-  void on_absolute_pose(const mowgli_interfaces::msg::AbsolutePose::SharedPtr msg);
-  void on_slam_pose   (const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg);
+  void on_wheel_odom (nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  void on_absolute_pose(mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg);
+  void on_slam_pose   (geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg);
 
   // ---------------------------------------------------------------------------
   // Timer callback – evaluates state and publishes

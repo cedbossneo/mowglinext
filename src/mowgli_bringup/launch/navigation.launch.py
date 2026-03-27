@@ -60,6 +60,18 @@ def generate_launch_description() -> LaunchDescription:
         description="Run dual EKF nodes. Set to False in simulation where Gazebo provides odom TF.",
     )
 
+    slam_mode_arg = DeclareLaunchArgument(
+        "slam_mode",
+        default_value="mapping",
+        description="slam_toolbox mode: 'mapping' (first run) or 'localization' (subsequent runs with saved map).",
+    )
+
+    map_file_arg = DeclareLaunchArgument(
+        "map_file_name",
+        default_value="",
+        description="Full path (without extension) to a saved slam_toolbox .posegraph/.data file for localization mode.",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
@@ -67,6 +79,8 @@ def generate_launch_description() -> LaunchDescription:
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
     use_ekf = LaunchConfiguration("use_ekf")
+    slam_mode = LaunchConfiguration("slam_mode")
+    map_file_name = LaunchConfiguration("map_file_name")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -86,7 +100,11 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             slam_toolbox_params,
-            {"use_sim_time": use_sim_time},
+            {
+                "use_sim_time": use_sim_time,
+                "mode": slam_mode,
+                "map_file_name": map_file_name,
+            },
         ],
     )
 
@@ -121,20 +139,18 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 4. Nav2 bringup
+    # 4. Nav2 navigation (controllers, planners, behaviors, BT navigator)
+    #    We use navigation_launch.py directly instead of bringup_launch.py
+    #    because bringup_launch.py also starts localization (AMCL) which
+    #    would fight with our slam_toolbox over the map→odom TF.
     # ------------------------------------------------------------------
-    nav2_bringup = IncludeLaunchDescription(
+    nav2_navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(nav2_bringup_dir, "launch", "bringup_launch.py")
+            os.path.join(nav2_bringup_dir, "launch", "navigation_launch.py")
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
             "params_file": nav2_params,
-            # We run our own slam_toolbox node (async), so always tell Nav2
-            # to not start its own SLAM. When slam=False on our side, we
-            # provide a pre-built map via the map argument.
-            "slam": "False",
-            "map": map_yaml,
         }.items(),
     )
 
@@ -147,9 +163,11 @@ def generate_launch_description() -> LaunchDescription:
             slam_arg,
             map_yaml_arg,
             use_ekf_arg,
+            slam_mode_arg,
+            map_file_arg,
             slam_toolbox_node,
             ekf_odom_node,
             ekf_map_node,
-            nav2_bringup,
+            nav2_navigation,
         ]
     )

@@ -71,19 +71,19 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions & options)
   // ── Subscribers ──────────────────────────────────────────────────────────
   occupancy_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
     "/map", rclcpp::QoS(1),
-    [this](nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+    [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg) {
       on_occupancy_grid(std::move(msg));
     });
 
   status_sub_ = create_subscription<mowgli_interfaces::msg::Status>(
     "/mower_status", rclcpp::QoS(1),
-    [this](mowgli_interfaces::msg::Status::SharedPtr msg) {
+    [this](mowgli_interfaces::msg::Status::ConstSharedPtr msg) {
       on_mower_status(std::move(msg));
     });
 
   odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
     "/odom", rclcpp::QoS(1),
-    [this](nav_msgs::msg::Odometry::SharedPtr msg) {
+    [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) {
       on_odom(std::move(msg));
     });
 
@@ -173,7 +173,7 @@ void MapServerNode::init_map()
 // Subscription callbacks
 // ─────────────────────────────────────────────────────────────────────────────
 
-void MapServerNode::on_occupancy_grid(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+void MapServerNode::on_occupancy_grid(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg)
 {
   std::lock_guard<std::mutex> lock(map_mutex_);
 
@@ -213,12 +213,12 @@ void MapServerNode::on_occupancy_grid(const nav_msgs::msg::OccupancyGrid::Shared
   }
 }
 
-void MapServerNode::on_mower_status(const mowgli_interfaces::msg::Status::SharedPtr msg)
+void MapServerNode::on_mower_status(mowgli_interfaces::msg::Status::ConstSharedPtr msg)
 {
   mow_blade_enabled_ = msg->mow_enabled;
 }
 
-void MapServerNode::on_odom(const nav_msgs::msg::Odometry::SharedPtr msg)
+void MapServerNode::on_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
   if (!mow_blade_enabled_) {
     return;

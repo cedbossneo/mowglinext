@@ -73,12 +73,39 @@
         <Sequence name="MowingSequence">
           <IsCommand command="1"/>
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
-          <NavigateToPose goal="{undock_pose}"/>
           <SetMowerEnabled enabled="true"/>
           <PublishHighLevelStatus state="2" state_name="MOWING"/>
-          <PlanCoveragePath area_index="0"/>
+          <PlanCoveragePath area_index="0" first_waypoint="{first_wp}"/>
+          <PublishHighLevelStatus state="2" state_name="FOLLOWING_PATH"/>
+          <!-- Recovery-wrapped coverage path following:
+               On failure: clear costmap, back up 0.3m, retry (max 3 attempts).
+               After 3 failures: disable mower and navigate to dock. -->
+          <Fallback name="CoverageWithRecovery">
+            <RetryNode num_attempts="3" name="RetryFollowCoverage">
+              <Fallback name="FollowOrRecover">
+                <FollowCoveragePath/>
+                <Sequence name="RecoverAndRetry">
+                  <PublishHighLevelStatus state="2" state_name="RECOVERING"/>
+                  <ClearEntireCostmap name="ClearGlobalCostmap"
+                                      service_name="/global_costmap/clear_entirely_global_costmap"/>
+                  <BackUp  backup_dist="0.3" backup_speed="0.1" name="BackUpRecovery"/>
+                  <WaitForDuration duration_sec="1.0"/>
+                  <AlwaysFailure/>
+                </Sequence>
+              </Fallback>
+            </RetryNode>
+            <!-- All retries exhausted: safe shutdown and dock -->
+            <Sequence name="FailedCoverageDock">
+              <SetMowerEnabled enabled="false"/>
+              <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
+              <NavigateToPose goal="{dock_pose}"/>
+              <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
+              <ClearCommand/>
+            </Sequence>
+          </Fallback>
           <SetMowerEnabled enabled="false"/>
           <PublishHighLevelStatus state="1" state_name="MOWING_COMPLETE"/>
+          <ClearCommand/>
         </Sequence>
 
         <!-- ---------------------------------------------------------------
@@ -91,6 +118,7 @@
           <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
           <NavigateToPose goal="{dock_pose}"/>
           <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
+          <ClearCommand/>
         </Sequence>
 
         <!-- ---------------------------------------------------------------

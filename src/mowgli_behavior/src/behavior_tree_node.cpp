@@ -44,6 +44,8 @@ public:
   void init()
   {
     context_->node = shared_from_this();
+    context_->tf_buffer = std::make_shared<tf2_ros::Buffer>(get_clock());
+    context_->tf_listener = std::make_shared<tf2_ros::TransformListener>(*context_->tf_buffer);
 
     setupSubscribers();
     setupServiceServer();
@@ -64,19 +66,19 @@ private:
 
     status_sub_ = create_subscription<Status>(
       "/hardware_bridge/status", 10,
-      [this](const Status::SharedPtr msg) {
+      [this](Status::ConstSharedPtr msg) {
         context_->latest_status = *msg;
       });
 
     emergency_sub_ = create_subscription<Emergency>(
       "/hardware_bridge/emergency", 10,
-      [this](const Emergency::SharedPtr msg) {
+      [this](Emergency::ConstSharedPtr msg) {
         context_->latest_emergency = *msg;
       });
 
     power_sub_ = create_subscription<Power>(
       "/hardware_bridge/power", 10,
-      [this](const Power::SharedPtr msg) {
+      [this](Power::ConstSharedPtr msg) {
         context_->latest_power = *msg;
 
         // Derive battery_percent from voltage.
@@ -139,6 +141,14 @@ private:
     // Build blackboard and store shared context
     blackboard_ = BT::Blackboard::create();
     blackboard_->set("context", context_);
+
+    // Default poses (x;y;yaw format) — overridable via parameters.
+    const std::string dock_pose = declare_parameter<std::string>(
+      "dock_pose", "0.0;0.0;0.0");
+    const std::string undock_pose = declare_parameter<std::string>(
+      "undock_pose", "1.0;0.0;0.0");
+    blackboard_->set("dock_pose", dock_pose);
+    blackboard_->set("undock_pose", undock_pose);
 
     tree_ = factory_.createTreeFromFile(tree_file, blackboard_);
 
