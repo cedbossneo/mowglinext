@@ -242,10 +242,16 @@ global_costmap:
       robot_base_frame: base_link
       robot_radius: 0.22
       resolution: 0.05
-      track_unknown_space: true
+      track_unknown_space: false
+      # Rolling window large enough to cover transit across any garden.
+      # Unknown space is treated as free (track_unknown_space: false) so the
+      # planner can plan through unmapped areas — the robot will discover
+      # obstacles via LiDAR as it drives.  This supports arbitrarily large
+      # gardens: the costmap always centres on the robot, and obstacles are
+      # detected in real time by the obstacle_layer.
       rolling_window: true
-      width: 20
-      height: 20
+      width: 100
+      height: 100
       plugins: ["keepout_filter", "obstacle_layer", "inflation_layer"]
 
       keepout_filter:
