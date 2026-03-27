@@ -47,12 +47,12 @@ echo "  Gazebo GUI available at:"
 echo "    http://localhost:${NOVNC_PORT}/vnc.html"
 echo ""
 echo "  Foxglove Studio connects to:"
-echo "    ws://localhost:9090"
+echo "    ws://localhost:8765"
 echo "========================================================"
 echo ""
 
 # Source ROS2 and workspace
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 if [ -f /ros2_ws/install/setup.bash ]; then
     source /ros2_ws/install/setup.bash
 fi
