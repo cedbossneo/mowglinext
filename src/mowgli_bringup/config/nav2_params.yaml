@@ -66,15 +66,15 @@ controller_server:
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       angular_dist_threshold: 0.785  # 45° — rotate in place if heading error > this
       forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 0.5
-      max_angular_accel: 1.5
+      rotate_to_heading_angular_vel: 1.5
+      max_angular_accel: 2.5
       # RPP parameters (passed through to primary controller)
       desired_linear_vel: 0.3
       lookahead_dist: 0.4
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.5
+      rotate_to_heading_angular_vel: 1.5
       transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
@@ -88,8 +88,8 @@ controller_server:
       regulated_linear_scaling_min_speed: 0.25
       use_rotate_to_heading: false
       allow_reversing: false
-      max_angular_accel: 1.5
-      max_angular_vel: 0.5
+      max_angular_accel: 2.5
+      max_angular_vel: 1.5
       max_robot_pose_search_dist: 100.0
 
     # MPPI controller for coverage path following.
@@ -107,7 +107,7 @@ controller_server:
       vx_max: 0.3
       vx_min: -0.1      # allow slight reverse for recovery
       vy_max: 0.0
-      wz_max: 0.8
+      wz_max: 1.5
       iteration_count: 1
       prune_distance: 1.5
       transform_tolerance: 0.1
@@ -174,11 +174,11 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 10.0
-        repulsion_weight: 0.1
+        repulsion_weight: 0.3
         critical_weight: 20.0
         consider_footprint: false
         collision_cost: 10000.0
-        collision_margin_distance: 0.15
+        collision_margin_distance: 0.30
         near_goal_distance: 0.5
 
 # ---------------------------------------------------------------------------
@@ -243,9 +243,9 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.5
-    min_rotational_vel: 0.1
-    rotational_acc_lim: 3.2
+    max_rotational_vel: 1.5
+    min_rotational_vel: 0.15
+    rotational_acc_lim: 2.5
 
 # ---------------------------------------------------------------------------
 # Waypoint follower
@@ -270,10 +270,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.5, 0.0, 0.8]
-    min_velocity: [-0.5, 0.0, -0.8]
-    max_accel: [0.5, 0.0, 3.2]
-    max_decel: [-0.5, 0.0, -3.2]
+    max_velocity: [0.5, 0.0, 1.5]
+    min_velocity: [-0.5, 0.0, -1.5]
+    max_accel: [0.5, 0.0, 2.5]
+    max_decel: [-0.5, 0.0, -2.5]
     odom_topic: /wheel_odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
@@ -327,7 +327,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.3
+        inflation_radius: 0.55
 
 # ---------------------------------------------------------------------------
 # Local costmap
@@ -377,7 +377,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.3
+        inflation_radius: 0.55
 
 # ---------------------------------------------------------------------------
 # Map server / AMCL (not used with slam_toolbox, kept for completeness)
@@ -444,14 +444,17 @@ collision_monitor:
     base_shift_correction: true
     stop_pub_timeout: 2.0
     polygons: ["PolygonStop", "FootprintApproach"]
-    # Stop zone: extended forward to 1.0m to give enough braking distance
-    # at 0.3 m/s coverage speed + scan/processing latency (~0.2s).
-    # Lateral 0.40m covers robot radius (0.22m) + safety margin.
+    # Stop zone: tight safety box around the robot.  Must be small enough
+    # that the MPPI controller can still steer around obstacles detected in
+    # the costmap — a large stop zone kills the robot before the controller
+    # has a chance to plan around the obstacle.
+    # Forward: 0.45m (robot radius 0.22 + 0.23m braking at 0.3m/s).
+    # Lateral: 0.30m (robot radius + 0.08m margin).
     PolygonStop:
       type: "polygon"
-      points: "[[1.00, 0.40], [1.00, -0.40], [-0.30, -0.40], [-0.30, 0.40]]"
+      points: "[[0.45, 0.30], [0.45, -0.30], [-0.25, -0.30], [-0.25, 0.30]]"
       action_type: "stop"
-      min_points: 1
+      min_points: 2
       visualize: true
       polygon_pub_topic: "polygon_stop"
       enabled: true
