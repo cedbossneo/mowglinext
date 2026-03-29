@@ -427,6 +427,30 @@ BT::NodeStatus PlanCoveragePath::onStart()
       "PlanCoveragePath: using default 18x13m simulation boundary (1.0m inset from walls)");
   }
 
+  // Fetch obstacles from the map server so F2C can plan around them.
+  {
+    auto get_area_client = ctx->node->create_client<mowgli_interfaces::srv::GetMowingArea>(
+      "/map_server/get_mowing_area");
+    if (get_area_client->wait_for_service(std::chrono::milliseconds(500))) {
+      auto request = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+      request->index = area_index;
+      auto future = get_area_client->async_send_request(request);
+      if (future.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
+        auto response = future.get();
+        if (response->success) {
+          goal_msg.obstacles = response->area.obstacles;
+          RCLCPP_INFO(ctx->node->get_logger(),
+            "PlanCoveragePath: fetched %zu obstacles from map server",
+            goal_msg.obstacles.size());
+        }
+      }
+    } else {
+      RCLCPP_WARN(ctx->node->get_logger(),
+        "PlanCoveragePath: map_server get_mowing_area service unavailable, "
+        "planning without obstacles");
+    }
+  }
+
   // Send the goal asynchronously.
   auto send_goal_options = rclcpp_action::Client<PlanCoverageAction>::SendGoalOptions{};
 
@@ -537,32 +561,14 @@ void PlanCoveragePath::onHalted()
 }
 
 // ---------------------------------------------------------------------------
-// FollowCoveragePath — with obstacle detour support
+// FollowCoveragePath — simple MPPI path following
 // ---------------------------------------------------------------------------
-
-// When the FollowPath controller aborts (obstacle blocks progress for 15s),
-// this node automatically:
-//   1. Finds the robot's current position on the coverage path
-//   2. Picks a waypoint skip_distance metres ahead (past the obstacle)
-//   3. Uses NavigateToPose (global planner) to route around the obstacle
-//   4. Resumes coverage from the waypoint onward
-// This gives the mowing robot true obstacle avoidance during coverage.
-
-size_t FollowCoveragePath::findSkipTarget(size_t from_index, double skip_dist) const
-{
-  double accumulated = 0.0;
-  for (size_t i = from_index; i + 1 < full_path_.poses.size(); ++i) {
-    const auto& a = full_path_.poses[i].pose.position;
-    const auto& b = full_path_.poses[i + 1].pose.position;
-    double dx = b.x - a.x;
-    double dy = b.y - a.y;
-    accumulated += std::sqrt(dx * dx + dy * dy);
-    if (accumulated >= skip_dist) {
-      return i + 1;
-    }
-  }
-  return full_path_.poses.size() - 1;
-}
+//
+// Sends the coverage path to the MPPI controller via FollowPath action.
+// MPPI naturally steers around obstacles detected in the costmap while
+// staying close to the path.  The keepout filter prevents the robot from
+// leaving the mowing area.  If the controller aborts (e.g. progress checker
+// timeout), this node returns FAILURE and lets the BT recovery handle it.
 
 void FollowCoveragePath::sendFollowPathGoal(size_t start_index)
 {
@@ -591,12 +597,6 @@ BT::NodeStatus FollowCoveragePath::onStart()
   if (auto res = getInput<std::string>("path_topic")) {
     path_topic = res.value();
   }
-  if (auto res = getInput<double>("skip_distance")) {
-    skip_distance_ = res.value();
-  }
-  if (auto res = getInput<int>("max_detours")) {
-    max_detours_ = res.value();
-  }
 
   path_received_ = false;
   path_sub_.reset();
@@ -611,21 +611,14 @@ BT::NodeStatus FollowCoveragePath::onStart()
     follow_client_ = rclcpp_action::create_client<FollowPathAction>(
       ctx->node, "/follow_path");
   }
-  if (!nav_client_) {
-    nav_client_ = rclcpp_action::create_client<Nav2Goal>(
-      ctx->node, "/navigate_to_pose");
-  }
 
   RCLCPP_INFO(ctx->node->get_logger(),
     "FollowCoveragePath: waiting for coverage path on '%s'", path_topic.c_str());
 
   follow_handle_.reset();
   follow_future_ = {};
-  nav_handle_.reset();
-  nav_future_ = {};
   phase_ = Phase::WAIT_PATH;
   current_path_index_ = 0;
-  detour_count_ = 0;
 
   return BT::NodeStatus::RUNNING;
 }
@@ -652,16 +645,15 @@ BT::NodeStatus FollowCoveragePath::onRunning()
     }
 
     RCLCPP_INFO(ctx->node->get_logger(),
-      "FollowCoveragePath: sending %zu-pose path to RPP controller",
+      "FollowCoveragePath: sending %zu-pose path to MPPI controller",
       full_path_.poses.size());
     sendFollowPathGoal(0);
     phase_ = Phase::FOLLOWING;
     return BT::NodeStatus::RUNNING;
   }
 
-  // --- Following coverage path (normal operation) ---
+  // --- Following coverage path ---
   case Phase::FOLLOWING: {
-    // Resolve goal handle if needed
     if (!follow_handle_) {
       if (!follow_future_.valid() ||
           follow_future_.wait_for(std::chrono::milliseconds(0))
@@ -680,93 +672,15 @@ BT::NodeStatus FollowCoveragePath::onRunning()
     const auto status = follow_handle_->get_status();
     if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
       RCLCPP_INFO(ctx->node->get_logger(),
-        "FollowCoveragePath: coverage path completed (%d detours taken)",
-        detour_count_);
+        "FollowCoveragePath: coverage path completed");
       return BT::NodeStatus::SUCCESS;
     }
 
     if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
         status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
     {
-      // Path blocked by obstacle — initiate detour
-      if (detour_count_ >= max_detours_) {
-        RCLCPP_ERROR(ctx->node->get_logger(),
-          "FollowCoveragePath: max detours (%d) exhausted", max_detours_);
-        return BT::NodeStatus::FAILURE;
-      }
-
-      // Find where the robot is on the coverage path by searching for the
-      // closest pose. The robot stopped near current_path_index_ when the
-      // controller aborted, so start the search there.
-      // We approximate robot pose as the closest path point (accurate enough
-      // since the controller keeps the robot close to the path).
-      size_t closest = current_path_index_;
-      size_t skip_to = findSkipTarget(closest, skip_distance_);
-
       RCLCPP_WARN(ctx->node->get_logger(),
-        "FollowCoveragePath: obstacle detected! Detouring around "
-        "(skip %.1fm, path index %zu → %zu, detour #%d)",
-        skip_distance_, closest, skip_to, detour_count_ + 1);
-
-      // Navigate around the obstacle to the skip target pose
-      if (!nav_client_->wait_for_action_server(std::chrono::seconds(5))) {
-        RCLCPP_ERROR(ctx->node->get_logger(),
-          "FollowCoveragePath: /navigate_to_pose not available for detour");
-        return BT::NodeStatus::FAILURE;
-      }
-
-      Nav2Goal::Goal nav_goal;
-      nav_goal.pose = full_path_.poses[skip_to];
-      nav_goal.pose.header.stamp = ctx->node->now();
-
-      auto opts = rclcpp_action::Client<Nav2Goal>::SendGoalOptions{};
-      nav_handle_.reset();
-      nav_future_ = nav_client_->async_send_goal(nav_goal, opts);
-      detour_target_index_ = skip_to;
-      detour_count_++;
-      phase_ = Phase::DETOURING;
-      follow_handle_.reset();
-    }
-    return BT::NodeStatus::RUNNING;
-  }
-
-  // --- Detouring around obstacle via NavigateToPose ---
-  case Phase::DETOURING: {
-    if (!nav_handle_) {
-      if (!nav_future_.valid() ||
-          nav_future_.wait_for(std::chrono::milliseconds(0))
-            != std::future_status::ready)
-      {
-        return BT::NodeStatus::RUNNING;
-      }
-      nav_handle_ = nav_future_.get();
-      if (!nav_handle_) {
-        RCLCPP_ERROR(ctx->node->get_logger(),
-          "FollowCoveragePath: detour NavigateToPose rejected");
-        return BT::NodeStatus::FAILURE;
-      }
-      RCLCPP_INFO(ctx->node->get_logger(),
-        "FollowCoveragePath: detour goal accepted, navigating around obstacle");
-    }
-
-    const auto status = nav_handle_->get_status();
-    if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
-      RCLCPP_INFO(ctx->node->get_logger(),
-        "FollowCoveragePath: detour complete, resuming coverage from index %zu",
-        detour_target_index_);
-      nav_handle_.reset();
-
-      // Resume the coverage path from the skip target
-      sendFollowPathGoal(detour_target_index_);
-      phase_ = Phase::FOLLOWING;
-      return BT::NodeStatus::RUNNING;
-    }
-
-    if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
-        status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
-    {
-      RCLCPP_ERROR(ctx->node->get_logger(),
-        "FollowCoveragePath: detour navigation failed");
+        "FollowCoveragePath: controller aborted — returning FAILURE for BT recovery");
       return BT::NodeStatus::FAILURE;
     }
     return BT::NodeStatus::RUNNING;
@@ -786,12 +700,6 @@ void FollowCoveragePath::onHalted()
       "FollowCoveragePath: canceling active follow_path goal");
     follow_client_->async_cancel_goal(follow_handle_);
     follow_handle_.reset();
-  }
-  if (nav_handle_) {
-    RCLCPP_INFO(ctx->node->get_logger(),
-      "FollowCoveragePath: canceling active detour navigation");
-    nav_client_->async_cancel_goal(nav_handle_);
-    nav_handle_.reset();
   }
 }
 

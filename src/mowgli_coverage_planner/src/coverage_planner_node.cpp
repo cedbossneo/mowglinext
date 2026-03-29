@@ -215,6 +215,26 @@ void CoveragePlannerNode::execute(
   ring.addPoint(F2CPoint(outer.front().first, outer.front().second));
 
   F2CCell  cell(ring);
+
+  // Add obstacle polygons as interior rings (holes) in the cell.
+  // Fields2Cover will clip swaths around these holes so no coverage
+  // path crosses an obstacle.
+  for (const auto & obs_polygon : goal->obstacles) {
+    if (obs_polygon.points.size() < 3) {
+      continue;
+    }
+    F2CLinearRing obs_ring;
+    for (const auto & pt : obs_polygon.points) {
+      obs_ring.addPoint(F2CPoint(
+        static_cast<double>(pt.x), static_cast<double>(pt.y)));
+    }
+    // Close the ring.
+    obs_ring.addPoint(F2CPoint(
+      static_cast<double>(obs_polygon.points.front().x),
+      static_cast<double>(obs_polygon.points.front().y)));
+    cell.addRing(obs_ring);
+  }
+
   F2CCells cells(cell);
 
   // Robot model: width = tool_width_, minimum turning radius for Dubins.
@@ -228,7 +248,21 @@ void CoveragePlannerNode::execute(
   F2CCells inner_cells;
 
   try {
-    const double total_headland = static_cast<double>(headland_passes_) * headland_width_;
+    // Ensure headland is at least 2.5x the turning radius so Dubins
+    // turn curves stay within the field boundary (F2C issue #76).
+    const double min_headland = 2.5 * min_turning_radius_;
+    const double requested_headland =
+      static_cast<double>(headland_passes_) * headland_width_;
+    const double total_headland = std::max(requested_headland, min_headland);
+
+    if (total_headland > requested_headland) {
+      RCLCPP_INFO(
+        get_logger(),
+        "Headland increased from %.3f m to %.3f m (2.5x turning radius) "
+        "to keep turns inside boundary",
+        requested_headland, total_headland);
+    }
+
     inner_cells = headland_gen.generateHeadlands(cells, total_headland);
   } catch (const std::exception & ex) {
     result->success = false;
@@ -334,25 +368,17 @@ void CoveragePlannerNode::execute(
     return;
   }
 
-  // ---- Phase: path planning (Dubins) ---------------------------------------
+  // ---- Phase: path planning -------------------------------------------------
+  // Instead of using F2C's Dubins/Reeds-Shepp path planner (which generates
+  // turn curves that can exit the field boundary — F2C issue #76), we output
+  // only the straight swath start/end points as waypoints.  Nav2's planner
+  // handles navigation between swath endpoints using the costmap, which
+  // respects the keepout boundary and avoids obstacles.
   publish_feedback(75.0f, "path_planning");
 
-  f2c::pp::DubinsCurves dubins;
-  F2CPath f2c_path;
-
-  try {
-    f2c_path = f2c::pp::PathPlanning::planPath(robot, route, dubins);
-  } catch (const std::exception & ex) {
+  if (route.size() == 0) {
     result->success = false;
-    result->message = std::string("F2C Dubins path planning failed: ") + ex.what();
-    RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
-    goal_handle->abort(result);
-    return;
-  }
-
-  if (f2c_path.size() == 0) {
-    result->success = false;
-    result->message = "F2C Dubins planner returned an empty path";
+    result->message = "F2C route planner returned no swaths";
     RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
     goal_handle->abort(result);
     return;
@@ -360,23 +386,45 @@ void CoveragePlannerNode::execute(
 
   if (goal_handle->is_canceling()) {
     result->success = false;
-    result->message = "Cancelled during Dubins path planning";
+    result->message = "Cancelled during path planning";
     goal_handle->canceled(result);
     return;
   }
 
-  // ---- Convert F2C path states to nav_msgs::msg::Path ---------------------
+  // ---- Convert swath endpoints to nav_msgs::msg::Path ---------------------
+  // Each swath is a line segment.  We emit the start and end of each swath
+  // as waypoints.  The FollowCoveragePath BT node uses Nav2 NavigateToPose
+  // to move between consecutive waypoints, so Nav2 plans a costmap-aware
+  // path for the turns while the straight segments follow the swath lines.
   publish_feedback(90.0f, "path_planning");
 
   nav_msgs::msg::Path swath_path;
   swath_path.header.frame_id = map_frame_;
   swath_path.header.stamp    = this->now();
 
-  for (size_t i = 0; i < f2c_path.size(); ++i) {
-    const auto & state = f2c_path.getState(i);
-    swath_path.poses.push_back(
-      make_pose(state.point.getX(), state.point.getY(), state.angle, map_frame_));
+  for (size_t si = 0; si < route.size(); ++si) {
+    const auto & swath = route.at(si);
+    const auto & line  = swath.getPath();
+
+    // Emit points along the swath line (start to end).
+    const size_t n_pts = line.size();
+    for (size_t pi = 0; pi < n_pts; ++pi) {
+      const double x = line.getX(pi);
+      const double y = line.getY(pi);
+
+      // Compute heading toward next point (or use previous heading for last point).
+      double yaw = 0.0;
+      if (pi + 1 < n_pts) {
+        yaw = std::atan2(line.getY(pi + 1) - y, line.getX(pi + 1) - x);
+      } else if (n_pts >= 2) {
+        yaw = std::atan2(y - line.getY(pi - 1), x - line.getX(pi - 1));
+      }
+      swath_path.poses.push_back(make_pose(x, y, yaw, map_frame_));
+    }
   }
+
+  RCLCPP_INFO(get_logger(), "Coverage path: %zu waypoints from %zu swaths",
+    swath_path.poses.size(), route.size());
 
   // ---- Coverage area: area of inner cells ---------------------------------
   double coverage_area = 0.0;

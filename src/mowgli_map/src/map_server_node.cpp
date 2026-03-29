@@ -494,24 +494,55 @@ void MapServerNode::on_add_no_go_zone(
     }
   }
 
-  // Cache the polygon if it represents the primary mowing area
-  if (!req->is_navigation_area) {
-    mowing_area_polygon_ = polygon_msg;
+  // Store the polygon as an allowed area (mowing or navigation zone).
+  // Navigation areas are corridors connecting mowing zones; both are
+  // treated as free space in the keepout mask.
+  allowed_polygons_.push_back(polygon_msg);
+
+  // Store obstacle polygons from the MapArea message.
+  // These are interior exclusion zones (trees, flower beds, etc.).
+  for (const auto & obstacle : req->area.obstacles) {
+    if (obstacle.points.size() >= 3) {
+      obstacle_polygons_.push_back(obstacle);
+
+      // Also mark obstacle cells in the classification layer
+      grid_map::Polygon obs_gm;
+      for (const auto & pt : obstacle.points) {
+        obs_gm.addVertex(
+          grid_map::Position(static_cast<double>(pt.x), static_cast<double>(pt.y)));
+      }
+      std::lock_guard<std::mutex> lock(map_mutex_);
+      for (grid_map::PolygonIterator it(map_, obs_gm); !it.isPastEnd(); ++it) {
+        map_.at(std::string(layers::CLASSIFICATION), *it) = no_go_val;
+      }
+    }
   }
 
-  res->success = true;
   RCLCPP_INFO(
-    get_logger(), "No-go zone with %zu vertices applied.",
-    polygon_msg.points.size());
+    get_logger(), "Added allowed area '%s' with %zu vertices and %zu obstacles.",
+    req->area.name.c_str(), polygon_msg.points.size(), req->area.obstacles.size());
+
+  res->success = true;
 }
 
 void MapServerNode::on_get_mowing_area(
-  const mowgli_interfaces::srv::GetMowingArea::Request::SharedPtr /*req*/,
+  const mowgli_interfaces::srv::GetMowingArea::Request::SharedPtr req,
   mowgli_interfaces::srv::GetMowingArea::Response::SharedPtr res)
 {
-  res->area.area   = mowing_area_polygon_;
-  res->area.name   = "mowing_area";
-  res->success     = true;
+  const auto idx = static_cast<std::size_t>(req->index);
+  if (idx < allowed_polygons_.size()) {
+    res->area.area      = allowed_polygons_[idx];
+    res->area.name      = "area_" + std::to_string(idx);
+    res->area.obstacles = obstacle_polygons_;
+    res->success        = true;
+  } else if (!allowed_polygons_.empty()) {
+    res->area.area      = allowed_polygons_[0];
+    res->area.name      = "mowing_area";
+    res->area.obstacles = obstacle_polygons_;
+    res->success        = true;
+  } else {
+    res->success = false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -624,7 +655,7 @@ bool MapServerNode::point_in_polygon(
 void MapServerNode::publish_keepout_mask()
 {
   // Caller must hold map_mutex_.
-  if (mowing_area_polygon_.points.size() < 3) {
+  if (allowed_polygons_.empty()) {
     return;
   }
 
@@ -644,11 +675,11 @@ void MapServerNode::publish_keepout_mask()
   mask.info.origin.orientation.w = 1.0;
   mask.data.resize(static_cast<std::size_t>(rows * cols), 100);  // default: keepout
 
-  // Check each cell against the mowing boundary.
+  // Check each cell against ALL allowed area polygons (mowing zones +
+  // navigation corridors).  A cell inside ANY allowed polygon is free.
   // grid_map row 0 is top; OccupancyGrid row 0 is bottom — flip the row axis.
   for (int r = 0; r < rows; ++r) {
     for (int c = 0; c < cols; ++c) {
-      // World position of this cell centre.
       grid_map::Position pos;
       const grid_map::Index idx(r, c);
       if (!map_.getPosition(idx, pos)) {
@@ -663,14 +694,46 @@ void MapServerNode::publish_keepout_mask()
       const int og_row = rows - 1 - r;
       const auto flat_idx = static_cast<std::size_t>(og_row * cols + c);
 
-      if (point_in_polygon(pt, mowing_area_polygon_)) {
-        mask.data[flat_idx] = 0;  // inside boundary → free
+      bool inside_any = false;
+      for (const auto & poly : allowed_polygons_) {
+        if (point_in_polygon(pt, poly)) {
+          inside_any = true;
+          break;
+        }
       }
-      // else: already 100 (outside boundary → lethal keepout)
+
+      if (inside_any) {
+        mask.data[flat_idx] = 0;  // inside an allowed area → free
+      }
+      // else: already 100 (outside all allowed areas → lethal keepout)
     }
   }
 
-  // Overlay no-go zones: any cell classified as NO_GO_ZONE → 100.
+  // Overlay obstacle polygons: cells inside any obstacle → 100 (lethal).
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      grid_map::Position pos;
+      const grid_map::Index idx(r, c);
+      if (!map_.getPosition(idx, pos)) {
+        continue;
+      }
+
+      geometry_msgs::msg::Point32 pt;
+      pt.x = static_cast<float>(pos.x());
+      pt.y = static_cast<float>(pos.y());
+      pt.z = 0.0F;
+
+      for (const auto & obs : obstacle_polygons_) {
+        if (point_in_polygon(pt, obs)) {
+          const int og_row = rows - 1 - r;
+          mask.data[static_cast<std::size_t>(og_row * cols + c)] = 100;
+          break;
+        }
+      }
+    }
+  }
+
+  // Overlay no-go zones from classification layer.
   const auto & cls = map_[std::string(layers::CLASSIFICATION)];
   const float no_go_val = static_cast<float>(CellType::NO_GO_ZONE);
   for (int r = 0; r < rows; ++r) {
@@ -698,7 +761,7 @@ void MapServerNode::publish_keepout_mask()
 void MapServerNode::publish_speed_mask()
 {
   // Caller must hold map_mutex_.
-  if (mowing_area_polygon_.points.size() < 3) {
+  if (allowed_polygons_.empty()) {
     return;
   }
 
@@ -721,66 +784,66 @@ void MapServerNode::publish_speed_mask()
   mask.info.origin.orientation.w = 1.0;
   mask.data.resize(static_cast<std::size_t>(rows * cols), 0);  // default: full speed
 
-  // For each boundary edge compute the perpendicular distance from every interior
-  // cell.  Any cell within headland_radius of any edge gets value 50.
-  const auto & pts = mowing_area_polygon_.points;
-  const std::size_t n = pts.size();
+  // For each allowed polygon, check cells near the boundary and slow them down.
+  for (const auto & poly : allowed_polygons_) {
+    const auto & pts = poly.points;
+    const std::size_t n = pts.size();
+    if (n < 3) continue;
 
-  for (int r = 0; r < rows; ++r) {
-    for (int c = 0; c < cols; ++c) {
-      grid_map::Position pos;
-      const grid_map::Index idx(r, c);
-      if (!map_.getPosition(idx, pos)) {
-        continue;
-      }
-
-      geometry_msgs::msg::Point32 pt;
-      pt.x = static_cast<float>(pos.x());
-      pt.y = static_cast<float>(pos.y());
-      pt.z = 0.0F;
-
-      // Only relevant for cells inside the mowing boundary.
-      if (!point_in_polygon(pt, mowing_area_polygon_)) {
-        continue;
-      }
-
-      // Find minimum distance from cell centre to any polygon edge.
-      double min_dist_sq = std::numeric_limits<double>::max();
-
-      for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
-        const double ax = static_cast<double>(pts[j].x);
-        const double ay = static_cast<double>(pts[j].y);
-        const double bx = static_cast<double>(pts[i].x);
-        const double by = static_cast<double>(pts[i].y);
-
-        const double dx = bx - ax;
-        const double dy = by - ay;
-        const double len_sq = dx * dx + dy * dy;
-
-        double dist_sq = 0.0;
-        if (len_sq < 1e-12) {
-          // Degenerate edge — treat as point.
-          const double ex = pos.x() - ax;
-          const double ey = pos.y() - ay;
-          dist_sq = ex * ex + ey * ey;
-        } else {
-          // Project cell centre onto the edge segment.
-          const double t = std::clamp(
-            ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / len_sq,
-            0.0, 1.0);
-          const double proj_x = ax + t * dx - pos.x();
-          const double proj_y = ay + t * dy - pos.y();
-          dist_sq = proj_x * proj_x + proj_y * proj_y;
+    for (int r = 0; r < rows; ++r) {
+      for (int c = 0; c < cols; ++c) {
+        grid_map::Position pos;
+        const grid_map::Index idx(r, c);
+        if (!map_.getPosition(idx, pos)) {
+          continue;
         }
 
-        if (dist_sq < min_dist_sq) {
-          min_dist_sq = dist_sq;
-        }
-      }
+        geometry_msgs::msg::Point32 pt;
+        pt.x = static_cast<float>(pos.x());
+        pt.y = static_cast<float>(pos.y());
+        pt.z = 0.0F;
 
-      if (min_dist_sq <= headland_radius * headland_radius) {
-        const int og_row = rows - 1 - r;
-        mask.data[static_cast<std::size_t>(og_row * cols + c)] = 50;
+        // Only relevant for cells inside this allowed polygon.
+        if (!point_in_polygon(pt, poly)) {
+          continue;
+        }
+
+        // Find minimum distance from cell centre to any polygon edge.
+        double min_dist_sq = std::numeric_limits<double>::max();
+
+        for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+          const double ax = static_cast<double>(pts[j].x);
+          const double ay = static_cast<double>(pts[j].y);
+          const double bx = static_cast<double>(pts[i].x);
+          const double by = static_cast<double>(pts[i].y);
+
+          const double dx = bx - ax;
+          const double dy = by - ay;
+          const double len_sq = dx * dx + dy * dy;
+
+          double dist_sq = 0.0;
+          if (len_sq < 1e-12) {
+            const double ex = pos.x() - ax;
+            const double ey = pos.y() - ay;
+            dist_sq = ex * ex + ey * ey;
+          } else {
+            const double t = std::clamp(
+              ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / len_sq,
+              0.0, 1.0);
+            const double proj_x = ax + t * dx - pos.x();
+            const double proj_y = ay + t * dy - pos.y();
+            dist_sq = proj_x * proj_x + proj_y * proj_y;
+          }
+
+          if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
+          }
+        }
+
+        if (min_dist_sq <= headland_radius * headland_radius) {
+          const int og_row = rows - 1 - r;
+          mask.data[static_cast<std::size_t>(og_row * cols + c)] = 50;
+        }
       }
     }
   }

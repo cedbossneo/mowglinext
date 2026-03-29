@@ -133,6 +133,8 @@ def generate_launch_description() -> LaunchDescription:
             "use_sim_time": use_sim_time,
             "slam": slam,
             "map": map_yaml,
+            "slam_mode": "lifelong",
+            "map_file_name": "/ros2_ws/maps/garden_map",
         }.items(),
     )
 

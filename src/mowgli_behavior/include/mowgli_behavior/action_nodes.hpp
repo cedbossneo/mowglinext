@@ -21,6 +21,7 @@
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_interfaces/action/plan_coverage.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
+#include "mowgli_interfaces/srv/get_mowing_area.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 
 namespace mowgli_behavior {
@@ -228,17 +229,17 @@ private:
 // FollowCoveragePath
 // ---------------------------------------------------------------------------
 
-/// Subscribes to the coverage path topic, sends it to Nav2 FollowPath action,
-/// and returns SUCCESS when the robot has traversed the entire path.
+/// Subscribes to the coverage path topic, sends it to Nav2 FollowPath action
+/// using the MPPI controller, and returns SUCCESS when the robot has traversed
+/// the entire path.  MPPI handles obstacle avoidance within the costmap
+/// (keepout boundary + LiDAR obstacles) — no detour logic needed.
 ///
 /// Input ports:
 ///   path_topic (string, default "/coverage_planner_node/coverage_path")
 class FollowCoveragePath : public BT::StatefulActionNode {
 public:
   using FollowPathAction = nav2_msgs::action::FollowPath;
-  using Nav2Goal         = nav2_msgs::action::NavigateToPose;
   using FollowGoalHandle = rclcpp_action::ClientGoalHandle<FollowPathAction>;
-  using NavGoalHandle    = rclcpp_action::ClientGoalHandle<Nav2Goal>;
 
   FollowCoveragePath(const std::string& name, const BT::NodeConfig& config)
     : BT::StatefulActionNode(name, config) {}
@@ -247,11 +248,7 @@ public:
     return {
       BT::InputPort<std::string>("path_topic",
         "/coverage_planner_node/coverage_path",
-        "Topic with the coverage path to follow"),
-      BT::InputPort<double>("skip_distance", 3.0,
-        "Distance along path to skip past obstacle (m)"),
-      BT::InputPort<int>("max_detours", 10,
-        "Max obstacle detours before giving up")
+        "Topic with the coverage path to follow")
     };
   }
 
@@ -260,35 +257,21 @@ public:
   void           onHalted() override;
 
 private:
-  enum class Phase { WAIT_PATH, FOLLOWING, DETOURING, RESUMING };
+  enum class Phase { WAIT_PATH, FOLLOWING };
 
-  // TODO(cedric): Add findClosestPoseIndex(robot_pose) using a TF lookup for
-  // more accurate detour resumption when the robot has drifted off the path.
-  /// Find a pose that is at least skip_dist metres ahead of path_index.
-  size_t findSkipTarget(size_t from_index, double skip_dist) const;
-  /// Send a FollowPath goal starting from path[start_index] to the end.
   void sendFollowPathGoal(size_t start_index);
 
-  // FollowPath action (RPP controller)
+  // FollowPath action (MPPI controller)
   rclcpp_action::Client<FollowPathAction>::SharedPtr follow_client_;
   std::shared_future<FollowGoalHandle::SharedPtr> follow_future_;
   FollowGoalHandle::SharedPtr follow_handle_;
-
-  // NavigateToPose action (for detours around obstacles)
-  rclcpp_action::Client<Nav2Goal>::SharedPtr nav_client_;
-  std::shared_future<NavGoalHandle::SharedPtr> nav_future_;
-  NavGoalHandle::SharedPtr nav_handle_;
 
   // Path and state
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   nav_msgs::msg::Path full_path_;
   bool path_received_{false};
   Phase phase_{Phase::WAIT_PATH};
-  size_t current_path_index_{0};  ///< Where we are on the coverage path
-  size_t detour_target_index_{0}; ///< Where we're detouring to
-  int detour_count_{0};
-  double skip_distance_{3.0};
-  int max_detours_{10};
+  size_t current_path_index_{0};
 };
 
 // ---------------------------------------------------------------------------

@@ -6,20 +6,19 @@
   Layout (top view, approximate):
     - 40 m x 30 m grass ground plane (60 x 60 m visual ground)
     - Boundary walls at x=[-20,+20], y=[-15,+15]
-    - Tree 1 (cylinder)         at ( 5.0,  3.0)
-    - Garden bench (box)        at (-4.0,  5.0)
-    - Small shed (box)          at ( 7.0, -4.0)
-    - Flower bed border (L)     at (-6.0, -3.0)  — low wall strip
-    - Tree 2 (cylinder)         at (-12.0, 8.0)
-    - Tree 3 (cylinder)         at (15.0, -6.0)
-    - Large rock (sphere)       at ( 3.0, -10.0)
-    - Rock cluster (3 spheres)  near (-8.0, -8.0)
-    - Garden table (box)        at (10.0, 10.0)
-    - Planter box (box)         at (-15.0, 2.0)
-    - Birdbath (cylinder)       at ( 0.0, 12.0)
-    - Compost bin (box)         at (18.0, 12.0)
-    - Swing set (posts+bar)     at (-10.0, 10.0)
-    - Sandbox (box)             at (12.0, -12.0)
+    - Tree 1 (cylinder r=0.25)  at ( 5.0,  3.0)
+    - Garden bench (box 1.2m)   at (-4.0,  5.0)
+    - Small shed (box 2.0m)     at ( 7.0, -4.0)
+    - Tree 2 (cylinder r=0.3)   at (-12.0, 8.0)
+    - Tree 3 (cylinder r=0.2)   at (15.0, -6.0)
+    - Large rock (sphere r=0.4) at ( 3.0, -10.0)
+    - Rock cluster (1 sphere)   at (-8.0, -8.0)  — kept r=0.25 only
+    - Garden table (box 1.0m)   at (10.0, 10.0)
+    - Planter box (box 2.0m)    at (-15.0, 2.0)
+    - Birdbath (cylinder r=0.2) at ( 0.0, 12.0)
+    - Compost bin (box 1.0m)    at (18.0, 12.0)
+    - Sandbox (box 2.0m)        at (12.0, -12.0)
+    Removed (< 40cm): flower bed border, rock_cluster_b/c, swing set
     - Docking station marker    at (-19.0, -14.0)  — corner of garden
 
   Coordinate origin is the mower spawn / docking position (0, 0).
@@ -350,51 +349,7 @@
       </joint>
     </model>
 
-    <!-- ================================================================
-         Obstacle 4: Flower bed border — low wall strip (0.1 m high)
-         Two segments forming an L-shape at (-6.0, -3.0)
-         ================================================================ -->
-    <model name="flower_bed_border_a">
-      <static>true</static>
-      <pose>-6.0 -3.0 0.05 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <box><size>3.0 0.1 0.10</size></box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box><size>3.0 0.1 0.10</size></box>
-          </geometry>
-          <material>
-            <ambient>0.45 0.28 0.10 1</ambient>
-            <diffuse>0.50 0.32 0.12 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="flower_bed_border_b">
-      <static>true</static>
-      <pose>-7.45 -2.05 0.05 0 0 1.5708</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <box><size>2.0 0.1 0.10</size></box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box><size>2.0 0.1 0.10</size></box>
-          </geometry>
-          <material>
-            <ambient>0.45 0.28 0.10 1</ambient>
-            <diffuse>0.50 0.32 0.12 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- Obstacle 4: Flower bed border — REMOVED (< 40cm, robot drives over) -->
 
     <!-- ================================================================
          Obstacle 5: Tree 2 (tall cylinder, radius 0.3 m, height 2.5 m)
@@ -537,47 +492,8 @@
       </link>
     </model>
 
-    <model name="rock_cluster_b">
-      <static>true</static>
-      <pose>-7.6 -8.3 0.15 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <sphere><radius>0.15</radius></sphere>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <sphere><radius>0.15</radius></sphere>
-          </geometry>
-          <material>
-            <ambient>0.48 0.47 0.45 1</ambient>
-            <diffuse>0.53 0.52 0.50 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="rock_cluster_c">
-      <static>true</static>
-      <pose>-8.3 -7.7 0.20 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <sphere><radius>0.20</radius></sphere>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <sphere><radius>0.20</radius></sphere>
-          </geometry>
-          <material>
-            <ambient>0.52 0.51 0.49 1</ambient>
-            <diffuse>0.57 0.56 0.53 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- rock_cluster_b (r=0.15) — REMOVED (< 40cm) -->
+    <!-- rock_cluster_c (r=0.20) — REMOVED (< 40cm) -->
 
     <!-- ================================================================
          Obstacle 9: Garden table (box 1.0 x 1.0 x 0.7 m)
@@ -688,7 +604,6 @@
     <model name="swing_set">
       <static>true</static>
       <pose>-10.0 10.0 0 0 0 0</pose>
-      <!-- Left post -->
       <link name="post_left">
         <pose>-1.45 0 1.25 0 0 0</pose>
         <collision name="collision">
@@ -706,7 +621,6 @@
           </material>
         </visual>
       </link>
-      <!-- Right post -->
       <link name="post_right">
         <pose>1.45 0 1.25 0 0 0</pose>
         <collision name="collision">
@@ -729,7 +643,6 @@
                    <iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia>
         </inertial>
       </link>
-      <!-- Crossbar -->
       <link name="crossbar">
         <pose>0 0 2.5 0 0 0</pose>
         <collision name="collision">
@@ -762,30 +675,7 @@
       </joint>
     </model>
 
-    <!-- ================================================================
-         Obstacle 14: Sandbox (box 2.0 x 2.0 x 0.25 m)
-         Position: (12.0, -12.0)
-         ================================================================ -->
-    <model name="sandbox">
-      <static>true</static>
-      <pose>12.0 -12.0 0.125 0 0 0</pose>
-      <link name="link">
-        <collision name="collision">
-          <geometry>
-            <box><size>2.0 2.0 0.25</size></box>
-          </geometry>
-        </collision>
-        <visual name="visual">
-          <geometry>
-            <box><size>2.0 2.0 0.25</size></box>
-          </geometry>
-          <material>
-            <ambient>0.85 0.78 0.55 1</ambient>
-            <diffuse>0.90 0.82 0.60 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
+    <!-- Obstacle 14: Sandbox — REMOVED (height 0.25m < 40cm, robot drives over) -->
 
     <!-- ================================================================
          Docking station marker — flat coloured box at garden corner

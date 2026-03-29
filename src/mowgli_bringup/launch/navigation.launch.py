@@ -65,14 +65,14 @@ def generate_launch_description() -> LaunchDescription:
 
     slam_mode_arg = DeclareLaunchArgument(
         "slam_mode",
-        default_value="mapping",
-        description="slam_toolbox mode: 'mapping' (first run) or 'localization' (subsequent runs with saved map).",
+        default_value="lifelong",
+        description="slam_toolbox mode: 'mapping' (first run), 'localization' (read-only), or 'lifelong' (load + keep updating).",
     )
 
     map_file_arg = DeclareLaunchArgument(
         "map_file_name",
-        default_value="",
-        description="Full path (without extension) to a saved slam_toolbox .posegraph/.data file for localization mode.",
+        default_value="/ros2_ws/maps/garden_map",
+        description="Full path (without extension) to a saved slam_toolbox .posegraph/.data file.",
     )
 
     # ------------------------------------------------------------------
@@ -103,14 +103,9 @@ def generate_launch_description() -> LaunchDescription:
         convert_types=True,
     )
 
-    # Build two rewritten variants of the slam_toolbox yaml so the launch
+    # Build rewritten variants of the slam_toolbox yaml so the launch
     # file can pass the correct mode and map_file_name without touching the
     # config file on disk.
-    #
-    # mapping_params  — mode overridden to "mapping", map_file_name preserved
-    #                   from the yaml (or the launch arg if provided).
-    # localization_params_slam — mode overridden to "localization", map file
-    #                   taken from the map_file_name launch arg.
     mapping_slam_params = RewrittenYaml(
         source_file=slam_toolbox_params_file,
         root_key="",
@@ -133,14 +128,26 @@ def generate_launch_description() -> LaunchDescription:
         convert_types=True,
     )
 
+    lifelong_slam_params = RewrittenYaml(
+        source_file=slam_toolbox_params_file,
+        root_key="",
+        param_rewrites={
+            "mode": "lifelong",
+            "map_file_name": map_file_name,
+            "use_sim_time": use_sim_time,
+        },
+        convert_types=True,
+    )
+
     # ------------------------------------------------------------------
     # 1. slam_toolbox  (only when slam=true)
-    #    Two mutually exclusive sub-groups select the correct launch file
+    #    Three mutually exclusive sub-groups select the correct launch file
     #    and parameter set depending on slam_mode.
     #
     #    mapping mode     → online_async_launch.py  (builds a new map)
-    #    localization mode → localization_launch.py (loads saved map,
-    #                        read-only pose graph)
+    #    localization mode → localization_launch.py  (read-only pose graph)
+    #    lifelong mode    → online_async_launch.py   (loads saved map +
+    #                        keeps adding new scans — map improves over time)
     # ------------------------------------------------------------------
     slam_toolbox_mapping = GroupAction(
         condition=IfCondition(slam),
@@ -173,6 +180,22 @@ def generate_launch_description() -> LaunchDescription:
                         launch_arguments={
                             "use_sim_time": use_sim_time,
                             "slam_params_file": localization_slam_params,
+                        }.items(),
+                    ),
+                ],
+            ),
+            GroupAction(
+                condition=LaunchConfigurationEquals("slam_mode", "lifelong"),
+                actions=[
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            os.path.join(
+                                slam_toolbox_dir, "launch", "online_async_launch.py"
+                            )
+                        ),
+                        launch_arguments={
+                            "use_sim_time": use_sim_time,
+                            "slam_params_file": lifelong_slam_params,
                         }.items(),
                     ),
                 ],

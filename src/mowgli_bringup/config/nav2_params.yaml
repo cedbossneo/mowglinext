@@ -43,33 +43,34 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.05
-      movement_time_allowance: 15.0
+      required_movement_radius: 0.10
+      movement_time_allowance: 30.0   # 30s to steer around obstacles before abort
 
     stopped_goal_checker:
       plugin: "nav2_controller::StoppedGoalChecker"
       trans_stopped_velocity: 0.25
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.50
+      yaw_goal_tolerance: 0.50
 
     # Coverage goal checker: used by FTC controller. Only checks position,
     # not velocity. The FTC controller manages its own stopping logic.
     coverage_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.3
+      xy_goal_tolerance: 0.5
       yaw_goal_tolerance: 6.28  # Don't check yaw for coverage paths
+      stateful: true             # succeed once within tolerance, don't re-check
 
     # RPP for transit/dock navigation, wrapped in RotationShimController
     # to rotate-in-place toward the path before driving.
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      angular_dist_threshold: 0.785  # 45° — rotate in place if heading error > this
+      angular_dist_threshold: 1.57   # 90° — only rotate in place for very wrong heading
       forward_sampling_distance: 0.5
       rotate_to_heading_angular_vel: 1.5
       max_angular_accel: 2.5
       # RPP parameters (passed through to primary controller)
-      desired_linear_vel: 0.3
+      desired_linear_vel: 1.0
       lookahead_dist: 0.4
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
@@ -104,13 +105,13 @@ controller_server:
       vx_std: 0.2
       vy_std: 0.0       # diff-drive: no lateral motion
       wz_std: 0.4
-      vx_max: 0.3
-      vx_min: -0.1      # allow slight reverse for recovery
+      vx_max: 1.0
+      vx_min: -0.3      # allow slight reverse for recovery
       vy_max: 0.0
       wz_max: 1.5
       iteration_count: 1
       prune_distance: 1.5
-      transform_tolerance: 0.1
+      transform_tolerance: 0.5
       temperature: 0.3
       gamma: 0.015
       motion_model: "DiffDrive"
@@ -128,8 +129,8 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 3.81
-        critical_cost: 300.0
-        consider_footprint: false
+        critical_cost: 200.0          # must be < 254 to trigger near keepout boundary
+        consider_footprint: true       # full rectangular footprint collision checking
         collision_cost: 1000000.0
         near_goal_distance: 1.0
       GoalCritic:
@@ -140,7 +141,7 @@ controller_server:
       GoalAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 3.0
+        cost_weight: 1.0              # relaxed — heading doesn't need to be perfect
         threshold_to_consider: 0.5
       PathAlignCritic:
         enabled: true
@@ -163,7 +164,7 @@ controller_server:
         cost_weight: 2.0
         offset_from_furthest: 4
         threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.0
+        max_angle_to_furthest: 1.57   # 90° — allow wider angles on bumpy terrain
         mode: 0
       PreferForwardCritic:
         enabled: true
@@ -174,9 +175,9 @@ controller_server:
         enabled: true
         cost_power: 1
         cost_weight: 10.0
-        repulsion_weight: 0.3
+        repulsion_weight: 1.5         # stronger push away from keepout boundary
         critical_weight: 20.0
-        consider_footprint: false
+        consider_footprint: true       # full rectangular footprint collision checking
         collision_cost: 10000.0
         collision_margin_distance: 0.30
         near_goal_distance: 0.5
@@ -191,7 +192,7 @@ planner_server:
 
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
-      tolerance: 0.25
+      tolerance: 0.50
       downsample_costmap: false
       downsampling_factor: 1
       allow_unknown: true
@@ -270,10 +271,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.5, 0.0, 1.5]
-    min_velocity: [-0.5, 0.0, -1.5]
-    max_accel: [0.5, 0.0, 2.5]
-    max_decel: [-0.5, 0.0, -2.5]
+    max_velocity: [1.0, 0.0, 1.5]
+    min_velocity: [-1.0, 0.0, -1.5]
+    max_accel: [1.0, 0.0, 2.5]
+    max_decel: [-1.0, 0.0, -2.5]
     odom_topic: /wheel_odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
@@ -290,7 +291,8 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      robot_radius: 0.22
+      # Rectangular footprint from URDF: 0.54m x 0.40m (base_link collision box)
+      footprint: "[[0.27, 0.20], [0.27, -0.20], [-0.27, -0.20], [-0.27, 0.20]]"
       resolution: 0.05
       track_unknown_space: false
       # Rolling window large enough to cover transit across any garden.
@@ -302,12 +304,20 @@ global_costmap:
       rolling_window: true
       width: 100
       height: 100
-      plugins: ["keepout_filter", "obstacle_layer", "inflation_layer"]
+      plugins: ["keepout_filter", "keepout_inflation", "obstacle_layer", "inflation_layer"]
 
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
         filter_info_topic: "/costmap_filter_info"
+
+      # Inflate the keepout boundary inward by the robot radius so the
+      # planner never places the robot center close enough that the
+      # footprint crosses the boundary.
+      keepout_inflation:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.40       # >= circumscribed radius (0.354) for footprint collision
+        cost_scaling_factor: 10.0    # steep falloff: hard wall effect
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -340,17 +350,24 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link
-      robot_radius: 0.22
+      footprint: "[[0.275, 0.20], [0.275, -0.20], [-0.275, -0.20], [-0.275, 0.20]]"
       resolution: 0.05
       rolling_window: true
       width: 6
       height: 6
-      plugins: ["keepout_filter", "speed_filter", "obstacle_layer", "inflation_layer"]
+      plugins: ["keepout_filter", "keepout_inflation", "speed_filter", "obstacle_layer", "inflation_layer"]
 
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
         filter_info_topic: "/costmap_filter_info"
+
+      # Inflate the keepout boundary inward so MPPI never samples
+      # trajectories that cross the boundary with the robot footprint.
+      keepout_inflation:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.40       # >= circumscribed radius (0.354) for footprint collision
+        cost_scaling_factor: 10.0    # steep falloff: hard wall effect
 
       speed_filter:
         plugin: "nav2_costmap_2d::SpeedFilter"

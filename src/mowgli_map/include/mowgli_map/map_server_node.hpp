@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
@@ -184,8 +185,14 @@ private:
   bool mow_blade_enabled_{false};
   rclcpp::Time last_decay_time_;
 
-  /// Cached mowing area polygon for ~/get_mowing_area service.
-  geometry_msgs::msg::Polygon mowing_area_polygon_;
+  /// Allowed area polygons: mowing zones + navigation corridors.
+  /// Any cell inside ANY of these polygons is marked free in the keepout mask;
+  /// everything outside is lethal.  Index 0 is the primary mowing area.
+  std::vector<geometry_msgs::msg::Polygon> allowed_polygons_;
+
+  /// Obstacle polygons: regions within the allowed areas that are off-limits
+  /// (trees, flower beds, etc.).  Marked as lethal in the keepout mask.
+  std::vector<geometry_msgs::msg::Polygon> obstacle_polygons_;
 
   // ── Publishers ────────────────────────────────────────────────────────────
   rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_pub_;

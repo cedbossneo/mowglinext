@@ -107,9 +107,10 @@
                 </Sequence>
               </Fallback>
             </RetryUntilSuccessful>
-            <!-- All retries exhausted: safe shutdown and dock -->
+            <!-- All retries exhausted: save map (preserve what we learned), then dock -->
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
+              <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
               <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
               <NavigateToPose goal="{dock_pose}"/>
               <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
@@ -133,6 +134,7 @@
           <SetMowerEnabled enabled="false"/>
           <StopMoving/>
           <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
+          <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <NavigateToPose goal="{dock_pose}"/>
           <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
           <ClearCommand/>
