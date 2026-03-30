@@ -43,8 +43,8 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.05
-      movement_time_allowance: 60.0   # 60s — generous on garden terrain with rotation
+      required_movement_radius: 0.02  # tight — even small movements count
+      movement_time_allowance: 3600.0 # 1 hour — effectively disabled for long coverage runs
 
     stopped_goal_checker:
       plugin: "nav2_controller::StoppedGoalChecker"
@@ -93,94 +93,38 @@ controller_server:
       max_angular_vel: 1.5
       max_robot_pose_search_dist: 100.0
 
-    # MPPI controller for coverage path following.
-    # MPPI samples multiple trajectories and uses critic plugins to balance
-    # path tracking with obstacle avoidance — it naturally steers around
-    # obstacles detected in the costmap while staying close to the coverage path.
+    # RPP controller for coverage path following.
+    # RPP follows the path sequentially with a lookahead point, avoiding the
+    # nearest-point pruning issue that MPPI has with parallel boustrophedon
+    # swaths (only 0.18m apart).  Obstacle avoidance comes from costmap
+    # inflation — RPP slows down near inflated obstacles.
     FollowCoveragePath:
-      plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 28
-      model_dt: 0.1
-      batch_size: 2000
-      vx_std: 0.2
-      vy_std: 0.0       # diff-drive: no lateral motion
-      wz_std: 0.4
-      vx_max: 0.5
-      vx_min: -0.2      # allow slight reverse for recovery
-      vy_max: 0.0
-      wz_max: 1.5
-      iteration_count: 1
-      prune_distance: 1.5
-      transform_tolerance: 0.5
-      temperature: 0.3
-      gamma: 0.015
-      motion_model: "DiffDrive"
-      visualize: false
-      retry_attempt_limit: 1
-      regenerate_noises: false
-      critics: ["ConstraintCritic", "CostCritic", "GoalCritic",
-                "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
-                "PathAngleCritic", "PreferForwardCritic", "ObstaclesCritic"]
-      ConstraintCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 4.0
-      CostCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.81
-        critical_cost: 200.0          # must be < 254 to trigger near keepout boundary
-        consider_footprint: true       # full rectangular footprint collision checking
-        collision_cost: 1000000.0
-        near_goal_distance: 1.0
-      GoalCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 1.4
-      GoalAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 1.0              # relaxed — heading doesn't need to be perfect
-        threshold_to_consider: 0.5
-      PathAlignCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 14.0
-        max_path_occupancy_ratio: 0.05
-        trajectory_point_step: 4
-        threshold_to_consider: 0.5
-        offset_from_furthest: 20
-        use_path_orientations: false
-      PathFollowCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        offset_from_furthest: 5
-        threshold_to_consider: 1.4
-      PathAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 2.0
-        offset_from_furthest: 4
-        threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.57   # 90° — allow wider angles on bumpy terrain
-        mode: 0
-      PreferForwardCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 0.5
-      ObstaclesCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 10.0
-        repulsion_weight: 1.5         # stronger push away from keepout boundary
-        critical_weight: 20.0
-        consider_footprint: true       # full rectangular footprint collision checking
-        collision_cost: 10000.0
-        collision_margin_distance: 0.30
-        near_goal_distance: 0.5
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.5
+      lookahead_dist: 0.6
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 0.9
+      lookahead_time: 1.5
+      rotate_to_heading_angular_vel: 1.5
+      transform_tolerance: 2.0
+      use_velocity_scaled_lookahead_dist: false
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: false
+      use_regulated_linear_velocity_scaling: true
+      use_fixed_curvature_lookahead: false
+      curvature_lookahead_dist: 0.6
+      use_cost_regulated_linear_velocity_scaling: false
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.25
+      use_rotate_to_heading: false     # don't rotate in place; Dubins turns handle heading
+      allow_reversing: false
+      max_angular_accel: 2.5
+      max_angular_vel: 1.5
+      # Limit search distance along the path to prevent jumping to adjacent
+      # parallel swaths (~18m away along path, 0.18m Euclidean).  5m handles
+      # drift while staying well within one swath length.
+      max_robot_pose_search_dist: 5.0
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -304,20 +248,11 @@ global_costmap:
       rolling_window: true
       width: 100
       height: 100
-      plugins: ["keepout_filter", "keepout_inflation", "obstacle_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "inflation_layer"]
 
-      keepout_filter:
-        plugin: "nav2_costmap_2d::KeepoutFilter"
-        enabled: true
-        filter_info_topic: "/costmap_filter_info"
-
-      # Inflate the keepout boundary inward by the robot radius so the
-      # planner never places the robot center close enough that the
-      # footprint crosses the boundary.
-      keepout_inflation:
-        plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.40       # >= circumscribed radius (0.354) for footprint collision
-        cost_scaling_factor: 10.0    # steep falloff: hard wall effect
+      # NOTE: keepout_filter and keepout_inflation are disabled until zone
+      # management (costmap filter mask publisher) is implemented.
+      # Re-enable with: ["keepout_filter", "keepout_inflation", "obstacle_layer", "inflation_layer"]
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -355,25 +290,10 @@ local_costmap:
       rolling_window: true
       width: 6
       height: 6
-      plugins: ["keepout_filter", "keepout_inflation", "speed_filter", "obstacle_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "inflation_layer"]
 
-      keepout_filter:
-        plugin: "nav2_costmap_2d::KeepoutFilter"
-        enabled: true
-        filter_info_topic: "/costmap_filter_info"
-
-      # Inflate the keepout boundary inward so MPPI never samples
-      # trajectories that cross the boundary with the robot footprint.
-      keepout_inflation:
-        plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.40       # >= circumscribed radius (0.354) for footprint collision
-        cost_scaling_factor: 10.0    # steep falloff: hard wall effect
-
-      speed_filter:
-        plugin: "nav2_costmap_2d::SpeedFilter"
-        enabled: true
-        filter_info_topic: "/speed_filter_info"
-        speed_limit_topic: "/speed_limit"
+      # NOTE: keepout_filter, keepout_inflation, and speed_filter are disabled
+      # until zone management (costmap filter mask publisher) is implemented.
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -461,12 +381,15 @@ collision_monitor:
     base_shift_correction: true
     stop_pub_timeout: 2.0
     polygons: ["PolygonStop", "FootprintApproach"]
-    # Stop zone: tight safety box around the robot.  Must be small enough
-    # that the MPPI controller can still steer around obstacles detected in
-    # the costmap — a large stop zone kills the robot before the controller
-    # has a chance to plan around the obstacle.
+    # Stop zone: tight safety box around the robot.
     # Forward: 0.45m (robot radius 0.22 + 0.23m braking at 0.3m/s).
     # Lateral: 0.30m (robot radius + 0.08m margin).
+    #
+    # NOTE: Disabled in simulation because the Gazebo LiDAR (range_min=0.10m)
+    # produces self-reflections from the robot chassis at ~0.26-0.30m.  These
+    # phantom readings fall inside the stop polygon and permanently block the
+    # robot.  Re-enable on real hardware where the LiDAR is mounted above the
+    # chassis and self-reflections do not occur.
     PolygonStop:
       type: "polygon"
       points: "[[0.45, 0.30], [0.45, -0.30], [-0.25, -0.30], [-0.25, 0.30]]"
@@ -474,7 +397,7 @@ collision_monitor:
       min_points: 2
       visualize: true
       polygon_pub_topic: "polygon_stop"
-      enabled: true
+      enabled: false
     # Approach: uses dynamic robot footprint with velocity projection.
     # Gradually slows when predicted collision is within time_before_collision.
     FootprintApproach:
@@ -492,7 +415,10 @@ collision_monitor:
       topic: /scan
       min_height: 0.15
       max_height: 2.0
-      enabled: true
+      # Disabled in simulation: the Gazebo LiDAR produces self-reflections
+      # from the robot chassis at ~0.26-0.30m which trigger false stops.
+      # Re-enable on real hardware where self-reflections don't occur.
+      enabled: false
 
 # ---------------------------------------------------------------------------
 # Lifecycle manager

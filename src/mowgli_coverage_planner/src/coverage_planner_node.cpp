@@ -167,6 +167,15 @@ void CoveragePlannerNode::execute(
     RCLCPP_DEBUG(get_logger(), "PlanCoverage [%.0f%%] %s", progress, phase.c_str());
   };
 
+  // ---- Clear previous coverage path (transient_local) so Foxglove / RViz
+  //       don't show stale data from the last run.
+  {
+    nav_msgs::msg::Path empty_path;
+    empty_path.header.stamp = now();
+    empty_path.header.frame_id = map_frame_;
+    path_pub_->publish(empty_path);
+  }
+
   // ---- Validate outer boundary --------------------------------------------
   const Polygon2D outer = geometry_polygon_to_points(goal->outer_boundary);
 
@@ -369,11 +378,10 @@ void CoveragePlannerNode::execute(
   }
 
   // ---- Phase: path planning -------------------------------------------------
-  // Instead of using F2C's Dubins/Reeds-Shepp path planner (which generates
-  // turn curves that can exit the field boundary — F2C issue #76), we output
-  // only the straight swath start/end points as waypoints.  Nav2's planner
-  // handles navigation between swath endpoints using the costmap, which
-  // respects the keepout boundary and avoids obstacles.
+  // Use Fields2Cover's path planner to generate the complete path including
+  // turn connections between swaths.  With min_turning_radius ~0.01 (diff-drive
+  // can turn in place), Dubins curves produce essentially point turns that
+  // stay well within the field boundary.
   publish_feedback(75.0f, "path_planning");
 
   if (route.size() == 0) {
@@ -391,40 +399,41 @@ void CoveragePlannerNode::execute(
     return;
   }
 
-  // ---- Convert swath endpoints to nav_msgs::msg::Path ---------------------
-  // Each swath is a line segment.  We emit the start and end of each swath
-  // as waypoints.  The FollowCoveragePath BT node uses Nav2 NavigateToPose
-  // to move between consecutive waypoints, so Nav2 plans a costmap-aware
-  // path for the turns while the straight segments follow the swath lines.
+  // Generate complete path with turns using F2C path planner.
+  f2c::pp::PathPlanning path_planner;
+  f2c::pp::DubinsCurves dubins_turn;
+  F2CPath f2c_path;
+
+  try {
+    f2c_path = path_planner.planPath(robot, route, dubins_turn);
+    // Discretize to get dense waypoints (0.10 m spacing for smooth Nav2 tracking).
+    // Too-dense spacing (< 0.10m) can cause MPPI to prune all remaining waypoints
+    // when it detects the closest point jumps ahead in the path.
+    f2c_path.discretize(0.10);
+  } catch (const std::exception & ex) {
+    result->success = false;
+    result->message = std::string("F2C path planning failed: ") + ex.what();
+    RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
+    goal_handle->abort(result);
+    return;
+  }
+
+  // ---- Convert F2CPath states to nav_msgs::msg::Path ----------------------
   publish_feedback(90.0f, "path_planning");
 
   nav_msgs::msg::Path swath_path;
   swath_path.header.frame_id = map_frame_;
   swath_path.header.stamp    = this->now();
 
-  for (size_t si = 0; si < route.size(); ++si) {
-    const auto & swath = route.at(si);
-    const auto & line  = swath.getPath();
-
-    // Emit points along the swath line (start to end).
-    const size_t n_pts = line.size();
-    for (size_t pi = 0; pi < n_pts; ++pi) {
-      const double x = line.getX(pi);
-      const double y = line.getY(pi);
-
-      // Compute heading toward next point (or use previous heading for last point).
-      double yaw = 0.0;
-      if (pi + 1 < n_pts) {
-        yaw = std::atan2(line.getY(pi + 1) - y, line.getX(pi + 1) - x);
-      } else if (n_pts >= 2) {
-        yaw = std::atan2(y - line.getY(pi - 1), x - line.getX(pi - 1));
-      }
-      swath_path.poses.push_back(make_pose(x, y, yaw, map_frame_));
-    }
+  for (size_t i = 0; i < f2c_path.size(); ++i) {
+    const auto & state = f2c_path.getState(i);
+    swath_path.poses.push_back(
+      make_pose(state.point.getX(), state.point.getY(), state.angle, map_frame_));
   }
 
-  RCLCPP_INFO(get_logger(), "Coverage path: %zu waypoints from %zu swaths",
-    swath_path.poses.size(), route.size());
+  RCLCPP_INFO(get_logger(),
+    "Coverage path: %zu waypoints (%zu swaths, F2C path length: %.1f m)",
+    swath_path.poses.size(), route.size(), f2c_path.length());
 
   // ---- Coverage area: area of inner cells ---------------------------------
   double coverage_area = 0.0;

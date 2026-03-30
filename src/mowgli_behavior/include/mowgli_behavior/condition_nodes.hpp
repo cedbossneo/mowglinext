@@ -91,6 +91,27 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// IsBatteryAbove
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when battery_percent is at or above the given threshold.
+/// Used to wait until the battery is sufficiently charged before resuming.
+///
+/// Input ports:
+///   threshold (float, default "95.0") – battery percent to consider "charged".
+class IsBatteryAbove : public BT::ConditionNode {
+public:
+  IsBatteryAbove(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return {BT::InputPort<float>("threshold", 95.0f, "Battery percent threshold")};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
 // IsCommand
 // ---------------------------------------------------------------------------
 

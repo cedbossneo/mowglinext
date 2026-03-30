@@ -570,23 +570,21 @@ void PlanCoveragePath::onHalted()
 // leaving the mowing area.  If the controller aborts (e.g. progress checker
 // timeout), this node returns FAILURE and lets the BT recovery handle it.
 
-void FollowCoveragePath::sendFollowPathGoal(size_t start_index)
+void FollowCoveragePath::sendFollowGoal()
 {
-  nav_msgs::msg::Path sub_path;
-  sub_path.header = full_path_.header;
-  sub_path.poses.assign(
-    full_path_.poses.begin() + static_cast<long>(start_index),
-    full_path_.poses.end());
-
   FollowPathAction::Goal goal_msg;
-  goal_msg.path = sub_path;
+  goal_msg.path = full_path_;
   goal_msg.controller_id = "FollowCoveragePath";
   goal_msg.goal_checker_id = "coverage_goal_checker";
+
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  RCLCPP_INFO(ctx->node->get_logger(),
+    "FollowCoveragePath: sending full %zu-pose path to RPP controller",
+    full_path_.poses.size());
 
   auto opts = rclcpp_action::Client<FollowPathAction>::SendGoalOptions{};
   follow_handle_.reset();
   follow_future_ = follow_client_->async_send_goal(goal_msg, opts);
-  current_path_index_ = start_index;
 }
 
 BT::NodeStatus FollowCoveragePath::onStart()
@@ -644,10 +642,8 @@ BT::NodeStatus FollowCoveragePath::onRunning()
       return BT::NodeStatus::FAILURE;
     }
 
-    RCLCPP_INFO(ctx->node->get_logger(),
-      "FollowCoveragePath: sending %zu-pose path to MPPI controller",
-      full_path_.poses.size());
-    sendFollowPathGoal(0);
+    current_path_index_ = 0;
+    sendFollowGoal();
     phase_ = Phase::FOLLOWING;
     return BT::NodeStatus::RUNNING;
   }
@@ -672,7 +668,8 @@ BT::NodeStatus FollowCoveragePath::onRunning()
     const auto status = follow_handle_->get_status();
     if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
       RCLCPP_INFO(ctx->node->get_logger(),
-        "FollowCoveragePath: coverage path completed");
+        "FollowCoveragePath: coverage path completed (%zu poses)",
+        full_path_.poses.size());
       return BT::NodeStatus::SUCCESS;
     }
 

@@ -11,6 +11,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<IsBatteryLow>("IsBatteryLow");
   factory.registerNodeType<IsRainDetected>("IsRainDetected");
   factory.registerNodeType<NeedsDocking>("NeedsDocking");
+  factory.registerNodeType<IsBatteryAbove>("IsBatteryAbove");
   factory.registerNodeType<IsCommand>("IsCommand");
 
   // Action nodes

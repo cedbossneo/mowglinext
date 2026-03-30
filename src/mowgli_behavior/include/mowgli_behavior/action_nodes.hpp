@@ -259,7 +259,8 @@ public:
 private:
   enum class Phase { WAIT_PATH, FOLLOWING };
 
-  void sendFollowPathGoal(size_t start_index);
+  /// Send the full coverage path to the FollowPath action server.
+  void sendFollowGoal();
 
   // FollowPath action (MPPI controller)
   rclcpp_action::Client<FollowPathAction>::SharedPtr follow_client_;

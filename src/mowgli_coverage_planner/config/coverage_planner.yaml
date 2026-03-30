@@ -4,6 +4,6 @@ coverage_planner_node:
     headland_passes: 1
     headland_width: 0.18
     default_mow_angle: -1.0
-    path_spacing: 0.5
-    min_turning_radius: 0.3
+    path_spacing: 0.18
+    min_turning_radius: 0.01
     map_frame: "map"

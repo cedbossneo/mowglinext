@@ -77,6 +77,24 @@ BT::NodeStatus NeedsDocking::tick()
 }
 
 // ---------------------------------------------------------------------------
+// IsBatteryAbove
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsBatteryAbove::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  float threshold = 95.0f;
+  if (auto res = getInput<float>("threshold")) {
+    threshold = res.value();
+  }
+
+  return ctx->battery_percent >= threshold
+    ? BT::NodeStatus::SUCCESS
+    : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
 // IsCommand
 // ---------------------------------------------------------------------------
 
