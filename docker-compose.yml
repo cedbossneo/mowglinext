@@ -47,7 +47,7 @@ services:
       target: runtime
     devices:
       # Hardware bridge serial port — adjust if your device appears elsewhere
-      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/mowgli:/dev/mowgli
     environment:
       <<: *ros-env
       # Path inside the container where maps are stored / loaded from

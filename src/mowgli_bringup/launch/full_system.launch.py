@@ -39,7 +39,6 @@ def generate_launch_description() -> LaunchDescription:
     behavior_dir = get_package_share_directory("mowgli_behavior")
     map_dir = get_package_share_directory("mowgli_map")
     # coverage_dir removed: opennav_coverage reads from nav2_params.yaml
-    localization_dir = get_package_share_directory("mowgli_localization")
     monitoring_dir = get_package_share_directory("mowgli_monitoring")
 
     # ------------------------------------------------------------------
@@ -53,7 +52,7 @@ def generate_launch_description() -> LaunchDescription:
 
     serial_port_arg = DeclareLaunchArgument(
         "serial_port",
-        default_value="/dev/ttyUSB0",
+        default_value="/dev/mowgli",
         description="Serial port for the hardware bridge.",
     )
 
@@ -118,7 +117,7 @@ def generate_launch_description() -> LaunchDescription:
     behavior_params = os.path.join(behavior_dir, "config", "behavior_tree.yaml")
     map_params = os.path.join(map_dir, "config", "map_server.yaml")
     nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
-    localization_params = os.path.join(localization_dir, "config", "localization.yaml")
+    localization_params = os.path.join(bringup_dir, "config", "localization.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
     mqtt_params = os.path.join(monitoring_dir, "config", "mqtt_bridge.yaml")
     foxglove_params = os.path.join(bringup_dir, "config", "foxglove_bridge.yaml")

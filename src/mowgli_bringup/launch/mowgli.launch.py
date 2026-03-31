@@ -43,7 +43,7 @@ def generate_launch_description() -> LaunchDescription:
 
     serial_port_arg = DeclareLaunchArgument(
         "serial_port",
-        default_value="/dev/ttyUSB0",
+        default_value="/dev/mowgli",
         description="Serial port connected to the Mowgli firmware board.",
     )
 

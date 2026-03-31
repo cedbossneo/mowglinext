@@ -335,7 +335,7 @@ STM32 watchdog reset
 ```yaml
 hardware_bridge:
   ros__parameters:
-    serial_port: "/dev/ttyUSB0"     # Device path (USB serial)
+    serial_port: "/dev/mowgli"     # Device path (USB serial)
     baud_rate: 115200               # Must match firmware
     heartbeat_rate: 4.0             # Hz – watchdog feed
     publish_rate: 100.0             # Hz – sensor polling

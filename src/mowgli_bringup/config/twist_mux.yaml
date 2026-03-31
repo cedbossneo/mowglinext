@@ -1,5 +1,8 @@
 twist_mux:
   ros__parameters:
+    # Use geometry_msgs/msg/Twist (unstamped) for compatibility with Nav2
+    use_stamped: false
+
     # Topics are evaluated in ascending priority order.
     # Higher priority overrides lower when active within timeout.
     topics:

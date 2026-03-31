@@ -121,7 +121,7 @@ ls /dev/ttyUSB*    # or /dev/ttyACM* for native CDC
 
 Launch the full stack:
 ```bash
-ros2 launch mowgli_bringup mowgli.launch.py serial_port:=/dev/ttyUSB0
+ros2 launch mowgli_bringup mowgli.launch.py serial_port:=/dev/mowgli
 ```
 
 This brings up:
@@ -191,7 +191,7 @@ Or use docker-compose directly:
 docker compose build
 docker compose up simulation    # For simulation testing
 # or
-docker compose up hardware      # For real robot (mounts /dev/ttyUSB0)
+docker compose up hardware      # For real robot (mounts /dev/mowgli)
 ```
 
 ## Package Descriptions
@@ -402,7 +402,7 @@ docker compose up simulation    # Headless Gazebo with ROS2 bridge
 ```yaml
 hardware_bridge:
   ros__parameters:
-    serial_port: "/dev/ttyUSB0"      # Change to match your connection
+    serial_port: "/dev/mowgli"      # Change to match your connection
     baud_rate: 115200                 # Must match firmware
     heartbeat_rate: 4.0                # Hz – keep-alive to firmware
     publish_rate: 100.0                # Hz – sensor polling frequency
@@ -585,7 +585,7 @@ ros2 launch mowgli_bringup mowgli.launch.py --log-level mowgli_hardware:=DEBUG
 
 Monitor raw serial traffic:
 ```bash
-timeout 10 cat /dev/ttyUSB0 | xxd    # Raw bytes
+timeout 10 cat /dev/mowgli | xxd    # Raw bytes
 ```
 
 ## Contributing

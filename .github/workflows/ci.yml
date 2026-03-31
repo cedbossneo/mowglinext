@@ -52,7 +52,23 @@ jobs:
             --from-paths src \
             --ignore-src \
             --rosdistro ${{ matrix.ros_distro }} \
+            --skip-keys "fields2cover" \
             -y
+
+      - name: Install Fields2Cover from source
+        run: |
+          sudo apt-get install -y libgdal-dev
+          git clone --branch v1.2.1-devel --depth 1 \
+            https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c
+          cmake -S /tmp/f2c -B /tmp/f2c/build \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DBUILD_PYTHON=OFF
+          cmake --build /tmp/f2c/build -j$(nproc)
+          sudo cmake --install /tmp/f2c/build
+          sudo ldconfig
+          rm -rf /tmp/f2c
 
       - name: Build workspace
         run: |
@@ -98,7 +114,8 @@ jobs:
 
       - name: Check formatting
         run: |
-          FILES=$(find src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \))
+          FILES=$(find src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+            -not -path "src/opennav_coverage/*")
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0
@@ -122,7 +139,8 @@ jobs:
 
       - name: Run cppcheck
         run: |
-          FILES=$(find src/ \( -name "*.cpp" -o -name "*.hpp" \) -not -path "*/test/*")
+          FILES=$(find src/ \( -name "*.cpp" -o -name "*.hpp" \) \
+            -not -path "*/test/*" -not -path "src/opennav_coverage/*")
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0

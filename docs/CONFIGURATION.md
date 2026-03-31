@@ -119,7 +119,7 @@ foxglove_bridge:
 hardware_bridge:
   ros__parameters:
     # Serial port device path
-    serial_port: "/dev/ttyUSB0"
+    serial_port: "/dev/mowgli"
 
     # Baud rate (must match firmware configuration)
     baud_rate: 115200
@@ -142,10 +142,10 @@ hardware_bridge:
 #### `serial_port`
 
 - **Type:** string
-- **Default:** `"/dev/ttyUSB0"`
+- **Default:** `"/dev/mowgli"`
 - **Description:** Device path for USB serial connection to STM32
 - **Common values:**
-  - `/dev/ttyUSB0` – FTDI/CH340 USB-serial adapter
+  - `/dev/mowgli` – FTDI/CH340 USB-serial adapter
   - `/dev/ttyACM0` – Native STM32 CDC (preferred, more reliable)
   - `/dev/ttyACM1` – Alternative CDC address if multiple USB devices
   - `COM3` (Windows) – Serial port number
@@ -219,7 +219,7 @@ hardware_bridge:
 ```yaml
 hardware_bridge:
   ros__parameters:
-    serial_port: "/dev/ttyUSB0"
+    serial_port: "/dev/mowgli"
     baud_rate: 115200
     heartbeat_rate: 4.0       # Standard watchdog
     publish_rate: 50.0        # Reduced sensor rate
@@ -1033,7 +1033,7 @@ Rerun with adjusted parameters, observe results, adjust again.
 
 | Parameter | Default | Unit | Range |
 |-----------|---------|------|-------|
-| `serial_port` | `/dev/ttyUSB0` | – | any `/dev/tty*` |
+| `serial_port` | `/dev/mowgli` | – | any `/dev/tty*` |
 | `baud_rate` | 115200 | baud | 9600–230400 |
 | `ekf_odom` frequency | 50.0 | Hz | 10–100 |
 | `ekf_map` frequency | 20.0 | Hz | 5–50 |

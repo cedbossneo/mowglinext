@@ -217,7 +217,7 @@ mowgli_ros2/
 #### Launch the robot on hardware
 1. Read [README.md](../README.md) → Quick Start → Launching Hardware
 2. Configure serial port in [CONFIGURATION.md](CONFIGURATION.md) → hardware_bridge.yaml
-3. Run: `ros2 launch mowgli_bringup mowgli.launch.py serial_port:=/dev/ttyUSB0`
+3. Run: `ros2 launch mowgli_bringup mowgli.launch.py serial_port:=/dev/mowgli`
 
 #### Test in simulation
 1. Read [SIMULATION.md](SIMULATION.md) → Quick Start

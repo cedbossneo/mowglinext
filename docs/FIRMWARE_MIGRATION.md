@@ -520,7 +520,7 @@ Once integrated:
 
 ```bash
 # 1. Bring up the stack
-ros2 launch mowgli_bringup mowgli.launch.py serial_port:=/dev/ttyUSB0
+ros2 launch mowgli_bringup mowgli.launch.py serial_port:=/dev/mowgli
 
 # 2. Monitor incoming packets
 ros2 topic echo /hardware_bridge/status
@@ -531,7 +531,7 @@ ros2 topic pub /cmd_vel geometry_msgs/Twist "{linear: {x: 0.1}, angular: {z: 0.0
 # 4. Verify motor response (should move forward slowly)
 
 # 5. Debug serial with raw bytes
-timeout 5 cat /dev/ttyUSB0 | xxd
+timeout 5 cat /dev/mowgli | xxd
 ```
 
 ### Common Issues

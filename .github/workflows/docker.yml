@@ -16,10 +16,10 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}/mowgli-ros2
 
 jobs:
-  # ─── Stage 1: Build each (target × arch) via QEMU ──────────────────────────
+  # ─── Stage 1: Build each (target × arch) on native runners ─────────────────
   build:
     name: Build ${{ matrix.target }} (${{ matrix.arch }})
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
@@ -31,6 +31,10 @@ jobs:
             suffix: ""
           - target: simulation
             suffix: "-sim"
+          - arch: linux/amd64
+            runner: ubuntu-24.04
+          - arch: linux/arm64
+            runner: ubuntu-24.04-arm
 
     permissions:
       contents: read
@@ -39,9 +43,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

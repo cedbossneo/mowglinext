@@ -4,7 +4,7 @@
  * @brief POSIX termios serial port RAII wrapper.
  *
  * Provides non-blocking reads and blocking writes over a serial device
- * (e.g. /dev/ttyUSB0 or /dev/ttyACM0).  The destructor closes the file
+ * (e.g. /dev/mowgli or /dev/ttyACM0).  The destructor closes the file
  * descriptor, so the port is never leaked.
  */
 
@@ -30,7 +30,7 @@ public:
   /**
    * @brief Construct a SerialPort descriptor (does NOT open the device yet).
    *
-   * @param device    Path to the serial device (e.g. "/dev/ttyUSB0").
+   * @param device    Path to the serial device (e.g. "/dev/mowgli").
    * @param baud_rate Baud rate; standard values: 9600, 19200, 115200, 460800.
    *                  Defaults to 115200.
    */

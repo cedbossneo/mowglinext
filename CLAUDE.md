@@ -7,7 +7,7 @@ Complete ROS2 rewrite of the OpenMower robot mower. Targets ROS2 Jazzy with Nav2
 - **ROS distro:** Jazzy
 - **Build:** `colcon build` (ament_cmake for C++, ament_python for launch)
 - **Run simulation:** `docker compose up dev-sim` (Gazebo + Nav2 + Foxglove on ws://localhost:8765)
-- **Run hardware:** `docker compose up mowgli` (requires /dev/ttyUSB0)
+- **Run hardware:** `docker compose up mowgli` (requires /dev/mowgli)
 - **Send mow command:** `ros2 service call /behavior_tree_node/high_level_control mowgli_interfaces/srv/HighLevelControl "{command: 1}"`
 - **Source workspace inside container:** `source /ros2_ws/install/setup.bash`
 

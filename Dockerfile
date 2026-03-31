@@ -44,6 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-diagnostic-updater \
     # Foxglove Bridge (binary WebSocket bridge for Foxglove Studio)
     ros-jazzy-foxglove-bridge \
+    # Rosbridge (WebSocket bridge for openmower-gui)
+    ros-jazzy-rosbridge-suite \
+    # tinyxml2 (required at runtime by BehaviorTree.CPP and opennav_coverage)
+    libtinyxml2-dev \
     # Rotation shim controller for transit navigation
     ros-jazzy-nav2-rotation-shim-controller \
     # Nav2 core headers (FTC controller plugin depends on nav2_core)

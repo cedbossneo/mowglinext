@@ -45,7 +45,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 # Allow writes only to the workspace (maps, logs) and serial devices.
-ReadWritePaths=/opt/mowgli_ros2 /dev/ttyUSB0 /tmp
+ReadWritePaths=/opt/mowgli_ros2 /dev/mowgli /tmp
 # Allow access to hardware devices (IMU, GPS, LiDAR via udev symlinks).
 DeviceAllow=char-ttyUSB rw
 DeviceAllow=char-ttyACM rw

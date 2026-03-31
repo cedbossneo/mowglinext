@@ -22,7 +22,7 @@
  *   ~/emergency_stop mowgli_interfaces/srv/EmergencyStop
  *
  * Parameters:
- *   serial_port      (string,  default "/dev/ttyUSB0")
+ *   serial_port      (string,  default "/dev/mowgli")
  *   baud_rate        (int,     default 115200)
  *   heartbeat_rate   (double,  default 4.0 Hz  → 250 ms period)
  *   publish_rate     (double,  default 100.0 Hz → 10 ms period)
@@ -77,7 +77,7 @@ private:
 
   void declare_parameters()
   {
-    serial_port_path_ = declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
+    serial_port_path_ = declare_parameter<std::string>("serial_port", "/dev/mowgli");
     baud_rate_ = declare_parameter<int>("baud_rate", 115200);
     heartbeat_rate_ = declare_parameter<double>("heartbeat_rate", 4.0);
     publish_rate_ = declare_parameter<double>("publish_rate", 100.0);
