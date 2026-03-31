@@ -77,6 +77,24 @@ BT::NodeStatus NeedsDocking::tick()
 }
 
 // ---------------------------------------------------------------------------
+// IsBatteryAbove
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsBatteryAbove::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  float threshold = 95.0f;
+  if (auto res = getInput<float>("threshold")) {
+    threshold = res.value();
+  }
+
+  return ctx->battery_percent >= threshold
+    ? BT::NodeStatus::SUCCESS
+    : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
 // IsCommand
 // ---------------------------------------------------------------------------
 
@@ -94,6 +112,42 @@ BT::NodeStatus IsCommand::tick()
   }
 
   return ctx->current_command == res.value()
+    ? BT::NodeStatus::SUCCESS
+    : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
+// IsGPSFixed
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsGPSFixed::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  return ctx->gps_is_fixed
+    ? BT::NodeStatus::SUCCESS
+    : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
+// ReplanNeeded
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus ReplanNeeded::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  return ctx->replan_needed
+    ? BT::NodeStatus::SUCCESS
+    : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
+// IsBoundaryViolation
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsBoundaryViolation::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  return ctx->boundary_violation
     ? BT::NodeStatus::SUCCESS
     : BT::NodeStatus::FAILURE;
 }

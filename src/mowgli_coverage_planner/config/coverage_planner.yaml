@@ -1,9 +1,14 @@
 coverage_planner_node:
   ros__parameters:
     tool_width: 0.18
-    headland_passes: 1
-    headland_width: 0.18
+    # Headland: inset from boundary where no swaths are generated.
+    # Must be > costmap inflation_radius (0.55m) so swath endpoints are
+    # reachable by the Nav2 planner.  3 passes × 0.25m = 0.75m.
+    headland_passes: 3
+    headland_width: 0.25
     default_mow_angle: -1.0
-    path_spacing: 0.5
-    min_turning_radius: 0.3
+    path_spacing: 0.18
+    # Turning radius is not used for path geometry (straight-line swaths
+    # with point-turns), but F2C still requires it for the robot model.
+    min_turning_radius: 0.01
     map_frame: "map"

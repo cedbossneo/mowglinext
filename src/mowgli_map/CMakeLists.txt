@@ -19,6 +19,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -28,6 +29,9 @@ find_package(grid_map_msgs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Library: mowgli_map_lib
@@ -46,6 +50,7 @@ target_include_directories(mowgli_map_lib PUBLIC
 
 ament_target_dependencies(mowgli_map_lib
   rclcpp
+  std_msgs
   std_srvs
   nav_msgs
   geometry_msgs
@@ -55,6 +60,33 @@ ament_target_dependencies(mowgli_map_lib
   mowgli_interfaces
   nav2_msgs
   tf2_ros
+)
+
+# ---------------------------------------------------------------------------
+# Library: mowgli_obstacle_tracker_lib
+# Separating the node implementation from main allows GTest to link
+# against the library without spinning up a full executable.
+# ---------------------------------------------------------------------------
+
+add_library(mowgli_obstacle_tracker_lib STATIC
+  src/obstacle_tracker_node.cpp
+)
+
+target_include_directories(mowgli_obstacle_tracker_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(mowgli_obstacle_tracker_lib
+  rclcpp
+  std_srvs
+  nav_msgs
+  geometry_msgs
+  sensor_msgs
+  visualization_msgs
+  mowgli_interfaces
+  tf2_ros
+  tf2_geometry_msgs
 )
 
 # ---------------------------------------------------------------------------
@@ -74,14 +106,34 @@ ament_target_dependencies(map_server_node
 )
 
 # ---------------------------------------------------------------------------
+# Executable: obstacle_tracker_node
+# ---------------------------------------------------------------------------
+
+add_executable(obstacle_tracker_node
+  src/obstacle_tracker_main.cpp
+)
+
+target_link_libraries(obstacle_tracker_node
+  mowgli_obstacle_tracker_lib
+)
+
+ament_target_dependencies(obstacle_tracker_node
+  rclcpp
+)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
 
-install(TARGETS map_server_node
+install(TARGETS
+    map_server_node
+    obstacle_tracker_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS mowgli_map_lib
+install(TARGETS
+    mowgli_map_lib
+    mowgli_obstacle_tracker_lib
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
@@ -129,7 +181,7 @@ endif()
 # ---------------------------------------------------------------------------
 
 ament_export_include_directories(include)
-ament_export_libraries(mowgli_map_lib)
+ament_export_libraries(mowgli_map_lib mowgli_obstacle_tracker_lib)
 ament_export_dependencies(
   rclcpp
   std_srvs
@@ -141,6 +193,9 @@ ament_export_dependencies(
   mowgli_interfaces
   nav2_msgs
   tf2_ros
+  tf2_geometry_msgs
+  sensor_msgs
+  visualization_msgs
 )
 
 ament_package()

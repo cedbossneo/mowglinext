@@ -8,3 +8,11 @@ map_server_node:
     mower_width: 0.18
     map_file_path: ""
     publish_rate: 1.0
+
+    # Pre-defined mowing / navigation areas (OpenMower-style).
+    # Parallel arrays indexed by position.  Polygon format: "x1,y1;x2,y2;..."
+    # Default: 18x13m simulation garden, 1.0m inset from walls.
+    area_names: ["main_mow"]
+    area_polygons: ["-7.0,-6.5;11.0,-6.5;11.0,6.5;-7.0,6.5"]
+    area_is_navigation: [false]
+    area_obstacles: [""]

@@ -1,18 +1,13 @@
 """
-sim_full_system.launch.py
+sim_small_garden.launch.py
 
-Simulation full system launch for the Mowgli robot mower.
+Small garden (10m x 8m) simulation for testing boundary enforcement
+and coverage path adherence. Uses the small_garden world and a tighter
+mowing boundary config.
 
-Combines the Gazebo simulation environment with the full navigation and
-behavior stack, using simulated time throughout.
-
-Brings up:
-  1. mowgli_simulation/launch/simulation.launch.py — Gazebo world + spawned robot
-  2. navigation.launch.py                          — SLAM, dual EKF, Nav2
-  3. Behavior tree node                             — mowgli_behavior
-  4. Map server                                     — mowgli_map
-  5. Coverage server                                — opennav_coverage
-  6. Diagnostics                                    — mowgli_monitoring
+Usage:
+  ros2 launch mowgli_bringup sim_small_garden.launch.py
+  ros2 launch mowgli_bringup sim_small_garden.launch.py headless:=false
 """
 
 import os
@@ -46,19 +41,13 @@ def generate_launch_description() -> LaunchDescription:
     slam_arg = DeclareLaunchArgument(
         "slam",
         default_value="True",
-        description="Run slam_toolbox when True; skip when using a pre-built map.",
+        description="Run slam_toolbox when True.",
     )
 
     map_arg = DeclareLaunchArgument(
         "map",
         default_value="",
-        description="Absolute path to a pre-built map yaml file (used when slam=false).",
-    )
-
-    world_arg = DeclareLaunchArgument(
-        "world",
-        default_value="garden",
-        description="Gazebo world name (garden, empty_garden) or path to SDF.",
+        description="Absolute path to a pre-built map yaml file.",
     )
 
     headless_arg = DeclareLaunchArgument(
@@ -76,37 +65,37 @@ def generate_launch_description() -> LaunchDescription:
     gps_degradation_arg = DeclareLaunchArgument(
         "simulate_gps_degradation",
         default_value="true",
-        description="Enable GPS degradation simulation (periodic float mode).",
+        description="Enable GPS degradation simulation.",
     )
 
     # ------------------------------------------------------------------
     # Resolved substitutions
-    # use_sim_time is always true in simulation — no argument needed.
     # ------------------------------------------------------------------
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
-    world = LaunchConfiguration("world")
     headless = LaunchConfiguration("headless")
     use_rviz = LaunchConfiguration("use_rviz")
     simulate_gps_degradation = LaunchConfiguration("simulate_gps_degradation")
 
     # ------------------------------------------------------------------
-    # Config paths
+    # Config paths — use small_garden behavior config
     # ------------------------------------------------------------------
-    behavior_params = os.path.join(behavior_dir, "config", "behavior_tree.yaml")
-    map_params = os.path.join(map_dir, "config", "map_server.yaml")
+    behavior_params = os.path.join(
+        behavior_dir, "config", "behavior_tree_small_garden.yaml"
+    )
+    map_params = os.path.join(map_dir, "config", "map_server_small_garden.yaml")
     nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
 
     # ------------------------------------------------------------------
-    # 1. Gazebo simulation — world + spawned robot
+    # 1. Gazebo simulation — small_garden world
     # ------------------------------------------------------------------
     simulation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(simulation_dir, "launch", "simulation.launch.py")
         ),
         launch_arguments={
-            "world": world,
+            "world": "small_garden",
             "headless": headless,
             "use_rviz": use_rviz,
         }.items(),
@@ -125,14 +114,12 @@ def generate_launch_description() -> LaunchDescription:
             "map": map_yaml,
             "use_ekf": "True",
             "slam_mode": "lifelong",
-            "map_file_name": "/ros2_ws/maps/garden_map",
+            "map_file_name": "/ros2_ws/maps/small_garden_map",
         }.items(),
     )
 
     # ------------------------------------------------------------------
-    # 2b. Static map→odom TF (identity) for simulation without SLAM
-    #     When SLAM is enabled, slam_toolbox provides the map→odom TF.
-    #     When SLAM is disabled, we publish a static identity transform.
+    # 2b. Static map→odom TF when SLAM is disabled
     # ------------------------------------------------------------------
     static_map_odom_tf = Node(
         condition=UnlessCondition(slam),
@@ -150,7 +137,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 3. Behavior tree node
+    # 3. Behavior tree node — small garden config
     # ------------------------------------------------------------------
     behavior_tree_node = Node(
         package="mowgli_behavior",
@@ -191,8 +178,6 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # Lifecycle manager to activate the coverage server (it's a Nav2
-    # LifecycleNode not managed by Nav2's own lifecycle_manager_navigation).
     coverage_lifecycle_manager = Node(
         package="nav2_lifecycle_manager",
         executable="lifecycle_manager",
@@ -223,8 +208,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 7. Foxglove Bridge — binary WebSocket bridge for Foxglove Studio
-    #    Connect via: ws://localhost:8765 (Foxglove WebSocket protocol)
+    # 7. Foxglove Bridge
     # ------------------------------------------------------------------
     foxglove_bridge_node = Node(
         package="foxglove_bridge",
@@ -243,9 +227,11 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 8. Obstacle tracker — persistent LiDAR obstacle detection
+    # 8. Obstacle tracker
     # ------------------------------------------------------------------
-    obstacle_tracker_params = os.path.join(map_dir, "config", "obstacle_tracker.yaml")
+    obstacle_tracker_params = os.path.join(
+        map_dir, "config", "obstacle_tracker.yaml"
+    )
 
     obstacle_tracker_node = Node(
         package="mowgli_map",
@@ -259,9 +245,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 9. NavSat → Pose converter — bridges Gazebo NavSatFix to the
-    #    PoseWithCovarianceStamped expected by the EKF's pose0 input.
-    #    On real hardware, gps_pose_converter handles this from AbsolutePose.
+    # 9. NavSat → Pose converter
     # ------------------------------------------------------------------
     navsat_to_pose_node = Node(
         package="mowgli_simulation",
@@ -279,10 +263,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 9. GPS degradation simulator — periodically degrades GPS to float
-    #    mode so LiDAR/odometry must compensate. Subscribes to /gps/pose
-    #    and republishes on /gps/pose_degraded with inflated covariance.
-    #    The EKF is remapped to use /gps/pose_degraded when this is active.
+    # 10. GPS degradation simulator
     # ------------------------------------------------------------------
     gps_degradation_node = Node(
         condition=IfCondition(simulate_gps_degradation),
@@ -301,8 +282,6 @@ def generate_launch_description() -> LaunchDescription:
                 "enabled": True,
             },
         ],
-        # The node subscribes to /gps/pose and publishes to /gps/pose_sim
-        # by default (hardcoded topics). No remapping needed.
     )
 
     # ------------------------------------------------------------------
@@ -313,7 +292,6 @@ def generate_launch_description() -> LaunchDescription:
             # Arguments
             slam_arg,
             map_arg,
-            world_arg,
             headless_arg,
             use_rviz_arg,
             gps_degradation_arg,

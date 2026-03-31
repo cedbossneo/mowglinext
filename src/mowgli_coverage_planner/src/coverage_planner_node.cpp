@@ -11,8 +11,9 @@
  *   3. Generate headlands via f2c::hg::ConstHL (headland_passes * headland_width).
  *   4. Generate swaths via f2c::sg::BruteForce (optimal angle search).
  *   5. Order swaths via f2c::rp::BoustrophedonOrder.
- *   6. Generate smooth Dubins path via f2c::pp::DubinsCurves.
- *   7. Convert F2C path states back to nav_msgs::msg::Path.
+ *   6. Extract swath endpoints as straight-line segments (no Dubins arcs).
+ *      Nav2's RPP controller handles point-turns between swaths.
+ *   7. Discretize each swath line into dense waypoints for nav_msgs::msg::Path.
  *
  * The headland outline path (for RViz visualisation) is still generated via
  * polygon_utils offset_polygon so it is independent of the F2C pipeline.
@@ -89,9 +90,9 @@ CoveragePlannerNode::CoveragePlannerNode(const rclcpp::NodeOptions & options)
   RCLCPP_INFO(
     get_logger(),
     "CoveragePlannerNode: tool_width=%.3f m, headland_passes=%d, "
-    "headland_width=%.3f m, path_spacing=%.3f m, min_turning_radius=%.3f m, frame='%s'",
+    "headland_width=%.3f m, path_spacing=%.3f m, frame='%s' (straight-line swaths, no Dubins)",
     tool_width_, headland_passes_, headland_width_,
-    path_spacing_, min_turning_radius_, map_frame_.c_str());
+    path_spacing_, map_frame_.c_str());
 
   // Publishers (transient-local so late subscribers receive the last message).
   const auto qos = rclcpp::QoS(1).transient_local();
@@ -167,6 +168,15 @@ void CoveragePlannerNode::execute(
     RCLCPP_DEBUG(get_logger(), "PlanCoverage [%.0f%%] %s", progress, phase.c_str());
   };
 
+  // ---- Clear previous coverage path (transient_local) so Foxglove / RViz
+  //       don't show stale data from the last run.
+  {
+    nav_msgs::msg::Path empty_path;
+    empty_path.header.stamp = now();
+    empty_path.header.frame_id = map_frame_;
+    path_pub_->publish(empty_path);
+  }
+
   // ---- Validate outer boundary --------------------------------------------
   const Polygon2D outer = geometry_polygon_to_points(goal->outer_boundary);
 
@@ -215,11 +225,33 @@ void CoveragePlannerNode::execute(
   ring.addPoint(F2CPoint(outer.front().first, outer.front().second));
 
   F2CCell  cell(ring);
+
+  // Add obstacle polygons as interior rings (holes) in the cell.
+  // Fields2Cover will clip swaths around these holes so no coverage
+  // path crosses an obstacle.
+  for (const auto & obs_polygon : goal->obstacles) {
+    if (obs_polygon.points.size() < 3) {
+      continue;
+    }
+    F2CLinearRing obs_ring;
+    for (const auto & pt : obs_polygon.points) {
+      obs_ring.addPoint(F2CPoint(
+        static_cast<double>(pt.x), static_cast<double>(pt.y)));
+    }
+    // Close the ring.
+    obs_ring.addPoint(F2CPoint(
+      static_cast<double>(obs_polygon.points.front().x),
+      static_cast<double>(obs_polygon.points.front().y)));
+    cell.addRing(obs_ring);
+  }
+
   F2CCells cells(cell);
 
-  // Robot model: width = tool_width_, minimum turning radius for Dubins.
+  // Robot model: width = tool_width_.
+  // min_turning_radius is no longer used for path planning (no Dubins arcs)
+  // but F2C still needs it for the robot model.
   F2CRobot robot(tool_width_);
-  robot.setMinTurningRadius(min_turning_radius_);
+  robot.setMinTurningRadius(0.01);  // Near-zero: diff-drive turns in place
 
   // ---- Phase: headland (F2C) ----------------------------------------------
   publish_feedback(15.0f, "headland");
@@ -228,7 +260,12 @@ void CoveragePlannerNode::execute(
   F2CCells inner_cells;
 
   try {
-    const double total_headland = static_cast<double>(headland_passes_) * headland_width_;
+    // Headland = inset from the boundary where no swaths are generated.
+    // For a diff-drive robot doing point-turns, headland_passes * headland_width
+    // is sufficient (no Dubins arc overshoot to account for).
+    const double total_headland =
+      static_cast<double>(headland_passes_) * headland_width_;
+
     inner_cells = headland_gen.generateHeadlands(cells, total_headland);
   } catch (const std::exception & ex) {
     result->success = false;
@@ -334,25 +371,16 @@ void CoveragePlannerNode::execute(
     return;
   }
 
-  // ---- Phase: path planning (Dubins) ---------------------------------------
+  // ---- Phase: path planning -------------------------------------------------
+  // For a diff-drive robot that can turn in place, Dubins/Reeds-Shepp arcs
+  // between swaths are wasteful.  Instead, extract swath start/end points as
+  // straight-line segments and let Nav2's RPP controller handle point-turns.
+  // This produces the classic "vacuum cleaner" back-and-forth pattern.
   publish_feedback(75.0f, "path_planning");
 
-  f2c::pp::DubinsCurves dubins;
-  F2CPath f2c_path;
-
-  try {
-    f2c_path = f2c::pp::PathPlanning::planPath(robot, route, dubins);
-  } catch (const std::exception & ex) {
+  if (route.size() == 0) {
     result->success = false;
-    result->message = std::string("F2C Dubins path planning failed: ") + ex.what();
-    RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
-    goal_handle->abort(result);
-    return;
-  }
-
-  if (f2c_path.size() == 0) {
-    result->success = false;
-    result->message = "F2C Dubins planner returned an empty path";
+    result->message = "F2C route planner returned no swaths";
     RCLCPP_WARN(get_logger(), "%s", result->message.c_str());
     goal_handle->abort(result);
     return;
@@ -360,23 +388,117 @@ void CoveragePlannerNode::execute(
 
   if (goal_handle->is_canceling()) {
     result->success = false;
-    result->message = "Cancelled during Dubins path planning";
+    result->message = "Cancelled during path planning";
     goal_handle->canceled(result);
     return;
   }
 
-  // ---- Convert F2C path states to nav_msgs::msg::Path ---------------------
+  // Build path from swath endpoints: each swath is a straight line.
+  //
+  // BoustrophedonOrder guarantees that for each swath in the sorted route:
+  //   - swath[si].getPath().getX(0) / getY(0)  = entry point (where we arrive)
+  //   - swath[si].getPath().getX(n-1) / getY(n-1) = exit point (where we depart)
+  // Alternate swaths have their internal point order reversed by the route
+  // planner so this invariant holds without any additional flipping here.
+  //
+  // For a diff-drive robot the U-turn between swath N and swath N+1 is just:
+  //   last pose of swath N  (heading = yaw_N)
+  //   first pose of swath N+1  (heading = yaw_N+1 ≈ yaw_N ± π)
+  // RPP's sequential lookahead detects the ~0.18 m lateral gap + 180° heading
+  // flip and executes a point-turn followed by a short straight drive.
+  // No intermediate arc waypoints are needed.
   publish_feedback(90.0f, "path_planning");
 
   nav_msgs::msg::Path swath_path;
   swath_path.header.frame_id = map_frame_;
   swath_path.header.stamp    = this->now();
 
-  for (size_t i = 0; i < f2c_path.size(); ++i) {
-    const auto & state = f2c_path.getState(i);
-    swath_path.poses.push_back(
-      make_pose(state.point.getX(), state.point.getY(), state.angle, map_frame_));
+  const double discretize_step = 0.10;  // 10 cm between waypoints on each swath
+
+  // Track the previous swath's exit heading to verify boustrophedon alternation.
+  double prev_yaw = std::numeric_limits<double>::quiet_NaN();
+
+  for (size_t si = 0; si < route.size(); ++si) {
+    const auto & swath = route.at(si);
+    const auto & line  = swath.getPath();
+
+    // Each swath is a LineString.  Extract the entry (index 0) and exit
+    // (index n-1) points.  BoustrophedonOrder has already reversed the point
+    // order for alternate swaths, so getX(0) is always the correct entry.
+    const size_t n_pts = line.size();
+    if (n_pts < 2) {
+      RCLCPP_WARN(get_logger(), "Swath %zu has fewer than 2 points, skipping", si);
+      continue;
+    }
+
+    const double x0 = line.getX(0);
+    const double y0 = line.getY(0);
+    const double x1 = line.getX(n_pts - 1);
+    const double y1 = line.getY(n_pts - 1);
+
+    // Heading along this swath (entry → exit direction).
+    const double dx        = x1 - x0;
+    const double dy        = y1 - y0;
+    const double swath_len = std::hypot(dx, dy);
+    const double yaw       = std::atan2(dy, dx);
+
+    if (swath_len < 1e-6) {
+      RCLCPP_WARN(get_logger(), "Swath %zu has near-zero length, skipping", si);
+      continue;
+    }
+
+    // Verify boustrophedon alternation: adjacent swaths should have headings
+    // roughly π apart (within ±45°).  Log a warning if this is violated so
+    // that misconfigured F2C route planners are caught early.
+    if (si > 0 && !std::isnan(prev_yaw)) {
+      double delta = std::abs(yaw - prev_yaw);
+      // Normalise to [0, π].
+      while (delta > M_PI) delta = std::abs(delta - 2.0 * M_PI);
+      const bool alternates = delta > (M_PI * 3.0 / 4.0);  // within 45° of π
+      if (!alternates) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Swath %zu heading %.1f° does not appear to alternate from swath %zu heading %.1f° "
+          "(delta=%.1f°). BoustrophedonOrder may not have reversed this swath.",
+          si, yaw * 180.0 / M_PI,
+          si - 1, prev_yaw * 180.0 / M_PI,
+          delta * 180.0 / M_PI);
+      }
+    }
+
+    RCLCPP_DEBUG(
+      get_logger(),
+      "Swath %zu/%zu: (%.3f, %.3f) → (%.3f, %.3f) yaw=%.1f° len=%.3f m",
+      si + 1, route.size(), x0, y0, x1, y1, yaw * 180.0 / M_PI, swath_len);
+
+    // Discretize the swath into dense waypoints at `discretize_step` intervals.
+    // Use s = 0..n_steps inclusive so both endpoints are always emitted.
+    const int n_steps = std::max(2, static_cast<int>(std::ceil(swath_len / discretize_step)));
+    for (int s = 0; s <= n_steps; ++s) {
+      const double t  = static_cast<double>(s) / static_cast<double>(n_steps);
+      const double px = x0 + t * dx;
+      const double py = y0 + t * dy;
+      swath_path.poses.push_back(make_pose(px, py, yaw, map_frame_));
+    }
+    // After the swath endpoint (s == n_steps), the next iteration will emit
+    // the start of swath si+1 with the reversed heading.  These two consecutive
+    // poses — separated by ~tool_width laterally and ~π in yaw — form the
+    // implicit U-turn that RPP handles via an in-place rotation + short drive.
+
+    prev_yaw = yaw;
   }
+
+  // Compute path length from waypoints.
+  double path_length = 0.0;
+  for (size_t i = 1; i < swath_path.poses.size(); ++i) {
+    const auto & a = swath_path.poses[i - 1].pose.position;
+    const auto & b = swath_path.poses[i].pose.position;
+    path_length += std::hypot(b.x - a.x, b.y - a.y);
+  }
+
+  RCLCPP_INFO(get_logger(),
+    "Coverage path: %zu waypoints (%zu swaths, %.1f m path length)",
+    swath_path.poses.size(), route.size(), path_length);
 
   // ---- Coverage area: area of inner cells ---------------------------------
   double coverage_area = 0.0;

@@ -49,6 +49,9 @@ extern "C" {
 /** UI button event packet (LlUiEvent / pkt_ui_event_t). */
 #define PKT_ID_UI_EVENT    0x03u
 
+/** Wheel odometry packet (LlOdometry / pkt_odometry_t). */
+#define PKT_ID_ODOMETRY    0x04u
+
 /** High-level config response packet. */
 #define PKT_ID_CONFIG_RSP  0x12u
 
@@ -182,6 +185,25 @@ typedef struct {
 } pkt_ui_event_t;
 
 /**
+ * @brief Wheel odometry packet — Firmware -> Host (PKT_ID_ODOMETRY = 0x04).
+ *
+ * Sent every 20 ms when the drive motor controller responds with encoder data.
+ *
+ * Wire size: 19 bytes (must match sizeof(LlOdometry) in ll_datatypes.hpp).
+ */
+typedef struct {
+    uint8_t  type;              /**< PKT_ID_ODOMETRY */
+    uint16_t dt_millis;         /**< Time delta since last packet [ms] */
+    int32_t  left_ticks;        /**< Cumulative left encoder ticks */
+    int32_t  right_ticks;       /**< Cumulative right encoder ticks */
+    int16_t  left_speed;        /**< Left wheel speed (raw motor unit) */
+    int16_t  right_speed;       /**< Right wheel speed (raw motor unit) */
+    uint8_t  left_direction;    /**< 0=stopped, 1=forward, 2=reverse */
+    uint8_t  right_direction;   /**< 0=stopped, 1=forward, 2=reverse */
+    uint16_t crc;               /**< CRC-16 CCITT over preceding bytes */
+} pkt_odometry_t;
+
+/**
  * @brief Heartbeat packet — Host -> Firmware (PKT_ID_HEARTBEAT = 0x42).
  *
  * The host must send this at least once every ~500 ms or the STM32 will
@@ -247,6 +269,11 @@ typedef struct {
  *   pkt_ui_event_t:
  *     type(1) + button_id(1) + press_duration(1) + crc(2) = 5
  *
+ *   pkt_odometry_t:
+ *     type(1) + dt_millis(2) + left_ticks(4) + right_ticks(4) +
+ *     left_speed(2) + right_speed(2) + left_direction(1) +
+ *     right_direction(1) + crc(2) = 19
+ *
  *   pkt_heartbeat_t:
  *     type(1) + emergency_requested(1) + emergency_release_requested(1) +
  *     crc(2) = 5
@@ -268,6 +295,7 @@ typedef struct {
 _Static_assert(sizeof(pkt_status_t)    == 38u, "pkt_status_t layout unexpected");
 _Static_assert(sizeof(pkt_imu_t)       == 41u, "pkt_imu_t layout unexpected");
 _Static_assert(sizeof(pkt_ui_event_t)  ==  5u, "pkt_ui_event_t layout unexpected");
+_Static_assert(sizeof(pkt_odometry_t)  == 19u, "pkt_odometry_t layout unexpected");
 _Static_assert(sizeof(pkt_heartbeat_t) ==  5u, "pkt_heartbeat_t layout unexpected");
 _Static_assert(sizeof(pkt_hl_state_t)  ==  5u, "pkt_hl_state_t layout unexpected");
 _Static_assert(sizeof(pkt_cmd_vel_t)   == 11u, "pkt_cmd_vel_t layout unexpected");

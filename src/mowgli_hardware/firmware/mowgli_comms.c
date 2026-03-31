@@ -277,6 +277,14 @@ void mowgli_comms_send_imu(const pkt_imu_t *imu)
     mowgli_comms_send(imu, sizeof(pkt_imu_t));
 }
 
+void mowgli_comms_send_odometry(const pkt_odometry_t *odom)
+{
+    if (odom == NULL) {
+        return;
+    }
+    mowgli_comms_send(odom, sizeof(pkt_odometry_t));
+}
+
 uint32_t mowgli_comms_get_rx_overflow_count(void)
 {
     return s_rx_overflow_count;

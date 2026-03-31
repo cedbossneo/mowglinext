@@ -21,7 +21,7 @@ if [ ! -f /ros2_ws/install/setup.bash ]; then
     echo "=== First run: building full workspace from mounted sources ==="
     cd /ros2_ws
     colcon build \
-        --cmake-args -DCMAKE_BUILD_TYPE=Release \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DFields2Cover_DIR=/usr/local/cmake/fields2cover \
         --parallel-workers "$(nproc)" \
         --event-handlers console_cohesion+
     echo "=== Build complete ==="
@@ -65,7 +65,13 @@ echo "  Shell:    make dev-shell"
 echo "========================================================"
 echo ""
 
-# Launch the full simulation with Gazebo GUI
-exec ros2 launch mowgli_bringup sim_full_system.launch.py \
-    headless:=false \
-    use_rviz:=false
+# Launch file is configurable via LAUNCH_FILE env var.
+# Default: sim_full_system.launch.py with Gazebo GUI.
+LAUNCH_FILE="${LAUNCH_FILE:-sim_full_system.launch.py}"
+LAUNCH_ARGS="${LAUNCH_ARGS:-headless:=false use_rviz:=false}"
+
+echo "  Launch: ros2 launch mowgli_bringup ${LAUNCH_FILE} ${LAUNCH_ARGS}"
+echo ""
+
+# shellcheck disable=SC2086
+exec ros2 launch mowgli_bringup ${LAUNCH_FILE} ${LAUNCH_ARGS}

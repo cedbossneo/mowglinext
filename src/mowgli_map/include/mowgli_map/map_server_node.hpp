@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
@@ -35,6 +36,9 @@
 
 #include <nav2_msgs/msg/costmap_filter_info.hpp>
 
+#include <std_msgs/msg/bool.hpp>
+
+#include <mowgli_interfaces/msg/obstacle_array.hpp>
 #include <mowgli_interfaces/msg/status.hpp>
 #include <mowgli_interfaces/srv/add_mowing_area.hpp>
 #include <mowgli_interfaces/srv/get_mowing_area.hpp>
@@ -104,7 +108,11 @@ private:
   void on_mower_status(mowgli_interfaces::msg::Status::ConstSharedPtr msg);
 
   /// Update mow_progress and confidence layers based on robot position.
+  /// Also checks boundary violation.
   void on_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
+
+  /// Receive persistent obstacle updates from ObstacleTracker.
+  void on_obstacles(mowgli_interfaces::msg::ObstacleArray::ConstSharedPtr msg);
 
   // ── Timer callback ───────────────────────────────────────────────────────
 
@@ -160,12 +168,35 @@ private:
   /// Caller must hold map_mutex_.
   void publish_keepout_mask();
 
+  /// Check if the robot is outside all allowed polygons and publish violation.
+  void check_boundary_violation(double x, double y);
+
+  /// Compare incoming obstacles to current set and trigger replan if needed.
+  void diff_and_update_obstacles(
+    const std::vector<mowgli_interfaces::msg::TrackedObstacle> & incoming);
+
   /// Build and publish the speed OccupancyGrid mask and CostmapFilterInfo.
   /// Cells within one tool_width of the mowing boundary → 50 (50 % speed).
   /// All other interior cells → 0 (full speed).
-  /// Does nothing if mowing_area_polygon_ has fewer than 3 points.
+  /// Does nothing if areas_ is empty.
   /// Caller must hold map_mutex_.
   void publish_speed_mask();
+
+  /// Load pre-defined mowing/navigation areas from ROS parameters.
+  void load_areas_from_params();
+
+  /// Parse a polygon from "x1,y1;x2,y2;..." string format.
+  static geometry_msgs::msg::Polygon parse_polygon_string(const std::string & s);
+
+  // ── Area entry ────────────────────────────────────────────────────────────
+
+  /// A named area (mowing or navigation) with optional interior obstacles.
+  struct AreaEntry {
+    std::string name;
+    geometry_msgs::msg::Polygon polygon;
+    std::vector<geometry_msgs::msg::Polygon> obstacles;
+    bool is_navigation_area{false};
+  };
 
   // ── Parameters ────────────────────────────────────────────────────────────
   double resolution_;
@@ -184,8 +215,24 @@ private:
   bool mow_blade_enabled_{false};
   rclcpp::Time last_decay_time_;
 
-  /// Cached mowing area polygon for ~/get_mowing_area service.
-  geometry_msgs::msg::Polygon mowing_area_polygon_;
+  // ── Replanning state ──────────────────────────────────────────────────────
+  /// Number of persistent obstacles at last replan (for change detection).
+  std::size_t last_obstacle_count_{0};
+  /// Timestamp of last replan trigger (for cooldown).
+  rclcpp::Time last_replan_time_;
+  /// Minimum seconds between replan triggers.
+  double replan_cooldown_sec_{30.0};
+  /// Whether a replan is pending (deferred due to cooldown).
+  bool replan_pending_{false};
+
+  /// Pre-defined areas (mowing zones + navigation corridors).
+  /// Any cell inside ANY area polygon is free in the keepout mask;
+  /// everything outside is lethal.
+  std::vector<AreaEntry> areas_;
+
+  /// Obstacle polygons: regions within the allowed areas that are off-limits
+  /// (trees, flower beds, etc.).  Marked as lethal in the keepout mask.
+  std::vector<geometry_msgs::msg::Polygon> obstacle_polygons_;
 
   // ── Publishers ────────────────────────────────────────────────────────────
   rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_pub_;
@@ -197,11 +244,18 @@ private:
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr keepout_mask_pub_;
   rclcpp::Publisher<nav2_msgs::msg::CostmapFilterInfo>::SharedPtr speed_filter_info_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr speed_mask_pub_;
+  bool keepout_filter_info_sent_{false};
+  bool speed_filter_info_sent_{false};
+
+  // Replan and boundary violation publishers
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr replan_needed_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr boundary_violation_pub_;
 
   // ── Subscribers ───────────────────────────────────────────────────────────
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr occupancy_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr status_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  rclcpp::Subscription<mowgli_interfaces::msg::ObstacleArray>::SharedPtr obstacle_sub_;
 
   // ── Services ──────────────────────────────────────────────────────────────
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_map_srv_;

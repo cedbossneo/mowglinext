@@ -9,12 +9,12 @@
     y  left
     z  up
 
-  Key dimensions:
-    Base:          0.55 m long, 0.40 m wide, 0.25 m high
-    Drive wheels:  radius 0.10 m, width 0.05 m, track 0.35 m
-    Caster:        radius 0.04 m (front)
-    Blade disc:    radius 0.15 m, height 0.02 m (centred under base)
-    Wheel ground clearance sets base_link at z = wheel_radius = 0.10 m
+  Key dimensions (from real YardForce Classic 500 URDF):
+    Base:          0.54 m long, 0.40 m wide, 0.19 m high
+    Drive wheels:  radius 0.04475 m, width 0.04 m, track 0.40 m (rear)
+    Front casters: radius 0.03 m, width 0.03 m
+    Blade disc:    radius 0.09 m, height 0.01 m (centred under base)
+    Wheel ground clearance sets base_link at z = drive_wheel_radius = 0.04475 m
     above base_footprint.
 -->
 <robot name="mowgli" xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -22,22 +22,29 @@
   <!-- ================================================================
        Properties
        ================================================================ -->
-  <xacro:property name="base_length"     value="0.55"/>
+  <xacro:property name="base_length"     value="0.54"/>
   <xacro:property name="base_width"      value="0.40"/>
-  <xacro:property name="base_height"     value="0.25"/>
+  <xacro:property name="base_height"     value="0.19"/>
 
-  <xacro:property name="wheel_radius"    value="0.10"/>
-  <xacro:property name="wheel_width"     value="0.05"/>
-  <xacro:property name="wheel_track"     value="0.35"/>  <!-- centre-to-centre -->
+  <!-- Rear drive wheels (from real URDF: diameter 0.0895m) -->
+  <xacro:property name="wheel_radius"    value="0.04475"/>
+  <xacro:property name="wheel_width"     value="0.04"/>
+  <xacro:property name="wheel_track"     value="0.40"/>  <!-- centre-to-centre -->
   <xacro:property name="wheel_mass"      value="0.5"/>
+  <!-- Rear wheels are offset behind base_link centre -->
+  <xacro:property name="wheel_x_offset"  value="-0.18"/>
 
-  <xacro:property name="caster_radius"   value="0.04"/>
+  <!-- Front caster wheels (smaller) -->
+  <xacro:property name="caster_radius"   value="0.03"/>
+  <xacro:property name="caster_width"    value="0.03"/>
   <xacro:property name="caster_mass"     value="0.2"/>
+  <xacro:property name="caster_x_offset" value="0.22"/>
+  <xacro:property name="caster_track"    value="0.36"/>  <!-- centre-to-centre -->
 
-  <xacro:property name="base_mass"       value="8.0"/>
+  <xacro:property name="base_mass"       value="8.76"/>
 
-  <xacro:property name="blade_radius"    value="0.15"/>
-  <xacro:property name="blade_height"    value="0.02"/>
+  <xacro:property name="blade_radius"    value="0.09"/>
+  <xacro:property name="blade_height"    value="0.01"/>
   <xacro:property name="blade_mass"      value="0.3"/>
 
   <!-- Derived: base_link is wheel_radius above ground -->
@@ -151,8 +158,8 @@
     <joint name="${side}_wheel_joint" type="continuous">
       <parent link="base_link"/>
       <child  link="${side}_wheel_link"/>
-      <!-- Wheels sit at x=0 (mid-axle), y = ±track/2, z = 0 (ground) -->
-      <origin xyz="0 ${y_reflect * wheel_track/2} 0" rpy="0 0 0"/>
+      <!-- Rear drive wheels: offset behind base_link centre -->
+      <origin xyz="${wheel_x_offset} ${y_reflect * wheel_track/2} 0" rpy="0 0 0"/>
       <axis xyz="0 1 0"/>
       <dynamics damping="0.1" friction="0.1"/>
     </joint>
@@ -171,58 +178,59 @@
   <xacro:drive_wheel side="right" y_reflect="-1"/>
 
   <!-- ================================================================
-       Front caster
+       Front caster wheel macro (two front casters like real robot)
        ================================================================ -->
-  <link name="front_caster_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="${caster_radius}"/>
-      </geometry>
-      <material name="light_grey">
-        <color rgba="0.7 0.7 0.7 1.0"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="${caster_radius}"/>
-      </geometry>
-    </collision>
-    <inertial>
-      <mass value="${caster_mass}"/>
-      <inertia
-        ixx="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"
-        ixy="0" ixz="0"
-        iyy="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"
-        iyz="0"
-        izz="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"/>
-    </inertial>
-  </link>
+  <xacro:macro name="front_caster" params="side y_reflect">
+    <link name="front_${side}_caster_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${caster_radius}" length="${caster_width}"/>
+        </geometry>
+        <material name="dark_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${caster_radius}" length="${caster_width}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="${caster_mass}"/>
+        <inertia
+          ixx="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"
+          ixy="0" ixz="0"
+          iyy="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"
+          iyz="0"
+          izz="${(2.0/5.0)*caster_mass*caster_radius*caster_radius}"/>
+      </inertial>
+    </link>
 
-  <joint name="front_caster_joint" type="fixed">
-    <parent link="base_link"/>
-    <child  link="front_caster_link"/>
-    <!-- Front of base, at ground level (z = -wheel_radius + caster_radius) -->
-    <origin xyz="${base_length/2 - caster_radius}
-                 0
-                 ${-wheel_radius + caster_radius}"
-            rpy="0 0 0"/>
-  </joint>
+    <joint name="front_${side}_caster_joint" type="continuous">
+      <parent link="base_link"/>
+      <child  link="front_${side}_caster_link"/>
+      <!-- Front casters: forward of centre, z at ground level -->
+      <origin xyz="${caster_x_offset} ${y_reflect * caster_track/2} ${-wheel_radius + caster_radius}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+    </joint>
 
-  <gazebo reference="front_caster_link">
-    <mu1>0.0</mu1>
-    <mu2>0.0</mu2>
-    <kp>1e6</kp>
-    <kd>1.0</kd>
-  </gazebo>
+    <gazebo reference="front_${side}_caster_link">
+      <mu1>0.0</mu1>
+      <mu2>0.0</mu2>
+      <kp>1e6</kp>
+      <kd>1.0</kd>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:front_caster side="left"  y_reflect="1"/>
+  <xacro:front_caster side="right" y_reflect="-1"/>
 
   <!-- ================================================================
        Blade disc  (centred under base, just below chassis)
        ================================================================ -->
   <link name="blade_link">
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 ${blade_height/2}" rpy="0 0 0"/>
       <geometry>
         <cylinder radius="${blade_radius}" length="${blade_height}"/>
       </geometry>
@@ -241,11 +249,12 @@
                             h="${blade_height}"/>
   </link>
 
-  <joint name="blade_joint" type="fixed">
+  <joint name="blade_joint" type="continuous">
     <parent link="base_link"/>
     <child  link="blade_link"/>
-    <!-- Hang blade flush below the chassis floor -->
-    <origin xyz="0 0 ${-(blade_height/2)}" rpy="0 0 0"/>
+    <!-- Blade disc centred under base, matching real robot -->
+    <origin xyz="0 0 ${-wheel_radius + 0.05}" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
   </joint>
 
   <!-- ================================================================
@@ -345,7 +354,8 @@
   <joint name="lidar_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="lidar_link"/>
-    <origin xyz="0.20 0 0.25" rpy="0 0 0"/>
+    <!-- Mounted on top front of chassis -->
+    <origin xyz="0.20 0 ${base_height + 0.03}" rpy="0 0 0"/>
   </joint>
 
   <!-- ================================================================

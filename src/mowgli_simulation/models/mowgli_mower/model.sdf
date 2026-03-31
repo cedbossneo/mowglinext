@@ -5,46 +5,46 @@
   Coordinate conventions (REP-103):
     x  forward   y  left   z  up
 
-  Key geometry:
-    Base (chassis):  0.55 m long, 0.40 m wide, 0.15 m high
-    Drive wheels:    radius 0.10 m, length 0.05 m, track 0.35 m (centre-to-centre)
-    Caster:          radius 0.05 m, positioned at front under chassis
-    Blade disc:      radius 0.15 m, height 0.02 m (beneath chassis)
-    IMU:             at chassis centre top
-    LiDAR:           0.20 m forward, 0.20 m above chassis top
-    GPS:             at chassis centre top (+0.01 m above IMU)
+  Key geometry (YardForce Classic 500):
+    Base (chassis):  0.54 m long, 0.40 m wide, 0.19 m high, 8.76 kg
+    Drive wheels:    radius 0.04475 m, width 0.04 m, track 0.40 m (rear, x=-0.18)
+    Front casters:   radius 0.03 m, width 0.03 m, track 0.36 m (x=+0.22)
+    Blade disc:      radius 0.09 m, height 0.01 m (beneath chassis)
+    IMU:             at chassis centre, half-height
+    LiDAR:           0.20 m forward, 0.03 m above chassis top
+    GPS:             at chassis centre top (+0.01 m)
 
   base_link is placed at wheel-axle height:
-    z = wheel_radius = 0.10 m above ground
+    z = wheel_radius = 0.04475 m above ground
 
   All joints are relative to base_link unless noted.
 -->
 <sdf version="1.9">
   <model name="mowgli_mower">
-    <pose>0 0 0.10 0 0 0</pose>
+    <pose>0 0 0.04475 0 0 0</pose>
 
     <!-- ==============================================================
          BASE LINK — chassis body
          ============================================================== -->
     <link name="base_link">
       <inertial>
-        <mass>8.0</mass>
-        <!-- Box inertia: m/12 * (y^2+z^2), etc. for 0.55×0.40×0.15 -->
+        <mass>8.76</mass>
+        <!-- Box inertia: m/12 * (y^2+z^2), etc. for 0.54×0.40×0.19 -->
         <inertia>
-          <ixx>0.0558</ixx>  <!-- 8/12*(0.40^2+0.15^2) -->
+          <ixx>0.1459</ixx>  <!-- 8.76/12*(0.40^2+0.19^2) = 0.73*(0.16+0.0361) -->
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.1171</iyy>  <!-- 8/12*(0.55^2+0.15^2) -->
+          <iyy>0.2396</iyy>  <!-- 8.76/12*(0.54^2+0.19^2) = 0.73*(0.2916+0.0361) -->
           <iyz>0</iyz>
-          <izz>0.1483</izz>  <!-- 8/12*(0.55^2+0.40^2) -->
+          <izz>0.3296</izz>  <!-- 8.76/12*(0.54^2+0.40^2) = 0.73*(0.2916+0.16) -->
         </inertia>
       </inertial>
 
       <!-- Chassis visual — green -->
       <visual name="chassis_visual">
-        <pose>0 0 0.075 0 0 0</pose>
+        <pose>0 0 0.095 0 0 0</pose>
         <geometry>
-          <box><size>0.55 0.40 0.15</size></box>
+          <box><size>0.54 0.40 0.19</size></box>
         </geometry>
         <material>
           <ambient>0.18 0.55 0.18 1</ambient>
@@ -55,9 +55,9 @@
 
       <!-- Chassis collision -->
       <collision name="chassis_collision">
-        <pose>0 0 0.075 0 0 0</pose>
+        <pose>0 0 0.095 0 0 0</pose>
         <geometry>
-          <box><size>0.55 0.40 0.15</size></box>
+          <box><size>0.54 0.40 0.19</size></box>
         </geometry>
         <surface>
           <friction>
@@ -68,7 +68,7 @@
 
       <!-- IMU sensor embedded in base_link -->
       <sensor name="imu_sensor" type="imu">
-        <pose>0 0 0.16 0 0 0</pose>
+        <pose>0 0 0.095 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>100</update_rate>
         <visualize>false</visualize>
@@ -122,7 +122,7 @@
 
       <!-- GPS / NavSat sensor -->
       <sensor name="navsat_sensor" type="navsat">
-        <pose>0 0 0.18 0 0 0</pose>
+        <pose>0 0 0.20 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>5</update_rate>
         <topic>/gps/fix</topic>
@@ -145,27 +145,26 @@
     </link>
 
     <!-- ==============================================================
-         LEFT DRIVE WHEEL
-         Position: x=0, y=+0.175 (track/2), z=0 (ground plane)
+         LEFT DRIVE WHEEL (rear)
+         Position: x=-0.18, y=+0.20 (track/2), z=0
          ============================================================== -->
     <link name="left_wheel">
-      <pose>0 0.175 0 -1.5708 0 0</pose>
+      <pose>-0.18 0.20 0 -1.5708 0 0</pose>
       <inertial>
         <mass>0.5</mass>
-        <!-- Cylinder with axis along y: ixx=iyy=m/12*(3r^2+h^2), izz=m/2*r^2 -->
-        <!-- After -pi/2 rotation (y becomes z in link frame): -->
+        <!-- Cylinder axis along z (after rotation): ixx=iyy=m/12*(3r^2+h^2), izz=m/2*r^2 -->
         <inertia>
-          <ixx>0.001250</ixx>  <!-- m/12*(3*0.01+0.0025) -->
+          <ixx>0.000317</ixx>  <!-- 0.5/12*(3*0.04475^2+0.04^2) -->
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.001250</iyy>
+          <iyy>0.000317</iyy>
           <iyz>0</iyz>
-          <izz>0.002500</izz>  <!-- m/2*r^2 = 0.5*0.5*0.01 -->
+          <izz>0.000501</izz>  <!-- 0.5/2*0.04475^2 -->
         </inertia>
       </inertial>
       <visual name="visual">
         <geometry>
-          <cylinder><radius>0.10</radius><length>0.05</length></cylinder>
+          <cylinder><radius>0.04475</radius><length>0.04</length></cylinder>
         </geometry>
         <material>
           <ambient>0.2 0.2 0.2 1</ambient>
@@ -174,7 +173,7 @@
       </visual>
       <collision name="collision">
         <geometry>
-          <cylinder><radius>0.10</radius><length>0.05</length></cylinder>
+          <cylinder><radius>0.04475</radius><length>0.04</length></cylinder>
         </geometry>
         <surface>
           <friction>
@@ -205,32 +204,32 @@
       <parent>base_link</parent>
       <child>left_wheel</child>
       <axis>
-        <xyz>0 0 1</xyz>  <!-- in child (wheel) frame, rotated, this is the spin axis -->
+        <xyz>0 0 1</xyz>
         <dynamics><damping>0.1</damping><friction>0.1</friction></dynamics>
         <limit><lower>-1e+16</lower><upper>1e+16</upper></limit>
       </axis>
     </joint>
 
     <!-- ==============================================================
-         RIGHT DRIVE WHEEL
-         Position: x=0, y=-0.175 (track/2), z=0
+         RIGHT DRIVE WHEEL (rear)
+         Position: x=-0.18, y=-0.20 (track/2), z=0
          ============================================================== -->
     <link name="right_wheel">
-      <pose>0 -0.175 0 1.5708 0 0</pose>
+      <pose>-0.18 -0.20 0 1.5708 0 0</pose>
       <inertial>
         <mass>0.5</mass>
         <inertia>
-          <ixx>0.001250</ixx>
+          <ixx>0.000317</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.001250</iyy>
+          <iyy>0.000317</iyy>
           <iyz>0</iyz>
-          <izz>0.002500</izz>
+          <izz>0.000501</izz>
         </inertia>
       </inertial>
       <visual name="visual">
         <geometry>
-          <cylinder><radius>0.10</radius><length>0.05</length></cylinder>
+          <cylinder><radius>0.04475</radius><length>0.04</length></cylinder>
         </geometry>
         <material>
           <ambient>0.2 0.2 0.2 1</ambient>
@@ -239,7 +238,7 @@
       </visual>
       <collision name="collision">
         <geometry>
-          <cylinder><radius>0.10</radius><length>0.05</length></cylinder>
+          <cylinder><radius>0.04475</radius><length>0.04</length></cylinder>
         </geometry>
         <surface>
           <friction>
@@ -277,26 +276,27 @@
     </joint>
 
     <!-- ==============================================================
-         FRONT CASTER WHEEL
-         Position: x=+0.225 (front of base), z=-0.05 (caster radius below axle)
+         FRONT LEFT CASTER WHEEL
+         Position: x=+0.22, y=+0.18 (caster_track/2), z drops to ground
+         z = -(wheel_radius - caster_radius) = -(0.04475 - 0.03) = -0.01475
          ============================================================== -->
-    <link name="front_caster">
-      <pose>0.225 0 -0.05 0 0 0</pose>
+    <link name="front_left_caster">
+      <pose>0.22 0.18 -0.01475 0 0 0</pose>
       <inertial>
         <mass>0.2</mass>
-        <!-- Solid sphere: I = 2/5 * m * r^2 = 2/5 * 0.2 * 0.0025 -->
+        <!-- Sphere: I = 2/5 * m * r^2 = 2/5 * 0.2 * 0.03^2 -->
         <inertia>
-          <ixx>0.0002</ixx>
+          <ixx>0.000072</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.0002</iyy>
+          <iyy>0.000072</iyy>
           <iyz>0</iyz>
-          <izz>0.0002</izz>
+          <izz>0.000072</izz>
         </inertia>
       </inertial>
       <visual name="visual">
         <geometry>
-          <sphere><radius>0.05</radius></sphere>
+          <sphere><radius>0.03</radius></sphere>
         </geometry>
         <material>
           <ambient>0.5 0.5 0.5 1</ambient>
@@ -305,12 +305,11 @@
       </visual>
       <collision name="collision">
         <geometry>
-          <sphere><radius>0.05</radius></sphere>
+          <sphere><radius>0.03</radius></sphere>
         </geometry>
         <surface>
           <friction>
             <ode>
-              <!-- Very low friction for a freely pivoting caster -->
               <mu>0.01</mu>
               <mu2>0.01</mu2>
             </ode>
@@ -327,31 +326,86 @@
       </collision>
     </link>
 
-    <joint name="front_caster_joint" type="ball">
+    <joint name="front_left_caster_joint" type="ball">
       <parent>base_link</parent>
-      <child>front_caster</child>
+      <child>front_left_caster</child>
     </joint>
 
     <!-- ==============================================================
-         BLADE DISC
-         Visual only — centred below chassis
+         FRONT RIGHT CASTER WHEEL
+         Position: x=+0.22, y=-0.18 (caster_track/2), z=-0.01475
          ============================================================== -->
-    <link name="blade_link">
-      <pose>0 0 -0.01 0 0 0</pose>
+    <link name="front_right_caster">
+      <pose>0.22 -0.18 -0.01475 0 0 0</pose>
       <inertial>
-        <mass>0.3</mass>
+        <mass>0.2</mass>
         <inertia>
-          <ixx>0.001688</ixx>  <!-- m/12*(3r^2+h^2) -->
+          <ixx>0.000072</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>0.001688</iyy>
+          <iyy>0.000072</iyy>
           <iyz>0</iyz>
-          <izz>0.003375</izz>  <!-- m/2*r^2 -->
+          <izz>0.000072</izz>
         </inertia>
       </inertial>
       <visual name="visual">
         <geometry>
-          <cylinder><radius>0.15</radius><length>0.02</length></cylinder>
+          <sphere><radius>0.03</radius></sphere>
+        </geometry>
+        <material>
+          <ambient>0.5 0.5 0.5 1</ambient>
+          <diffuse>0.6 0.6 0.6 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <sphere><radius>0.03</radius></sphere>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.01</mu>
+              <mu2>0.01</mu2>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <kp>1000000.0</kp>
+              <kd>100.0</kd>
+              <max_vel>1.0</max_vel>
+              <min_depth>0.001</min_depth>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+    </link>
+
+    <joint name="front_right_caster_joint" type="ball">
+      <parent>base_link</parent>
+      <child>front_right_caster</child>
+    </joint>
+
+    <!-- ==============================================================
+         BLADE DISC
+         Centred under chassis, just above ground
+         z = -(wheel_radius) + 0.05 = -0.04475 + 0.05 = 0.00525
+         ============================================================== -->
+    <link name="blade_link">
+      <pose>0 0 0.00525 0 0 0</pose>
+      <inertial>
+        <mass>0.3</mass>
+        <inertia>
+          <ixx>0.000610</ixx>  <!-- m/12*(3r^2+h^2) = 0.3/12*(3*0.0081+0.0001) = 0.000610 -->
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.000610</iyy>
+          <iyz>0</iyz>
+          <izz>0.001215</izz>  <!-- m/2*r^2 = 0.3/2*0.0081 -->
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <cylinder><radius>0.09</radius><length>0.01</length></cylinder>
         </geometry>
         <material>
           <ambient>0.75 0.75 0.75 1</ambient>
@@ -369,11 +423,11 @@
 
     <!-- ==============================================================
          LIDAR LINK
-         Mounted 0.20 m forward and 0.20 m above chassis top
-         (chassis top = 0.15 m from base_link origin, so lidar z = 0.35)
+         Mounted 0.20 m forward and 0.03 m above chassis top
+         chassis top = base_height = 0.19 m, so lidar z = 0.19 + 0.03 = 0.22
          ============================================================== -->
     <link name="laser_link">
-      <pose>0.20 0 0.35 0 0 0</pose>
+      <pose>0.20 0 0.22 0 0 0</pose>
       <inertial>
         <mass>0.18</mass>
         <inertia>
@@ -418,7 +472,8 @@
             </vertical>
           </scan>
           <range>
-            <min>0.10</min>
+            <!-- min 0.35m: avoids self-reflections from the robot chassis -->
+            <min>0.35</min>
             <max>12.0</max>
             <resolution>0.01</resolution>
           </range>
@@ -445,8 +500,8 @@
         name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
-      <wheel_separation>0.35</wheel_separation>
-      <wheel_radius>0.10</wheel_radius>
+      <wheel_separation>0.40</wheel_separation>
+      <wheel_radius>0.04475</wheel_radius>
       <odom_publish_frequency>50</odom_publish_frequency>
       <topic>/cmd_vel</topic>
       <odom_topic>/odom</odom_topic>

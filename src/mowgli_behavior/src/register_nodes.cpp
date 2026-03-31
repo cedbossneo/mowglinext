@@ -1,5 +1,6 @@
 #include "mowgli_behavior/action_nodes.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
+#include "mowgli_behavior/coverage_nodes.hpp"
 
 namespace mowgli_behavior {
 
@@ -11,7 +12,12 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<IsBatteryLow>("IsBatteryLow");
   factory.registerNodeType<IsRainDetected>("IsRainDetected");
   factory.registerNodeType<NeedsDocking>("NeedsDocking");
+  factory.registerNodeType<IsBatteryAbove>("IsBatteryAbove");
   factory.registerNodeType<IsCommand>("IsCommand");
+
+  factory.registerNodeType<IsGPSFixed>("IsGPSFixed");
+  factory.registerNodeType<ReplanNeeded>("ReplanNeeded");
+  factory.registerNodeType<IsBoundaryViolation>("IsBoundaryViolation");
 
   // Action nodes
   factory.registerNodeType<SetMowerEnabled>("SetMowerEnabled");
@@ -25,6 +31,13 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<SaveSlamMap>("SaveSlamMap");
   factory.registerNodeType<BackUp>("BackUp");
   factory.registerNodeType<ClearCommand>("ClearCommand");
+  factory.registerNodeType<ReplanCoverage>("ReplanCoverage");
+  factory.registerNodeType<SaveObstacles>("SaveObstacles");
+  factory.registerNodeType<SetNavMode>("SetNavMode");
+
+  // Coverage nodes (opennav_coverage integration)
+  factory.registerNodeType<ComputeCoverage>("ComputeCoverage");
+  factory.registerNodeType<ExecuteSwathBySwath>("ExecuteSwathBySwath");
 }
 
 }  // namespace mowgli_behavior

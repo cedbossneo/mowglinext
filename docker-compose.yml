@@ -129,6 +129,38 @@ services:
     command: ["ros2", "launch", "mowgli_bringup", "navigation.launch.py"]
 
   # --------------------------------------------------------------------------
+  # dev-sim-small — Small garden simulation for boundary/path testing.
+  # Uses the 10m×8m small_garden world with tight mowing boundary.
+  # Gazebo GUI: http://localhost:6080/vnc.html
+  # Foxglove:   ws://localhost:8765
+  # --------------------------------------------------------------------------
+  dev-sim-small:
+    container_name: mowgli_dev_sim_small
+    image: mowgli-ros2:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      <<: *ros-env
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      RCUTILS_LOGGING_SEVERITY_THRESHOLD: DEBUG
+      LAUNCH_FILE: "sim_small_garden.launch.py"
+      LAUNCH_ARGS: "headless:=false use_rviz:=false"
+    ports:
+      - "8765:8765"   # Foxglove Bridge WebSocket
+      - "6080:6080"   # noVNC web client
+    volumes:
+      - ./src:/ros2_ws/src
+      - ./foxglove:/ros2_ws/foxglove
+      - dev_build:/ros2_ws/build
+      - dev_install:/ros2_ws/install
+      - dev_log:/ros2_ws/log
+      - mowgli_maps:/ros2_ws/maps
+      - mowgli_ccache:/ccache
+    restart: unless-stopped
+    entrypoint: ["/ros2_ws/scripts/start_dev_sim.sh"]
+
+  # --------------------------------------------------------------------------
   # dev — interactive development container (shell only).
   # Source tree is bind-mounted so colcon builds see live changes without
   # rebuilding the image. A ccache volume speeds up incremental compilation.
@@ -174,6 +206,7 @@ services:
     environment:
       <<: *ros-env
       LIBGL_ALWAYS_SOFTWARE: "1"
+      RCUTILS_LOGGING_SEVERITY_THRESHOLD: DEBUG
     ports:
       - "8765:8765"   # Foxglove Bridge WebSocket
       - "6080:6080"   # noVNC web client

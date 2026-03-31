@@ -1,0 +1,4 @@
+uint32 obstacle_id
+---
+bool success
+string message

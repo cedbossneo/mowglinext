@@ -1,0 +1,9 @@
+uint32 id
+geometry_msgs/Polygon polygon
+geometry_msgs/Point centroid
+float64 radius
+builtin_interfaces/Time first_seen
+uint32 observation_count
+uint8 status
+uint8 TRANSIENT=0
+uint8 PERSISTENT=1

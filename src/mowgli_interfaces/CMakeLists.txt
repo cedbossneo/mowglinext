@@ -22,20 +22,23 @@ set(msg_files
   "msg/HighLevelStatus.msg"
   "msg/AbsolutePose.msg"
   "msg/WheelTick.msg"
-  "msg/MapArea.msg"
-  "msg/CoveragePath.msg"
   "msg/ImuRaw.msg"
+  "msg/MapArea.msg"
+  "msg/ObstacleArray.msg"
+  "msg/TrackedObstacle.msg"
 )
 
 # Declare service files
 set(srv_files
+  "srv/AddMowingArea.srv"
+  "srv/ClearMap.srv"
+  "srv/ClearObstacle.srv"
+  "srv/EmergencyStop.srv"
+  "srv/GetMowingArea.srv"
   "srv/HighLevelControl.srv"
   "srv/MowerControl.srv"
-  "srv/EmergencyStop.srv"
-  "srv/AddMowingArea.srv"
-  "srv/GetMowingArea.srv"
   "srv/SetDockingPoint.srv"
-  "srv/ClearMap.srv"
+  "srv/TriggerReplan.srv"
 )
 
 # Declare action files

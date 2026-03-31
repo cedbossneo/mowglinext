@@ -24,9 +24,11 @@
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>action_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>mowgli_interfaces</depend>
   <depend>slam_toolbox</depend>
+  <depend>opennav_coverage_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

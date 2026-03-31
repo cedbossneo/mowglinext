@@ -21,7 +21,11 @@
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_interfaces/action/plan_coverage.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
+#include "mowgli_interfaces/msg/obstacle_array.hpp"
+#include "mowgli_interfaces/srv/get_mowing_area.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
+#include "std_msgs/msg/bool.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 namespace mowgli_behavior {
 
@@ -203,7 +207,6 @@ public:
   static BT::PortsList providedPorts() {
     return {
       BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
-      BT::InputPort<std::string>("boundary", "", "Mowing boundary points (optional)"),
       BT::OutputPort<std::string>("first_waypoint", "First waypoint as 'x;y;yaw'")
     };
   }
@@ -228,17 +231,17 @@ private:
 // FollowCoveragePath
 // ---------------------------------------------------------------------------
 
-/// Subscribes to the coverage path topic, sends it to Nav2 FollowPath action,
-/// and returns SUCCESS when the robot has traversed the entire path.
+/// Subscribes to the coverage path topic, sends it to Nav2 FollowPath action
+/// using the MPPI controller, and returns SUCCESS when the robot has traversed
+/// the entire path.  MPPI handles obstacle avoidance within the costmap
+/// (keepout boundary + LiDAR obstacles) — no detour logic needed.
 ///
 /// Input ports:
 ///   path_topic (string, default "/coverage_planner_node/coverage_path")
 class FollowCoveragePath : public BT::StatefulActionNode {
 public:
   using FollowPathAction = nav2_msgs::action::FollowPath;
-  using Nav2Goal         = nav2_msgs::action::NavigateToPose;
   using FollowGoalHandle = rclcpp_action::ClientGoalHandle<FollowPathAction>;
-  using NavGoalHandle    = rclcpp_action::ClientGoalHandle<Nav2Goal>;
 
   FollowCoveragePath(const std::string& name, const BT::NodeConfig& config)
     : BT::StatefulActionNode(name, config) {}
@@ -247,11 +250,7 @@ public:
     return {
       BT::InputPort<std::string>("path_topic",
         "/coverage_planner_node/coverage_path",
-        "Topic with the coverage path to follow"),
-      BT::InputPort<double>("skip_distance", 3.0,
-        "Distance along path to skip past obstacle (m)"),
-      BT::InputPort<int>("max_detours", 10,
-        "Max obstacle detours before giving up")
+        "Topic with the coverage path to follow")
     };
   }
 
@@ -260,35 +259,22 @@ public:
   void           onHalted() override;
 
 private:
-  enum class Phase { WAIT_PATH, FOLLOWING, DETOURING, RESUMING };
+  enum class Phase { WAIT_PATH, FOLLOWING };
 
-  // TODO(cedric): Add findClosestPoseIndex(robot_pose) using a TF lookup for
-  // more accurate detour resumption when the robot has drifted off the path.
-  /// Find a pose that is at least skip_dist metres ahead of path_index.
-  size_t findSkipTarget(size_t from_index, double skip_dist) const;
-  /// Send a FollowPath goal starting from path[start_index] to the end.
-  void sendFollowPathGoal(size_t start_index);
+  /// Send the full coverage path to the FollowPath action server.
+  void sendFollowGoal();
 
-  // FollowPath action (RPP controller)
+  // FollowPath action (MPPI controller)
   rclcpp_action::Client<FollowPathAction>::SharedPtr follow_client_;
   std::shared_future<FollowGoalHandle::SharedPtr> follow_future_;
   FollowGoalHandle::SharedPtr follow_handle_;
-
-  // NavigateToPose action (for detours around obstacles)
-  rclcpp_action::Client<Nav2Goal>::SharedPtr nav_client_;
-  std::shared_future<NavGoalHandle::SharedPtr> nav_future_;
-  NavGoalHandle::SharedPtr nav_handle_;
 
   // Path and state
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   nav_msgs::msg::Path full_path_;
   bool path_received_{false};
   Phase phase_{Phase::WAIT_PATH};
-  size_t current_path_index_{0};  ///< Where we are on the coverage path
-  size_t detour_target_index_{0}; ///< Where we're detouring to
-  int detour_count_{0};
-  double skip_distance_{3.0};
-  int max_detours_{10};
+  size_t current_path_index_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -369,6 +355,85 @@ private:
   GoalHandle::SharedPtr goal_handle_;
   std::shared_future<WrappedResult> result_future_;
   bool result_requested_{false};
+};
+
+// ---------------------------------------------------------------------------
+// ReplanCoverage
+// ---------------------------------------------------------------------------
+
+/// Fetches the current mowing area + obstacles from the map server, then
+/// calls the coverage planner to generate a new path.  On success, the new
+/// path is published on the coverage_path topic (transient_local) and
+/// FollowCoveragePath will pick it up on its next tick.
+///
+/// Output ports:
+///   first_waypoint (string) – first waypoint as "x;y;yaw".
+class ReplanCoverage : public BT::StatefulActionNode {
+public:
+  using PlanCoverageAction = mowgli_interfaces::action::PlanCoverage;
+  using GoalHandle = rclcpp_action::ClientGoalHandle<PlanCoverageAction>;
+
+  ReplanCoverage(const std::string& name, const BT::NodeConfig& config)
+    : BT::StatefulActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return {
+      BT::OutputPort<std::string>("first_waypoint", "First waypoint as 'x;y;yaw'")
+    };
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void           onHalted() override;
+
+private:
+  rclcpp_action::Client<PlanCoverageAction>::SharedPtr action_client_;
+  std::shared_future<GoalHandle::SharedPtr> goal_handle_future_;
+  GoalHandle::SharedPtr goal_handle_;
+  std::shared_ptr<const PlanCoverageAction::Result> latest_result_;
+  bool result_received_{false};
+};
+
+// ---------------------------------------------------------------------------
+// SaveObstacles
+// ---------------------------------------------------------------------------
+
+/// Calls /obstacle_tracker/save_obstacles to persist the obstacle map to disk.
+class SaveObstacles : public BT::SyncActionNode {
+public:
+  SaveObstacles(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus tick() override;
+
+private:
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr client_;
+};
+
+// ---------------------------------------------------------------------------
+// SetNavMode
+// ---------------------------------------------------------------------------
+
+/// Dynamically adjusts Nav2 controller speed and costmap inflation based on
+/// GPS quality.  "precise" = full speed, "degraded" = half speed + wider
+/// inflation.
+///
+/// Input ports:
+///   mode (string) – "precise" or "degraded"
+class SetNavMode : public BT::SyncActionNode {
+public:
+  SetNavMode(const std::string& name, const BT::NodeConfig& config)
+    : BT::SyncActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return {
+      BT::InputPort<std::string>("mode", "precise", "Navigation mode: precise or degraded")
+    };
+  }
+
+  BT::NodeStatus tick() override;
 };
 
 // ---------------------------------------------------------------------------

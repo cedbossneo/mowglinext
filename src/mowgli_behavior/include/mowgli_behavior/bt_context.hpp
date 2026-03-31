@@ -2,11 +2,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.hpp"
 #include "tf2_ros/transform_listener.hpp"
+#include "geometry_msgs/msg/point32.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
@@ -49,12 +53,58 @@ struct BTContext {
   float gps_quality{0.0f};
 
   // -----------------------------------------------------------------------
+  // GPS quality classification (derived from gps_quality / fix_type)
+  // -----------------------------------------------------------------------
+
+  /// GPS fix type: 0=no fix, 1=autonomous, 2=DGPS, 4=RTK fixed, 5=RTK float
+  uint8_t gps_fix_type{0};
+
+  /// true when RTK fixed (fix_type >= 4 and gps_quality > 80%)
+  bool gps_is_fixed{false};
+
+  // -----------------------------------------------------------------------
+  // Localization quality flags (set by boundary/replan monitors)
+  // -----------------------------------------------------------------------
+
+  /// Set to true when ObstacleTracker publishes updated obstacles that
+  /// differ from the last coverage plan.
+  bool replan_needed{false};
+
+  /// Set to true when the robot is outside all allowed polygons.
+  bool boundary_violation{false};
+
+  /// Current navigation mode: "precise" or "degraded"
+  std::string current_nav_mode{"precise"};
+
+  // -----------------------------------------------------------------------
   // Docking point (set from parameter or service call)
   // -----------------------------------------------------------------------
 
   double dock_x{0.0};
   double dock_y{0.0};
   double dock_yaw{0.0};
+
+  // -----------------------------------------------------------------------
+  // Coverage path components (set by ComputeCoverage, consumed by
+  // ExecuteSwathBySwath).  Using simple structs to avoid depending on
+  // opennav_coverage_msgs in the context header.
+  // -----------------------------------------------------------------------
+
+  struct Swath {
+    geometry_msgs::msg::Point32 start;
+    geometry_msgs::msg::Point32 end;
+  };
+
+  struct CoveragePlan {
+    std::vector<Swath> swaths;
+    std::vector<nav_msgs::msg::Path> turns;  // N-1 turns for N swaths
+  };
+
+  /// Populated by ComputeCoverage, consumed by ExecuteSwathBySwath.
+  std::optional<CoveragePlan> coverage_plan;
+
+  /// Progress tracking across charge cycles.
+  size_t next_swath_index{0};
 
   // -----------------------------------------------------------------------
   // TF buffer (shared across all BT nodes)

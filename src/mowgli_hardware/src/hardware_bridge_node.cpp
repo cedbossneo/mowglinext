@@ -12,6 +12,7 @@
  *   ~/emergency    mowgli_interfaces/msg/Emergency
  *   ~/power        mowgli_interfaces/msg/Power
  *   ~/imu/data_raw sensor_msgs/msg/Imu
+ *   ~/wheel_odom   nav_msgs/msg/Odometry
  *
  * Subscribed topics:
  *   ~/cmd_vel      geometry_msgs/msg/Twist  → LlCmdVel packet to STM32
@@ -37,6 +38,7 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/header.hpp"
 
@@ -98,6 +100,7 @@ private:
     pub_emergency_ = create_publisher<mowgli_interfaces::msg::Emergency>("~/emergency", 10);
     pub_power_     = create_publisher<mowgli_interfaces::msg::Power>("~/power", 10);
     pub_imu_       = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", 10);
+    pub_wheel_odom_ = create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", 10);
   }
 
   void create_subscribers()
@@ -243,6 +246,9 @@ private:
       case PACKET_ID_LL_UI_EVENT:
         handle_ui_event(data, len);
         break;
+      case PACKET_ID_LL_ODOMETRY:
+        handle_odometry(data, len);
+        break;
       default:
         RCLCPP_DEBUG(
           get_logger(), "Unhandled packet type 0x%02X (len=%zu)", data[0], len);
@@ -356,6 +362,71 @@ private:
       pkt.button_id, pkt.press_duration);
   }
 
+  void handle_odometry(const uint8_t * data, std::size_t len)
+  {
+    if (len < sizeof(LlOdometry)) {
+      RCLCPP_WARN(get_logger(), "Odometry packet too short: %zu < %zu", len, sizeof(LlOdometry));
+      return;
+    }
+
+    LlOdometry pkt{};
+    std::memcpy(&pkt, data, sizeof(LlOdometry));
+
+    const auto stamp = now();
+    const double dt_sec = static_cast<double>(pkt.dt_millis) / 1000.0;
+
+    // Compute tick deltas since last packet
+    const int32_t d_left  = pkt.left_ticks  - prev_left_ticks_;
+    const int32_t d_right = pkt.right_ticks - prev_right_ticks_;
+    prev_left_ticks_  = pkt.left_ticks;
+    prev_right_ticks_ = pkt.right_ticks;
+
+    // Skip the first packet (no valid delta yet)
+    if (!odom_initialized_) {
+      odom_initialized_ = true;
+      return;
+    }
+
+    // Convert ticks to metres (TICKS_PER_M = 300.0)
+    constexpr double kTicksPerMetre = 300.0;
+    constexpr double kWheelBase     = 0.325;
+
+    const double d_left_m  = static_cast<double>(d_left)  / kTicksPerMetre;
+    const double d_right_m = static_cast<double>(d_right) / kTicksPerMetre;
+
+    // Differential drive kinematics
+    const double d_centre = (d_left_m + d_right_m) / 2.0;
+    const double d_theta  = (d_right_m - d_left_m) / kWheelBase;
+
+    // Velocity (m/s, rad/s)
+    double vx   = 0.0;
+    double vyaw = 0.0;
+    if (dt_sec > 0.001) {
+      vx   = d_centre / dt_sec;
+      vyaw = d_theta  / dt_sec;
+    }
+
+    auto msg = nav_msgs::msg::Odometry{};
+    msg.header.stamp    = stamp;
+    msg.header.frame_id = "odom";
+    msg.child_frame_id  = "base_link";
+
+    // We only publish velocity, not position (EKF integrates)
+    msg.twist.twist.linear.x  = vx;
+    msg.twist.twist.angular.z = vyaw;
+
+    // Covariance: trust velocities loosely (wheel slip on grass)
+    // [vx, vy, vz, wx, wy, wz] - 6x6 row-major
+    msg.twist.covariance[0]  = 0.01;  // vx variance
+    msg.twist.covariance[7]  = 1e6;   // vy (no lateral) - very high = unknown
+    msg.twist.covariance[14] = 1e6;   // vz - unknown
+    msg.twist.covariance[21] = 1e6;   // wx - unknown
+    msg.twist.covariance[28] = 1e6;   // wy - unknown
+    msg.twist.covariance[35] = 0.05;  // wz variance
+
+    pub_wheel_odom_->publish(msg);
+  }
+
   // ---------------------------------------------------------------------------
   // Periodic transmit (Pi → STM32)
   // ---------------------------------------------------------------------------
@@ -452,6 +523,7 @@ private:
   rclcpp::Publisher<mowgli_interfaces::msg::Emergency>::SharedPtr pub_emergency_;
   rclcpp::Publisher<mowgli_interfaces::msg::Power>::SharedPtr     pub_power_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr             pub_imu_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr           pub_wheel_odom_;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
 
@@ -484,6 +556,11 @@ private:
   bool    mow_enabled_{false};
   uint8_t current_mode_{0};
   uint8_t gps_quality_{0};
+
+  // Odometry state
+  int32_t prev_left_ticks_{0};
+  int32_t prev_right_ticks_{0};
+  bool    odom_initialized_{false};
 };
 
 }  // namespace mowgli_hardware

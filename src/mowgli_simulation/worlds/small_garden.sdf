@@ -1,0 +1,355 @@
+<?xml version="1.0"?>
+<!--
+  small_garden.sdf
+  Gazebo Harmonic (SDF 1.9) world for testing coverage path planning.
+
+  Layout (top view, approximate):
+    - 10 m x 8 m grass ground plane
+    - Boundary walls at x=[-5,+5], y=[-4,+4]
+      Wall thickness 0.1 m, height 0.6 m (above LiDAR at 0.35 m)
+    - Mowing area boundary polygon: roughly 9 m x 7 m (0.5 m inset from walls)
+      SW corner: (-4.5, -3.5)  NE corner: (+4.5, +3.5)
+    - Docking station at (-4.0, -3.0) — near SW corner
+    - Tree (cylinder r=0.15)  at ( 2.0,  1.5)
+    - Rock (box 0.3x0.3x0.2)  at (-1.0,  2.0)
+
+  Coordinate origin is the mower spawn / docking approach position (0, 0).
+  World is intentionally small to allow fast verification of coverage
+  path planning and boundary-respecting behaviour.
+-->
+<sdf version="1.9">
+  <world name="small_garden">
+
+    <!-- ================================================================
+         Physics  (identical to garden.sdf)
+         ================================================================ -->
+    <physics name="default_physics" default="true" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <ode>
+        <solver>
+          <type>quick</type>
+          <iters>150</iters>
+          <sor>1.4</sor>
+        </solver>
+        <constraints>
+          <cfm>0.0</cfm>
+          <erp>0.2</erp>
+          <contact_max_correcting_vel>10.0</contact_max_correcting_vel>
+          <contact_surface_layer>0.001</contact_surface_layer>
+        </constraints>
+      </ode>
+    </physics>
+
+    <!-- ================================================================
+         Required Gazebo Harmonic plugins
+         ================================================================ -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <plugin filename="gz-sim-navsat-system"
+            name="gz::sim::systems::NavSat"/>
+
+    <!-- ================================================================
+         Spherical coordinates — identical to garden.sdf.
+         Origin corresponds to the mower spawn position in local frame.
+         ================================================================ -->
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>48.137154</latitude_deg>
+      <longitude_deg>11.576124</longitude_deg>
+      <elevation>520.0</elevation>
+      <heading_deg>0</heading_deg>
+    </spherical_coordinates>
+
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- ================================================================
+         Lighting  (identical to garden.sdf)
+         ================================================================ -->
+    <light name="sun" type="directional">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- Ambient sky -->
+    <scene>
+      <ambient>0.6 0.6 0.6 1.0</ambient>
+      <background>0.53 0.81 0.92 1.0</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <!-- ================================================================
+         Ground plane — grass texture, sized to match the 10 x 8 m area
+         with a small margin (12 x 10 m visual, 10 x 8 m collision).
+         ================================================================ -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>12 10</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>0.8</mu>
+                <mu2>0.8</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>12 10</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.18 0.45 0.10 1</ambient>
+            <diffuse>0.20 0.55 0.12 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ================================================================
+         Garden boundary walls
+         10 m x 8 m garden: x in [-5, +5], y in [-4, +4]
+         Wall thickness 0.1 m, height 0.6 m.
+         Poses are at wall centre; z=0.30 puts the centre at half height.
+         ================================================================ -->
+
+    <!-- North wall  y = +4.0, spans x axis, length = 10.2 m (covers corners) -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 4.0 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10.2 0.1 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10.2 0.1 0.6</size></box></geometry>
+          <material>
+            <ambient>0.65 0.55 0.40 1</ambient>
+            <diffuse>0.70 0.60 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- South wall  y = -4.0 -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -4.0 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10.2 0.1 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10.2 0.1 0.6</size></box></geometry>
+          <material>
+            <ambient>0.65 0.55 0.40 1</ambient>
+            <diffuse>0.70 0.60 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- West wall  x = -5.0, rotated 90° to span y axis, length = 8.0 m -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-5.0 0 0.30 0 0 1.5708</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>8.0 0.1 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>8.0 0.1 0.6</size></box></geometry>
+          <material>
+            <ambient>0.65 0.55 0.40 1</ambient>
+            <diffuse>0.70 0.60 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- East wall  x = +5.0 -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>5.0 0 0.30 0 0 1.5708</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>8.0 0.1 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>8.0 0.1 0.6</size></box></geometry>
+          <material>
+            <ambient>0.65 0.55 0.40 1</ambient>
+            <diffuse>0.70 0.60 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ================================================================
+         Obstacle 1: Tree (cylinder, radius 0.15 m, height 2.0 m)
+         Position: (2.0, 1.5) — inside mowing area, NE quadrant
+         Trunk has collision; canopy is visual-only (mower passes under).
+         ================================================================ -->
+    <model name="tree">
+      <static>true</static>
+      <pose>2.0 1.5 1.0 0 0 0</pose>
+      <link name="trunk">
+        <collision name="collision">
+          <geometry>
+            <cylinder><radius>0.15</radius><length>2.0</length></cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder><radius>0.15</radius><length>2.0</length></cylinder>
+          </geometry>
+          <material>
+            <ambient>0.40 0.26 0.13 1</ambient>
+            <diffuse>0.45 0.30 0.15 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <!-- Canopy sphere — no collision, visual only -->
+      <link name="canopy">
+        <pose>0 0 1.5 0 0 0</pose>
+        <visual name="visual">
+          <geometry>
+            <sphere><radius>0.8</radius></sphere>
+          </geometry>
+          <material>
+            <ambient>0.10 0.40 0.10 1</ambient>
+            <diffuse>0.12 0.50 0.12 1</diffuse>
+          </material>
+        </visual>
+        <inertial>
+          <mass>0.001</mass>
+          <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz>
+                   <iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia>
+        </inertial>
+      </link>
+      <joint name="canopy_joint" type="fixed">
+        <parent>trunk</parent>
+        <child>canopy</child>
+      </joint>
+    </model>
+
+    <!-- ================================================================
+         Obstacle 2: Rock (box 0.3 x 0.3 x 0.2 m)
+         Position: (-1.0, 2.0) — inside mowing area, NW quadrant
+         Half-height z = 0.1 m so box sits flush on the ground plane.
+         ================================================================ -->
+    <model name="rock">
+      <static>true</static>
+      <pose>-1.0 2.0 0.1 0 0 0.4</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box><size>0.3 0.3 0.2</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.3 0.3 0.2</size></box>
+          </geometry>
+          <material>
+            <ambient>0.50 0.50 0.48 1</ambient>
+            <diffuse>0.55 0.55 0.52 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ================================================================
+         Docking station marker — orange base plate + dark charging post
+         Position: (-4.0, -3.0) — near SW corner, 1 m inset from walls
+         Identical structure to garden.sdf docking_station.
+         ================================================================ -->
+    <model name="docking_station">
+      <static>true</static>
+      <pose>-4.0 -3.0 0.01 0 0 0</pose>
+      <link name="base_plate">
+        <collision name="collision">
+          <geometry>
+            <box><size>0.6 0.4 0.02</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.6 0.4 0.02</size></box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.60 0.0 1</ambient>
+            <diffuse>1.0 0.65 0.0 1</diffuse>
+            <specular>0.3 0.3 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <!-- Upright charging post -->
+      <link name="post">
+        <pose>-0.25 0 0.25 0 0 0</pose>
+        <collision name="collision">
+          <geometry>
+            <box><size>0.05 0.05 0.5</size></box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.05 0.05 0.5</size></box>
+          </geometry>
+          <material>
+            <ambient>0.15 0.15 0.15 1</ambient>
+            <diffuse>0.20 0.20 0.20 1</diffuse>
+          </material>
+        </visual>
+        <inertial>
+          <mass>0.001</mass>
+          <inertia><ixx>1e-6</ixx><ixy>0</ixy><ixz>0</ixz>
+                   <iyy>1e-6</iyy><iyz>0</iyz><izz>1e-6</izz></inertia>
+        </inertial>
+      </link>
+      <joint name="post_joint" type="fixed">
+        <parent>base_plate</parent>
+        <child>post</child>
+      </joint>
+    </model>
+
+  </world>
+</sdf>

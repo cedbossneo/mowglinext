@@ -17,6 +17,7 @@
 #include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/high_level_control.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 using namespace std::chrono_literals;
 
@@ -89,6 +90,19 @@ private:
         const float clamped    = std::clamp(msg->v_battery, V_MIN, V_MAX);
         context_->battery_percent =
           100.0f * (clamped - V_MIN) / (V_MAX - V_MIN);
+      });
+
+    // Replan / boundary signals from map_server_node
+    replan_needed_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/map_server/replan_needed", rclcpp::QoS(1).transient_local(),
+      [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        context_->replan_needed = msg->data;
+      });
+
+    boundary_violation_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/map_server/boundary_violation", 10,
+      [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+        context_->boundary_violation = msg->data;
       });
 
     RCLCPP_DEBUG(get_logger(), "Topic subscribers created");
@@ -194,6 +208,8 @@ private:
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr    status_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::Emergency>::SharedPtr emergency_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::Power>::SharedPtr     power_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr               replan_needed_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr               boundary_violation_sub_;
 
   // Service server
   rclcpp::Service<mowgli_interfaces::srv::HighLevelControl>::SharedPtr high_level_control_srv_;

@@ -50,6 +50,27 @@ services:
       - mowgli_maps:/ros2_ws/maps
     restart: "no"
 
+  dev-sim:
+    environment:
+      RCUTILS_LOGGING_SEVERITY_THRESHOLD: DEBUG
+      RCUTILS_LOGGING_USE_STDOUT: "1"
+    volumes:
+      - ./src/mowgli_bringup/launch:/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/launch:ro
+      - ./src/mowgli_bringup/config:/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config:ro
+      - ./src/mowgli_behavior/trees:/ros2_ws/install/mowgli_behavior/share/mowgli_behavior/trees:ro
+    restart: "no"
+
+  dev-sim-small:
+    environment:
+      RCUTILS_LOGGING_SEVERITY_THRESHOLD: DEBUG
+      RCUTILS_LOGGING_USE_STDOUT: "1"
+    volumes:
+      - ./src/mowgli_bringup/launch:/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/launch:ro
+      - ./src/mowgli_bringup/config:/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config:ro
+      - ./src/mowgli_behavior/trees:/ros2_ws/install/mowgli_behavior/share/mowgli_behavior/trees:ro
+      - ./src/mowgli_behavior/config:/ros2_ws/install/mowgli_behavior/share/mowgli_behavior/config:ro
+    restart: "no"
+
   dev:
     environment:
       RCUTILS_LOGGING_SEVERITY_THRESHOLD: DEBUG

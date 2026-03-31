@@ -7,5 +7,6 @@ behavior_tree_node:
     # Battery thresholds
     battery_low_pct: 20.0
     battery_critical_pct: 10.0
-    # Mowing areas are now defined in map_server config (area_names/area_polygons).
-    # The BT fetches boundaries from map_server via GetMowingArea service.
+    # Mowing area defined in map_server_small_garden.yaml (area_names/area_polygons).
+    # Dock near bottom-left corner of small garden
+    dock_pose: "-4.0;-3.0;0.0"

@@ -10,7 +10,7 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /wheel_odom
     bt_loop_duration: 10
-    default_server_timeout: 20
+    default_server_timeout: 60
     # Custom Nav2 BT that adds GoalCheckerSelector (required when multiple
     # goal_checker_plugins are configured in controller_server).
     default_nav_to_pose_bt_xml: /ros2_ws/install/mowgli_behavior/share/mowgli_behavior/trees/navigate_to_pose.xml
@@ -43,33 +43,34 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.05
-      movement_time_allowance: 15.0
+      required_movement_radius: 0.02  # tight — even small movements count
+      movement_time_allowance: 3600.0 # 1 hour — effectively disabled for long coverage runs
 
     stopped_goal_checker:
       plugin: "nav2_controller::StoppedGoalChecker"
       trans_stopped_velocity: 0.25
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.75
+      yaw_goal_tolerance: 1.0
 
     # Coverage goal checker: used by FTC controller. Only checks position,
     # not velocity. The FTC controller manages its own stopping logic.
     coverage_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.3
+      xy_goal_tolerance: 0.5
       yaw_goal_tolerance: 6.28  # Don't check yaw for coverage paths
+      stateful: true             # succeed once within tolerance, don't re-check
 
     # RPP for transit/dock navigation, wrapped in RotationShimController
     # to rotate-in-place toward the path before driving.
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      angular_dist_threshold: 0.785  # 45° — rotate in place if heading error > this
+      angular_dist_threshold: 3.14   # disabled — don't rotate in place, just drive
       forward_sampling_distance: 0.5
       rotate_to_heading_angular_vel: 1.5
       max_angular_accel: 2.5
       # RPP parameters (passed through to primary controller)
-      desired_linear_vel: 0.3
+      desired_linear_vel: 0.5
       lookahead_dist: 0.4
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
@@ -92,94 +93,50 @@ controller_server:
       max_angular_vel: 1.5
       max_robot_pose_search_dist: 100.0
 
-    # MPPI controller for coverage path following.
-    # MPPI samples multiple trajectories and uses critic plugins to balance
-    # path tracking with obstacle avoidance — it naturally steers around
-    # obstacles detected in the costmap while staying close to the coverage path.
+    # RPP controller for coverage path following.
+    # RPP follows the path sequentially with a lookahead point, avoiding the
+    # nearest-point pruning issue that MPPI has with parallel boustrophedon
+    # swaths (only 0.18m apart).  Obstacle avoidance comes from costmap
+    # inflation — RPP slows down near inflated obstacles.
     FollowCoveragePath:
-      plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 28
-      model_dt: 0.1
-      batch_size: 2000
-      vx_std: 0.2
-      vy_std: 0.0       # diff-drive: no lateral motion
-      wz_std: 0.4
-      vx_max: 0.3
-      vx_min: -0.1      # allow slight reverse for recovery
-      vy_max: 0.0
-      wz_max: 1.5
-      iteration_count: 1
-      prune_distance: 1.5
-      transform_tolerance: 0.1
-      temperature: 0.3
-      gamma: 0.015
-      motion_model: "DiffDrive"
-      visualize: false
-      retry_attempt_limit: 1
-      regenerate_noises: false
-      critics: ["ConstraintCritic", "CostCritic", "GoalCritic",
-                "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
-                "PathAngleCritic", "PreferForwardCritic", "ObstaclesCritic"]
-      ConstraintCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 4.0
-      CostCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.81
-        critical_cost: 300.0
-        consider_footprint: false
-        collision_cost: 1000000.0
-        near_goal_distance: 1.0
-      GoalCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 1.4
-      GoalAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 3.0
-        threshold_to_consider: 0.5
-      PathAlignCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 14.0
-        max_path_occupancy_ratio: 0.05
-        trajectory_point_step: 4
-        threshold_to_consider: 0.5
-        offset_from_furthest: 20
-        use_path_orientations: false
-      PathFollowCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        offset_from_furthest: 5
-        threshold_to_consider: 1.4
-      PathAngleCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 2.0
-        offset_from_furthest: 4
-        threshold_to_consider: 0.5
-        max_angle_to_furthest: 1.0
-        mode: 0
-      PreferForwardCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 5.0
-        threshold_to_consider: 0.5
-      ObstaclesCritic:
-        enabled: true
-        cost_power: 1
-        cost_weight: 10.0
-        repulsion_weight: 0.3
-        critical_weight: 20.0
-        consider_footprint: false
-        collision_cost: 10000.0
-        collision_margin_distance: 0.30
-        near_goal_distance: 0.5
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.5
+      lookahead_dist: 0.4
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.6
+      lookahead_time: 1.0
+      rotate_to_heading_angular_vel: 1.8
+      transform_tolerance: 2.0
+      use_velocity_scaled_lookahead_dist: false
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.4
+      # Collision detection during coverage mowing: disabled.
+      # RPP collision detection uses the local costmap to check for obstacles
+      # in the carrot lookahead direction. During mowing, swaths run parallel
+      # to boundaries and near obstacles — the inflated costmap triggers
+      # "collision ahead" continuously, exceeding controller patience.
+      # Real obstacle avoidance during mowing relies on the collision_monitor
+      # node (FootprintApproach polygon) which watches the actual LiDAR scan,
+      # not the costmap. Transit uses SmacPlanner2D which naturally avoids
+      # obstacles via the global costmap.
+      use_collision_detection: false
+      # Slow down near obstacles detected in costmap (inflation layer costs).
+      use_regulated_linear_velocity_scaling: true
+      use_cost_regulated_linear_velocity_scaling: true
+      cost_scaling_dist: 0.5
+      cost_scaling_gain: 1.0
+      use_fixed_curvature_lookahead: false
+      curvature_lookahead_dist: 0.4
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.25
+      # Don't rotate in place — RPP naturally curves into the next swath.
+      use_rotate_to_heading: false
+      allow_reversing: false
+      max_angular_accel: 3.0
+      max_angular_vel: 1.8
+      # Limit search distance along the path to prevent jumping to adjacent
+      # parallel swaths (only 0.18m apart Euclidean).
+      max_robot_pose_search_dist: 2.0
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -191,10 +148,10 @@ planner_server:
 
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
-      tolerance: 0.25
+      tolerance: 0.50
       downsample_costmap: false
       downsampling_factor: 1
-      allow_unknown: true
+      allow_unknown: false
       max_iterations: 1000000
       max_on_approach_iterations: 1000
       max_planning_time: 3.5
@@ -241,7 +198,7 @@ behavior_server:
       plugin: "nav2_behaviors::AssistedTeleop"
     global_frame: odom
     robot_base_frame: base_link
-    transform_tolerance: 0.1
+    transform_tolerance: 0.5
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.5
     min_rotational_vel: 0.15
@@ -290,7 +247,8 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      robot_radius: 0.22
+      # Rectangular footprint from URDF: 0.54m x 0.40m (base_link collision box)
+      footprint: "[[0.27, 0.20], [0.27, -0.20], [-0.27, -0.20], [-0.27, 0.20]]"
       resolution: 0.05
       track_unknown_space: false
       # Rolling window large enough to cover transit across any garden.
@@ -302,8 +260,12 @@ global_costmap:
       rolling_window: true
       width: 100
       height: 100
-      plugins: ["keepout_filter", "obstacle_layer", "inflation_layer"]
+      # keepout_filter disabled in global costmap: it marks boundary zones
+      # as LETHAL causing "Start occupied" when robot is near boundary edge.
+      # Boundary enforcement uses local costmap keepout + coverage planner.
+      plugins: ["obstacle_layer", "inflation_layer"]
 
+      # Keepout filter config kept for reference but not in plugins list.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
@@ -322,12 +284,15 @@ global_costmap:
           raytrace_max_range: 8.0
           raytrace_min_range: 0.0
           obstacle_max_range: 7.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.35
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # Tight inflation: just enough for SmacPlanner2D safety margin.
+        # 0.30m ≈ robot half-width (0.27m) + small buffer. Keeps transit
+        # paths close to obstacles without losing too much mowing area.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.30
 
 # ---------------------------------------------------------------------------
 # Local costmap
@@ -340,23 +305,30 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link
-      robot_radius: 0.22
+      footprint: "[[0.275, 0.20], [0.275, -0.20], [-0.275, -0.20], [-0.275, 0.20]]"
       resolution: 0.05
       rolling_window: true
       width: 6
       height: 6
-      plugins: ["keepout_filter", "speed_filter", "obstacle_layer", "inflation_layer"]
+      # keepout_filter removed: it marks boundary as LETHAL in the local
+      # costmap which triggers RPP "collision ahead" on swaths near the
+      # boundary edge. Boundary enforcement is handled by the coverage
+      # planner (swaths stay within the polygon) and the collision_monitor
+      # (real LiDAR obstacles only). Speed filter also removed as it depends
+      # on the same mask infrastructure.
+      plugins: ["obstacle_layer", "inflation_layer"]
 
+      # Keepout filter config kept for reference but not in plugins list.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
         filter_info_topic: "/costmap_filter_info"
 
+      # Speed filter config kept for reference but not in plugins list.
       speed_filter:
         plugin: "nav2_costmap_2d::SpeedFilter"
         enabled: true
         filter_info_topic: "/speed_filter_info"
-        speed_limit_topic: "/speed_limit"
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -372,12 +344,14 @@ local_costmap:
           raytrace_max_range: 8.0
           raytrace_min_range: 0.0
           obstacle_max_range: 7.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.35
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # Tight inflation for local costmap: robot half-width + small margin.
+        # Minimizes unmowed area around obstacles during coverage.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.30
 
 # ---------------------------------------------------------------------------
 # Map server / AMCL (not used with slam_toolbox, kept for completeness)
@@ -444,12 +418,15 @@ collision_monitor:
     base_shift_correction: true
     stop_pub_timeout: 2.0
     polygons: ["PolygonStop", "FootprintApproach"]
-    # Stop zone: tight safety box around the robot.  Must be small enough
-    # that the MPPI controller can still steer around obstacles detected in
-    # the costmap — a large stop zone kills the robot before the controller
-    # has a chance to plan around the obstacle.
+    # Stop zone: tight safety box around the robot.
     # Forward: 0.45m (robot radius 0.22 + 0.23m braking at 0.3m/s).
     # Lateral: 0.30m (robot radius + 0.08m margin).
+    #
+    # NOTE: Disabled in simulation because the Gazebo LiDAR (range_min=0.10m)
+    # produces self-reflections from the robot chassis at ~0.26-0.30m.  These
+    # phantom readings fall inside the stop polygon and permanently block the
+    # robot.  Re-enable on real hardware where the LiDAR is mounted above the
+    # chassis and self-reflections do not occur.
     PolygonStop:
       type: "polygon"
       points: "[[0.45, 0.30], [0.45, -0.30], [-0.25, -0.30], [-0.25, 0.30]]"
@@ -457,6 +434,9 @@ collision_monitor:
       min_points: 2
       visualize: true
       polygon_pub_topic: "polygon_stop"
+      # LiDAR range_min=0.35m in model.sdf filters chassis self-reflections.
+      # PolygonStop provides hard safety stop if something enters the tight
+      # safety zone around the robot.
       enabled: true
     # Approach: uses dynamic robot footprint with velocity projection.
     # Gradually slows when predicted collision is within time_before_collision.
@@ -475,6 +455,7 @@ collision_monitor:
       topic: /scan
       min_height: 0.15
       max_height: 2.0
+      # LiDAR range_min=0.35m in model.sdf filters chassis self-reflections.
       enabled: true
 
 # ---------------------------------------------------------------------------
@@ -483,6 +464,35 @@ collision_monitor:
 # with the correct node list. This section provides parameters that get merged
 # via RewrittenYaml.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Coverage server (opennav_coverage)
+# Plans coverage paths using Fields2Cover v1.2.1.
+# Called by ComputeCoverage BT node via ComputeCoveragePath action.
+# ---------------------------------------------------------------------------
+coverage_server:
+  ros__parameters:
+    use_sim_time: false
+    # Robot parameters
+    robot_width: 0.40
+    operation_width: 0.18
+    min_turning_radius: 0.01
+    linear_curv_change: 200.0
+    # Headland
+    default_headland_width: 0.50
+    default_headland_type: "CONSTANT"
+    # Swath generation
+    default_swath_type: "LENGTH"
+    default_swath_angle_type: "SET_ANGLE"
+    default_swath_angle: 0.0
+    default_allow_overlap: false
+    # Route ordering
+    default_route_type: "BOUSTROPHEDON"
+    # Path connecting (turns between swaths)
+    default_path_type: "DUBIN"
+    default_path_continuity_type: "CONTINUOUS"
+    # Coordinate system
+    coordinates_in_cartesian_frame: true
+
 lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false

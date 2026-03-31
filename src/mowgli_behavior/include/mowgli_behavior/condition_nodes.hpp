@@ -91,6 +91,27 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// IsBatteryAbove
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when battery_percent is at or above the given threshold.
+/// Used to wait until the battery is sufficiently charged before resuming.
+///
+/// Input ports:
+///   threshold (float, default "95.0") – battery percent to consider "charged".
+class IsBatteryAbove : public BT::ConditionNode {
+public:
+  IsBatteryAbove(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() {
+    return {BT::InputPort<float>("threshold", 95.0f, "Battery percent threshold")};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
 // IsCommand
 // ---------------------------------------------------------------------------
 
@@ -106,6 +127,53 @@ public:
   static BT::PortsList providedPorts() {
     return {BT::InputPort<uint8_t>("command", "Expected HighLevelControl command value")};
   }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
+// IsGPSFixed
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when GPS has RTK fixed quality (high precision).
+class IsGPSFixed : public BT::ConditionNode {
+public:
+  IsGPSFixed(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
+// ReplanNeeded
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when the obstacle map has changed and a coverage replan
+/// is required.  The flag is set by the main node from the
+/// /map_server_node/replan_needed topic.
+class ReplanNeeded : public BT::ConditionNode {
+public:
+  ReplanNeeded(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
+// IsBoundaryViolation
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when the robot is detected outside the allowed mowing area.
+class IsBoundaryViolation : public BT::ConditionNode {
+public:
+  IsBoundaryViolation(const std::string& name, const BT::NodeConfig& config)
+    : BT::ConditionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
 
   BT::NodeStatus tick() override;
 };

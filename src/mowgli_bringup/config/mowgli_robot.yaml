@@ -1,0 +1,125 @@
+# =============================================================================
+# mowgli_robot.yaml — Centralized robot-specific configuration
+#
+# All physical, operational, and safety parameters for the Mowgli robot mower.
+# Inspired by OpenMower's mower_config.sh but in ROS2 YAML format.
+#
+# This file is the single source of truth for robot-specific values.
+# Other config files (nav2_params, coverage_planner, etc.) should reference
+# or be overridden by these values at launch time.
+# =============================================================================
+
+mowgli:
+  ros__parameters:
+
+    # -----------------------------------------------------------------
+    # Hardware / Physical
+    # -----------------------------------------------------------------
+    mower_model: "YardForce500"
+
+    # Chassis dimensions (metres)
+    chassis_length: 0.54
+    chassis_width: 0.40
+    chassis_height: 0.19
+    chassis_mass_kg: 8.76
+
+    # Drive wheels (rear)
+    wheel_radius: 0.04475
+    wheel_width: 0.04
+    wheel_track: 0.40          # centre-to-centre
+    wheel_x_offset: -0.18     # behind base_link centre
+    ticks_per_revolution: 1050 # encoder ticks per full wheel revolution
+
+    # Front casters
+    caster_radius: 0.03
+    caster_track: 0.36
+
+    # Mowing blade
+    blade_radius: 0.09
+    tool_width: 0.18           # effective cut width (2 × blade_radius)
+
+    # -----------------------------------------------------------------
+    # GPS / Positioning
+    # -----------------------------------------------------------------
+    gps_protocol: "UBX"
+    datum_lat: 0.0             # map origin latitude  (set per-site)
+    datum_lon: 0.0             # map origin longitude (set per-site)
+    gps_wait_after_undock_sec: 10.0   # wait for RTK fix after undocking
+    gps_timeout_sec: 5.0              # pause mowing if no GPS for this long
+
+    # NTRIP (RTK correction stream)
+    ntrip_enabled: false
+    ntrip_host: ""
+    ntrip_port: 2101
+    ntrip_user: ""
+    ntrip_password: ""
+    ntrip_mountpoint: ""
+
+    # -----------------------------------------------------------------
+    # Battery
+    # -----------------------------------------------------------------
+    battery_full_voltage: 28.5     # consider fully charged above this
+    battery_empty_voltage: 24.0    # dock if below for sustained period
+    battery_critical_voltage: 23.0 # immediate dock
+    battery_full_percent: 95.0     # resume mowing above this %
+    battery_low_percent: 20.0      # start docking
+    battery_critical_percent: 10.0 # emergency dock
+
+    # -----------------------------------------------------------------
+    # Mowing
+    # -----------------------------------------------------------------
+    mowing_enabled: true           # enable blade motor during mowing
+    mowing_speed: 0.5              # m/s during coverage paths
+    transit_speed: 0.5             # m/s during point-to-point navigation
+    outline_passes: 1              # perimeter passes before fill
+    outline_overlap: 0.0           # overlap between outline and fill (m)
+    outline_offset: 0.05           # inward offset from boundary (m)
+    mow_angle_offset_deg: -1.0    # -1 = auto-detect optimal angle
+    mow_angle_increment_deg: 0.0  # rotate pattern each full pass
+    headland_width: 0.18           # headland = 1 × tool_width
+    path_spacing: 0.18             # = tool_width for full coverage
+    min_turning_radius: 0.30       # differential drive can turn tight
+
+    # -----------------------------------------------------------------
+    # Docking
+    # -----------------------------------------------------------------
+    dock_pose_x: 0.0              # dock position in map frame (set per-site)
+    dock_pose_y: 0.0
+    dock_pose_yaw: 0.0
+    undock_distance: 1.5           # reverse distance when undocking (m)
+    undock_speed: 0.15             # reverse speed (m/s)
+    dock_approach_distance: 1.0    # distance to staging pose in front of dock
+    dock_max_retries: 3
+    dock_use_charger_detection: true
+
+    # -----------------------------------------------------------------
+    # Rain
+    # -----------------------------------------------------------------
+    # Modes: 0=ignore, 1=dock, 2=dock_until_dry, 3=pause_auto
+    rain_mode: 2
+    rain_delay_minutes: 30.0       # wait after rain stops before resuming
+    rain_debounce_sec: 10.0        # rain must persist this long to trigger
+
+    # -----------------------------------------------------------------
+    # Safety
+    # -----------------------------------------------------------------
+    motor_temp_high_c: 80.0        # stop blade if motor exceeds
+    motor_temp_low_c: 40.0         # resume blade below this
+    emergency_stop_on_tilt: true
+    emergency_stop_on_lift: true
+    max_obstacle_avoidance_distance: 2.0  # how far to deviate from path
+
+    # -----------------------------------------------------------------
+    # SLAM / Mapping
+    # -----------------------------------------------------------------
+    slam_mode: "lifelong"          # mapping | localization | lifelong
+    map_save_path: "/ros2_ws/maps/garden_map"
+    map_save_on_dock: true         # save SLAM map before docking
+
+    # -----------------------------------------------------------------
+    # Navigation tolerances (garden terrain)
+    # -----------------------------------------------------------------
+    xy_goal_tolerance: 0.75        # metres — acceptable goal position error
+    yaw_goal_tolerance: 1.0        # radians — acceptable heading error
+    coverage_xy_tolerance: 0.5     # metres — for coverage waypoints
+    progress_timeout_sec: 60.0     # seconds without progress before recovery

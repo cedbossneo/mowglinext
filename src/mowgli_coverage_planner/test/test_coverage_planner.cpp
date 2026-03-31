@@ -302,6 +302,82 @@ TEST_F(CoveragePlannerTest, AutoAngleOnWideRectangle)
 }
 
 // ---------------------------------------------------------------------------
+// Test: boustrophedon alternation — consecutive swath segments flip heading
+// ---------------------------------------------------------------------------
+//
+// At each U-turn boundary the last waypoint of swath N and the first waypoint
+// of swath N+1 must differ in heading by roughly π (within ±45°).  This
+// verifies that BoustrophedonOrder has actually reversed alternate swaths and
+// that the path building loop preserves the alternation.
+//
+// Strategy: scan consecutive pose pairs whose position delta is ≤ 2× the
+// swath spacing (i.e. they are U-turn transitions, not intra-swath steps) and
+// check that their headings differ by nearly π.
+
+TEST_F(CoveragePlannerTest, BoustrophedonHeadingAlternates)
+{
+  // Use a fixed 0° angle so swaths are horizontal and the alternation is
+  // well-defined regardless of F2C's BruteForce optimisation.
+  const auto res = send_goal(make_square_10x10(), {}, 0.0, true);
+
+  ASSERT_NE(res, nullptr) << "Action goal timed out";
+  ASSERT_TRUE(res->success) << "Action failed: " << res->message;
+
+  const auto & poses = res->path.poses;
+  ASSERT_GT(poses.size(), 1u) << "Expected non-empty path";
+
+  // Extract yaw from a quaternion (planar rotation about Z).
+  auto quat_to_yaw = [](const geometry_msgs::msg::Quaternion & q) -> double {
+    return std::atan2(
+      2.0 * (q.w * q.z + q.x * q.y),
+      1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+  };
+
+  // Swath spacing used by the test fixture is 0.5 m.
+  // A pose-pair is a U-turn boundary if the lateral (Y) distance between the
+  // two poses exceeds 0.3 m (more than half the spacing) while the along-swath
+  // (X) distance is small.  We use a simpler but robust heuristic: the total
+  // Euclidean distance is ≥ 0.3 m and ≤ 1.0 m AND the headings differ by > π/2.
+  const double spacing = 0.5;
+  int uturn_count = 0;
+  int alternation_failures = 0;
+
+  for (size_t i = 1; i < poses.size(); ++i) {
+    const double dx = poses[i].pose.position.x - poses[i - 1].pose.position.x;
+    const double dy = poses[i].pose.position.y - poses[i - 1].pose.position.y;
+    const double dist = std::hypot(dx, dy);
+
+    // Skip intra-swath steps (very short) and large gaps (shouldn't exist).
+    if (dist < spacing * 0.5 || dist > spacing * 2.0) {
+      continue;
+    }
+
+    ++uturn_count;
+
+    const double yaw_prev = quat_to_yaw(poses[i - 1].pose.orientation);
+    const double yaw_curr = quat_to_yaw(poses[i].pose.orientation);
+    double delta = std::abs(yaw_curr - yaw_prev);
+    while (delta > M_PI) delta = std::abs(delta - 2.0 * M_PI);
+
+    // Heading should differ by at least 135° (3π/4) at a U-turn.
+    if (delta < M_PI * 3.0 / 4.0) {
+      ++alternation_failures;
+      ADD_FAILURE() << "U-turn at pose " << i
+        << ": heading delta = " << delta * 180.0 / M_PI
+        << "° (expected ≥ 135°)."
+        << "  yaw_prev=" << yaw_prev * 180.0 / M_PI
+        << "° yaw_curr=" << yaw_curr * 180.0 / M_PI << "°";
+    }
+  }
+
+  EXPECT_GT(uturn_count, 0)
+    << "No U-turn boundaries detected — path may contain only one swath "
+       "or swath spacing heuristic needs adjustment";
+  EXPECT_EQ(alternation_failures, 0)
+    << alternation_failures << " U-turn(s) did not alternate heading by ~180°";
+}
+
+// ---------------------------------------------------------------------------
 // GTest main
 // ---------------------------------------------------------------------------
 
