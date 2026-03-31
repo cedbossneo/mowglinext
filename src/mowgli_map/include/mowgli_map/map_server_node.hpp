@@ -162,6 +162,9 @@ private:
   /// Initialise the grid_map with all four layers and correct geometry.
   void init_map();
 
+  /// Resize the map to fit all loaded areas (with margin), re-initialising layers.
+  void resize_map_to_areas();
+
   /// Convert mow_progress layer to a nav_msgs/OccupancyGrid (0–100 scale).
   nav_msgs::msg::OccupancyGrid mow_progress_to_occupancy_grid() const;
 

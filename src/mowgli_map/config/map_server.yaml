@@ -1,8 +1,8 @@
 map_server_node:
   ros__parameters:
     resolution: 0.05
-    map_size_x: 50.0
-    map_size_y: 50.0
+    map_size_x: 20.0
+    map_size_y: 20.0
     map_frame: "map"
     decay_rate_per_hour: 0.1
     mower_width: 0.18

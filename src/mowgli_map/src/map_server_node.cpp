@@ -47,8 +47,8 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
 {
   // ── Declare and read parameters ──────────────────────────────────────────
   resolution_ = declare_parameter<double>("resolution", 0.05);
-  map_size_x_ = declare_parameter<double>("map_size_x", 50.0);
-  map_size_y_ = declare_parameter<double>("map_size_y", 50.0);
+  map_size_x_ = declare_parameter<double>("map_size_x", 20.0);
+  map_size_y_ = declare_parameter<double>("map_size_y", 20.0);
   map_frame_ = declare_parameter<std::string>("map_frame", "map");
   decay_rate_per_hour_ = declare_parameter<double>("decay_rate_per_hour", 0.1);
   mower_width_ = declare_parameter<double>("mower_width", 0.18);
@@ -219,6 +219,9 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     }
   }
 
+  // Resize map to fit loaded areas (if any).
+  resize_map_to_areas();
+
   // Publish docking pose if loaded (transient_local ensures late subscribers get it).
   if (docking_pose_set_)
   {
@@ -372,6 +375,64 @@ void MapServerNode::init_map()
                "Grid map created: %zu×%zu cells",
                static_cast<std::size_t>(map_.getSize()(0)),
                static_cast<std::size_t>(map_.getSize()(1)));
+}
+
+void MapServerNode::resize_map_to_areas()
+{
+  if (areas_.empty())
+  {
+    return;
+  }
+
+  // Compute bounding box of all area polygons.
+  double min_x = std::numeric_limits<double>::max();
+  double max_x = std::numeric_limits<double>::lowest();
+  double min_y = std::numeric_limits<double>::max();
+  double max_y = std::numeric_limits<double>::lowest();
+
+  for (const auto& area : areas_)
+  {
+    for (const auto& pt : area.polygon.points)
+    {
+      min_x = std::min(min_x, static_cast<double>(pt.x));
+      max_x = std::max(max_x, static_cast<double>(pt.x));
+      min_y = std::min(min_y, static_cast<double>(pt.y));
+      max_y = std::max(max_y, static_cast<double>(pt.y));
+    }
+  }
+
+  // Add 5m margin on each side for navigation around the areas.
+  constexpr double margin = 5.0;
+  const double new_size_x = (max_x - min_x) + 2.0 * margin;
+  const double new_size_y = (max_y - min_y) + 2.0 * margin;
+  const double center_x = (min_x + max_x) * 0.5;
+  const double center_y = (min_y + max_y) * 0.5;
+
+  // Only resize if the new size differs meaningfully from the current one.
+  if (std::abs(new_size_x - map_size_x_) < resolution_ &&
+      std::abs(new_size_y - map_size_y_) < resolution_)
+  {
+    return;
+  }
+
+  map_size_x_ = new_size_x;
+  map_size_y_ = new_size_y;
+
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  map_.setGeometry(grid_map::Length(map_size_x_, map_size_y_),
+                   resolution_,
+                   grid_map::Position(center_x, center_y));
+
+  map_[std::string(layers::OCCUPANCY)].setConstant(defaults::OCCUPANCY);
+  map_[std::string(layers::CLASSIFICATION)].setConstant(defaults::CLASSIFICATION);
+  map_[std::string(layers::MOW_PROGRESS)].setConstant(defaults::MOW_PROGRESS);
+  map_[std::string(layers::CONFIDENCE)].setConstant(defaults::CONFIDENCE);
+
+  masks_dirty_ = true;
+
+  RCLCPP_INFO(get_logger(),
+              "Map resized to %.1f×%.1f m (center: %.1f, %.1f) to fit %zu areas",
+              map_size_x_, map_size_y_, center_x, center_y, areas_.size());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -751,6 +812,7 @@ void MapServerNode::on_add_area(
   }
 
   areas_.push_back(std::move(entry));
+  resize_map_to_areas();
   masks_dirty_ = true;
 
   RCLCPP_INFO(get_logger(),
@@ -1539,7 +1601,8 @@ void MapServerNode::load_areas_from_file(const std::string& path)
                 docking_pose_.position.y);
   }
 
-  // Reset filter info flags so masks are republished with new areas.
+  // Resize map to fit new areas and reset masks.
+  resize_map_to_areas();
   keepout_filter_info_sent_ = false;
   speed_filter_info_sent_ = false;
   masks_dirty_ = true;
