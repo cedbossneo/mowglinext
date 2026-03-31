@@ -38,7 +38,7 @@ REPO_BRANCH="v3"
 INSTALL_DIR="${MOWGLI_HOME:-$HOME/mowgli-docker}"
 UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
 
-MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowgli-ros2:v3"
+MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowgli-ros2/mowgli-ros2:main"
 GUI_IMAGE_DEFAULT="ghcr.io/cedbossneo/openmower-gui:v3"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
