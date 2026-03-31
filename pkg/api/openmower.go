@@ -51,7 +51,7 @@ func AddMapAreaRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		if err != nil {
 			return
 		}
-		err = provider.CallService(c.Request.Context(), "/map_server_node/add_no_go_zone", &CallReq, &mowgli.AddMowingAreaRes{})
+		err = provider.CallService(c.Request.Context(), "/map_server_node/add_area", &CallReq, &mowgli.AddMowingAreaRes{})
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {
@@ -109,7 +109,7 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 					Area:             element.Area,
 					IsNavigationArea: element.IsNavigationArea,
 				}
-				err = provider.CallService(c.Request.Context(), "/map_server_node/add_no_go_zone", &areaReq, &mowgli.AddMowingAreaRes{})
+				err = provider.CallService(c.Request.Context(), "/map_server_node/add_area", &areaReq, &mowgli.AddMowingAreaRes{})
 				if err != nil {
 					c.JSON(500, ErrorResponse{Error: err.Error()})
 					return

@@ -84,9 +84,32 @@ export class MowerFeatureBase extends PointFeatureBase  {
 }
 
 export class DockFeatureBase extends PointFeatureBase  {
-    constructor(coordinate: Position) {
+    declare properties: {
+        color: string;
+        feature_type: string;
+        heading: number;
+    };
+
+    constructor(coordinate: Position, heading = 0) {
         super('dock', coordinate,'dock');
+        this.properties.heading = heading;
         this.setColor('#ff00f2');
+    }
+
+    getHeading(): number {
+        return this.properties.heading ?? 0;
+    }
+
+    setHeading(heading: number) {
+        this.properties.heading = heading;
+    }
+
+    getCoordinates(): Position {
+        return this.geometry.coordinates;
+    }
+
+    setCoordinates(coordinate: Position) {
+        this.geometry.coordinates = coordinate;
     }
 }
 

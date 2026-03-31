@@ -39,7 +39,7 @@ type StartInAreaRes struct {
 	Success bool
 }
 
-// AddMowingAreaReq for /map_server_node/add_no_go_zone
+// AddMowingAreaReq for /map_server_node/add_area
 type AddMowingAreaReq struct {
 	Area             MapArea
 	IsNavigationArea bool

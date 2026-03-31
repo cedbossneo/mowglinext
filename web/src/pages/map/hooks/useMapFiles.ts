@@ -142,24 +142,13 @@ export function useMapFiles({
             });
         }
 
-        if (!map) {
-            await guiApi.openmower.mapDockingCreate({
-                dockingPose: {
-                    orientation: {
-                        x: 0,
-                        y: 0,
-                        z: 0,
-                        w: 1,
-                    },
-                    position: {
-                        x: 0,
-                        y: 0,
-                        z: 0,
-                    },
-                },
-            });
-        } else {
-            const quaternionFromHeading = getQuaternionFromHeading(map?.DockHeading!!);
+        // Save dock position from the edited features state (not the stale map object)
+        const dockFeature = features["dock"];
+        if (dockFeature instanceof DockFeatureBase) {
+            const coords = dockFeature.getCoordinates();
+            const rosCoords = itranspose(offsetX, offsetY, datum, coords[1], coords[0]);
+            const heading = dockFeature.getHeading();
+            const quaternionFromHeading = getQuaternionFromHeading(heading);
             await guiApi.openmower.mapDockingCreate({
                 dockingPose: {
                     orientation: {
@@ -169,8 +158,8 @@ export function useMapFiles({
                         w: quaternionFromHeading.W!!,
                     },
                     position: {
-                        x: map?.DockX!!,
-                        y: map?.DockY!!,
+                        x: rosCoords[0],
+                        y: rosCoords[1],
                         z: 0,
                     },
                 },

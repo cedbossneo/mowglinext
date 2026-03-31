@@ -11,7 +11,7 @@ import type {Feature} from 'geojson';
 import {FeatureCollection, Position} from "geojson";
 import {useMowerAction} from "../components/MowerActions.tsx";
 import {MapStyle} from "./MapStyle.tsx";
-import {converter, transpose} from "../utils/map.tsx";
+import {converter, drawLine, itranspose, transpose} from "../utils/map.tsx";
 import {useSettings} from "../hooks/useSettings.ts";
 import {useConfig} from "../hooks/useConfig.tsx";
 import {useEnv} from "../hooks/useEnv.tsx";
@@ -52,6 +52,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const [tileUri, setTileUri] = useState<string | undefined>()
     const [editMap, setEditMap] = useState<boolean>(false)
     const [features, setFeatures] = useState<Record<string, MowingFeature>>({});
+    const [dockPlacementMode, setDockPlacementMode] = useState<boolean>(false);
     const [mapKey, setMapKey] = useState<string>("origin")
     const [useSatellite, setUseSatellite] = useState(true)
     const robotPoseRef = useRef<{ x: number; y: number; heading: number } | null>(null)
@@ -65,19 +66,6 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         () => Object.values(features).filter(f => f instanceof MowingFeatureBase),
         [features]
     );
-
-    // Display-only features (mower, dock, heading, paths) rendered as separate layers
-    const displayFeatures = useMemo<GeoJSON.FeatureCollection>(() => ({
-        type: "FeatureCollection",
-        features: Object.values(features)
-            .filter(f => !(f instanceof MowingFeatureBase))
-            .map(f => ({
-                type: "Feature" as const,
-                id: f.id,
-                geometry: f.geometry,
-                properties: f.properties,
-            })),
-    }), [features]);
 
     // Extracted hooks
     const {offsetX, offsetY, handleOffsetX, handleOffsetY} = useMapOffset({config, setConfig, notification});
@@ -94,6 +82,34 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         converter.LLtoUTM(_datumLat, _datumLon, d)
         return d
     }, [_datumLat, _datumLon])
+
+    // Display-only features (mower, dock, heading, paths) rendered as separate layers
+    const displayFeatures = useMemo<GeoJSON.FeatureCollection>(() => {
+        const feats = Object.values(features)
+            .filter(f => !(f instanceof MowingFeatureBase))
+            .map(f => ({
+                type: "Feature" as const,
+                id: f.id,
+                geometry: f.geometry,
+                properties: f.properties,
+            }));
+
+        // Add dock heading direction line
+        const dock = features["dock"];
+        if (dock instanceof DockFeatureBase) {
+            const coords = dock.getCoordinates();
+            const rosCoords = datum[0] !== 0 ? itranspose(offsetX, offsetY, datum, coords[1], coords[0]) : [0, 0];
+            const endPoint = drawLine(offsetX, offsetY, datum, rosCoords[1], rosCoords[0], dock.getHeading());
+            feats.push({
+                type: "Feature" as const,
+                id: "dock-heading",
+                geometry: {type: "LineString", coordinates: [coords, endPoint]},
+                properties: {color: "#ff00f2", width: 2, feature_type: "dock-heading"},
+            });
+        }
+
+        return {type: "FeatureCollection", features: feats};
+    }, [features, offsetX, offsetY, datum]);
 
     const mowingToolWidth = parseFloat(settings["OM_TOOL_WIDTH"] ?? "0.13") * 100;
     const [mowingAreas, setMowingAreas] = useState<{ key: string, label: string, feat: Feature }[]>([])
@@ -167,7 +183,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
             
 
             const dock_lonlat = transpose(offsetX, offsetY, datum, map?.DockY!!, map?.DockX!!)
-            newFeatures["dock"] = new DockFeatureBase(dock_lonlat);
+            newFeatures["dock"] = new DockFeatureBase(dock_lonlat, map?.DockHeading ?? 0);
 
 
         }
@@ -331,6 +347,32 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
 
     const {manualMode, handleManualMode, handleStopManualMode, handleJoyMove, handleJoyStop} = useManualMode({mowerAction, joyStream});
 
+    const handleDockPlacement = useCallback(() => {
+        setDockPlacementMode(true);
+    }, []);
+
+    const handleMapClick = useCallback((e: {lngLat: {lng: number; lat: number}}) => {
+        if (!dockPlacementMode) return;
+        setDockPlacementMode(false);
+        const coord: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+        setFeatures(prev => {
+            const existingDock = prev["dock"];
+            const heading = existingDock instanceof DockFeatureBase ? existingDock.getHeading() : 0;
+            return {...prev, dock: new DockFeatureBase(coord, heading)};
+        });
+        setHasUnsavedChanges(true);
+    }, [dockPlacementMode, setHasUnsavedChanges]);
+
+    const handleDockHeadingChange = useCallback((heading: number) => {
+        setFeatures(prev => {
+            const dock = prev["dock"];
+            if (!(dock instanceof DockFeatureBase)) return prev;
+            const updated = new DockFeatureBase(dock.getCoordinates(), heading);
+            return {...prev, dock: updated};
+        });
+        setHasUnsavedChanges(true);
+    }, [setHasUnsavedChanges]);
+
     // Mower action callbacks shared between desktop and mobile toolbars
     const mowerActions = useMemo(() => ({
         onStart: mowerAction("high_level_control", {Command: 1}),
@@ -458,6 +500,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                                          style={{width: '100%', height: '100%'}}
                                                          mapStyle={useSatellite ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/dark-v11"}
                                                          onLoad={(e) => { mapInstanceRef.current = e.target as unknown as MapboxMap }}
+                                                         onClick={handleMapClick}
+                                                         cursor={dockPlacementMode ? 'crosshair' : undefined}
                 >
                     {tileUri ? <Source type={"raster"} id={"custom-raster"} tiles={[tileUri]} tileSize={256}/> : null}
                     {tileUri ? <Layer type={"raster"} source={"custom-raster"} id={"custom-layer"}/> : null}
@@ -549,6 +593,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                         onCombine={handleCombine}
                         onSubtract={handleSubtract}
                         onSplit={handleSplit}
+                        onPlaceDock={handleDockPlacement}
+                        dockPlacementMode={dockPlacementMode}
                         onSaveMap={handleSaveMap}
                         onUndo={handleUndo}
                         onRedo={handleRedo}
@@ -589,6 +635,10 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                         onSubtract={handleSubtract}
                         onSplit={handleSplit}
                         onEditSelectedFeature={handleEditSelectedFeature}
+                        onPlaceDock={handleDockPlacement}
+                        dockPlacementMode={dockPlacementMode}
+                        dockHeading={features["dock"] instanceof DockFeatureBase ? (features["dock"] as DockFeatureBase).getHeading() : 0}
+                        onDockHeadingChange={handleDockHeadingChange}
                     />
                 )}
                 {/* Desktop: View mode — bottom glass toolbar */}

@@ -72,6 +72,8 @@ interface MapToolbarMobileProps {
     onCombine?: () => void;
     onSubtract?: () => void;
     onSplit?: () => void;
+    onPlaceDock?: () => void;
+    dockPlacementMode?: boolean;
     stateName?: string;
     emergency?: boolean;
     onStart?: () => Promise<void>;
@@ -94,6 +96,7 @@ export const MapToolbarMobile = ({
     onBackupMap, onRestoreMap, onDownloadGeoJSON, onUploadGeoJSON,
     onMowArea, selectedFeatureCount = 0, onEditSelectedFeature,
     onDrawPolygon, onDrawShape, onDrawEmoji, onTrash, onCombine, onSubtract, onSplit,
+    onPlaceDock, dockPlacementMode,
     stateName, emergency,
     onStart, onHome, onEmergencyOn, onEmergencyOff,
     onAreaRecording, onMowNextArea, onContinueOrPause,
@@ -275,6 +278,13 @@ export const MapToolbarMobile = ({
                         aria-label="Split"
                     />
                 </Space.Compact>
+
+                <Button
+                    icon={<AimOutlined />}
+                    type={dockPlacementMode ? "primary" : "default"}
+                    onClick={onPlaceDock}
+                    aria-label="Place dock"
+                />
 
                 <Dropdown
                     menu={{items: editMenuItems, onClick: handleEditMenuClick}}
