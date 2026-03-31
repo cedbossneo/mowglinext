@@ -4,7 +4,6 @@ foxglove_bridge:
     address: "0.0.0.0"
     send_buffer_limit: 10000000
     num_threads: 0
-    # Topic whitelist (empty = all topics exposed)
-    topic_whitelist: []
-    service_whitelist: []
-    param_whitelist: []
+    # Whitelist params omitted — foxglove_bridge exposes all topics/services
+    # by default. Add entries to restrict, e.g.:
+    # topic_whitelist: ["/scan", "/cmd_vel"]

@@ -74,6 +74,23 @@ ament_target_dependencies(gps_pose_converter_node
 )
 
 # ---------------------------------------------------------------------------
+# Executable: navsat_to_absolute_pose_node
+# ---------------------------------------------------------------------------
+
+add_executable(navsat_to_absolute_pose_node
+  src/navsat_to_absolute_pose_node.cpp
+)
+
+target_include_directories(navsat_to_absolute_pose_node PUBLIC ${INCLUDE_DIR})
+
+ament_target_dependencies(navsat_to_absolute_pose_node
+  rclcpp
+  sensor_msgs
+  geometry_msgs
+  mowgli_interfaces
+)
+
+# ---------------------------------------------------------------------------
 # Executable: localization_monitor_node
 # ---------------------------------------------------------------------------
 
@@ -104,6 +121,7 @@ install(
   TARGETS
     wheel_odometry_node
     gps_pose_converter_node
+    navsat_to_absolute_pose_node
     localization_monitor_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

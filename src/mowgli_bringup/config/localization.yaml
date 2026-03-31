@@ -1,3 +1,13 @@
+# ---------------------------------------------------------------------------
+# NavSat → AbsolutePose converter (ublox_gps bridge)
+# datum_lat/datum_lon define the local map frame origin.
+# Override in mowgli_robot.yaml for your garden location.
+# ---------------------------------------------------------------------------
+navsat_to_absolute_pose:
+  ros__parameters:
+    datum_lat: 0.0
+    datum_lon: 0.0
+
 # Dual EKF configuration for robot_localization.
 #
 # DESIGN PHILOSOPHY:

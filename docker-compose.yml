@@ -52,10 +52,7 @@ services:
       <<: *ros-env
       # Path inside the container where maps are stored / loaded from
       MOWGLI_MAP_DIR: /ros2_ws/maps
-    command: ["ros2", "launch", "mowgli_bringup", "mowgli.launch.py"]
-    # Uncomment to expose ROS2 web bridge if ros-humble-rosbridge-server is installed
-    # ports:
-    #   - "9090:9090"
+    command: ["ros2", "launch", "mowgli_bringup", "full_system.launch.py"]
 
   # --------------------------------------------------------------------------
   # simulation — Gazebo headless + Nav2 running against the simulated robot.

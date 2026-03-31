@@ -98,6 +98,18 @@ def generate_launch_description() -> LaunchDescription:
         description="Port number for the Foxglove Bridge WebSocket server.",
     )
 
+    datum_lat_arg = DeclareLaunchArgument(
+        "datum_lat",
+        default_value="0.0",
+        description="Map origin latitude (WGS84 degrees).",
+    )
+
+    datum_lon_arg = DeclareLaunchArgument(
+        "datum_lon",
+        default_value="0.0",
+        description="Map origin longitude (WGS84 degrees).",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
@@ -110,6 +122,8 @@ def generate_launch_description() -> LaunchDescription:
     foxglove_port = LaunchConfiguration("foxglove_port")
     enable_rosbridge = LaunchConfiguration("enable_rosbridge")
     rosbridge_port = LaunchConfiguration("rosbridge_port")
+    datum_lat = LaunchConfiguration("datum_lat")
+    datum_lon = LaunchConfiguration("datum_lon")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -120,7 +134,9 @@ def generate_launch_description() -> LaunchDescription:
     localization_params = os.path.join(bringup_dir, "config", "localization.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
     mqtt_params = os.path.join(monitoring_dir, "config", "mqtt_bridge.yaml")
-    foxglove_params = os.path.join(bringup_dir, "config", "foxglove_bridge.yaml")
+    # Robot-specific config (bind-mounted from mowgli-docker/config/mowgli/)
+    robot_config = "/ros2_ws/config/mowgli_robot.yaml"
+
 
     # ------------------------------------------------------------------
     # 1. mowgli.launch.py — hardware bridge, RSP, twist_mux
@@ -223,7 +239,22 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 7. GPS pose converter
+    # 7a. NavSatFix → AbsolutePose converter (ublox_gps bridge)
+    # ------------------------------------------------------------------
+    navsat_converter_node = Node(
+        package="mowgli_localization",
+        executable="navsat_to_absolute_pose_node",
+        name="navsat_to_absolute_pose",
+        output="screen",
+        parameters=[
+            localization_params,
+            robot_config,
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 7b. GPS pose converter (AbsolutePose → PoseWithCovarianceStamped)
     # ------------------------------------------------------------------
     gps_pose_converter_node = Node(
         package="mowgli_localization",
@@ -289,8 +320,12 @@ def generate_launch_description() -> LaunchDescription:
         name="foxglove_bridge",
         output="screen",
         parameters=[
-            foxglove_params,
-            {"port": foxglove_port},
+            {
+                "port": foxglove_port,
+                "address": "0.0.0.0",
+                "send_buffer_limit": 10000000,
+                "num_threads": 0,
+            },
         ],
     )
 
@@ -356,6 +391,7 @@ def generate_launch_description() -> LaunchDescription:
             coverage_lifecycle_manager,
             obstacle_tracker_node,
             wheel_odometry_node,
+            navsat_converter_node,
             gps_pose_converter_node,
             localization_monitor_node,
             diagnostics_node,
