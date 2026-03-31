@@ -38,7 +38,7 @@ def generate_launch_description() -> LaunchDescription:
     bringup_dir = get_package_share_directory("mowgli_bringup")
     behavior_dir = get_package_share_directory("mowgli_behavior")
     map_dir = get_package_share_directory("mowgli_map")
-    coverage_dir = get_package_share_directory("mowgli_coverage_planner")
+    # coverage_dir removed: opennav_coverage reads from nav2_params.yaml
     localization_dir = get_package_share_directory("mowgli_localization")
     monitoring_dir = get_package_share_directory("mowgli_monitoring")
 
@@ -81,6 +81,18 @@ def generate_launch_description() -> LaunchDescription:
         description="Launch foxglove_bridge for the GUI when true.",
     )
 
+    enable_rosbridge_arg = DeclareLaunchArgument(
+        "enable_rosbridge",
+        default_value="true",
+        description="Launch rosbridge_server for the openmower-gui when true.",
+    )
+
+    rosbridge_port_arg = DeclareLaunchArgument(
+        "rosbridge_port",
+        default_value="9090",
+        description="Port number for the rosbridge WebSocket server.",
+    )
+
     foxglove_port_arg = DeclareLaunchArgument(
         "foxglove_port",
         default_value="8765",
@@ -97,13 +109,15 @@ def generate_launch_description() -> LaunchDescription:
     enable_mqtt = LaunchConfiguration("enable_mqtt")
     enable_foxglove = LaunchConfiguration("enable_foxglove")
     foxglove_port = LaunchConfiguration("foxglove_port")
+    enable_rosbridge = LaunchConfiguration("enable_rosbridge")
+    rosbridge_port = LaunchConfiguration("rosbridge_port")
 
     # ------------------------------------------------------------------
     # Config paths
     # ------------------------------------------------------------------
     behavior_params = os.path.join(behavior_dir, "config", "behavior_tree.yaml")
     map_params = os.path.join(map_dir, "config", "map_server.yaml")
-    coverage_params = os.path.join(coverage_dir, "config", "coverage_planner.yaml")
+    nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
     localization_params = os.path.join(localization_dir, "config", "localization.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
     mqtt_params = os.path.join(monitoring_dir, "config", "mqtt_bridge.yaml")
@@ -167,16 +181,31 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Coverage planner
+    # 5. Coverage server (opennav_coverage)
     # ------------------------------------------------------------------
-    coverage_planner_node = Node(
-        package="mowgli_coverage_planner",
-        executable="coverage_planner_node",
-        name="coverage_planner_node",
+    coverage_server_node = Node(
+        package="opennav_coverage",
+        executable="opennav_coverage",
+        name="coverage_server",
         output="screen",
         parameters=[
-            coverage_params,
+            nav2_params_file,
             {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    coverage_lifecycle_manager = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_coverage",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "autostart": True,
+                "node_names": ["coverage_server"],
+                "bond_timeout": 10.0,
+            },
         ],
     )
 
@@ -267,7 +296,26 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 12. Obstacle tracker — persistent LiDAR obstacle detection
+    # 12. rosbridge_server (optional) — WebSocket bridge for openmower-gui
+    # ------------------------------------------------------------------
+    rosbridge_node = Node(
+        condition=IfCondition(enable_rosbridge),
+        package="rosbridge_server",
+        executable="rosbridge_websocket",
+        name="rosbridge_websocket",
+        output="screen",
+        parameters=[
+            {
+                "port": rosbridge_port,
+                "address": "0.0.0.0",
+                "unregister_timeout": 10.0,
+                "max_message_size": 10000000,
+            },
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 13. Obstacle tracker — persistent LiDAR obstacle detection
     # ------------------------------------------------------------------
     obstacle_tracker_params = os.path.join(
         map_dir, "config", "obstacle_tracker.yaml"
@@ -297,13 +345,16 @@ def generate_launch_description() -> LaunchDescription:
             enable_mqtt_arg,
             enable_foxglove_arg,
             foxglove_port_arg,
+            enable_rosbridge_arg,
+            rosbridge_port_arg,
             # Subsystem includes
             mowgli_launch,
             navigation_launch,
             # Individual nodes
             behavior_tree_node,
             map_server_node,
-            coverage_planner_node,
+            coverage_server_node,
+            coverage_lifecycle_manager,
             obstacle_tracker_node,
             wheel_odometry_node,
             gps_pose_converter_node,
@@ -311,5 +362,6 @@ def generate_launch_description() -> LaunchDescription:
             diagnostics_node,
             mqtt_bridge_node,
             foxglove_bridge_node,
+            rosbridge_node,
         ]
     )

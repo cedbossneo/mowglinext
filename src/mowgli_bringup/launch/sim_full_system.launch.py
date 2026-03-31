@@ -11,7 +11,7 @@ Brings up:
   2. navigation.launch.py                          — SLAM, dual EKF, Nav2
   3. Behavior tree node                             — mowgli_behavior
   4. Map server                                     — mowgli_map
-  5. Coverage planner                               — mowgli_coverage_planner
+  5. Coverage server                                — opennav_coverage
   6. Diagnostics                                    — mowgli_monitoring
 """
 
@@ -37,7 +37,7 @@ def generate_launch_description() -> LaunchDescription:
     simulation_dir = get_package_share_directory("mowgli_simulation")
     behavior_dir = get_package_share_directory("mowgli_behavior")
     map_dir = get_package_share_directory("mowgli_map")
-    coverage_dir = get_package_share_directory("mowgli_coverage_planner")
+    # coverage_dir removed: opennav_coverage reads from nav2_params.yaml
     monitoring_dir = get_package_share_directory("mowgli_monitoring")
 
     # ------------------------------------------------------------------
@@ -95,7 +95,7 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     behavior_params = os.path.join(behavior_dir, "config", "behavior_tree.yaml")
     map_params = os.path.join(map_dir, "config", "map_server.yaml")
-    coverage_params = os.path.join(coverage_dir, "config", "coverage_planner.yaml")
+    nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
 
     # ------------------------------------------------------------------
@@ -178,16 +178,33 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Coverage planner
+    # 5. Coverage server (opennav_coverage)
     # ------------------------------------------------------------------
-    coverage_planner_node = Node(
-        package="mowgli_coverage_planner",
-        executable="coverage_planner_node",
-        name="coverage_planner_node",
+    coverage_server_node = Node(
+        package="opennav_coverage",
+        executable="opennav_coverage",
+        name="coverage_server",
         output="screen",
         parameters=[
-            coverage_params,
+            nav2_params_file,
             {"use_sim_time": True},
+        ],
+    )
+
+    # Lifecycle manager to activate the coverage server (it's a Nav2
+    # LifecycleNode not managed by Nav2's own lifecycle_manager_navigation).
+    coverage_lifecycle_manager = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_coverage",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "autostart": True,
+                "node_names": ["coverage_server"],
+                "bond_timeout": 10.0,
+            },
         ],
     )
 
@@ -307,7 +324,8 @@ def generate_launch_description() -> LaunchDescription:
             # Individual nodes
             behavior_tree_node,
             map_server_node,
-            coverage_planner_node,
+            coverage_server_node,
+            coverage_lifecycle_manager,
             obstacle_tracker_node,
             diagnostics_node,
             foxglove_bridge_node,

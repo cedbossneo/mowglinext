@@ -182,6 +182,16 @@ void mowgli_comms_send_status(const pkt_status_t *status);
 void mowgli_comms_send_imu(const pkt_imu_t *imu);
 
 /**
+ * @brief Send a PKT_ID_ODOMETRY packet.
+ *
+ * Convenience wrapper around mowgli_comms_send(). The CRC field in
+ * @p odom does not need to be pre-computed; it is filled in internally.
+ *
+ * @param odom Pointer to the populated odometry struct. Must not be NULL.
+ */
+void mowgli_comms_send_odometry(const pkt_odometry_t *odom);
+
+/**
  * @brief Return the number of RX bytes dropped due to buffer overflow.
  *
  * Useful for diagnosing communication problems. The counter is not cleared

@@ -51,8 +51,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-nav2-util \
     # Nav2 msgs (CostmapFilterInfo for costmap filters)
     ros-jazzy-nav2-msgs \
-    # Coverage planning with Fields2Cover v2
-    ros-jazzy-fields2cover \
+    # Coverage planning (F2C v1.2.1 built from source in deps stage)
+    # ros-jazzy-fields2cover -- removed: opennav_coverage requires F2C v1.2.1
+    libgdal-dev \
     # Simulation bridge (needed at runtime for ros_gz_bridge topic bridging)
     ros-jazzy-ros-gz-sim \
     ros-jazzy-ros-gz-bridge \
@@ -81,6 +82,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ros2_ws
+
+# ---- Fields2Cover v1.2.1-devel from source (required by opennav_coverage) ----
+RUN git clone --branch v1.2.1-devel --depth 1 \
+      https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c && \
+    cd /tmp/f2c && mkdir build && cd build && \
+    cmake .. \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_TESTING=OFF \
+      -DBUILD_PYTHON=OFF && \
+    make -j"$(nproc)" && make install && ldconfig && \
+    rm -rf /tmp/f2c
+
+# ---- opennav_coverage from source (jazzy branch) ----------------------------
+RUN git clone --branch jazzy --depth 1 \
+      https://github.com/open-navigation/opennav_coverage.git \
+      /ros2_ws/src/opennav_coverage
 
 # Copy only package.xml + CMakeLists.txt to resolve rosdep deps (cache layer).
 # This ensures the expensive rosdep install is only re-run when package
@@ -149,7 +167,7 @@ RUN /bin/bash -c "\
     source /opt/ros/jazzy/setup.bash && \
     source install/setup.bash && \
     colcon build \
-      --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+      --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DFields2Cover_DIR=/usr/local/cmake/fields2cover \
       --parallel-workers \$(nproc) \
       --event-handlers console_cohesion+ \
     "
@@ -170,6 +188,12 @@ RUN /bin/bash -c "\
 FROM base AS runtime
 
 WORKDIR /ros2_ws
+
+# Pull Fields2Cover shared libraries from build stage (needed at runtime by
+# opennav_coverage's coverage_server)
+COPY --from=build /usr/local/lib/libFields2Cover* /usr/local/lib/
+COPY --from=build /usr/local/include/fields2cover* /usr/local/include/
+RUN ldconfig
 
 # Pull compiled install tree from the build stage
 COPY --from=build /ros2_ws/install/ install/

@@ -35,6 +35,7 @@
 
 #include <mowgli_interfaces/msg/obstacle_array.hpp>
 #include <mowgli_interfaces/srv/clear_obstacle.hpp>
+#include <mowgli_interfaces/srv/get_mowing_area.hpp>
 
 namespace mowgli_map
 {
@@ -154,6 +155,15 @@ private:
     const std::vector<std::pair<double, double>> & hull,
     double radius) const;
 
+  /// Point-in-polygon test (ray casting algorithm).
+  /// Returns true if point (px, py) is inside the polygon.
+  bool point_in_polygon(
+    double px, double py,
+    const std::vector<std::pair<double, double>> & polygon) const;
+
+  /// Fetch mowing area boundary from map_server_node via GetMowingArea service.
+  void fetch_boundary();
+
   // ── Persistence helpers ───────────────────────────────────────────────────
 
   void save_to_file() const;
@@ -173,11 +183,18 @@ private:
   std::string map_topic_{"/map"};           ///< OccupancyGrid topic (slam_toolbox)
   int         occupied_threshold_{65};      ///< Cells >= this value are treated as occupied
   double      map_obstacle_min_dist_from_boundary_{0.5}; ///< Min distance from boundary edge (m)
+  double      boundary_margin_{0.3};     ///< Reject clusters within this margin of boundary edge (m)
 
   // ── State ─────────────────────────────────────────────────────────────────
   std::vector<TrackedObstacle> tracked_;  ///< All currently tracked obstacles
   uint32_t next_id_{1};                  ///< Monotonically increasing ID counter
   mutable std::mutex mutex_;             ///< Guards tracked_ and next_id_
+
+  /// Mowing area boundary polygon (map frame). Empty until fetched.
+  std::vector<std::pair<double, double>> boundary_polygon_;
+  /// Inset boundary polygon (shrunk by boundary_margin_) for filtering.
+  std::vector<std::pair<double, double>> boundary_inset_;
+  bool boundary_loaded_{false};
 
   // ── TF ────────────────────────────────────────────────────────────────────
   std::shared_ptr<tf2_ros::Buffer>            tf_buffer_;
@@ -196,6 +213,10 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                clear_all_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                save_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr                load_srv_;
+
+  // ── Boundary service client ─────────────────────────────────────────────
+  rclcpp::Client<mowgli_interfaces::srv::GetMowingArea>::SharedPtr boundary_client_;
+  rclcpp::TimerBase::SharedPtr boundary_fetch_timer_;
 
   // ── Timers ────────────────────────────────────────────────────────────────
   rclcpp::TimerBase::SharedPtr publish_timer_;

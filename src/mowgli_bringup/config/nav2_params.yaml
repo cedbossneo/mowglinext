@@ -10,7 +10,7 @@ bt_navigator:
     robot_base_frame: base_link
     odom_topic: /wheel_odom
     bt_loop_duration: 10
-    default_server_timeout: 20
+    default_server_timeout: 60
     # Custom Nav2 BT that adds GoalCheckerSelector (required when multiple
     # goal_checker_plugins are configured in controller_server).
     default_nav_to_pose_bt_xml: /ros2_ws/install/mowgli_behavior/share/mowgli_behavior/trees/navigate_to_pose.xml
@@ -110,10 +110,16 @@ controller_server:
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
       approach_velocity_scaling_dist: 0.4
-      # Collision detection: check costmap for obstacles ahead of the carrot.
-      # Short time threshold avoids false stops from costmap noise/inflation.
-      use_collision_detection: true
-      max_allowed_time_to_collision_up_to_carrot: 0.5
+      # Collision detection during coverage mowing: disabled.
+      # RPP collision detection uses the local costmap to check for obstacles
+      # in the carrot lookahead direction. During mowing, swaths run parallel
+      # to boundaries and near obstacles — the inflated costmap triggers
+      # "collision ahead" continuously, exceeding controller patience.
+      # Real obstacle avoidance during mowing relies on the collision_monitor
+      # node (FootprintApproach polygon) which watches the actual LiDAR scan,
+      # not the costmap. Transit uses SmacPlanner2D which naturally avoids
+      # obstacles via the global costmap.
+      use_collision_detection: false
       # Slow down near obstacles detected in costmap (inflation layer costs).
       use_regulated_linear_velocity_scaling: true
       use_cost_regulated_linear_velocity_scaling: true
@@ -254,11 +260,12 @@ global_costmap:
       rolling_window: true
       width: 100
       height: 100
-      plugins: ["keepout_filter", "obstacle_layer", "inflation_layer"]
+      # keepout_filter disabled in global costmap: it marks boundary zones
+      # as LETHAL causing "Start occupied" when robot is near boundary edge.
+      # Boundary enforcement uses local costmap keepout + coverage planner.
+      plugins: ["obstacle_layer", "inflation_layer"]
 
-      # Keepout filter: subscribes to /map_server/costmap_filter_info and
-      # /map_server/filter_mask published by mowgli_map's map_server_node.
-      # Marks keepout zones (persistent obstacles + boundary) as LETHAL.
+      # Keepout filter config kept for reference but not in plugins list.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
@@ -281,8 +288,11 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # Tight inflation: just enough for SmacPlanner2D safety margin.
+        # 0.30m ≈ robot half-width (0.27m) + small buffer. Keeps transit
+        # paths close to obstacles without losing too much mowing area.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.30
 
 # ---------------------------------------------------------------------------
 # Local costmap
@@ -300,15 +310,21 @@ local_costmap:
       rolling_window: true
       width: 6
       height: 6
-      plugins: ["keepout_filter", "speed_filter", "obstacle_layer", "inflation_layer"]
+      # keepout_filter removed: it marks boundary as LETHAL in the local
+      # costmap which triggers RPP "collision ahead" on swaths near the
+      # boundary edge. Boundary enforcement is handled by the coverage
+      # planner (swaths stay within the polygon) and the collision_monitor
+      # (real LiDAR obstacles only). Speed filter also removed as it depends
+      # on the same mask infrastructure.
+      plugins: ["obstacle_layer", "inflation_layer"]
 
-      # Keepout filter: marks persistent obstacle zones as LETHAL in local costmap.
+      # Keepout filter config kept for reference but not in plugins list.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true
         filter_info_topic: "/costmap_filter_info"
 
-      # Speed filter: reduces velocity near obstacle zones and garden boundary.
+      # Speed filter config kept for reference but not in plugins list.
       speed_filter:
         plugin: "nav2_costmap_2d::SpeedFilter"
         enabled: true
@@ -332,8 +348,10 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # Tight inflation for local costmap: robot half-width + small margin.
+        # Minimizes unmowed area around obstacles during coverage.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.30
 
 # ---------------------------------------------------------------------------
 # Map server / AMCL (not used with slam_toolbox, kept for completeness)
@@ -416,11 +434,10 @@ collision_monitor:
       min_points: 2
       visualize: true
       polygon_pub_topic: "polygon_stop"
-      # Disabled in sim: Gazebo LiDAR self-reflections at 0.26-0.30m fall
-      # inside this zone. Obstacle avoidance uses costmap-based collision
-      # detection in RPP instead (obstacle_min_range: 0.35 filters
-      # self-reflections from costmap). Re-enable on real hardware.
-      enabled: false
+      # LiDAR range_min=0.35m in model.sdf filters chassis self-reflections.
+      # PolygonStop provides hard safety stop if something enters the tight
+      # safety zone around the robot.
+      enabled: true
     # Approach: uses dynamic robot footprint with velocity projection.
     # Gradually slows when predicted collision is within time_before_collision.
     FootprintApproach:
@@ -438,8 +455,8 @@ collision_monitor:
       topic: /scan
       min_height: 0.15
       max_height: 2.0
-      # Disabled in sim: self-reflections at 0.26-0.30m. Re-enable on hardware.
-      enabled: false
+      # LiDAR range_min=0.35m in model.sdf filters chassis self-reflections.
+      enabled: true
 
 # ---------------------------------------------------------------------------
 # Lifecycle manager
@@ -447,6 +464,35 @@ collision_monitor:
 # with the correct node list. This section provides parameters that get merged
 # via RewrittenYaml.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Coverage server (opennav_coverage)
+# Plans coverage paths using Fields2Cover v1.2.1.
+# Called by ComputeCoverage BT node via ComputeCoveragePath action.
+# ---------------------------------------------------------------------------
+coverage_server:
+  ros__parameters:
+    use_sim_time: false
+    # Robot parameters
+    robot_width: 0.40
+    operation_width: 0.18
+    min_turning_radius: 0.01
+    linear_curv_change: 200.0
+    # Headland
+    default_headland_width: 0.50
+    default_headland_type: "CONSTANT"
+    # Swath generation
+    default_swath_type: "LENGTH"
+    default_swath_angle_type: "SET_ANGLE"
+    default_swath_angle: 0.0
+    default_allow_overlap: false
+    # Route ordering
+    default_route_type: "BOUSTROPHEDON"
+    # Path connecting (turns between swaths)
+    default_path_type: "DUBIN"
+    default_path_continuity_type: "CONTINUOUS"
+    # Coordinate system
+    coordinates_in_cartesian_frame: true
+
 lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: false

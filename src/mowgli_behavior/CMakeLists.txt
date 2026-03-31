@@ -33,6 +33,7 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
 find_package(slam_toolbox REQUIRED)
+find_package(opennav_coverage_msgs REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Executable: behavior_tree_node
@@ -42,6 +43,7 @@ add_executable(behavior_tree_node
   src/behavior_tree_node.cpp
   src/condition_nodes.cpp
   src/action_nodes.cpp
+  src/coverage_nodes.cpp
   src/register_nodes.cpp
 )
 
@@ -66,6 +68,7 @@ ament_target_dependencies(behavior_tree_node
   std_srvs
   mowgli_interfaces
   slam_toolbox
+  opennav_coverage_msgs
 )
 
 # ---------------------------------------------------------------------------

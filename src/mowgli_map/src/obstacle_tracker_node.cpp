@@ -35,6 +35,8 @@
 #include <std_msgs/msg/header.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
+#include <mowgli_interfaces/srv/get_mowing_area.hpp>
+
 namespace mowgli_map
 {
 
@@ -60,6 +62,7 @@ ObstacleTrackerNode::ObstacleTrackerNode(const rclcpp::NodeOptions & options)
   occupied_threshold_   = declare_parameter<int>("occupied_threshold",       65);
   map_obstacle_min_dist_from_boundary_ =
     declare_parameter<double>("map_obstacle_min_dist_from_boundary",         0.5);
+  boundary_margin_ = declare_parameter<double>("boundary_margin", 0.3);
 
   RCLCPP_INFO(
     get_logger(),
@@ -144,6 +147,14 @@ ObstacleTrackerNode::ObstacleTrackerNode(const rclcpp::NodeOptions & options)
     std::chrono::duration<double>(1.0 / publish_rate_));
 
   publish_timer_ = create_wall_timer(period_ns, [this]() { on_publish_timer(); });
+
+  // ── Boundary service client ─────────────────────────────────────────────
+  boundary_client_ = create_client<mowgli_interfaces::srv::GetMowingArea>(
+    "/map_server_node/get_mowing_area");
+
+  // Retry fetching the boundary every 5 seconds until map_server is ready.
+  boundary_fetch_timer_ = create_wall_timer(
+    std::chrono::seconds(5), [this]() { fetch_boundary(); });
 
   // ── Load persisted obstacles on startup ──────────────────────────────────
   if (!persistence_file_.empty()) {
@@ -533,6 +544,117 @@ void ObstacleTrackerNode::on_load(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Boundary fetching
+// ─────────────────────────────────────────────────────────────────────────────
+
+void ObstacleTrackerNode::fetch_boundary()
+{
+  if (boundary_loaded_) {
+    boundary_fetch_timer_->cancel();
+    return;
+  }
+
+  if (!boundary_client_->service_is_ready()) {
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 10000,
+      "Waiting for /map_server_node/get_mowing_area service...");
+    return;
+  }
+
+  auto request = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+  request->index = 0;
+
+  auto future = boundary_client_->async_send_request(request,
+    [this](rclcpp::Client<mowgli_interfaces::srv::GetMowingArea>::SharedFuture result) {
+      auto response = result.get();
+      if (!response->success || response->area.area.points.empty()) {
+        RCLCPP_WARN(get_logger(), "GetMowingArea returned no boundary — will retry.");
+        return;
+      }
+
+      // Convert polygon to vector of (x, y) pairs.
+      boundary_polygon_.clear();
+      for (const auto & pt : response->area.area.points) {
+        boundary_polygon_.emplace_back(
+          static_cast<double>(pt.x), static_cast<double>(pt.y));
+      }
+
+      // Compute inset polygon (shrink by boundary_margin_).
+      // Simple approach: move each vertex toward the centroid by boundary_margin_.
+      double cx = 0.0, cy = 0.0;
+      for (const auto & [x, y] : boundary_polygon_) {
+        cx += x;
+        cy += y;
+      }
+      cx /= static_cast<double>(boundary_polygon_.size());
+      cy /= static_cast<double>(boundary_polygon_.size());
+
+      boundary_inset_.clear();
+      for (const auto & [x, y] : boundary_polygon_) {
+        const double dx = x - cx;
+        const double dy = y - cy;
+        const double dist = std::hypot(dx, dy);
+        if (dist > 1e-6) {
+          const double shrink = std::min(boundary_margin_ / dist, 0.5);
+          boundary_inset_.emplace_back(x - dx * shrink, y - dy * shrink);
+        } else {
+          boundary_inset_.emplace_back(x, y);
+        }
+      }
+
+      boundary_loaded_ = true;
+      boundary_fetch_timer_->cancel();
+
+      RCLCPP_INFO(get_logger(),
+        "Loaded mowing area boundary: %zu vertices, margin=%.2f m. "
+        "Obstacles outside boundary will be rejected.",
+        boundary_polygon_.size(), boundary_margin_);
+
+      // Clear any existing obstacles that are outside the boundary
+      // (accumulated before boundary was loaded).
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto before = tracked_.size();
+      tracked_.erase(
+        std::remove_if(tracked_.begin(), tracked_.end(),
+          [this](const TrackedObstacle & obs) {
+            return !point_in_polygon(obs.cx, obs.cy, boundary_inset_);
+          }),
+        tracked_.end());
+      if (tracked_.size() < before) {
+        RCLCPP_INFO(get_logger(),
+          "Purged %zu obstacles outside mowing area boundary.",
+          before - tracked_.size());
+      }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Point-in-polygon (ray casting)
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool ObstacleTrackerNode::point_in_polygon(
+  double px, double py,
+  const std::vector<std::pair<double, double>> & polygon) const
+{
+  if (polygon.size() < 3) {
+    return false;
+  }
+
+  bool inside = false;
+  const size_t n = polygon.size();
+  for (size_t i = 0, j = n - 1; i < n; j = i++) {
+    const double xi = polygon[i].first,  yi = polygon[i].second;
+    const double xj = polygon[j].first,  yj = polygon[j].second;
+
+    if (((yi > py) != (yj > py)) &&
+        (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
+    {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DBSCAN
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -742,6 +864,11 @@ void ObstacleTrackerNode::associate_clusters(
 
     // Filter by radius bounds.
     if (max_r < min_obstacle_radius_ || max_r > max_obstacle_radius_) {
+      continue;
+    }
+
+    // Filter by mowing area boundary: reject clusters outside or near the edge.
+    if (boundary_loaded_ && !point_in_polygon(cx, cy, boundary_inset_)) {
       continue;
     }
 

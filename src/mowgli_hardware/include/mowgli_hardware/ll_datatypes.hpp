@@ -28,6 +28,7 @@ enum PacketId : uint8_t
   PACKET_ID_LL_STATUS                 = 0x01,  ///< STM32 → Pi: system status
   PACKET_ID_LL_IMU                    = 0x02,  ///< STM32 → Pi: IMU data
   PACKET_ID_LL_UI_EVENT               = 0x03,  ///< STM32 → Pi: UI button event
+  PACKET_ID_LL_ODOMETRY               = 0x04,  ///< STM32 → Pi: wheel odometry
   PACKET_ID_LL_HIGH_LEVEL_CONFIG_REQ  = 0x11,  ///< Bidirectional: config request
   PACKET_ID_LL_HIGH_LEVEL_CONFIG_RSP  = 0x12,  ///< Bidirectional: config response
   PACKET_ID_LL_HEARTBEAT              = 0x42,  ///< Pi → STM32: heartbeat
@@ -109,6 +110,24 @@ struct LlUiEvent
 };
 
 /**
+ * @brief Wheel odometry packet sent by the STM32 (PACKET_ID_LL_ODOMETRY = 0x04).
+ *
+ * Sent every 20 ms when the drive motor controller responds with encoder data.
+ */
+struct LlOdometry
+{
+  uint8_t  type;              ///< Must equal PACKET_ID_LL_ODOMETRY
+  uint16_t dt_millis;         ///< Time delta since last packet [ms]
+  int32_t  left_ticks;        ///< Cumulative left encoder ticks
+  int32_t  right_ticks;       ///< Cumulative right encoder ticks
+  int16_t  left_speed;        ///< Left wheel speed (raw motor unit)
+  int16_t  right_speed;       ///< Right wheel speed (raw motor unit)
+  uint8_t  left_direction;    ///< 0=stopped, 1=forward, 2=reverse
+  uint8_t  right_direction;   ///< 0=stopped, 1=forward, 2=reverse
+  uint16_t crc;               ///< CRC-16 CCITT over all preceding bytes
+};
+
+/**
  * @brief Heartbeat packet sent by the Pi (PACKET_ID_LL_HEARTBEAT = 0x42).
  *
  * Must be sent at regular intervals (typically 250 ms). The STM32 will
@@ -158,6 +177,7 @@ struct LlCmdVel
 static_assert(sizeof(LlStatus)         == 38u, "LlStatus layout mismatch");
 static_assert(sizeof(LlImu)            == 41u, "LlImu layout mismatch");
 static_assert(sizeof(LlUiEvent)        ==  5u, "LlUiEvent layout mismatch");
+static_assert(sizeof(LlOdometry)       == 19u, "LlOdometry layout mismatch");
 static_assert(sizeof(LlHeartbeat)      ==  5u, "LlHeartbeat layout mismatch");
 static_assert(sizeof(LlHighLevelState) ==  5u, "LlHighLevelState layout mismatch");
 static_assert(sizeof(LlCmdVel)         == 11u, "LlCmdVel layout mismatch");

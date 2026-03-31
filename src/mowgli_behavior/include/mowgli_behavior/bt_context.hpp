@@ -2,11 +2,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.hpp"
 #include "tf2_ros/transform_listener.hpp"
+#include "geometry_msgs/msg/point32.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
@@ -79,6 +83,28 @@ struct BTContext {
   double dock_x{0.0};
   double dock_y{0.0};
   double dock_yaw{0.0};
+
+  // -----------------------------------------------------------------------
+  // Coverage path components (set by ComputeCoverage, consumed by
+  // ExecuteSwathBySwath).  Using simple structs to avoid depending on
+  // opennav_coverage_msgs in the context header.
+  // -----------------------------------------------------------------------
+
+  struct Swath {
+    geometry_msgs::msg::Point32 start;
+    geometry_msgs::msg::Point32 end;
+  };
+
+  struct CoveragePlan {
+    std::vector<Swath> swaths;
+    std::vector<nav_msgs::msg::Path> turns;  // N-1 turns for N swaths
+  };
+
+  /// Populated by ComputeCoverage, consumed by ExecuteSwathBySwath.
+  std::optional<CoveragePlan> coverage_plan;
+
+  /// Progress tracking across charge cycles.
+  size_t next_swath_index{0};
 
   // -----------------------------------------------------------------------
   // TF buffer (shared across all BT nodes)

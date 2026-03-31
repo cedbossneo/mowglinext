@@ -1,5 +1,6 @@
 #include "mowgli_behavior/action_nodes.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
+#include "mowgli_behavior/coverage_nodes.hpp"
 
 namespace mowgli_behavior {
 
@@ -33,6 +34,10 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<ReplanCoverage>("ReplanCoverage");
   factory.registerNodeType<SaveObstacles>("SaveObstacles");
   factory.registerNodeType<SetNavMode>("SetNavMode");
+
+  // Coverage nodes (opennav_coverage integration)
+  factory.registerNodeType<ComputeCoverage>("ComputeCoverage");
+  factory.registerNodeType<ExecuteSwathBySwath>("ExecuteSwathBySwath");
 }
 
 }  // namespace mowgli_behavior

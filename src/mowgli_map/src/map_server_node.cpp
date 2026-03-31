@@ -640,6 +640,8 @@ void MapServerNode::on_get_mowing_area(
   const mowgli_interfaces::srv::GetMowingArea::Request::SharedPtr req,
   mowgli_interfaces::srv::GetMowingArea::Response::SharedPtr res)
 {
+  std::lock_guard<std::mutex> lock(map_mutex_);
+
   const auto idx = static_cast<std::size_t>(req->index);
   if (idx < areas_.size()) {
     const auto & entry = areas_[idx];
@@ -652,6 +654,10 @@ void MapServerNode::on_get_mowing_area(
       res->area.obstacles.push_back(obs);
     }
     res->success = true;
+    RCLCPP_INFO(get_logger(),
+      "GetMowingArea[%u]: area='%s', %zu static + %zu dynamic obstacles",
+      req->index, entry.name.c_str(),
+      entry.obstacles.size(), obstacle_polygons_.size());
   } else if (!areas_.empty()) {
     // Fall back to first area if index is out of range.
     const auto & entry = areas_[0];
@@ -1039,8 +1045,9 @@ void MapServerNode::diff_and_update_obstacles(
 
   obstacle_polygons_.clear();
   for (const auto & obs : incoming) {
-    if (obs.polygon.points.size() >= 3 &&
-        obs.status == mowgli_interfaces::msg::TrackedObstacle::PERSISTENT) {
+    // Include all obstacles with valid polygons (both transient and persistent).
+    // The robot should mow around detected obstacles regardless of confirmation status.
+    if (obs.polygon.points.size() >= 3) {
       obstacle_polygons_.push_back(obs.polygon);
     }
   }

@@ -136,26 +136,19 @@
             <AlwaysSuccess/>
           </Fallback>
 
-          <!-- Plan coverage path -->
+          <!-- Compute coverage path via opennav_coverage server -->
           <PublishHighLevelStatus state="2" state_name="PLANNING"/>
-          <PlanCoveragePath area_index="0" first_waypoint="{first_wp}"/>
+          <ComputeCoverage area_index="0" first_swath_start="{first_wp}"/>
 
-          <!-- Transit to start of coverage path (blade OFF) -->
-          <SetMowerEnabled enabled="false"/>
-          <PublishHighLevelStatus state="2" state_name="TRANSIT_TO_START"/>
-          <NavigateToPose goal="{first_wp}"/>
-
-          <!-- Blade ON — start mowing -->
-          <SetMowerEnabled enabled="true"/>
+          <!-- Swath-by-swath mowing with battery awareness
+               (transit to swath 1 start is handled by ExecuteSwathBySwath) -->
           <PublishHighLevelStatus state="2" state_name="MOWING"/>
 
-          <!-- Coverage with recovery, replan, and battery-aware mid-mow docking -->
           <Fallback name="CoverageWithRecovery">
 
-            <!-- Battery + replan aware coverage -->
             <ReactiveSequence name="AdaptiveCoverage">
 
-              <!-- Reactive battery check: interrupts FollowCoveragePath -->
+              <!-- Reactive battery check: interrupts ExecuteSwathBySwath -->
               <Fallback name="BatteryGuard">
                 <Inverter><NeedsDocking threshold="20.0"/></Inverter>
                 <Sequence name="BatteryDockAndResume">
@@ -176,34 +169,25 @@
                       </Sequence>
                     </Fallback>
                   </RetryUntilSuccessful>
-                  <!-- Charged — undock and resume with fresh plan -->
+                  <!-- Charged — undock and resume from where we left off.
+                       ExecuteSwathBySwath reads ctx->next_swath_index to
+                       resume from the last incomplete swath. -->
                   <PublishHighLevelStatus state="2" state_name="RESUMING_UNDOCKING"/>
                   <BackUp backup_dist="1.5" backup_speed="0.15"/>
-                  <ReplanCoverage first_waypoint="{first_wp}"/>
-                  <SetMowerEnabled enabled="false"/>
-                  <PublishHighLevelStatus state="2" state_name="TRANSIT_TO_START"/>
-                  <NavigateToPose goal="{first_wp}"/>
-                  <SetMowerEnabled enabled="true"/>
                   <PublishHighLevelStatus state="2" state_name="MOWING"/>
                 </Sequence>
               </Fallback>
 
-              <!-- Reactive replan check: triggers when obstacles change -->
-              <Fallback name="ReplanGuard">
-                <Inverter><ReplanNeeded/></Inverter>
-                <Sequence name="DoReplan">
-                  <PublishHighLevelStatus state="2" state_name="REPLANNING"/>
-                  <ReplanCoverage first_waypoint="{first_wp}"/>
-                  <PublishHighLevelStatus state="2" state_name="MOWING"/>
-                </Sequence>
-              </Fallback>
-
-              <!-- Actual coverage following with retry on failure -->
-              <RetryUntilSuccessful num_attempts="3" name="RetryFollowCoverage">
-                <Fallback name="FollowOrRecover">
-                  <FollowCoveragePath/>
+              <!-- Swath-by-swath execution with retry on failure.
+                   Each swath uses NavigateToPose (obstacle-aware) for transit
+                   and FollowPath (RPP) for straight-line mowing. Blocked
+                   swaths are automatically skipped. -->
+              <RetryUntilSuccessful num_attempts="3" name="RetrySwathExecution">
+                <Fallback name="ExecuteOrRecover">
+                  <ExecuteSwathBySwath/>
                   <Sequence name="RecoverAndRetry">
                     <PublishHighLevelStatus state="2" state_name="RECOVERING"/>
+                    <SetMowerEnabled enabled="false"/>
                     <StopMoving/>
                     <BackUp backup_dist="0.5" backup_speed="0.1"/>
                     <ClearCostmap/>
@@ -215,7 +199,7 @@
 
             </ReactiveSequence>
 
-            <!-- All retries exhausted → dock gracefully -->
+            <!-- All retries exhausted — dock gracefully -->
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
               <SaveObstacles/>

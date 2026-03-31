@@ -5,8 +5,9 @@ obstacle_tracker:
     persistence_threshold: 30.0
     transient_timeout: 5.0
     min_obstacle_radius: 0.05
-    max_obstacle_radius: 5.0
+    max_obstacle_radius: 1.5
     inflation_radius: 0.15
     persistence_file: "/ros2_ws/maps/obstacles.yaml"
     map_frame: "map"
     publish_rate: 1.0
+    boundary_margin: 0.3

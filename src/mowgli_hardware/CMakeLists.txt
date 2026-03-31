@@ -22,6 +22,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ ament_target_dependencies(hardware_bridge_node
   std_msgs
   sensor_msgs
   geometry_msgs
+  nav_msgs
   mowgli_interfaces
 )
 
@@ -108,6 +110,14 @@ if(BUILD_TESTING)
   target_link_libraries(test_packet_handler
     mowgli_hardware_core
   )
+
+  # ---- test_protocol ----
+  ament_add_gtest(test_protocol
+    test/test_protocol.cpp
+  )
+  target_link_libraries(test_protocol
+    mowgli_hardware_core
+  )
 endif()
 
 # ---------------------------------------------------------------------------
@@ -121,6 +131,7 @@ ament_export_dependencies(
   std_msgs
   sensor_msgs
   geometry_msgs
+  nav_msgs
   mowgli_interfaces
 )
 
