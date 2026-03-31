@@ -325,7 +325,10 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 12. rosbridge_server (optional) — WebSocket bridge for openmower-gui
+    # 12. rosbridge_server + rosapi (optional) — WebSocket bridge for
+    #     openmower-gui.  rosapi provides the service endpoints
+    #     (e.g. /rosapi/topics_and_raw_types) that the GUI needs to
+    #     discover available topics.
     # ------------------------------------------------------------------
     rosbridge_node = Node(
         condition=IfCondition(enable_rosbridge),
@@ -340,6 +343,17 @@ def generate_launch_description() -> LaunchDescription:
                 "unregister_timeout": 10.0,
                 "max_message_size": 10000000,
             },
+        ],
+    )
+
+    rosapi_node = Node(
+        condition=IfCondition(enable_rosbridge),
+        package="rosapi",
+        executable="rosapi_node",
+        name="rosapi",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
         ],
     )
 
@@ -394,5 +408,6 @@ def generate_launch_description() -> LaunchDescription:
             mqtt_bridge_node,
             foxglove_bridge_node,
             rosbridge_node,
+            rosapi_node,
         ]
     )
