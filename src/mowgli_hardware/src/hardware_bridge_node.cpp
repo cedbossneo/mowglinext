@@ -295,7 +295,8 @@ private:
                              ? mowgli_interfaces::msg::Status::MOWER_STATUS_OK
                              : mowgli_interfaces::msg::Status::MOWER_STATUS_INITIALIZING;
       msg.raspberry_pi_power = (pkt.status_bitmask & STATUS_BIT_RASPI_POWER) != 0u;
-      msg.is_charging = (pkt.status_bitmask & STATUS_BIT_CHARGING) != 0u;
+      is_charging_ = (pkt.status_bitmask & STATUS_BIT_CHARGING) != 0u;
+      msg.is_charging = is_charging_;
       msg.rain_detected = (pkt.status_bitmask & STATUS_BIT_RAIN) != 0u;
       msg.sound_module_available = (pkt.status_bitmask & STATUS_BIT_SOUND_AVAIL) != 0u;
       msg.sound_module_busy = (pkt.status_bitmask & STATUS_BIT_SOUND_BUSY) != 0u;
@@ -367,9 +368,20 @@ private:
     msg.linear_acceleration.y = static_cast<double>(pkt.acceleration_mss[1]);
     msg.linear_acceleration.z = static_cast<double>(pkt.acceleration_mss[2]);
 
-    msg.angular_velocity.x = static_cast<double>(pkt.gyro_rads[0]);
-    msg.angular_velocity.y = static_cast<double>(pkt.gyro_rads[1]);
-    msg.angular_velocity.z = static_cast<double>(pkt.gyro_rads[2]);
+    // When docked/charging the robot is stationary — zero out gyro to prevent
+    // yaw drift from IMU bias accumulating in the EKF.
+    if (is_charging_)
+    {
+      msg.angular_velocity.x = 0.0;
+      msg.angular_velocity.y = 0.0;
+      msg.angular_velocity.z = 0.0;
+    }
+    else
+    {
+      msg.angular_velocity.x = static_cast<double>(pkt.gyro_rads[0]);
+      msg.angular_velocity.y = static_cast<double>(pkt.gyro_rads[1]);
+      msg.angular_velocity.z = static_cast<double>(pkt.gyro_rads[2]);
+    }
 
     // Orientation not computed here; fill with identity and mark as unknown.
     msg.orientation.w = 1.0;
@@ -613,6 +625,7 @@ private:
   bool emergency_active_{false};
   bool emergency_release_pending_{false};
   bool mow_enabled_{false};
+  bool is_charging_{false};
   uint8_t current_mode_{0};
   uint8_t gps_quality_{0};
 
