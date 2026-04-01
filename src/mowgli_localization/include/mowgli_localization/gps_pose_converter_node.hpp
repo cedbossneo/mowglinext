@@ -1,34 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0
 /**
  * @file gps_pose_converter_node.hpp
- * @brief GPS pose converter node.
+ * @brief GPS pose converter — always publishes, covariance reflects quality.
  *
- * Converts mowgli_interfaces/msg/AbsolutePose (produced by the xbot_positioning
- * subsystem or its ROS2 equivalent) into a
- * geometry_msgs/msg/PoseWithCovarianceStamped that robot_localization's EKF
- * can consume directly on /gps/pose.
+ * Converts mowgli_interfaces/msg/AbsolutePose into
+ * geometry_msgs/msg/PoseWithCovarianceStamped for robot_localization's EKF.
  *
- * The AbsolutePose message already carries a geometry_msgs/PoseWithCovariance
- * in a local flat-earth frame, so no geodetic projection is required here.
- * This node's job is to:
- *   1. Gate on position quality (flags + position_accuracy).
- *   2. Scale the output covariance according to fix type so the EKF trusts
- *      RTK-fixed positions more than float, and rejects degraded fixes.
- *   3. Stamp the message with current ROS time and forward it.
- *
- * Subscribed topics:
- *   /gps/absolute_pose   mowgli_interfaces/msg/AbsolutePose
- *
- * Published topics:
- *   /gps/pose            geometry_msgs/msg/PoseWithCovarianceStamped
- *
- * Parameters:
- *   use_first_fix_as_datum (bool,   default true)  – reserved for future
- *     geodetic datum logic; currently the AbsolutePose is already projected.
- *   datum_lat              (double, default 0.0)   – geodetic datum latitude.
- *   datum_lon              (double, default 0.0)   – geodetic datum longitude.
- *   min_accuracy_threshold (double, default 0.5 m) – positions with
- *     position_accuracy worse than this value are discarded.
+ * Every fix is published; the covariance is scaled by fix quality so the EKF
+ * naturally blends GPS with SLAM:
+ *   RTK fixed  → tight covariance → GPS dominates
+ *   RTK float  → moderate         → GPS + SLAM blend
+ *   No RTK     → large            → SLAM dominates
  */
 
 #pragma once
@@ -66,18 +48,11 @@ private:
   // ---------------------------------------------------------------------------
 
   /**
-   * @brief Compute the xy position variance to use in the covariance matrix.
+   * @brief Compute xy variance from fix quality and reported accuracy.
    *
-   * The variance is derived from position_accuracy (1-sigma in metres) and
-   * a multiplier that reflects the current fix quality:
-   *   RTK fixed   → multiplier 1.0  (trust the sensor accuracy fully)
-   *   RTK float   → multiplier 4.0  (twice the standard deviation)
-   *   Dead reckon → multiplier 16.0 (very loose)
-   *   No fix      → discard message (returns negative sentinel)
-   *
-   * @param msg  The incoming AbsolutePose message.
-   * @return     Variance in m² to place on the diagonal, or -1.0 if the fix
-   *             quality is too poor to publish.
+   * Always returns a positive value — every fix is published.
+   * The multiplier scales with fix degradation so the EKF weights
+   * GPS less when quality is poor, letting SLAM take over.
    */
   double compute_xy_variance(const mowgli_interfaces::msg::AbsolutePose& msg) const;
 
