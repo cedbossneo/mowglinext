@@ -222,17 +222,13 @@ EOF
   echo -e "  ${DIM}$yaml_file${NC}"
   echo ""
 
-  # GPS datum
+  # GPS datum — will be overridden by auto-detect if available
   echo -e "${CYAN}GPS Datum${NC} — coordinates of your docking station (WGS84)"
   echo -e "${DIM}Find them on Google Maps: right-click your dock location > copy coordinates${NC}"
+  echo -e "${DIM}Leave as 0.0 to auto-detect from GPS after startup (mower must be on dock)${NC}"
   local datum_lat datum_lon
   datum_lat=$(prompt "  Latitude?" "0.0")
   datum_lon=$(prompt "  Longitude?" "0.0")
-
-  if [[ "$datum_lat" == "0.0" || "$datum_lon" == "0.0" ]]; then
-    warn "Datum is 0.0/0.0 — GPS localisation won't work until you set real coordinates"
-    add_issue "Set your GPS datum in $yaml_file (datum_lat / datum_lon)"
-  fi
 
   # NTRIP
   echo ""
@@ -254,52 +250,87 @@ EOF
     fi
   fi
 
-  # Write YAML
+  # LiDAR position and orientation
+  echo ""
+  echo -e "${CYAN}LiDAR mounting${NC} — position relative to base_link centre (metres)"
+  echo -e "${DIM}x=forward, y=left, z=up. yaw in radians (3.14159 = 180 degrees)${NC}"
+  local lidar_x lidar_y lidar_z lidar_yaw
+  lidar_x=$(prompt "  LiDAR x (forward)?" "0.20")
+  lidar_y=$(prompt "  LiDAR y (left)?" "0.0")
+  lidar_z=$(prompt "  LiDAR z (height)?" "0.22")
+  lidar_yaw=$(prompt "  LiDAR yaw (rotation)?" "0.0")
+
+  # Store config vars for write_config and auto_detect
+  CONFIG_DATUM_LAT="$datum_lat"
+  CONFIG_DATUM_LON="$datum_lon"
+  CONFIG_NTRIP_ENABLED="$ntrip_enabled"
+  CONFIG_NTRIP_HOST="$ntrip_host"
+  CONFIG_NTRIP_PORT="$ntrip_port"
+  CONFIG_NTRIP_USER="$ntrip_user"
+  CONFIG_NTRIP_PASSWORD="$ntrip_password"
+  CONFIG_NTRIP_MOUNTPOINT="$ntrip_mountpoint"
+  CONFIG_LIDAR_X="$lidar_x"
+  CONFIG_LIDAR_Y="$lidar_y"
+  CONFIG_LIDAR_Z="$lidar_z"
+  CONFIG_LIDAR_YAW="$lidar_yaw"
+  CONFIG_DOCK_X="0.0"
+  CONFIG_DOCK_Y="0.0"
+  CONFIG_DOCK_YAW="0.0"
+}
+
+# Write config files using CONFIG_* variables
+write_config() {
+  local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+
   cat > "$yaml_file" <<EOF
 # Mowgli ROS2 — Site-specific configuration
 # Full reference: docker exec mowgli-ros2 cat /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/mowgli_robot.yaml
 
 mowgli:
   ros__parameters:
-    datum_lat: $datum_lat
-    datum_lon: $datum_lon
+    datum_lat: $CONFIG_DATUM_LAT
+    datum_lon: $CONFIG_DATUM_LON
 
     gps_port: "/dev/gps"
     gps_baudrate: 921600
 
-    ntrip_enabled: $ntrip_enabled
-    ntrip_host: "$ntrip_host"
-    ntrip_port: $ntrip_port
-    ntrip_user: "$ntrip_user"
-    ntrip_password: "$ntrip_password"
-    ntrip_mountpoint: "$ntrip_mountpoint"
+    ntrip_enabled: $CONFIG_NTRIP_ENABLED
+    ntrip_host: "$CONFIG_NTRIP_HOST"
+    ntrip_port: $CONFIG_NTRIP_PORT
+    ntrip_user: "$CONFIG_NTRIP_USER"
+    ntrip_password: "$CONFIG_NTRIP_PASSWORD"
+    ntrip_mountpoint: "$CONFIG_NTRIP_MOUNTPOINT"
 
-    dock_pose_x: 0.0
-    dock_pose_y: 0.0
-    dock_pose_yaw: 0.0
+    # LiDAR mounting (relative to base_link, metres)
+    lidar_x: $CONFIG_LIDAR_X
+    lidar_y: $CONFIG_LIDAR_Y
+    lidar_z: $CONFIG_LIDAR_Z
+    lidar_yaw: $CONFIG_LIDAR_YAW
+
+    dock_pose_x: $CONFIG_DOCK_X
+    dock_pose_y: $CONFIG_DOCK_Y
+    dock_pose_yaw: $CONFIG_DOCK_YAW
 
 navsat_to_absolute_pose:
   ros__parameters:
-    datum_lat: $datum_lat
-    datum_lon: $datum_lon
+    datum_lat: $CONFIG_DATUM_LAT
+    datum_lon: $CONFIG_DATUM_LON
 EOF
 
   info "Wrote $yaml_file"
 
-  # mower_config.sh for GUI
-  if [ ! -f "$INSTALL_DIR/config/om/mower_config.sh" ]; then
-    cat > "$INSTALL_DIR/config/om/mower_config.sh" <<EOF
-export OM_DATUM_LAT=$datum_lat
-export OM_DATUM_LONG=$datum_lon
+  cat > "$INSTALL_DIR/config/om/mower_config.sh" <<EOF
+export OM_DATUM_LAT=$CONFIG_DATUM_LAT
+export OM_DATUM_LONG=$CONFIG_DATUM_LON
 export OM_GPS_PROTOCOL=UBX
 export OM_GPS_PORT=/dev/gps
 export OM_GPS_BAUDRATE=921600
-export OM_USE_NTRIP=$( [[ "$ntrip_enabled" == "true" ]] && echo "True" || echo "False" )
-export OM_NTRIP_HOSTNAME=$ntrip_host
-export OM_NTRIP_PORT=$ntrip_port
-export OM_NTRIP_USER=$ntrip_user
-export OM_NTRIP_PASSWORD=$ntrip_password
-export OM_NTRIP_ENDPOINT=$ntrip_mountpoint
+export OM_USE_NTRIP=$( [[ "$CONFIG_NTRIP_ENABLED" == "true" ]] && echo "True" || echo "False" )
+export OM_NTRIP_HOSTNAME=$CONFIG_NTRIP_HOST
+export OM_NTRIP_PORT=$CONFIG_NTRIP_PORT
+export OM_NTRIP_USER=$CONFIG_NTRIP_USER
+export OM_NTRIP_PASSWORD=$CONFIG_NTRIP_PASSWORD
+export OM_NTRIP_ENDPOINT=$CONFIG_NTRIP_MOUNTPOINT
 export OM_TOOL_WIDTH=0.13
 export OM_ENABLE_MOWER=true
 export OM_AUTOMATIC_MODE=0
@@ -307,8 +338,83 @@ export OM_BATTERY_FULL_VOLTAGE=28.5
 export OM_BATTERY_EMPTY_VOLTAGE=24.0
 export OM_BATTERY_CRITICAL_VOLTAGE=23.0
 EOF
-    info "Wrote mower_config.sh"
+  info "Wrote mower_config.sh"
+}
+
+# ── Auto-detect datum and dock from live GPS + charging status ──────────────
+auto_detect_position() {
+  step "Auto-detect: GPS datum & dock position"
+
+  # Only auto-detect if datum was left at 0.0
+  if [[ "$CONFIG_DATUM_LAT" != "0.0" && "$CONFIG_DATUM_LAT" != "0" ]]; then
+    info "Datum already set ($CONFIG_DATUM_LAT, $CONFIG_DATUM_LON) — skipping auto-detect"
+    return
   fi
+
+  # Check if GPS container is running
+  if ! docker inspect -f '{{.State.Status}}' mowgli-gps 2>/dev/null | grep -q running; then
+    warn "GPS container not running — cannot auto-detect"
+    add_issue "Set datum_lat and datum_lon manually in config/mowgli/mowgli_robot.yaml"
+    return
+  fi
+
+  echo -e "${DIM}Waiting for GPS fix (up to 60s)...${NC}"
+
+  local fix_data="" lat="" lon="" attempt=0
+  while [[ $attempt -lt 12 ]]; do
+    fix_data=$(docker exec mowgli-gps bash -c "source /opt/ros/jazzy/setup.bash && timeout 5 ros2 topic echo /ublox_gps_node/fix --once 2>/dev/null" 2>/dev/null || echo "")
+    lat=$(echo "$fix_data" | grep "latitude:" | awk '{print $2}')
+    lon=$(echo "$fix_data" | grep "longitude:" | awk '{print $2}')
+    if [[ -n "$lat" && "$lat" != "0.0" ]]; then
+      break
+    fi
+    ((attempt++))
+    sleep 5
+  done
+
+  if [[ -z "$lat" || "$lat" == "0.0" ]]; then
+    warn "Could not get a GPS fix — set datum manually"
+    add_issue "Set datum_lat and datum_lon in config/mowgli/mowgli_robot.yaml"
+    return
+  fi
+
+  info "GPS position: $lat, $lon"
+
+  # Check if mower is charging (= on the dock)
+  local is_charging="false"
+  if docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
+    local status_data
+    status_data=$(docker exec mowgli-ros2 bash -c "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /status --once 2>/dev/null" 2>/dev/null || echo "")
+    is_charging=$(echo "$status_data" | grep "is_charging:" | awk '{print $2}')
+  fi
+
+  # Set datum to current GPS position
+  CONFIG_DATUM_LAT="$lat"
+  CONFIG_DATUM_LON="$lon"
+  info "Datum auto-set to GPS position: $lat, $lon"
+
+  # If charging, also set dock position (0,0 relative to datum = the dock itself)
+  if [[ "$is_charging" == "true" ]]; then
+    CONFIG_DOCK_X="0.0"
+    CONFIG_DOCK_Y="0.0"
+    CONFIG_DOCK_YAW="0.0"
+    info "Mower is charging — dock position set to map origin (0, 0)"
+    echo -e "       ${DIM}The datum IS your dock, so dock_pose = (0, 0, 0)${NC}"
+  else
+    warn "Mower is not charging — dock position left at (0, 0)"
+    echo -e "       ${DIM}To set dock position later: drive to dock, then read /gps/pose${NC}"
+    add_issue "Set dock_pose_x/y/yaw in config/mowgli/mowgli_robot.yaml (drive mower to dock, read the pose)"
+  fi
+
+  # Rewrite config files with updated values
+  write_config
+  info "Config updated with auto-detected position"
+
+  # Restart containers to pick up new config
+  echo -e "${DIM}Restarting containers with new config...${NC}"
+  cd "$INSTALL_DIR"
+  docker compose restart gps mowgli 2>&1 | tail -3
+  sleep 10
 }
 
 pull_and_start() {
@@ -659,7 +765,9 @@ main() {
     setup_directory
     setup_env
     interactive_config
+    write_config
     pull_and_start
+    auto_detect_position
   else
     INSTALL_DIR="${MOWGLI_HOME:-$HOME/mowgli-docker}"
     if [ ! -f "$INSTALL_DIR/docker-compose.yaml" ]; then

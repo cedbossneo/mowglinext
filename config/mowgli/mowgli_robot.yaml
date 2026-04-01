@@ -51,6 +51,7 @@ mowgli:
     lidar_x: 0.20                 # front of chassis
     lidar_y: 0.0                  # centred
     lidar_z: 0.22                 # base_height(0.19) + 0.03 above top surface
+    lidar_yaw: 0.0                # rotation in radians (3.14159 = 180 degrees)
     lidar_frame: "lidar_link"
 
     # --- GPS antenna (u-blox F9P / simpleRTK2B / RTK1010) ------------
