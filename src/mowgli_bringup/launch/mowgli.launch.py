@@ -12,6 +12,7 @@ Brings up:
 
 import os
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -54,15 +55,38 @@ def generate_launch_description() -> LaunchDescription:
     serial_port = LaunchConfiguration("serial_port")
 
     # ------------------------------------------------------------------
+    # Robot config (mowgli_robot.yaml)
+    # ------------------------------------------------------------------
+    # Try the Docker-mounted config first, fall back to the in-package default.
+    robot_config_path = "/ros2_ws/config/mowgli_robot.yaml"
+    if not os.path.isfile(robot_config_path):
+        robot_config_path = os.path.join(bringup_dir, "config", "mowgli_robot.yaml")
+
+    with open(robot_config_path, "r") as f:
+        robot_config_yaml = yaml.safe_load(f) or {}
+
+    robot_params = robot_config_yaml.get("mowgli", {}).get("ros__parameters", {})
+
+    # ------------------------------------------------------------------
     # URDF / xacro
     # ------------------------------------------------------------------
     xacro_file = os.path.join(bringup_dir, "urdf", "mowgli.urdf.xacro")
+
+    # Lidar position / orientation from robot config (with defaults)
+    lidar_x   = str(robot_params.get("lidar_x", "0.20"))
+    lidar_y   = str(robot_params.get("lidar_y", "0.0"))
+    lidar_z   = str(robot_params.get("lidar_z", "0.22"))
+    lidar_yaw = str(robot_params.get("lidar_yaw", "0.0"))
 
     robot_description_content = Command(
         [
             FindExecutable(name="xacro"),
             " ",
             xacro_file,
+            " lidar_x:=", lidar_x,
+            " lidar_y:=", lidar_y,
+            " lidar_z:=", lidar_z,
+            " lidar_yaw:=", lidar_yaw,
         ]
     )
 

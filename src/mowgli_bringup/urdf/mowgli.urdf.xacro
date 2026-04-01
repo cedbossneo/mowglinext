@@ -20,6 +20,14 @@
 <robot name="mowgli" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- ================================================================
+       Configurable arguments (can be overridden via xacro command-line)
+       ================================================================ -->
+  <xacro:arg name="lidar_x"   default="0.20"/>
+  <xacro:arg name="lidar_y"   default="0.0"/>
+  <xacro:arg name="lidar_z"   default="0.22"/>
+  <xacro:arg name="lidar_yaw" default="0.0"/>
+
+  <!-- ================================================================
        Properties
        ================================================================ -->
   <xacro:property name="base_length"     value="0.54"/>
@@ -354,8 +362,8 @@
   <joint name="lidar_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="lidar_link"/>
-    <!-- Mounted on top front of chassis -->
-    <origin xyz="0.20 0 ${base_height + 0.03}" rpy="0 0 0"/>
+    <!-- Mounted on top front of chassis — position configurable via xacro args -->
+    <origin xyz="$(arg lidar_x) $(arg lidar_y) $(arg lidar_z)" rpy="0 0 $(arg lidar_yaw)"/>
   </joint>
 
   <!-- ================================================================

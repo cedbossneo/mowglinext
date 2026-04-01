@@ -39,6 +39,14 @@ mowgli:
     tool_width: 0.18           # effective cut width (2 × blade_radius)
 
     # -----------------------------------------------------------------
+    # Lidar mount position / orientation (relative to base_link)
+    # -----------------------------------------------------------------
+    lidar_x: 0.20              # forward offset (m)
+    lidar_y: 0.0               # lateral offset (m)
+    lidar_z: 0.22              # vertical offset (m)
+    lidar_yaw: 0.0             # heading offset (rad)
+
+    # -----------------------------------------------------------------
     # GPS / Positioning
     # -----------------------------------------------------------------
     gps_protocol: "UBX"
