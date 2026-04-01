@@ -439,6 +439,37 @@ private:
     msg.angular_velocity.y = raw_gy - gyro_bias_y_;
     msg.angular_velocity.z = raw_gz - gyro_bias_z_;
 
+    // Compute heading from magnetometer (atan2 of x,y components).
+    // The mag data is in the IMU frame (x=forward, y=left for REP-103).
+    // atan2(mag_y, mag_x) gives the heading relative to magnetic north.
+    const double mag_x = static_cast<double>(pkt.mag_uT[0]);
+    const double mag_y = static_cast<double>(pkt.mag_uT[1]);
+    const double mag_heading = std::atan2(-mag_y, mag_x);
+
+    // Track magnetometer heading with EMA when stationary (for dock yaw)
+    if (wheels_stationary_ && (mag_x != 0.0 || mag_y != 0.0))
+    {
+      if (!mag_initialized_)
+      {
+        mag_heading_avg_ = mag_heading;
+        mag_initialized_ = true;
+      }
+      else
+      {
+        // Circular averaging via unit vector EMA
+        constexpr double kMagAlpha = 0.02;
+        mag_sin_avg_ += kMagAlpha * (std::sin(mag_heading) - mag_sin_avg_);
+        mag_cos_avg_ += kMagAlpha * (std::cos(mag_heading) - mag_cos_avg_);
+        mag_heading_avg_ = std::atan2(mag_sin_avg_, mag_cos_avg_);
+      }
+    }
+
+    // When charging and dock_yaw is not set, use magnetometer heading
+    if (is_charging_ && dock_yaw_ == 0.0 && mag_initialized_)
+    {
+      dock_yaw_ = mag_heading_avg_;
+    }
+
     // Orientation not computed here; fill with identity and mark as unknown.
     msg.orientation.w = 1.0;
     msg.orientation_covariance[0] = -1.0;  // Signal: orientation unknown.
@@ -728,6 +759,12 @@ private:
   double gyro_bias_x_{0.0};
   double gyro_bias_y_{0.0};
   double gyro_bias_z_{0.0};
+
+  // Magnetometer heading (for dock orientation auto-detection)
+  bool mag_initialized_{false};
+  double mag_heading_avg_{0.0};
+  double mag_sin_avg_{0.0};
+  double mag_cos_avg_{0.0};
 };
 
 }  // namespace mowgli_hardware
