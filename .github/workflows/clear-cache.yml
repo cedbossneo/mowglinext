@@ -1,30 +1,73 @@
-name: Clear cache
+name: Clear Docker build cache
 
 on:
   workflow_dispatch:
 
+env:
+  REGISTRY: ghcr.io
+
 permissions:
+  contents: read
+  packages: write
   actions: write
 
 jobs:
   clear-cache:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Clear cache
-        uses: actions/github-script@v6
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete registry build-cache tags
+        uses: actions/github-script@v7
         with:
           script: |
-            console.log("About to clear")
+            const owner = context.repo.owner;
+            const pkg = context.repo.repo;
+            const cacheTags = ['buildcache-arm64', 'buildcache-amd64'];
+
+            try {
+              const versions = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                package_type: 'container',
+                package_name: pkg,
+                username: owner,
+                per_page: 100,
+              });
+              for (const version of versions.data) {
+                const tags = version.metadata?.container?.tags || [];
+                if (tags.some(t => cacheTags.includes(t))) {
+                  console.log(`Deleting version ${version.id} (tags: ${tags.join(', ')})`);
+                  await github.rest.packages.deletePackageVersionForUser({
+                    package_type: 'container',
+                    package_name: pkg,
+                    username: owner,
+                    package_version_id: version.id,
+                  });
+                }
+              }
+            } catch (err) {
+              console.log(`Skipping: ${err.message}`);
+            }
+            console.log('Registry build cache cleared');
+
+      - name: Clear Actions caches
+        uses: actions/github-script@v7
+        with:
+          script: |
             const caches = await github.rest.actions.getActionsCacheList({
               owner: context.repo.owner,
               repo: context.repo.repo,
-            })
+            });
             for (const cache of caches.data.actions_caches) {
-              console.log(cache)
-              github.rest.actions.deleteActionsCacheById({
+              console.log(`Deleting: ${cache.key}`);
+              await github.rest.actions.deleteActionsCacheById({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 cache_id: cache.id,
-              })
+              });
             }
-            console.log("Clear completed")
+            console.log('Actions cache cleared');
