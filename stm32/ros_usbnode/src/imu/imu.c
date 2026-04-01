@@ -19,6 +19,7 @@
 #include "imu/mpu6050.h"
 #include "imu/wt901.h"
 #include "imu/icm45686.h"
+#include "imu/lis3mdl.h"
 #include "i2c.h"
 #include "main.h"
 
@@ -347,6 +348,16 @@ if(imuReadAccelerometerRaw == NULL){
     ICM45686_Init();
     imuReadAccelerometerRaw=ICM45686_ReadAccelerometerRaw;
     imuReadGyroRaw=ICM45686_ReadGyroRaw;
+  }
+#endif
+
+  /* Magnetometer: try LIS3MDL (separate chip on Pololu boards) if no
+   * mag was set by the accel/gyro IMU driver (e.g. WT901 has built-in mag,
+   * but LSM6/MPU6050/ICM45686 do not). */
+#ifndef DISABLE_LIS3MDL
+  if (imuReadMagRaw == NULL && LIS3MDL_TestDevice()) {
+    LIS3MDL_Init();
+    imuReadMagRaw = LIS3MDL_ReadMagRaw;
   }
 #endif
 
