@@ -140,6 +140,28 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// WasRainingAtStart
+// ---------------------------------------------------------------------------
+
+/// Records whether it's currently raining into ctx->raining_at_mow_start.
+/// Always returns SUCCESS. Called once at the start of a mowing session.
+class WasRainingAtStart : public BT::SyncActionNode
+{
+public:
+  WasRainingAtStart(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
 // WaitForDuration
 // ---------------------------------------------------------------------------
 

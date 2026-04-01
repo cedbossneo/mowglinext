@@ -19,6 +19,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<IsGPSFixed>("IsGPSFixed");
   factory.registerNodeType<ReplanNeeded>("ReplanNeeded");
   factory.registerNodeType<IsBoundaryViolation>("IsBoundaryViolation");
+  factory.registerNodeType<IsNewRain>("IsNewRain");
 
   // Action nodes
   factory.registerNodeType<SetMowerEnabled>("SetMowerEnabled");
@@ -35,6 +36,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<ReplanCoverage>("ReplanCoverage");
   factory.registerNodeType<SaveObstacles>("SaveObstacles");
   factory.registerNodeType<SetNavMode>("SetNavMode");
+  factory.registerNodeType<WasRainingAtStart>("WasRainingAtStart");
 
   // Coverage nodes (opennav_coverage integration)
   factory.registerNodeType<ComputeCoverage>("ComputeCoverage");

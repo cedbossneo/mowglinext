@@ -116,6 +116,9 @@
             </Sequence>
           </Fallback>
 
+          <!-- Record if it was raining at start — user chose to mow in rain -->
+          <WasRainingAtStart/>
+
           <!-- Compute coverage path -->
           <PublishHighLevelStatus state="2" state_name="PLANNING"/>
           <ComputeCoverage area_index="0" first_swath_start="{first_wp}"/>
@@ -127,9 +130,10 @@
 
             <ReactiveSequence name="AdaptiveCoverage">
 
-              <!-- Reactive rain check: pause mowing, dock, wait, resume -->
+              <!-- Reactive rain check: only if rain started DURING mowing.
+                   If user started mowing while already raining, ignore rain. -->
               <Fallback name="RainGuard">
-                <Inverter><IsRainDetected/></Inverter>
+                <Inverter><IsNewRain/></Inverter>
                 <Sequence name="RainDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>

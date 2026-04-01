@@ -199,6 +199,20 @@ BT::NodeStatus ClearCostmap::tick()
 }
 
 // ---------------------------------------------------------------------------
+// WasRainingAtStart
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus WasRainingAtStart::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  ctx->raining_at_mow_start = ctx->latest_status.rain_detected;
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "WasRainingAtStart: rain_at_start=%s",
+              ctx->raining_at_mow_start ? "true" : "false");
+  return BT::NodeStatus::SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
 // PublishHighLevelStatus
 // ---------------------------------------------------------------------------
 

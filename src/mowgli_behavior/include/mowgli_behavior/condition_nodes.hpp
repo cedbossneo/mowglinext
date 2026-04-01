@@ -230,4 +230,26 @@ public:
   BT::NodeStatus tick() override;
 };
 
+// ---------------------------------------------------------------------------
+// IsNewRain
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when rain is currently detected AND it was NOT raining
+/// when mowing started (i.e., rain is new since mow start).
+class IsNewRain : public BT::ConditionNode
+{
+public:
+  IsNewRain(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
 }  // namespace mowgli_behavior

@@ -78,6 +78,10 @@ struct BTContext
   /// Current navigation mode: "precise" or "degraded"
   std::string current_nav_mode{"precise"};
 
+  /// True if it was raining when the current mowing session started.
+  /// Set by WasRainingAtStart, checked by IsNewRain.
+  bool raining_at_mow_start{false};
+
   // -----------------------------------------------------------------------
   // Docking point (set from parameter or service call)
   // -----------------------------------------------------------------------
