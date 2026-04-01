@@ -1,10 +1,10 @@
 import {Quaternion} from "../types/ros.ts";
-import {Converter} from 'usng.js'
 
-// @ts-ignore
-export var converter = new Converter();
-export const earth = 6371008.8;  //radius of the earth in kilometer
+export const earth = 6371008.8;  // radius of the earth in meters
 export const pi = Math.PI;
+
+// Metres per degree of latitude (WGS84 equatorial radius × deg→rad)
+const METERS_PER_DEG = 6378137.0 * Math.PI / 180.0;
 
 export function getQuaternionFromHeading(heading: number): Quaternion {
     const q = {
@@ -24,21 +24,47 @@ export function drawLine(offsetX: number, offsetY: number, datum: [number, numbe
     return transpose(offsetX, offsetY, datum, endY, endX);
 }
 
-export const transpose = (offsetX: number, offsetY: number, datum: [number, number, number], y: number, x: number): [number, number] => {
-    let utMtoLL = converter.UTMtoLL(datum[1] + y + offsetY, datum[0] + x + offsetX, datum[2]);
-    return [utMtoLL.lon, utMtoLL.lat]
+/**
+ * Convert local map coordinates (x=east, y=north in metres relative to datum)
+ * to [longitude, latitude].
+ *
+ * Uses the same equirectangular projection as navsat_to_absolute_pose_node:
+ *   east  = (lon - datum_lon) * cos(datum_lat) * METERS_PER_DEG
+ *   north = (lat - datum_lat) * METERS_PER_DEG
+ */
+export const transpose = (_offsetX: number, _offsetY: number, datum: [number, number, number], y: number, x: number): [number, number] => {
+    // datum[0] = datum_easting (unused in equirectangular), datum[1] = datum_lat, datum[2] = datum_lon
+    // However the GUI passes datum as [easting, northing, zone] from UTM.
+    // We need datum_lat and datum_lon directly.  The datum is also stored as
+    // settings["datum_lat"] / settings["datum_lon"] and passed as
+    // datum = [datum_lon, datum_lat, 0] in useMapStreams — check the caller.
+    //
+    // After refactoring, datum = [datum_lat, datum_lon, 0]
+    const datum_lat = datum[0];
+    const datum_lon = datum[1];
+    const cos_lat = Math.cos(datum_lat * Math.PI / 180.0);
+
+    const lon = datum_lon + x / (cos_lat * METERS_PER_DEG);
+    const lat = datum_lat + y / METERS_PER_DEG;
+    return [lon, lat];
 };
-export const itranspose = (offsetX: number, offsetY: number, datum: [number, number, number], y: number, x: number): [number, number] => {
-    //Inverse the transpose function
-    const coords: [number, number, number] = [0, 0, 0]
-    converter.LLtoUTM(y, x, coords)
-    return [coords[0] - datum[0] - offsetX, coords[1] - datum[1] - offsetY]
+
+/**
+ * Convert [longitude, latitude] to local map coordinates (x=east, y=north).
+ * Inverse of transpose.
+ */
+export const itranspose = (_offsetX: number, _offsetY: number, datum: [number, number, number], lat: number, lon: number): [number, number] => {
+    const datum_lat = datum[0];
+    const datum_lon = datum[1];
+    const cos_lat = Math.cos(datum_lat * Math.PI / 180.0);
+
+    const x = (lon - datum_lon) * cos_lat * METERS_PER_DEG;
+    const y = (lat - datum_lat) * METERS_PER_DEG;
+    return [x, y];
 };
 
 /**
  * Remove near-duplicate consecutive points caused by floating-point precision.
- * Two points within `epsilon` meters are considered duplicates.
- * Ported from openmower-app's dedupePoints bug fix.
  */
 export function dedupePoints(points: { x: number; y: number; z: number }[], epsilon = 0.001): { x: number; y: number; z: number }[] {
     if (points.length === 0) return points;

@@ -11,7 +11,7 @@ import type {Feature} from 'geojson';
 import {FeatureCollection, Position} from "geojson";
 import {useMowerAction} from "../components/MowerActions.tsx";
 import {MapStyle} from "./MapStyle.tsx";
-import {converter, drawLine, itranspose, transpose} from "../utils/map.tsx";
+import {drawLine, itranspose, transpose} from "../utils/map.tsx";
 import {useSettings} from "../hooks/useSettings.ts";
 import {useConfig} from "../hooks/useConfig.tsx";
 import {useEnv} from "../hooks/useEnv.tsx";
@@ -73,14 +73,13 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const _datumLon = parseFloat(settings["datum_lon"] ?? 0)
     const _datumLat = parseFloat(settings["datum_lat"] ?? 0)
 
-    // Compute datum (UTM origin) from settings — does not depend on map data
+    // Datum as [lat, lon, 0] for equirectangular projection
+    // (matches the navsat_to_absolute_pose ROS node projection)
     const datum = useMemo<[number, number, number]>(() => {
         if (_datumLon == 0 || _datumLat == 0) {
             return [0, 0, 0]
         }
-        const d: [number, number, number] = [0, 0, 0]
-        converter.LLtoUTM(_datumLat, _datumLon, d)
-        return d
+        return [_datumLat, _datumLon, 0]
     }, [_datumLat, _datumLon])
 
     // Display-only features (mower, dock, heading, paths) rendered as separate layers
@@ -134,10 +133,10 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
             return [[0, 0], [0, 0]]
         }
         const map_center = (map && map.MapCenterY && map.MapCenterX) ? transpose(offsetX, offsetY, datum, map.MapCenterY, map.MapCenterX) : [_datumLon, _datumLat]
-        const center: [number, number, number] = [0, 0, 0]
-        converter.LLtoUTM(map_center[1], map_center[0], center)
-        const map_sw = transpose(offsetX, offsetY, center, -((map?.MapHeight ?? 10) / 2), -((map?.MapWidth ?? 10) / 2))
-        const map_ne = transpose(offsetX, offsetY, center, ((map?.MapHeight ?? 10) / 2), ((map?.MapWidth ?? 10) / 2))
+        // Use map center as datum for bounds calculation
+        const centerDatum: [number, number, number] = [map_center[1], map_center[0], 0]
+        const map_sw = transpose(0, 0, centerDatum, -((map?.MapHeight ?? 10) / 2), -((map?.MapWidth ?? 10) / 2))
+        const map_ne = transpose(0, 0, centerDatum, ((map?.MapHeight ?? 10) / 2), ((map?.MapWidth ?? 10) / 2))
         return [map_ne, map_sw]
     }, [_datumLat, _datumLon, map, offsetX, offsetY, datum])
 
