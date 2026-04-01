@@ -18,16 +18,20 @@ RUN cd openocd && ./bootstrap with-submodules && ./configure --enable-ftdi --ena
 RUN curl -fsSL https://raw.githubusercontent.com/platformio/platformio-core-installer/master/get-platformio.py -o get-platformio.py &&    python3 get-platformio.py
 RUN mkdir -p /usr/local/bin &&    ln -s ~/.platformio/penv/bin/platformio /usr/local/bin/platformio &&    ln -s ~/.platformio/penv/bin/pio /usr/local/bin/pio &&    ln -s ~/.platformio/penv/bin/piodebuggdb /usr/local/bin/piodebuggdb
 
-# Pre-fetch PlatformIO platform, framework and toolchain so firmware
+# Pre-fetch PlatformIO platform, toolchain and framework so firmware
 # flashing doesn't download ~200 MB on first use.
-# Both STM32F103 (Yardforce500) and STM32F401 (Yardforce500B/LUV1000RI)
-# share the same ststm32 platform and stm32cube framework.
-RUN platformio platform install ststm32 \
- && mkdir -p /tmp/pio-prefetch \
- && cd /tmp/pio-prefetch \
- && platformio init --board genericSTM32F103VC --project-option "framework=stm32cube" \
- && platformio init --board genericSTM32F401VC --project-option "framework=stm32cube" \
- && rm -rf /tmp/pio-prefetch
+# Use the exact toolchain version pinned by the Mowgli firmware.
+# The --skip-dependencies flag avoids pulling the default toolchain
+# (which may not exist for all architectures).
+RUN pio pkg install -g \
+      -p "platformio/ststm32" \
+      -t "platformio/tool-stm32duino" \
+      -t "platformio/tool-openocd" \
+      --skip-dependencies \
+ && pio pkg install -g \
+      -t "toolchain-gccarmnoneeabi@~1.90301.0" \
+      --skip-dependencies \
+    || true
 
 FROM deps
 COPY --from=build-web /web/dist /app/web
