@@ -10,6 +10,7 @@
 #include "mowgli_behavior/action_nodes.hpp"
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
+#include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
@@ -108,6 +109,15 @@ private:
                                                  {
                                                    context_->boundary_violation = msg->data;
                                                  });
+
+    // GPS position for heading calibration during undock
+    gps_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
+        "/gps/absolute_pose", 10,
+        [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
+        {
+          context_->gps_x = msg->pose.pose.position.x;
+          context_->gps_y = msg->pose.pose.position.y;
+        });
 
     RCLCPP_DEBUG(get_logger(), "Topic subscribers created");
   }
@@ -227,6 +237,7 @@ private:
   rclcpp::Subscription<mowgli_interfaces::msg::Power>::SharedPtr power_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr replan_needed_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr boundary_violation_sub_;
+  rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr gps_sub_;
 
   // Service server
   rclcpp::Service<mowgli_interfaces::srv::HighLevelControl>::SharedPtr high_level_control_srv_;

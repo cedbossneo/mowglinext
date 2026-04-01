@@ -105,14 +105,19 @@
           <Fallback name="UndockOrSkip">
             <!-- Already undocked? Skip. -->
             <Inverter><IsCharging/></Inverter>
-            <!-- On dock — back up and verify -->
-            <RetryUntilSuccessful num_attempts="3" name="UndockRetry">
-              <Sequence name="UndockAndVerify">
-                <BackUp backup_dist="1.5" backup_speed="0.15"/>
-                <WaitForDuration duration_sec="2.0"/>
-                <Inverter><IsCharging/></Inverter>
-              </Sequence>
-            </RetryUntilSuccessful>
+            <!-- On dock — record GPS, back up, verify, calibrate heading -->
+            <Sequence name="UndockSequence">
+              <RecordUndockStart/>
+              <RetryUntilSuccessful num_attempts="3" name="UndockRetry">
+                <Sequence name="UndockAndVerify">
+                  <BackUp backup_dist="1.5" backup_speed="0.15"/>
+                  <WaitForDuration duration_sec="2.0"/>
+                  <Inverter><IsCharging/></Inverter>
+                </Sequence>
+              </RetryUntilSuccessful>
+              <!-- Compute heading from GPS displacement during undock -->
+              <CalibrateHeadingFromUndock/>
+            </Sequence>
             <!-- Undock failed — abort -->
             <Sequence name="UndockFailed">
               <StopMoving/>

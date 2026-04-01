@@ -54,6 +54,10 @@ struct BTContext
   float battery_percent{100.0f};
   float gps_quality{0.0f};
 
+  /// Latest GPS position in map frame (from /gps/absolute_pose)
+  double gps_x{0.0};
+  double gps_y{0.0};
+
   // -----------------------------------------------------------------------
   // GPS quality classification (derived from gps_quality / fix_type)
   // -----------------------------------------------------------------------
@@ -81,6 +85,13 @@ struct BTContext
   /// True if it was raining when the current mowing session started.
   /// Set by WasRainingAtStart, checked by IsNewRain.
   bool raining_at_mow_start{false};
+
+  // -----------------------------------------------------------------------
+  // GPS snapshot for heading calibration during undock
+  // -----------------------------------------------------------------------
+  double undock_start_x{0.0};
+  double undock_start_y{0.0};
+  bool undock_start_recorded{false};
 
   // -----------------------------------------------------------------------
   // Docking point (set from parameter or service call)

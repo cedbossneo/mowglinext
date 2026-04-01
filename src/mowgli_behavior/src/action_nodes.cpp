@@ -8,6 +8,7 @@
 #include "geometry_msgs/msg/point32.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
+#include "robot_localization/srv/set_pose.hpp"
 #include "std_srvs/srv/empty.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/utils.hpp"
@@ -209,6 +210,85 @@ BT::NodeStatus WasRainingAtStart::tick()
   RCLCPP_INFO(ctx->node->get_logger(),
               "WasRainingAtStart: rain_at_start=%s",
               ctx->raining_at_mow_start ? "true" : "false");
+  return BT::NodeStatus::SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// RecordUndockStart
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus RecordUndockStart::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  ctx->undock_start_x = ctx->gps_x;
+  ctx->undock_start_y = ctx->gps_y;
+  ctx->undock_start_recorded = true;
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "RecordUndockStart: pos=(%.3f, %.3f)",
+              ctx->undock_start_x, ctx->undock_start_y);
+  return BT::NodeStatus::SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// CalibrateHeadingFromUndock
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus CalibrateHeadingFromUndock::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!ctx->undock_start_recorded)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "CalibrateHeadingFromUndock: no start position recorded");
+    return BT::NodeStatus::SUCCESS;  // non-fatal
+  }
+
+  const double dx = ctx->gps_x - ctx->undock_start_x;
+  const double dy = ctx->gps_y - ctx->undock_start_y;
+  const double dist = std::sqrt(dx * dx + dy * dy);
+
+  if (dist < 0.3)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "CalibrateHeadingFromUndock: displacement too small (%.2f m), skipping", dist);
+    return BT::NodeStatus::SUCCESS;  // non-fatal
+  }
+
+  // The robot moved BACKWARD, so the heading is OPPOSITE to the displacement vector
+  const double heading = std::atan2(-dy, -dx);
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "CalibrateHeadingFromUndock: displacement=(%.3f, %.3f) dist=%.2f heading=%.1f deg",
+              dx, dy, dist, heading * 180.0 / M_PI);
+
+  // Set EKF pose via /set_pose service
+  auto client = ctx->node->create_client<robot_localization::srv::SetPose>("/set_pose");
+  if (!client->wait_for_service(std::chrono::seconds(2)))
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "CalibrateHeadingFromUndock: /set_pose service not available");
+    return BT::NodeStatus::SUCCESS;  // non-fatal
+  }
+
+  auto request = std::make_shared<robot_localization::srv::SetPose::Request>();
+  request->pose.header.stamp = ctx->node->now();
+  request->pose.header.frame_id = "map";
+  request->pose.pose.pose.position.x = ctx->gps_x;
+  request->pose.pose.pose.position.y = ctx->gps_y;
+  request->pose.pose.pose.orientation.z = std::sin(heading / 2.0);
+  request->pose.pose.pose.orientation.w = std::cos(heading / 2.0);
+  // Tight covariance for position and yaw
+  request->pose.pose.covariance[0] = 0.01;   // x
+  request->pose.pose.covariance[7] = 0.01;   // y
+  request->pose.pose.covariance[35] = 0.05;  // yaw
+
+  auto future = client->async_send_request(request);
+  // Don't wait for result — fire and forget
+  (void)future;
+
+  ctx->undock_start_recorded = false;
+
   return BT::NodeStatus::SUCCESS;
 }
 

@@ -162,6 +162,37 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// RecordUndockStart — snapshot GPS position before undocking
+// ---------------------------------------------------------------------------
+
+class RecordUndockStart : public BT::SyncActionNode
+{
+public:
+  RecordUndockStart(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
+// CalibrateHeadingFromUndock — compute heading from GPS displacement
+// ---------------------------------------------------------------------------
+
+/// After undocking (backward motion), computes heading from the difference
+/// between the pre-undock and post-undock GPS positions. Since the robot
+/// moved straight backward, the heading is opposite to the displacement vector.
+class CalibrateHeadingFromUndock : public BT::SyncActionNode
+{
+public:
+  CalibrateHeadingFromUndock(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config) {}
+
+  static BT::PortsList providedPorts() { return {}; }
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
 // WaitForDuration
 // ---------------------------------------------------------------------------
 
