@@ -203,7 +203,15 @@ WORKDIR /ros2_ws
 COPY --from=build /usr/local/lib/libFields2Cover* /usr/local/lib/
 COPY --from=build /usr/local/lib/libsteering_functions* /usr/local/lib/
 COPY --from=build /usr/local/include/fields2cover* /usr/local/include/
-RUN ldconfig
+
+# Ensure libtinyxml2 .so.9 and .so.10 both resolve. The build stage may
+# compile against a different minor version than the runtime base provides
+# when Docker layer caching spans a base image update.
+RUN reallib=$(find /usr/lib -name 'libtinyxml2.so.*.*.*' | head -1) && \
+    dir=$(dirname "$reallib") && \
+    [ ! -e "$dir/libtinyxml2.so.9" ] && ln -sf "$(basename "$reallib")" "$dir/libtinyxml2.so.9" || true && \
+    [ ! -e "$dir/libtinyxml2.so.10" ] && ln -sf "$(basename "$reallib")" "$dir/libtinyxml2.so.10" || true && \
+    ldconfig
 
 # Pull compiled install tree from the build stage
 COPY --from=build /ros2_ws/install/ install/
