@@ -41,6 +41,7 @@
 #include "mowgli_hardware/serial_port.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
+#include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
@@ -110,6 +111,18 @@ private:
         [this](geometry_msgs::msg::Twist::ConstSharedPtr msg)
         {
           on_cmd_vel(msg);
+        });
+
+    // Mirror the behavior tree's high-level state to the firmware so it
+    // knows when to accept cmd_vel (mode != IDLE).
+    sub_hl_status_ = create_subscription<mowgli_interfaces::msg::HighLevelStatus>(
+        "/behavior_tree_node/high_level_status",
+        10,
+        [this](mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg)
+        {
+          current_mode_ = msg->state;
+          RCLCPP_DEBUG(get_logger(), "High-level mode updated to %u (%s)",
+                       msg->state, msg->state_name.c_str());
         });
   }
 
@@ -546,6 +559,15 @@ private:
 
   void on_cmd_vel(geometry_msgs::msg::Twist::ConstSharedPtr msg)
   {
+    // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
+    // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
+    if (current_mode_ == 0u &&
+        (msg->linear.x != 0.0 || msg->angular.z != 0.0))
+    {
+      current_mode_ = 1u;  // AUTONOMOUS
+      send_high_level_state();
+    }
+
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
     pkt.linear_x = static_cast<float>(msg->linear.x);
@@ -605,6 +627,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
+  rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr sub_hl_status_;
 
   rclcpp::Service<mowgli_interfaces::srv::MowerControl>::SharedPtr srv_mower_control_;
   rclcpp::Service<mowgli_interfaces::srv::EmergencyStop>::SharedPtr srv_emergency_stop_;
