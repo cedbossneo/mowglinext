@@ -44,6 +44,12 @@ void WT901_ReadAccelerometerRaw(float *x, float *y, float *z);
   */
 void WT901_ReadGyroRaw(float *x, float *y, float *z);
 
+/**
+  * @brief  Reads the 3 magnetometer channels and stores them in *x,*y,*z
+  * units are uT (microtesla)
+  */
+void WT901_ReadMagRaw(float *x, float *y, float *z);
+
 #endif
 #endif /*WT901_H*/ 
 

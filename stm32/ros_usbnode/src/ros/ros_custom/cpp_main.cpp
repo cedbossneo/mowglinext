@@ -432,10 +432,20 @@ extern "C" void broadcast_handler()
         imu_pkt.gyro_rads[2] = 0.0f;
 #endif
 
-        // Magnetometer — read if available, else zero
+        // Magnetometer — read from WT901 if available
+#ifndef DISABLE_WT901
+        {
+            float mx, my, mz;
+            WT901_ReadMagRaw(&mx, &my, &mz);
+            imu_pkt.mag_uT[0] = mx;
+            imu_pkt.mag_uT[1] = my;
+            imu_pkt.mag_uT[2] = mz;
+        }
+#else
         imu_pkt.mag_uT[0] = 0.0f;
         imu_pkt.mag_uT[1] = 0.0f;
         imu_pkt.mag_uT[2] = 0.0f;
+#endif
 
         mowgli_comms_send_imu(&imu_pkt);
     }

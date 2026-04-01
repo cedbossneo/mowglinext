@@ -211,7 +211,22 @@ float WT901_TempRaw(void)
     SW_I2C_UTIL_Read_Multi(WT901_ADDRESS, TEMP, 2, (uint8_t*)&temp);
 
     retval = (float)(temp[1] << 8 | temp[0])/100;
-    return(retval);    
+    return(retval);
+}
+
+/**
+  * @brief  Reads the 3 magnetometer channels and stores them in *x,*y,*z
+  * units are uT (microtesla)
+  */
+void WT901_ReadMagRaw(float *x, float *y, float *z)
+{
+    uint8_t mag_xyz[6];   // 2 bytes each
+
+    SW_I2C_UTIL_Read_Multi(WT901_ADDRESS, HX, 6, (uint8_t*)mag_xyz);
+
+    *x = (float)(int16_t)(mag_xyz[1] << 8 | mag_xyz[0]);
+    *y = (float)(int16_t)(mag_xyz[3] << 8 | mag_xyz[2]);
+    *z = (float)(int16_t)(mag_xyz[5] << 8 | mag_xyz[4]);
 }
 
 #endif
