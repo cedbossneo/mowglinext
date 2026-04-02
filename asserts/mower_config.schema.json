@@ -78,6 +78,12 @@
           "default": 0.22,
           "description": "LiDAR position Z (above base_link) in metres."
         },
+        "lidar_yaw": {
+          "type": "number",
+          "title": "LiDAR Yaw",
+          "default": 0.0,
+          "description": "LiDAR heading offset in radians (rotation around Z axis)."
+        },
         "gps_antenna_x": {
           "type": "number",
           "title": "GPS Antenna X",
@@ -113,6 +119,12 @@
           "title": "IMU Z",
           "default": 0.095,
           "description": "IMU position Z in metres."
+        },
+        "imu_yaw": {
+          "type": "number",
+          "title": "IMU Yaw",
+          "default": 0.0,
+          "description": "IMU heading offset in radians (rotation around Z axis)."
         }
       }
     },

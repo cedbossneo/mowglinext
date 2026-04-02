@@ -4,6 +4,7 @@ import { SaveOutlined, ReloadOutlined, PlusOutlined, DeleteOutlined } from "@ant
 import { JSONSchemaProperty, JSONSchemaCondition, useSettingsSchema } from "../hooks/useSettingsSchema.ts";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useThemeMode } from "../theme/ThemeContext.tsx";
+import { RobotComponentEditor } from "./RobotComponentEditor.tsx";
 
 type FieldRenderProps = {
     name: string;
@@ -304,13 +305,17 @@ export const SchemaSettingsComponent: React.FC<{
         <Row>
             <Col span={24} style={{ height: isMobile ? "auto" : "80vh", overflowY: isMobile ? undefined : "auto", paddingBottom: 80, ...props.contentStyle }}>
                 {Object.entries(sections).map(([key, section]) => (
-                    <SchemaSection
-                        key={key}
-                        sectionKey={key}
-                        section={section as JSONSchemaProperty}
-                        values={localValues}
-                        onChange={handleChange}
-                    />
+                    <React.Fragment key={key}>
+                        {key === "sensor_settings" && (
+                            <RobotComponentEditor values={localValues} onChange={handleChange} />
+                        )}
+                        <SchemaSection
+                            sectionKey={key}
+                            section={section as JSONSchemaProperty}
+                            values={localValues}
+                            onChange={handleChange}
+                        />
+                    </React.Fragment>
                 ))}
             </Col>
             <Col span={24} style={{

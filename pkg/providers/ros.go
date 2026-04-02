@@ -46,6 +46,7 @@ var topicMap = map[string]topicDef{
 	"lidar":         {"/scan", "sensor_msgs/msg/LaserScan"},
 	"diagnostics":   {"/diagnostics", "diagnostic_msgs/msg/DiagnosticArray"},
 	"obstacles":     {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray"},
+	"robotDescription": {"/robot_description", "std_msgs/msg/String"},
 }
 
 // ---------------------------------------------------------------------------
