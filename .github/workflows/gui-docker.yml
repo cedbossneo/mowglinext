@@ -1,11 +1,14 @@
-name: Docker
+name: GUI — Docker
 
 on:
   push:
     branches: [main]
     paths:
-      - 'sensors/gps/**'
-      - 'sensors/lidar/**'
+      - 'gui/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'gui/**'
   workflow_dispatch:
     inputs:
       no-cache:
@@ -14,31 +17,24 @@ on:
         default: false
 
 concurrency:
-  group: docker-${{ github.ref }}
+  group: gui-docker-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/openmower-gui
 
 jobs:
-  # ─── Build each (image × arch) on native runners ─────────────────────────
+  # ─── Build each arch on native runners ──────────────────────────────────────
   build:
-    name: Build ${{ matrix.image }} (${{ matrix.arch }})
+    name: Build (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
       matrix:
-        image: [gps, lidar]
         arch: [linux/amd64, linux/arm64]
         include:
-          - image: gps
-            context: ./sensors/gps
-            target: ""
-          - image: lidar
-            context: ./sensors/lidar
-            target: runtime
           - arch: linux/amd64
             runner: ubuntu-24.04
           - arch: linux/arm64
@@ -66,22 +62,19 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          images: ${{ env.IMAGE_NAME }}
 
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.context }}
-          target: ${{ matrix.target != '' && matrix.target || '' }}
+          context: ./gui
           platforms: ${{ matrix.arch }}
           no-cache: ${{ inputs.no-cache == true }}
-          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}/{1}:buildcache-{2}', env.IMAGE_PREFIX, matrix.image, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
+          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}:buildcache-{1}', env.IMAGE_NAME, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
-          provenance: true
-          sbom: true
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
         run: |
@@ -98,21 +91,16 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.image }}-${{ env.ARTIFACT_NAME }}
+          name: digests-gui-${{ env.ARTIFACT_NAME }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
-  # ─── Merge per-arch digests into multi-arch manifest ──────────────────────
+  # ─── Merge into multi-arch manifest ─────────────────────────────────────────
   merge:
-    name: Merge manifest (${{ matrix.image }})
+    name: Merge manifest
     runs-on: ubuntu-24.04
     needs: build
-
-    strategy:
-      fail-fast: false
-      matrix:
-        image: [gps, lidar]
 
     permissions:
       contents: read
@@ -122,7 +110,7 @@ jobs:
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
-          pattern: digests-${{ matrix.image }}-*
+          pattern: digests-gui-*
           merge-multiple: true
           path: /tmp/digests
 
@@ -140,7 +128,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -152,8 +140,8 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE_PREFIX }}/${{ matrix.image }}@sha256:%s ' *)
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}

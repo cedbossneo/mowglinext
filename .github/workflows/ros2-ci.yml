@@ -1,0 +1,177 @@
+name: ROS2 — CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ros2/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ros2/**'
+
+concurrency:
+  group: ros2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ROS_DISTRO: jazzy
+
+jobs:
+  # ─── Build & Test ────────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test (ROS2 ${{ matrix.ros_distro }})
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ros_distro: jazzy
+            ubuntu: "24.04"
+
+    defaults:
+      run:
+        working-directory: ros2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ROS2 ${{ matrix.ros_distro }}
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: ${{ matrix.ros_distro }}
+
+      - name: Cache rosdep
+        uses: actions/cache@v4
+        with:
+          path: ~/.ros/rosdep
+          key: rosdep-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/package.xml') }}
+          restore-keys: |
+            rosdep-${{ matrix.ros_distro }}-
+
+      - name: Install rosdep dependencies
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          sudo apt-get update
+          rosdep update --rosdistro ${{ matrix.ros_distro }}
+          rosdep install \
+            --from-paths src \
+            --ignore-src \
+            --rosdistro ${{ matrix.ros_distro }} \
+            --skip-keys "fields2cover" \
+            -y
+
+      - name: Install Fields2Cover from source
+        run: |
+          sudo apt-get install -y libgdal-dev
+          git clone --branch v1.2.1-devel --depth 1 \
+            https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c
+          cmake -S /tmp/f2c -B /tmp/f2c/build \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DBUILD_PYTHON=OFF
+          cmake --build /tmp/f2c/build -j$(nproc)
+          sudo cmake --install /tmp/f2c/build
+          sudo ldconfig
+          rm -rf /tmp/f2c
+
+      - name: Build workspace
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          colcon build \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            --parallel-workers $(nproc) \
+            --event-handlers console_cohesion+
+
+      - name: Run tests
+        run: |
+          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source install/setup.bash
+          colcon test \
+            --return-code-on-test-failure \
+            --event-handlers console_cohesion+
+          colcon test-result --verbose
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.ros_distro }}
+          path: |
+            ros2/build/**/test_results/**/*.xml
+            ros2/log/latest_test/**
+          retention-days: 14
+
+  # ─── Formatting Check ────────────────────────────────────────────────────────
+  format-check:
+    name: Formatting (clang-format)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-17
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-17 100
+
+      - name: Check formatting
+        run: |
+          FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+            -not -path "*/opennav_coverage/*")
+          if [ -z "$FILES" ]; then
+            echo "No C++ files found — skipping."
+            exit 0
+          fi
+          echo "$FILES" | xargs clang-format --dry-run --Werror -style=file:ros2/.clang-format
+          echo "All files are correctly formatted."
+
+  # ─── Static Analysis ─────────────────────────────────────────────────────────
+  static-analysis:
+    name: Static Analysis (cppcheck)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" \) \
+            -not -path "*/test/*" -not -path "*/opennav_coverage/*")
+          if [ -z "$FILES" ]; then
+            echo "No C++ files found — skipping."
+            exit 0
+          fi
+          echo "$FILES" | xargs cppcheck \
+            --enable=warning,performance,portability \
+            --suppress=missingInclude \
+            --suppress=unmatchedSuppression \
+            --error-exitcode=1 \
+            --xml \
+            2>cppcheck-report.xml
+          echo "$FILES" | xargs cppcheck \
+            --enable=warning,performance,portability \
+            --suppress=missingInclude \
+            --suppress=unmatchedSuppression \
+            --error-exitcode=1 \
+            --quiet
+
+      - name: Upload cppcheck report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cppcheck-report
+          path: cppcheck-report.xml
+          if-no-files-found: ignore
+          retention-days: 7

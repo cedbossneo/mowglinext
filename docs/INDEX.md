@@ -1,8 +1,6 @@
-# Mowgli ROS2 Documentation Index
+# MowgliNext Documentation Index
 
-Welcome to the comprehensive documentation for the Mowgli ROS2 project—a complete rewrite of OpenMower in ROS2 Jazzy with modern navigation, SLAM, behavior trees, and autonomous coverage planning.
-
-This documentation covers Mowgli running on ROS2 Jazzy with Gazebo Harmonic.
+Comprehensive documentation for MowgliNext — a complete rewrite of OpenMower in ROS2 Jazzy with modern navigation, SLAM, behavior trees, and autonomous coverage planning.
 
 ## Quick Navigation
 
@@ -172,56 +170,37 @@ Run the system in production:
 
 ---
 
-## File Structure
+## Monorepo Structure
 
 ```
-mowgli_ros2/
+mowglinext/
 ├── README.md                          # Project overview & quick start
-│
-├── docs/
+├── docs/                              # All documentation (single source of truth)
 │   ├── INDEX.md                       # This file
 │   ├── ARCHITECTURE.md                # Technical architecture (detailed)
 │   ├── CONFIGURATION.md               # Parameter reference & tuning
 │   ├── FIRMWARE_MIGRATION.md          # STM32 integration guide
 │   └── SIMULATION.md                  # Gazebo Harmonic simulation guide
-│
-├── foxglove/                          # Foxglove dashboards
-│   └── mowgli_sim.json               # Simulation dashboard
-│
-├── src/
-│   ├── mowgli_interfaces/             # Message definitions (12 msgs, 9 srvs)
-│   ├── mowgli_hardware/               # Serial bridge to STM32
-│   ├── mowgli_description/            # URDF/xacro model & meshes
-│   ├── mowgli_localization/           # Odometry & GPS fusion (dual EKF)
-│   ├── mowgli_nav2_plugins/           # FTC & RotationShim controllers
-│   ├── mowgli_coverage_planner/       # Autonomous mowing patterns
-│   │   └── config/
-│   │       └── coverage_planner.yaml
-│   ├── mowgli_map/                    # Area management & obstacle tracking
-│   │   ├── src/
-│   │   │   ├── map_server_node.cpp
-│   │   │   └── obstacle_tracker_node.cpp
-│   │   └── config/
-│   │       └── obstacle_tracker.yaml
-│   ├── mowgli_monitoring/             # Diagnostics and telemetry
-│   ├── mowgli_behavior/               # Behavior tree nodes
-│   │   └── trees/
-│   │       ├── main_tree.xml
-│   │       └── navigate_to_pose.xml
-│   ├── mowgli_simulation/             # Gazebo Harmonic worlds & SDF model
-│   ├── mowgli_bringup/                # Launch files & configuration
-│   │   └── config/
-│   │       ├── hardware_bridge.yaml
-│   │       ├── localization.yaml
-│   │       ├── nav2_params.yaml
-│   │       ├── slam_toolbox.yaml
-│   │       ├── twist_mux.yaml
-│   │       ├── foxglove_bridge.yaml
-│   │       └── mowgli_robot.yaml
-│   │
-│   └── opennav_coverage/              # Third-party Nav2 coverage server
-│
-└── [build artifacts]
+├── ros2/                              # ROS2 stack
+│   └── src/
+│       ├── mowgli_interfaces/         # Message definitions (12 msgs, 9 srvs)
+│       ├── mowgli_hardware/           # Serial bridge to STM32
+│       ├── mowgli_description/        # URDF/xacro model & meshes
+│       ├── mowgli_localization/       # Odometry & GPS fusion (dual EKF)
+│       ├── mowgli_nav2_plugins/       # FTC & RotationShim controllers
+│       ├── mowgli_coverage_planner/   # Autonomous mowing patterns
+│       ├── mowgli_map/               # Area management & obstacle tracking
+│       ├── mowgli_monitoring/         # Diagnostics and telemetry
+│       ├── mowgli_behavior/           # Behavior tree nodes
+│       ├── mowgli_simulation/         # Gazebo Harmonic worlds & SDF model
+│       ├── mowgli_bringup/            # Launch files & configuration
+│       └── opennav_coverage/          # Third-party Nav2 coverage server
+├── docker/                            # Docker Compose deployment & config
+├── sensors/                           # Dockerized sensor drivers
+│   ├── gps/                           # u-blox ZED-F9P (RTK GPS)
+│   └── lidar/                         # LDRobot LD19 (2D LiDAR)
+├── gui/                               # React + Go web interface
+└── firmware/                          # STM32 motor control, IMU, blade safety
 ```
 
 ---
@@ -298,7 +277,7 @@ mkdir -p ~/mowgli_ws/src
 cd ~/mowgli_ws
 
 # 3. Clone Mowgli
-git clone https://github.com/ClemensElflein/mowgli-ros2.git src/mowgli_ros2
+git clone https://github.com/cedbossneo/mowglinext.git src/mowglinext
 
 # 4. Install dependencies
 rosdep install --from-paths src --ignore-src -r -y
@@ -346,7 +325,7 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
 ### Modifying Code
 
 **Making changes to a package:**
-1. Edit files in `src/mowgli_ros2/src/<package-name>/`
+1. Edit files in `ros2/src/<package-name>/`
 2. If using `--symlink-install`, changes take effect immediately
 3. Otherwise rebuild: `colcon build --packages-select <package-name>`
 4. Restart the launch:
@@ -355,10 +334,10 @@ ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
    ```
 
 **Common editing tasks:**
-- **Navigation parameters:** Edit `src/mowgli_bringup/config/nav2_params.yaml`
-- **Coverage planner:** Edit `src/mowgli_bringup/config/coverage_planner.yaml`
+- **Navigation parameters:** Edit `ros2/src/mowgli_bringup/config/nav2_params.yaml`
+- **Coverage planner:** Edit `ros2/src/mowgli_bringup/config/coverage_planner.yaml`
 - **Controller tuning:** Modify FTC or RotationShim gains, then relaunch
-- **Hardware behavior:** Edit `src/mowgli_hardware/` source files
+- **Hardware behavior:** Edit `ros2/src/mowgli_hardware/` source files
 
 ### Debugging with Logs
 
@@ -452,7 +431,7 @@ Reactive, composable control logic using BehaviorTree.CPP v4:
 
 - **General ROS2 Questions:** [ROS2 Discourse](https://discourse.ros.org)
 - **OpenMower Community:** [GitHub Issues](https://github.com/ClemensElflein/open_mower_ros/issues)
-- **Mowgli ROS2 Issues:** [GitHub Issues](https://github.com/ClemensElflein/mowgli-ros2/issues)
+- **MowgliNext Issues:** [GitHub Issues](https://github.com/cedbossneo/mowglinext/issues)
 
 ### Contributing
 
@@ -511,6 +490,6 @@ Include:
 
 **Reference [ARCHITECTURE.md](ARCHITECTURE.md) and [CONFIGURATION.md](CONFIGURATION.md) for deep technical details.**
 
-**Monitor with [Foxglove Studio](../src/foxglove/README.md) for remote visualization and diagnostics.**
+**Monitor with Foxglove Studio for remote visualization and diagnostics.**
 
 Happy mowing!
