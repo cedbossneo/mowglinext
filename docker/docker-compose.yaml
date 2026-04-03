@@ -52,7 +52,7 @@ services:
     container_name: mowgli-gps
     image: ${GPS_IMAGE}
     build:
-      context: ./gps
+      context: ../sensors/gps
     network_mode: host
     ipc: host
     privileged: true
@@ -81,7 +81,7 @@ services:
     container_name: mowgli-lidar
     image: ${LIDAR_IMAGE}
     build:
-      context: ./lidar
+      context: ../sensors/lidar
     network_mode: host
     ipc: host
     privileged: true
