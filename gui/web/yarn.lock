@@ -549,14 +549,14 @@
     "@formily/reactive" "2.3.1"
     "@juggle/resize-observer" "^3.3.1"
 
-"@formily/json-schema@2.3.1", "@formily/json-schema@^2.2.0":
-  version "2.3.1"
-  resolved "https://registry.npmjs.org/@formily/json-schema/-/json-schema-2.3.1.tgz"
-  integrity sha512-LcJmU1BOYGdoip+Q9YAxHdrpjdl781WFSg0fDTD9/0A7c3xUXWwxdCYZIN0cvoXi2qq8Khyzba0pizl3YSkf0A==
+"@formily/json-schema@2.3.7", "@formily/json-schema@^2.2.0":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/json-schema/-/json-schema-2.3.7.tgz#313b950acbfd7112571b2bf2d71eed568ee17a4f"
+  integrity sha512-YmDmH98sJLOPO5GAq5NJw+NP3i2vCELBoz4Y4w+nhpKI5n8eQHe2GczQKntWDOnTfchXD2dXcgpb0ub6KNeATw==
   dependencies:
-    "@formily/core" "2.3.1"
-    "@formily/reactive" "2.3.1"
-    "@formily/shared" "2.3.1"
+    "@formily/core" "2.3.7"
+    "@formily/reactive" "2.3.7"
+    "@formily/shared" "2.3.7"
 
 "@formily/path@2.3.1":
   version "2.3.1"
@@ -568,25 +568,25 @@
   resolved "https://registry.yarnpkg.com/@formily/path/-/path-2.3.7.tgz#bed9bbb9c5b11a7cd7a5402bbdbec710bc853265"
   integrity sha512-uDqXlW3TwJ8dImi5FrKze/yAbnxqpE/z1ZzJLNSlNr+T4bJRrC7Ya2veOOYeDaM9EK6eQNQCXST55REj5DKVmQ==
 
-"@formily/react@2.3.1", "@formily/react@^2.2.0":
-  version "2.3.1"
-  resolved "https://registry.npmjs.org/@formily/react/-/react-2.3.1.tgz"
-  integrity sha512-8KkFJe2OnbsgiXwY/txUcUaCQIfIkfowWQinOSni02U2ssgs2bpb1ifFHlZrFGfrrW/xhce4ANUHRgoVYt7W4Q==
+"@formily/react@2.3.7", "@formily/react@^2.2.0":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/react/-/react-2.3.7.tgz#7b8869ed40150b77c55f90dcb462b300a6b7523e"
+  integrity sha512-yn3xhFgl5pdDECiyOtt/hlwhnxzpjjYkig1Oyyg4mgYDeP9UT9jd0V3/iLasOdoogUJj+j28XegFZRneITIuew==
   dependencies:
-    "@formily/core" "2.3.1"
-    "@formily/json-schema" "2.3.1"
-    "@formily/reactive" "2.3.1"
-    "@formily/reactive-react" "2.3.1"
-    "@formily/shared" "2.3.1"
-    "@formily/validator" "2.3.1"
+    "@formily/core" "2.3.7"
+    "@formily/json-schema" "2.3.7"
+    "@formily/reactive" "2.3.7"
+    "@formily/reactive-react" "2.3.7"
+    "@formily/shared" "2.3.7"
+    "@formily/validator" "2.3.7"
     hoist-non-react-statics "^3.3.2"
 
-"@formily/reactive-react@2.3.1", "@formily/reactive-react@^2.2.0":
-  version "2.3.1"
-  resolved "https://registry.npmjs.org/@formily/reactive-react/-/reactive-react-2.3.1.tgz"
-  integrity sha512-r6d94JBWhwXGpsffNLnRzgksQJtmqudD1cq7ky2Oljtxg5Ynl8H0Ppcnsv0bd9NbNSAeDeFs2uwWz56exgDzjA==
+"@formily/reactive-react@2.3.7", "@formily/reactive-react@^2.2.0":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/reactive-react/-/reactive-react-2.3.7.tgz#efa64bfcc16aca38bccfd2267bb0573fc55e41d7"
+  integrity sha512-foUP2El31RrCS+cj6QhZ9nhO5h8HhTFT4kof6Dt9qI72pzcdoxjGSiPSSstfn4eFmUbyiD8APz8d/ynB4INo5Q==
   dependencies:
-    "@formily/reactive" "2.3.1"
+    "@formily/reactive" "2.3.7"
     hoist-non-react-statics "^3.3.2"
 
 "@formily/reactive@2.3.1", "@formily/reactive@2.3.7", "@formily/reactive@^2.2.0":

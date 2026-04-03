@@ -15,7 +15,7 @@
   "dependencies": {
     "@formily/antd-v5": "^1.2.4",
     "@formily/core": "2.3.7",
-    "@formily/react": "2.3.1",
+    "@formily/react": "2.3.7",
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@turf/area": "^7.3.4",
