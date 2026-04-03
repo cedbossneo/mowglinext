@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
+  id-token: write
 
 jobs:
   propose:
@@ -55,7 +56,7 @@ jobs:
         id: analysis
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           model: claude-sonnet-4-20250514
           direct_prompt: |
             You are a robotics software architect reviewing the MowgliNext project — an open-source ROS2 autonomous robot mower.

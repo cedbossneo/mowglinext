@@ -8,6 +8,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: read
+  id-token: write
 
 jobs:
   review:
@@ -31,21 +32,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get diff
-        id: diff
-        run: |
-          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} | head -3000)
-          echo "diff<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$DIFF" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Claude Review
         if: steps.changed.outputs.count != '0'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           model: claude-sonnet-4-20250514
           direct_prompt: |
             You are a code reviewer for MowgliNext, an open-source ROS2 autonomous robot mower.
