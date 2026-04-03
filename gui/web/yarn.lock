@@ -532,6 +532,15 @@
     "@formily/shared" "2.3.1"
     "@formily/validator" "2.3.1"
 
+"@formily/core@2.3.7":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/core/-/core-2.3.7.tgz#4f86da177a7b3d46091f4da663631278e830c7e0"
+  integrity sha512-oqLE6gOoM2xjwlUrfH4cyjscO4kZJNpidtVytZeBvYp9v4OgL9EUm89laPcF4cnpWE2lZIqqzfGluOySxku8WQ==
+  dependencies:
+    "@formily/reactive" "2.3.7"
+    "@formily/shared" "2.3.7"
+    "@formily/validator" "2.3.7"
+
 "@formily/grid@^2.2.0":
   version "2.3.1"
   resolved "https://registry.npmjs.org/@formily/grid/-/grid-2.3.1.tgz"
@@ -554,6 +563,11 @@
   resolved "https://registry.npmjs.org/@formily/path/-/path-2.3.1.tgz"
   integrity sha512-BVo89K5nAFntx02+EV696If1b1bVIm5I1tRPtVyCVIjBIfAgga5hK4k80GZ01Dlk3tpReHpiIbZVg2DNVfw7jA==
 
+"@formily/path@2.3.7":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/path/-/path-2.3.7.tgz#bed9bbb9c5b11a7cd7a5402bbdbec710bc853265"
+  integrity sha512-uDqXlW3TwJ8dImi5FrKze/yAbnxqpE/z1ZzJLNSlNr+T4bJRrC7Ya2veOOYeDaM9EK6eQNQCXST55REj5DKVmQ==
+
 "@formily/react@2.3.1", "@formily/react@^2.2.0":
   version "2.3.1"
   resolved "https://registry.npmjs.org/@formily/react/-/react-2.3.1.tgz"
@@ -575,17 +589,30 @@
     "@formily/reactive" "2.3.1"
     hoist-non-react-statics "^3.3.2"
 
-"@formily/reactive@2.3.1", "@formily/reactive@^2.2.0":
+"@formily/reactive@2.3.1", "@formily/reactive@2.3.7", "@formily/reactive@^2.2.0":
   version "2.3.1"
   resolved "https://registry.npmjs.org/@formily/reactive/-/reactive-2.3.1.tgz"
   integrity sha512-IVHOZW7VBc+Gq9eB/gPldi7pEC3wDonDb99KvHlS8SmzsY6+a/iAdrw2mDagXXUficsC2gT4y4EcJ2f1ALMKtQ==
 
-"@formily/shared@2.3.1", "@formily/shared@^2.2.0":
+"@formily/shared@2.3.1":
   version "2.3.1"
   resolved "https://registry.npmjs.org/@formily/shared/-/shared-2.3.1.tgz"
   integrity sha512-qnlh6jnnIbUjcK0rWF9bm6AxgyxuBgURrzU5vMSxTNAN86P7K9+mSc/28qPsdNP9flEA2/clSexP5WEJAGYVgw==
   dependencies:
     "@formily/path" "2.3.1"
+    camel-case "^4.1.1"
+    lower-case "^2.0.1"
+    no-case "^3.0.4"
+    param-case "^3.0.4"
+    pascal-case "^3.1.1"
+    upper-case "^2.0.1"
+
+"@formily/shared@2.3.7", "@formily/shared@^2.2.0":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/shared/-/shared-2.3.7.tgz#85aa3f89008b12239703d4b7adc94f9db30651cf"
+  integrity sha512-Xccuay6CP1CNvieyTjAniFG08biUVA+xBZZuZboCzdxoUO1gOCzUz9A2U7cvw0Xw+Hm4uI1sgISE95lCD5R3fQ==
+  dependencies:
+    "@formily/path" "2.3.7"
     camel-case "^4.1.1"
     lower-case "^2.0.1"
     no-case "^3.0.4"
@@ -599,6 +626,13 @@
   integrity sha512-hM/IDvU/bachpS3fOUe02C9f5EytlNu6OJzDy+AyhWBmZYIVd6QVvPtjV8nyLOXIBJM9N4sxnGSliYQNAPjR1w==
   dependencies:
     "@formily/shared" "2.3.1"
+
+"@formily/validator@2.3.7":
+  version "2.3.7"
+  resolved "https://registry.yarnpkg.com/@formily/validator/-/validator-2.3.7.tgz#94083e03edbac494ac420b9546582a940f9dbbb4"
+  integrity sha512-/bIZL0YoEhi/AxwbJz1FxkcAXI4tyzaMF8j7LTJigKgjrJLGCiLEU1GtSk+9OmUSRDHblr73jM/TWMlb/L3EuA==
+  dependencies:
+    "@formily/shared" "2.3.7"
 
 "@humanfs/core@^0.19.1":
   version "0.19.1"
