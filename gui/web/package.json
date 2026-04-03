@@ -58,7 +58,7 @@
     "swagger-typescript-api": "^13.6.5",
     "typescript": "^5.9.3",
     "vite": "^8.0.2",
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.2"
   },
   "resolutions": {
     "**/@formily/core": "2.3.1",
