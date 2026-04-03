@@ -1,0 +1,28 @@
+# Auto-label PRs by file paths (used by labeler workflow)
+ros2:
+  - changed-files:
+      - any-glob-to-any-file: 'ros2/**'
+
+gui:
+  - changed-files:
+      - any-glob-to-any-file: 'gui/**'
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file: 'docker/**'
+
+sensors:
+  - changed-files:
+      - any-glob-to-any-file: 'sensors/**'
+
+firmware:
+  - changed-files:
+      - any-glob-to-any-file: 'firmware/**'
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: 'docs/**'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**'

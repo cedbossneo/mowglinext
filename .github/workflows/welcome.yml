@@ -1,0 +1,34 @@
+name: Welcome New Contributors
+
+on:
+  pull_request_target:
+    types: [opened]
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  welcome:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            Welcome to MowgliNext! Thanks for opening your first issue. 👋
+
+            A maintainer or our AI assistant will review this shortly.
+            In the meantime, check the [documentation](https://cedbossneo.github.io/mowglinext/) for more context.
+          pr-message: |
+            Welcome to MowgliNext! Thanks for your first pull request. 👋
+
+            Our CI will run automated checks, and Claude will provide an AI code review.
+            A maintainer will review shortly after.
+
+            Please make sure:
+            - [ ] CI checks pass
+            - [ ] You've addressed any AI review feedback
+            - [ ] The PR description explains what and why

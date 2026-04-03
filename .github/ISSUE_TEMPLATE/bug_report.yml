@@ -1,0 +1,67 @@
+name: Bug Report
+description: Report a bug in MowgliNext
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the system is affected?
+      options:
+        - ROS2 Stack (navigation, SLAM, behavior tree)
+        - Coverage Planner
+        - Hardware Bridge / Firmware
+        - GUI (web interface)
+        - Docker / Deployment
+        - Sensors (GPS, LiDAR)
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What happened? What did you expect to happen?
+      placeholder: |
+        Expected: The robot navigates to the dock
+        Actual: The robot stops 2m from the dock and times out
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Launch with `docker compose up`
+        2. Send dock command via GUI
+        3. Observe timeout after 30s
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware & Environment
+      description: Your setup details
+      placeholder: |
+        - Board: Rockchip RK3566
+        - GPS: u-blox ZED-F9P
+        - LiDAR: LD19
+        - Mower: YardForce Classic 500
+        - OS: Armbian 24.04
+      render: markdown
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste any relevant log output
+      render: shell

@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+install/
+log/
+*.pyc
+__pycache__/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.code-workspace
+.DS_Store
+
+# ROS2
+*.bag
+*.db3
+
+# PlatformIO (firmware)
+.pio/
+
+# Node modules (GUI)
+node_modules/
+
+# Docker
+.env.local
+
+# Secrets
+*.pem
+*.key
+credentials.json

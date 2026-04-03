@@ -1,0 +1,10 @@
+# Default owner for everything
+* @cedbossneo
+
+# Component owners
+/ros2/ @cedbossneo
+/gui/ @cedbossneo
+/docker/ @cedbossneo
+/sensors/ @cedbossneo
+/firmware/ @cedbossneo
+/docs/ @cedbossneo

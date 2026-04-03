@@ -1,0 +1,119 @@
+name: Claude — Propose Improvements
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  propose:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Gather codebase context
+        id: context
+        run: |
+          echo "## Repo Structure" > /tmp/context.md
+          find . -maxdepth 3 -not -path './.git/*' -not -path '*/node_modules/*' \
+            -not -path '*/.pio/*' -not -path '*/build/*' | sort >> /tmp/context.md
+
+          echo "" >> /tmp/context.md
+          echo "## Recent Commits (last 2 weeks)" >> /tmp/context.md
+          git log --oneline --since="2 weeks ago" >> /tmp/context.md
+
+          echo "" >> /tmp/context.md
+          echo "## Open Issues" >> /tmp/context.md
+          gh issue list --state open --limit 20 --json number,title,labels \
+            --jq '.[] | "- #\(.number): \(.title) [\(.labels | map(.name) | join(", "))]"' >> /tmp/context.md
+
+          echo "" >> /tmp/context.md
+          echo "## CI Status" >> /tmp/context.md
+          gh run list --limit 10 --json name,status,conclusion \
+            --jq '.[] | "- \(.name): \(.status)/\(.conclusion)"' >> /tmp/context.md
+
+          echo "" >> /tmp/context.md
+          echo "## TODOs in Code" >> /tmp/context.md
+          grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.cpp" --include="*.hpp" \
+            --include="*.py" --include="*.go" --include="*.ts" --include="*.tsx" \
+            ros2/ gui/ firmware/ sensors/ 2>/dev/null | head -30 >> /tmp/context.md
+
+          CONTEXT=$(cat /tmp/context.md | head -300)
+          echo "data<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CONTEXT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Claude Analysis
+        id: analysis
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-20250514
+          direct_prompt: |
+            You are a robotics software architect reviewing the MowgliNext project — an open-source ROS2 autonomous robot mower.
+
+            Analyze the current state of the project and propose 2-3 concrete improvements.
+
+            Context:
+            ${{ steps.context.outputs.data }}
+
+            For each proposal, output EXACTLY this format (the workflow will parse it):
+
+            ---PROPOSAL---
+            TITLE: <concise issue title with conventional prefix like feat: or fix: or refactor:>
+            LABELS: <comma-separated labels from: ros2, gui, firmware, docker, sensors, docs, ci, enhancement, bug>
+            BODY:
+            <markdown body with:
+            ## Motivation
+            Why this matters
+
+            ## Proposed Approach
+            How to implement it
+
+            ## Effort Estimate
+            Small / Medium / Large
+
+            🤖 *Proposed by Claude — review and discuss before implementing*
+            >
+            ---END---
+
+            Rules:
+            - Only propose things that are NOT already covered by open issues
+            - Focus on safety, reliability, developer experience, or community growth
+            - Be specific and actionable — no vague "improve testing" suggestions
+            - Consider the project is a real robot mower that runs outdoors
+          timeout_minutes: 5
+
+      - name: Create issues from proposals
+        if: steps.analysis.outputs.result != ''
+        run: |
+          echo '${{ steps.analysis.outputs.result }}' | \
+          awk '/---PROPOSAL---/{found=1; next} /---END---/{found=0; if(title && body) print title "\t" labels "\t" body; title=""; labels=""; body=""} found{
+            if(/^TITLE: /){title=substr($0,8)}
+            else if(/^LABELS: /){labels=substr($0,9)}
+            else if(/^BODY:/){inbody=1}
+            else if(inbody){body=body"\n"$0}
+          }' | while IFS=$'\t' read -r title labels body; do
+            if [ -n "$title" ]; then
+              LABEL_ARGS=""
+              IFS=',' read -ra LABEL_ARRAY <<< "$labels"
+              for label in "${LABEL_ARRAY[@]}"; do
+                label=$(echo "$label" | xargs)
+                LABEL_ARGS="$LABEL_ARGS --label $label"
+              done
+              echo "$body" | gh issue create \
+                --title "$title" \
+                $LABEL_ARGS \
+                --body-file - 2>/dev/null || echo "Failed to create: $title"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

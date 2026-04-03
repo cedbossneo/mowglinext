@@ -1,0 +1,54 @@
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ci"
+      - "chore"
+
+  # Go (GUI)
+  - package-ecosystem: "gomod"
+    directory: "/gui"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "gui"
+      - "chore"
+
+  # npm (GUI frontend)
+  - package-ecosystem: "npm"
+    directory: "/gui/web"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "gui"
+      - "chore"
+
+  # Docker (ROS2)
+  - package-ecosystem: "docker"
+    directory: "/ros2"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "ros2"
+      - "chore"
+
+  # Docker (sensors)
+  - package-ecosystem: "docker"
+    directory: "/sensors/gps"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "sensors"
+      - "chore"
+
+  - package-ecosystem: "docker"
+    directory: "/sensors/lidar"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "sensors"
+      - "chore"

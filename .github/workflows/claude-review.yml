@@ -1,0 +1,73 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed
+        run: |
+          FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only | head -50)
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "count=$(echo "$FILES" | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get diff
+        id: diff
+        run: |
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} | head -3000)
+          echo "diff<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DIFF" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Claude Review
+        if: steps.changed.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-20250514
+          direct_prompt: |
+            You are a code reviewer for MowgliNext, an open-source ROS2 autonomous robot mower.
+            Review this pull request and provide constructive feedback.
+
+            PR Title: ${{ github.event.pull_request.title }}
+            PR Body: ${{ github.event.pull_request.body }}
+
+            Changed files (${{ steps.changed.outputs.count }}):
+            ${{ steps.changed.outputs.files }}
+
+            Review the changes for:
+            1. **Safety** — This is a robot with blades. Flag anything that could cause unsafe physical behavior.
+            2. **Correctness** — Logic errors, race conditions, missing error handling
+            3. **ROS2 best practices** — Proper node lifecycle, QoS settings, parameter usage
+            4. **Code quality** — Naming, structure, unnecessary complexity
+            5. **Breaking changes** — Will this break existing deployments?
+
+            Be concise. Focus on actionable items. Use the format:
+            - 🔴 **Critical**: Must fix before merge
+            - 🟡 **Suggestion**: Recommended improvement
+            - 🟢 **Nice**: Looks good, optional polish
+
+            If the PR looks good, say so briefly. Don't nitpick.
+          timeout_minutes: 5

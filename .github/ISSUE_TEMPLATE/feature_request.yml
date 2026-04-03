@@ -1,0 +1,56 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are welcome! AI and maintainers will help evaluate and refine proposals.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the system would this affect?
+      options:
+        - ROS2 Stack
+        - Coverage Planner
+        - Hardware Bridge / Firmware
+        - GUI (web interface)
+        - Docker / Deployment
+        - Sensors
+        - Documentation
+        - New Component
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Motivation
+      description: What problem does this solve? Why is it needed?
+      placeholder: Currently the mower cannot avoid the dock station during coverage passes...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How should this work? Include technical details if you have ideas.
+      placeholder: Add the dock position as an obstacle polygon to the F2C coverage planner...
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any other approaches you've thought about?
+
+  - type: dropdown
+    id: willing
+    attributes:
+      label: Would you work on this?
+      options:
+        - "Yes, I'd like to submit a PR"
+        - "I can help test"
+        - "No, just suggesting"
