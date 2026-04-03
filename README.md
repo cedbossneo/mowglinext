@@ -3,11 +3,41 @@
 </p>
 
 <p align="center">
-  Autonomous robot mower built on ROS2 Jazzy — a complete rewrite of OpenMower<br>
+  Autonomous robot mower built on ROS2 Jazzy — a fresh start from the ground up<br>
   with LiDAR SLAM, RTK-GPS, behavior trees, and intelligent coverage planning.
 </p>
 
-**[Website](https://mowgli.garden)** | **[Wiki](https://github.com/cedbossneo/mowglinext/wiki)** | **[Discussions](https://github.com/cedbossneo/mowglinext/discussions)** | **[Issues](https://github.com/cedbossneo/mowglinext/issues)**
+<p align="center">
+  <strong><a href="https://mowgli.garden">Website</a></strong> · <strong><a href="https://github.com/cedbossneo/mowglinext/wiki">Wiki</a></strong> · <strong><a href="https://github.com/cedbossneo/mowglinext/discussions">Discussions</a></strong> · <strong><a href="https://github.com/cedbossneo/mowglinext/issues">Issues</a></strong>
+</p>
+
+---
+
+> **Beta — Work in Progress**
+>
+> MowgliNext is under active development and **not ready for production use**. Expect breaking changes, incomplete features, and rough edges. We're building in the open and welcome early adopters and contributors, but please don't rely on this for your daily mowing just yet. If you're looking for a stable, proven solution today, check out [OpenMower](https://openmower.de/) below.
+
+---
+
+## A Word About OpenMower
+
+MowgliNext exists because of [OpenMower](https://openmower.de/). Full stop.
+
+OpenMower is an incredible project that proved robot mowers can be truly intelligent — not just following a random bounce pattern or a buried wire, but actually understanding where they are and planning where to go. It inspired an entire community of builders, and we owe them a huge debt of gratitude.
+
+**MowgliNext is not a competitor to OpenMower. It's a different approach born from different needs.**
+
+The OpenMower philosophy is to replace the stock electronics inside the mower with custom boards designed for the job. This gives them full control and a clean hardware platform to build on. It's a great approach, and their rapid iteration on board design is impressive.
+
+The Mowgli philosophy is different: we work with the existing stock boards. We started by adding features on top of the original YardForce hardware — custom firmware, additional sensors, new capabilities. Over time, the list of features we wanted to build grew so ambitious that evolving within the original ROS1 architecture became increasingly complex. We needed a fresh foundation.
+
+So MowgliNext is a ground-up rewrite on ROS2, designed to let Mowgli evolve quickly without being constrained by the original architecture. By going our own way, we also give OpenMower more freedom — they can iterate on their boards and software without worrying about breaking things for people trying to follow along with different hardware.
+
+We'd be happy to support OpenMower firmware in MowgliNext if the community is interested. At the end of the day, we're all trying to make our mowers smarter. Different paths, same goal.
+
+Thank you, OpenMower team. You showed us what's possible.
+
+---
 
 ## Monorepo Structure
 
@@ -79,9 +109,10 @@ See the [Getting Started](https://github.com/cedbossneo/mowglinext/wiki/Getting-
 We welcome contributions! Claude AI reviews every PR and assists in issues.
 
 - [Contributing Guide](CONTRIBUTING.md)
+- [AI-Assisted Contributing](https://github.com/cedbossneo/mowglinext/wiki/AI-Assisted-Contributing) — how to use AI tools effectively
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - Mention **@claude** in any issue or PR for AI assistance
 
 ## License
 
-[GPLv3](LICENSE)
+[GPLv3](LICENSE) — same as OpenMower, because open source is how we all win.
