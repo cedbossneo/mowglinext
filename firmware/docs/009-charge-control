@@ -1,0 +1,64 @@
+Index: open_mower_ros/src/mowgli/CMakeLists.txt
+===================================================================
+--- /dev/null
++++ open_mower_ros/src/mowgli/CMakeLists.txt
+@@ -0,0 +1,29 @@
++cmake_minimum_required(VERSION 3.0.2)
++project(mowgli)
++
++find_package(catkin REQUIRED COMPONENTS
++        std_msgs
++        message_generation)
++
++
++#add_message_files(
++#        FILES
++#        Status.msg
++#        ImuRaw.msg
++#        ESCStatus.msg
++#        HighLevelStatus.msg
++#        Perimeter.msg
++#)
++
++add_service_files(
++        FILES
++	ChargeCtrlSrv.srv
++)
++
++## Generate added messages and services with any dependencies listed here
++generate_messages(
++        DEPENDENCIES
++        std_msgs
++)
++
++catkin_package()
+Index: open_mower_ros/src/mowgli/srv/ChargeCtrlSrv.srv
+===================================================================
+--- /dev/null
++++ open_mower_ros/src/mowgli/srv/ChargeCtrlSrv.srv
+@@ -0,0 +1 @@
++float32 eoc         # End of charge voltage
+Index: open_mower_ros/src/mowgli/package.xml
+===================================================================
+--- /dev/null
++++ open_mower_ros/src/mowgli/package.xml
+@@ -0,0 +1,19 @@
++<?xml version="1.0"?>
++<package format="2">
++  <name>mowgli</name>
++  <version>0.0.0</version>
++  <description>The mowgli messages package</description>
++
++
++  <maintainer email="clemens1@familie-elflein.de">Clemens Elflein</maintainer>
++  <license>CC BY-NC-SA 4.0</license>
++
++  <url type="website">https://github.com/ClemensElflein/OpenMower</url>
++
++  <build_depend>message_generation</build_depend>
++
++  <buildtool_depend>catkin</buildtool_depend>
++
++  <export>
++  </export>
++</package>

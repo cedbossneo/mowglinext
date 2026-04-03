@@ -1,0 +1,34 @@
+{
+	"folders": [
+		{
+			"path": "../../../../.."
+		},
+		{
+			"name": "ros_usbnode",
+			"path": "../../.."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"blademotor.h": "c",
+			"main.h": "c",
+			"panel.h": "c",
+			"cmath": "cpp",
+			"math.h": "c",
+			"*.tcc": "cpp",
+			"chrono": "cpp",
+			"complex": "cpp",
+			"numeric": "cpp",
+			"ratio": "cpp",
+			"cinttypes": "cpp",
+			"cstdlib": "cpp",
+			"array": "c",
+			"memory": "c",
+			"istream": "c",
+			"functional": "c",
+			"tuple": "c",
+			"utility": "c",
+			"variant": "c"
+		}
+	}
+}

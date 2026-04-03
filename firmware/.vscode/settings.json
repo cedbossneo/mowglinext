@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "blademotor.h": "c",
+        "main.h": "c",
+        "panel.h": "c"
+    }
+}
