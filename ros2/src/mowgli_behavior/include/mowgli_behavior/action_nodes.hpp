@@ -15,9 +15,9 @@
 #include "mowgli_interfaces/srv/get_mowing_area.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "nav2_msgs/action/back_up.hpp"
+#include "nav2_msgs/action/dock_robot.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
-#include "nav2_msgs/action/dock_robot.hpp"
 #include "nav2_msgs/action/undock_robot.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -171,9 +171,14 @@ class RecordUndockStart : public BT::SyncActionNode
 {
 public:
   RecordUndockStart(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config) {}
+      : BT::SyncActionNode(name, config)
+  {
+  }
 
-  static BT::PortsList providedPorts() { return {}; }
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
   BT::NodeStatus tick() override;
 };
 
@@ -188,9 +193,14 @@ class CalibrateHeadingFromUndock : public BT::SyncActionNode
 {
 public:
   CalibrateHeadingFromUndock(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config) {}
+      : BT::SyncActionNode(name, config)
+  {
+  }
 
-  static BT::PortsList providedPorts() { return {}; }
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
   BT::NodeStatus tick() override;
 };
 
@@ -562,9 +572,9 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-      BT::InputPort<std::string>("dock_pose", "Dock pose as 'x;y;yaw'"),
-      BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
-      BT::InputPort<bool>("navigate_to_staging_pose", true, "Navigate to staging pose first"),
+        BT::InputPort<std::string>("dock_pose", "Dock pose as 'x;y;yaw'"),
+        BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
+        BT::InputPort<bool>("navigate_to_staging_pose", true, "Navigate to staging pose first"),
     };
   }
 
@@ -600,7 +610,7 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-      BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
+        BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
     };
   }
 

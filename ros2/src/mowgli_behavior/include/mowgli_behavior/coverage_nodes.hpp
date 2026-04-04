@@ -37,15 +37,15 @@ public:
   using CoverageAction = mowgli_interfaces::action::PlanCoverage;
   using GoalHandle = rclcpp_action::ClientGoalHandle<CoverageAction>;
 
-  ComputeCoverage(const std::string & name, const BT::NodeConfig & config)
-  : BT::StatefulActionNode(name, config) {}
+  ComputeCoverage(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
 
   static BT::PortsList providedPorts()
   {
-    return {
-      BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
-      BT::OutputPort<std::string>("first_swath_start", "First swath start as 'x;y;yaw'")
-    };
+    return {BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
+            BT::OutputPort<std::string>("first_swath_start", "First swath start as 'x;y;yaw'")};
   }
 
   BT::NodeStatus onStart() override;
@@ -80,8 +80,10 @@ public:
   using NavGoalHandle = rclcpp_action::ClientGoalHandle<Nav2Navigate>;
   using FollowGoalHandle = rclcpp_action::ClientGoalHandle<Nav2FollowPath>;
 
-  ExecuteSwathBySwath(const std::string & name, const BT::NodeConfig & config)
-  : BT::StatefulActionNode(name, config) {}
+  ExecuteSwathBySwath(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
 
   static BT::PortsList providedPorts()
   {
@@ -93,20 +95,27 @@ public:
   void onHalted() override;
 
 private:
-  enum class Phase { TRANSIT_TO_SWATH, MOWING_SWATH, REROUTING_AROUND_OBSTACLE, DONE };
+  enum class Phase
+  {
+    TRANSIT_TO_SWATH,
+    MOWING_SWATH,
+    REROUTING_AROUND_OBSTACLE,
+    DONE
+  };
 
-  nav_msgs::msg::Path swathToPath(
-    const BTContext::Swath & swath, const rclcpp::Node::SharedPtr & node) const;
-  nav_msgs::msg::Path remainingSwathPath(
-    const BTContext::Swath & swath, double from_x, double from_y,
-    const rclcpp::Node::SharedPtr & node) const;
-  void sendTransitGoal(const BTContext::Swath & swath);
-  void sendSwathGoal(const BTContext::Swath & swath);
-  void sendRerouteGoal(const BTContext::Swath & swath, double rx, double ry);
-  void sendRemainingSwathGoal(const BTContext::Swath & swath, double from_x, double from_y);
+  nav_msgs::msg::Path swathToPath(const BTContext::Swath& swath,
+                                  const rclcpp::Node::SharedPtr& node) const;
+  nav_msgs::msg::Path remainingSwathPath(const BTContext::Swath& swath,
+                                         double from_x,
+                                         double from_y,
+                                         const rclcpp::Node::SharedPtr& node) const;
+  void sendTransitGoal(const BTContext::Swath& swath);
+  void sendSwathGoal(const BTContext::Swath& swath);
+  void sendRerouteGoal(const BTContext::Swath& swath, double rx, double ry);
+  void sendRemainingSwathGoal(const BTContext::Swath& swath, double from_x, double from_y);
   void setBladeEnabled(bool enabled);
   bool advanceToNextSwath();
-  bool checkStuck(const std::shared_ptr<BTContext> & ctx);
+  bool checkStuck(const std::shared_ptr<BTContext>& ctx);
 
   // State
   Phase phase_{Phase::TRANSIT_TO_SWATH};

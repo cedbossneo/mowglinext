@@ -31,8 +31,7 @@ namespace mowgli_localization
 class NavSatToAbsolutePoseNode : public rclcpp::Node
 {
 public:
-  explicit NavSatToAbsolutePoseNode(
-      const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+  explicit NavSatToAbsolutePoseNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
   ~NavSatToAbsolutePoseNode() override = default;
 
 private:

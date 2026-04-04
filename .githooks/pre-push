@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Pre-push hook: auto-format C++ files and amend the last commit if needed.
+# Install: git config core.hooksPath .githooks
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+FORMAT_SCRIPT="${REPO_ROOT}/ros2/scripts/format.sh"
+
+if ! command -v clang-format &>/dev/null; then
+  echo "WARNING: clang-format not found, skipping format check."
+  exit 0
+fi
+
+if [ ! -f "$FORMAT_SCRIPT" ]; then
+  echo "WARNING: format.sh not found, skipping format check."
+  exit 0
+fi
+
+# Run format check
+if ! "$FORMAT_SCRIPT" --check 2>/dev/null; then
+  echo ""
+  echo "==> C++ formatting violations detected. Auto-formatting..."
+  "$FORMAT_SCRIPT"
+
+  # Stage and amend the last commit with formatting fixes
+  git add ros2/src/
+  git commit -m "chore: auto-format C++ files"
+  echo "==> Created formatting commit. Push will continue."
+fi

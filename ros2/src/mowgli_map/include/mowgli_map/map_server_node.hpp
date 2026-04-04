@@ -143,7 +143,7 @@ private:
                     std_srvs::srv::Trigger::Response::SharedPtr res);
 
   void on_add_area(const mowgli_interfaces::srv::AddMowingArea::Request::SharedPtr req,
-                         mowgli_interfaces::srv::AddMowingArea::Response::SharedPtr res);
+                   mowgli_interfaces::srv::AddMowingArea::Response::SharedPtr res);
 
   void on_get_mowing_area(const mowgli_interfaces::srv::GetMowingArea::Request::SharedPtr req,
                           mowgli_interfaces::srv::GetMowingArea::Response::SharedPtr res);

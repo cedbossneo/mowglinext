@@ -82,7 +82,7 @@ jobs:
         run: |
           source /opt/ros/${{ matrix.ros_distro }}/setup.bash
           colcon build \
-            --cmake-args -DCMAKE_BUILD_TYPE=Release \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local \
             --parallel-workers $(nproc) \
             --event-handlers console_cohesion+
 

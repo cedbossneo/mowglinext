@@ -239,8 +239,7 @@ public:
 class IsNewRain : public BT::ConditionNode
 {
 public:
-  IsNewRain(const std::string& name, const BT::NodeConfig& config)
-      : BT::ConditionNode(name, config)
+  IsNewRain(const std::string& name, const BT::NodeConfig& config) : BT::ConditionNode(name, config)
   {
   }
 

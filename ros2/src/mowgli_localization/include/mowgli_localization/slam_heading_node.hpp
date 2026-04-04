@@ -35,7 +35,7 @@ namespace mowgli_localization
 class SlamHeadingNode : public rclcpp::Node
 {
 public:
-  explicit SlamHeadingNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  explicit SlamHeadingNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
   ~SlamHeadingNode() override = default;
 
 private:
@@ -43,9 +43,9 @@ private:
 
   // Parameters
   double publish_rate_{5.0};
-  double yaw_variance_{0.05};          // rad² — SLAM heading is usually quite good
-  double stale_timeout_{5.0};          // seconds before considering SLAM stale
-  double stale_yaw_variance_{1e6};     // variance when SLAM is stale
+  double yaw_variance_{0.05};  // rad² — SLAM heading is usually quite good
+  double stale_timeout_{5.0};  // seconds before considering SLAM stale
+  double stale_yaw_variance_{1e6};  // variance when SLAM is stale
 
   // TF
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
