@@ -45,8 +45,8 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     slam_arg = DeclareLaunchArgument(
         "slam",
-        default_value="False",
-        description="Run slam_toolbox when True; default False in sim (static map→odom TF).",
+        default_value="True",
+        description="Run slam_toolbox when True; skip when using a pre-built map.",
     )
 
     map_arg = DeclareLaunchArgument(

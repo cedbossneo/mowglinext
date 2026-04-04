@@ -210,56 +210,36 @@ def generate_launch_description() -> LaunchDescription:
 
         return actions
 
-    slam_toolbox_opaque = OpaqueFunction(function=_launch_slam_toolbox)
-
-    # Delay slam_toolbox startup by 10s so Gazebo's /clock bridge is
-    # established first.  Without this, use_sim_time lifecycle nodes
-    # can't process configure/activate transitions and SLAM never starts.
-    slam_toolbox_launch = TimerAction(
-        period=10.0,
-        actions=[slam_toolbox_opaque],
-    )
+    slam_toolbox_launch = OpaqueFunction(function=_launch_slam_toolbox)
 
     # ------------------------------------------------------------------
-    # 2. robot_localization – dual EKF
-    #    Delayed 15s so the Gazebo clock bridge is established first.
-    #    Without this, the EKF nodes hang on "Waiting for clock to start"
-    #    and never publish the odom→base_link TF that Nav2 needs.
+    # 2. robot_localization – odom EKF
     # ------------------------------------------------------------------
-    ekf_odom_node = TimerAction(
-        period=15.0,
-        actions=[
-            Node(
-                condition=IfCondition(use_ekf),
-                package="robot_localization",
-                executable="ekf_node",
-                name="ekf_odom",
-                output="screen",
-                parameters=[
-                    localization_params,
-                    {"use_sim_time": use_sim_time},
-                ],
-                remappings=[("odometry/filtered", "/mowgli/localization/odom")],
-            ),
+    ekf_odom_node = Node(
+        condition=IfCondition(use_ekf),
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_odom",
+        output="screen",
+        parameters=[
+            localization_params,
+            {"use_sim_time": use_sim_time},
         ],
+        remappings=[("odometry/filtered", "/mowgli/localization/odom")],
     )
 
-    ekf_map_node = TimerAction(
-        period=15.0,
-        actions=[
-            Node(
-                condition=IfCondition(use_ekf),
-                package="robot_localization",
-                executable="ekf_node",
-                name="ekf_map",
-                output="screen",
-                parameters=[
-                    localization_params,
-                    {"use_sim_time": use_sim_time},
-                ],
-                remappings=[("odometry/filtered", "/mowgli/localization/odom_map")],
-            ),
+    # 3. robot_localization – map EKF
+    ekf_map_node = Node(
+        condition=IfCondition(use_ekf),
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_map",
+        output="screen",
+        parameters=[
+            localization_params,
+            {"use_sim_time": use_sim_time},
         ],
+        remappings=[("odometry/filtered", "/mowgli/localization/odom_map")],
     )
 
     # ------------------------------------------------------------------
@@ -277,7 +257,7 @@ def generate_launch_description() -> LaunchDescription:
     # global costmap times out waiting for the map frame and the
     # lifecycle_manager aborts the entire bringup.
     nav2_navigation = TimerAction(
-        period=40.0,
+        period=20.0,
         actions=[
             GroupAction(
                 actions=[
