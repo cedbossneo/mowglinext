@@ -3,7 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
-	types2 "github.com/cedbossneo/openmower-gui/pkg/types"
+	types2 "github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"

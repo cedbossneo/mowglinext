@@ -7,12 +7,12 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
   gui:
-    container_name: openmower-gui
+    container_name: mowglinext
     labels:
       "com.centurylinklabs.watchtower.enable": true
       project: openmower
       app: gui
-    image: ghcr.io/cedbossneo/openmower-gui:master
+    image: ghcr.io/cedbossneo/mowglinext/mowglinext-gui:master
     restart: unless-stopped
     network_mode: host
     privileged: true

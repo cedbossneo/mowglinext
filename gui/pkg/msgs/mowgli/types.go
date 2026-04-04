@@ -1,6 +1,6 @@
 package mowgli
 
-import "github.com/cedbossneo/openmower-gui/pkg/msgs/geometry"
+import "github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 
 // Status matches mowgli_interfaces/Status
 type Status struct {

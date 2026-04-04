@@ -43,7 +43,7 @@ var Defaults = map[string]string{
 	"system.mower.configFile":     "/config/mower_config.sh",
 	"system.mower.yamlConfigFile": "/config/mowgli_robot.yaml",
 	"system.ros.masterUri":    "http://localhost:11311",
-	"system.ros.nodeName":     "openmower-gui",
+	"system.ros.nodeName":     "mowglinext",
 	"system.ros.nodeHost":     "localhost",
 }
 

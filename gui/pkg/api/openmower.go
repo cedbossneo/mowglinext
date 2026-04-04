@@ -1,17 +1,18 @@
 package api
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/cedbossneo/openmower-gui/pkg/msgs/geometry"
-	"github.com/cedbossneo/openmower-gui/pkg/msgs/mowgli"
-	"github.com/cedbossneo/openmower-gui/pkg/types"
-	"github.com/docker/distribution/uuid"
+	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
+	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -262,8 +263,9 @@ func PublisherRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 }
 
 func subscribe(provider types.IRosProvider, c *gin.Context, conn *websocket.Conn, topic string, interval int) (func(), error) {
-	id := uuid.Generate()
-	uidString := id.String()
+	b := make([]byte, 16)
+	rand.Read(b)
+	uidString := fmt.Sprintf("%x", b)
 	err := provider.Subscribe(topic, uidString, func(msg []byte) {
 		if interval > 0 {
 			time.Sleep(time.Duration(interval) * time.Millisecond)

@@ -2,7 +2,7 @@ package api
 
 import (
 	"bufio"
-	"github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
 	"io"
 )

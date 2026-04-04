@@ -119,7 +119,7 @@ export const SettingsDesc: Record<string, Setting> = {
         settingType: SettingType.Db,
         section: "ROS",
         type: SettingValueType.String,
-        defaultValue: "openmower-gui",
+        defaultValue: "mowglinext",
         description: "ROS node name",
     },
     "system.ros.masterUri": {

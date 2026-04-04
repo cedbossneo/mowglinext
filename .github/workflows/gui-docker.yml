@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'gui/**'
+      - '.github/workflows/gui-docker.yml'
   pull_request:
     branches: [main]
     paths:
       - 'gui/**'
+      - '.github/workflows/gui-docker.yml'
   workflow_dispatch:
     inputs:
       no-cache:
@@ -22,7 +24,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/openmower-gui
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/mowglinext-gui
 
 jobs:
   # ─── Build each arch on native runners ──────────────────────────────────────

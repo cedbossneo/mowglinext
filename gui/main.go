@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/cedbossneo/openmower-gui/pkg/api"
-	"github.com/cedbossneo/openmower-gui/pkg/providers"
+	"github.com/cedbossneo/mowglinext/pkg/api"
+	"github.com/cedbossneo/mowglinext/pkg/providers"
 	"github.com/joho/godotenv"
 )
 

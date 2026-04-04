@@ -11,8 +11,8 @@ import (
 	"github.com/brutella/hap"
 	"github.com/brutella/hap/accessory"
 	log2 "github.com/brutella/hap/log"
-	"github.com/cedbossneo/openmower-gui/pkg/msgs/mowgli"
-	types2 "github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
+	types2 "github.com/cedbossneo/mowglinext/pkg/types"
 )
 
 type HomeKitProvider struct {
@@ -74,9 +74,8 @@ func (hc *HomeKitProvider) launchServer(as *accessory.A) {
 
 	// Setup a listener for interrupts and SIGTERM signals
 	// to stop the server.
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt)
-	signal.Notify(c, syscall.SIGTERM)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {

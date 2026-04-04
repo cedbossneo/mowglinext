@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	types2 "github.com/cedbossneo/openmower-gui/pkg/types"
+	types2 "github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/docker/docker/api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -47,7 +47,7 @@ func ContainerListRoutes(group *gin.RouterGroup, provider types2.IDockerProvider
 				container.Labels["project"] = "openmower"
 				container.Labels["app"] = "openmower"
 			}
-			if lo.Contains(container.Names, "/openmower-gui") {
+			if lo.Contains(container.Names, "/mowglinext") {
 				container.Labels["project"] = "openmower"
 				container.Labels["app"] = "gui"
 			}

@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/cedbossneo/openmower-gui/pkg/msgs/mowgli"
-	"github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 )
 
 type schedule struct {

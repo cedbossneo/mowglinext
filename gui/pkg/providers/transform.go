@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/cedbossneo/openmower-gui/pkg/msgs/geometry"
-	"github.com/cedbossneo/openmower-gui/pkg/msgs/mowgli"
+	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
+	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
 )
 
 // ---------------------------------------------------------------------------

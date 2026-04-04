@@ -1,6 +1,6 @@
 package mowgli
 
-import "github.com/cedbossneo/openmower-gui/pkg/msgs/geometry"
+import "github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 
 // HighLevelControlReq for /mowgli/behavior/command
 type HighLevelControlReq struct {

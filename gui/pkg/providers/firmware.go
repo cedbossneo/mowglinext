@@ -3,7 +3,7 @@ package providers
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"golang.org/x/sys/execabs"

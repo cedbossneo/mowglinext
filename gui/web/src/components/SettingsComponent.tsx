@@ -97,7 +97,7 @@ export const SettingsComponent: React.FC<{
             if (resContainersList.error) {
                 throw new Error(resContainersList.error.error)
             }
-            const openMowerContainer = resContainersList.data.containers?.find((container) => container.labels?.app == "gui" || container.names?.includes("/openmower-gui"))
+            const openMowerContainer = resContainersList.data.containers?.find((container) => container.labels?.app == "gui" || container.names?.includes("/mowglinext"))
             if (openMowerContainer?.id) {
                 const res = await guiApi.containers.containersCreate(openMowerContainer.id, "restart")
                 if (res.error) {

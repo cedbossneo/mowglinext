@@ -1,6 +1,6 @@
 package visualization
 
-import "github.com/cedbossneo/openmower-gui/pkg/msgs/geometry"
+import "github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 
 type Marker struct {
 	Header   geometry.Header `json:"header"`

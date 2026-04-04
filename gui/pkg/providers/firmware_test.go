@@ -1,7 +1,7 @@
 package providers
 
 import (
-	"github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"

@@ -1,8 +1,8 @@
-FROM golang:1.21 AS build-go
+FROM golang:1.24 AS build-go
 
 COPY . /app
 WORKDIR /app
-RUN CGO_ENABLED=0 go build -o openmower-gui
+RUN CGO_ENABLED=0 go build -o mowglinext
 
 FROM node:22 AS build-web
 COPY ./web /web
@@ -35,9 +35,9 @@ RUN pio pkg install -g \
 
 FROM deps
 COPY --from=build-web /web/dist /app/web
-COPY --from=build-go /app/openmower-gui /app/openmower-gui
+COPY --from=build-go /app/mowglinext /app/mowglinext
 COPY asserts /app/asserts
 ENV WEB_DIR=/app/web
 ENV DB_PATH=/app/db
 WORKDIR /app
-CMD ["/app/openmower-gui"]
+CMD ["/app/mowglinext"]

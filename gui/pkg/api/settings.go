@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
@@ -255,6 +255,90 @@ func coerceValue(value string, schemaType string) any {
 		}
 	}
 	return value
+}
+
+// applyMowgliOverlay modifies the settings schema to add Mowgli-specific
+// options: adds "Mowgli" to the OM_MOWER enum, moves OM_HARDWARE_VERSION and
+// OM_MOWER_ESC_TYPE behind conditional allOf rules, and adds OM_NO_COMMS for
+// Mowgli boards.
+func applyMowgliOverlay(schema map[string]any) map[string]any {
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return schema
+	}
+	hw, ok := props["important_settings"].(map[string]any)
+	if !ok {
+		return schema
+	}
+	hwProps, ok := hw["properties"].(map[string]any)
+	if !ok {
+		return schema
+	}
+
+	// Add "Mowgli" to OM_MOWER enum if not already present.
+	if omMower, ok := hwProps["OM_MOWER"].(map[string]any); ok {
+		if enum, ok := omMower["enum"].([]any); ok {
+			found := false
+			for _, v := range enum {
+				if v == "Mowgli" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				omMower["enum"] = append(enum, "Mowgli")
+			}
+		}
+	}
+
+	// Extract OM_HARDWARE_VERSION and OM_MOWER_ESC_TYPE from base properties.
+	hwVersion := hwProps["OM_HARDWARE_VERSION"]
+	escType := hwProps["OM_MOWER_ESC_TYPE"]
+	delete(hwProps, "OM_HARDWARE_VERSION")
+	delete(hwProps, "OM_MOWER_ESC_TYPE")
+
+	// Build conditional allOf rules.
+	nonMowgliThenProps := map[string]any{}
+	if hwVersion != nil {
+		nonMowgliThenProps["OM_HARDWARE_VERSION"] = hwVersion
+	}
+	if escType != nil {
+		nonMowgliThenProps["OM_MOWER_ESC_TYPE"] = escType
+	}
+
+	nonMowgliCond := map[string]any{
+		"if": map[string]any{
+			"properties": map[string]any{
+				"OM_MOWER": map[string]any{
+					"not": map[string]any{"const": "Mowgli"},
+				},
+			},
+		},
+		"then": map[string]any{
+			"properties": nonMowgliThenProps,
+		},
+	}
+
+	mowgliCond := map[string]any{
+		"if": map[string]any{
+			"properties": map[string]any{
+				"OM_MOWER": map[string]any{"const": "Mowgli"},
+			},
+		},
+		"then": map[string]any{
+			"properties": map[string]any{
+				"OM_NO_COMMS": map[string]any{
+					"type":    "boolean",
+					"title":   "No Comms Mode",
+					"default": true,
+				},
+			},
+		},
+	}
+
+	hw["allOf"] = []any{nonMowgliCond, mowgliCond}
+
+	return schema
 }
 
 func getSchema(dbProvider types.IDBProvider) (map[string]any, error) {

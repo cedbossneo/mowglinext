@@ -1,9 +1,9 @@
 package api
 
 import (
-	"github.com/cedbossneo/openmower-gui/docs"
-	"github.com/cedbossneo/openmower-gui/pkg/providers"
-	"github.com/cedbossneo/openmower-gui/pkg/types"
+	"github.com/cedbossneo/mowglinext/docs"
+	"github.com/cedbossneo/mowglinext/pkg/providers"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"

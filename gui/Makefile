@@ -8,7 +8,7 @@ deps:
 	go mod download
 
 build:
-	docker build -t openmower-gui .
+	docker build -t mowglinext .
 
 run-gui:
 	cd $(CURRENT_DIR)/web && yarn dev --host

@@ -33,7 +33,7 @@ export const SettingsPage = () => {
             const resContainersList = await guiApi.containers.containersList();
             if (resContainersList.error) throw new Error(resContainersList.error.error);
             const container = resContainersList.data.containers?.find(
-                (c) => c.labels?.app === "gui" || c.names?.includes("/openmower-gui")
+                (c) => c.labels?.app === "gui" || c.names?.includes("/mowglinext")
             );
             if (container?.id) {
                 const res = await guiApi.containers.containersCreate(container.id, "restart");
