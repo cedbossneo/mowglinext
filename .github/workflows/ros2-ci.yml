@@ -16,6 +16,7 @@ concurrency:
 
 env:
   ROS_DISTRO: jazzy
+  FIELDS2COVER_VERSION: v1.2.1-devel
 
 jobs:
   # ─── Build & Test ────────────────────────────────────────────────────────────
@@ -63,20 +64,44 @@ jobs:
             --skip-keys "fields2cover" \
             -y
 
-      - name: Install Fields2Cover from source
+      - name: Cache Fields2Cover
+        id: cache-f2c
+        uses: actions/cache@v4
+        with:
+          path: /tmp/f2c-install
+          key: f2c-${{ env.FIELDS2COVER_VERSION }}-${{ matrix.ubuntu }}
+
+      - name: Build Fields2Cover from source
+        if: steps.cache-f2c.outputs.cache-hit != 'true'
         run: |
           sudo apt-get install -y libgdal-dev
-          git clone --branch v1.2.1-devel --depth 1 \
+          git clone --branch ${{ env.FIELDS2COVER_VERSION }} --depth 1 \
             https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c
           cmake -S /tmp/f2c -B /tmp/f2c/build \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_INSTALL_PREFIX=/tmp/f2c-install \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
             -DBUILD_PYTHON=OFF
           cmake --build /tmp/f2c/build -j$(nproc)
-          sudo cmake --install /tmp/f2c/build
-          sudo ldconfig
+          cmake --install /tmp/f2c/build
           rm -rf /tmp/f2c
+
+      - name: Install Fields2Cover
+        run: |
+          sudo apt-get install -y libgdal-dev
+          sudo cp -a /tmp/f2c-install/. /usr/local/
+          sudo ldconfig
+
+      - name: Cache colcon workspace
+        uses: actions/cache@v4
+        with:
+          path: |
+            ros2/build
+            ros2/install
+            ros2/log
+          key: colcon-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/CMakeLists.txt', 'ros2/src/**/package.xml', 'ros2/src/**/*.cpp', 'ros2/src/**/*.hpp') }}
+          restore-keys: |
+            colcon-${{ matrix.ros_distro }}-
 
       - name: Build workspace
         run: |
@@ -114,11 +139,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Cache pip clang-format
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-clang-format-18.1.8
+
       - name: Install clang-format
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-17
-          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-17 100
+        run: pip install clang-format==18.1.8
 
       - name: Check formatting
         run: |

@@ -56,7 +56,9 @@ bool SerialPort::open()
     return false;
   }
 
-  struct termios tty{};
+  struct termios tty
+  {
+  };
   if (::tcgetattr(fd_, &tty) != 0)
   {
     ::close(fd_);
