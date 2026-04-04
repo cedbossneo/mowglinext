@@ -11,7 +11,7 @@ ROBOT_USER    ?= pi
 F2C_DIR       ?= /usr/local/cmake/fields2cover
 
 .PHONY: help build build-debug build-pkg test clean \
-        sim e2e-test \
+        sim sim-stop e2e-test \
         docker docker-sim \
         lint format format-check \
         deploy backup-maps
@@ -29,8 +29,9 @@ help:
 	@echo "  clean              Remove build/ install/ log/"
 	@echo ""
 	@echo "Simulation & testing:"
-	@echo "  sim                Launch headless simulation (Foxglove ws://localhost:8765)"
-	@echo "  e2e-test           Run E2E validation (simulation must be running)"
+	@echo "  sim                Launch headless simulation (auto-stops previous)"
+	@echo "  sim-stop           Kill all ROS2/Gazebo processes and clean DDS state"
+	@echo "  e2e-test           Launch sim + run E2E test + stop (self-contained)"
 	@echo ""
 	@echo "Docker images (CI / production):"
 	@echo "  docker             Build production image (runtime stage)"
@@ -82,7 +83,24 @@ clean:
 
 # ─── Simulation & Testing ─────────────────────────────────────────────────────
 
-sim:
+# Kill all ROS2/Gazebo processes and clean DDS shared memory.
+# MUST be run before launching a new simulation to avoid stale state
+# causing "Failed to find a free participant" or clock conflicts.
+sim-stop:
+	@echo "Stopping all ROS2/Gazebo processes..."
+	@pkill -9 -f "ros2|gz|ruby" 2>/dev/null || true
+	@sleep 2
+	@rm -rf /dev/shm/cyclone* /dev/shm/dds* /dev/shm/iox* /tmp/gz-* /tmp/ign-*
+	@echo "Waiting for cleanup..."
+	@sleep 1
+	@if pgrep -f "ros2|gz" > /dev/null 2>&1; then \
+	  echo "WARNING: some processes still running, force killing..."; \
+	  pkill -9 -f "ros2|gz|ruby" 2>/dev/null || true; \
+	  sleep 2; \
+	fi
+	@echo "All clean."
+
+sim: sim-stop
 	@echo "Starting headless simulation..."
 	@echo "  Foxglove: ws://localhost:8765"
 	@echo ""
@@ -91,11 +109,24 @@ sim:
 	ros2 launch mowgli_bringup sim_full_system.launch.py \
 	  headless:=true use_rviz:=false
 
-e2e-test:
-	@echo "Running E2E test (simulation must already be running)..."
+e2e-test: sim-stop
+	@echo "Starting simulation + E2E test..."
+	@echo ""
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	source install/setup.bash && \
-	python3 src/e2e_test.py
+	ros2 launch mowgli_bringup sim_full_system.launch.py \
+	  headless:=true use_rviz:=false &
+	SIM_PID=$$!; \
+	echo "Simulation PID: $$SIM_PID"; \
+	echo "Waiting 90s for Nav2 to activate..."; \
+	sleep 90; \
+	echo "Running E2E test..."; \
+	python3 src/e2e_test.py; \
+	TEST_EXIT=$$?; \
+	echo "Stopping simulation..."; \
+	kill $$SIM_PID 2>/dev/null; \
+	$(MAKE) sim-stop; \
+	exit $$TEST_EXIT
 
 # ─── Docker Images (CI / production) ──────────────────────────────────────────
 

@@ -4,15 +4,12 @@ description: Must kill all processes and clean shared memory before launching si
 type: feedback
 ---
 
-ALWAYS kill all processes and clean DDS shared memory before launching simulation.
+ALWAYS run `make sim-stop` (or the equivalent cleanup) before launching simulation or E2E tests.
 
-**Why:** Spent hours debugging "Failed to find a free participant index" and "additional publishers on /clock" errors that were caused by stale Cyclone DDS shared memory and zombie Gazebo processes from previous runs. The symptoms look like real bugs (clock not working, lifecycle manager crashing, TF not publishing) but the root cause is just leftover state.
+**Why:** Stale Cyclone DDS shared memory and zombie Gazebo processes cause "Failed to find a free participant index", "additional publishers on /clock", and lifecycle manager crashes. These look like real bugs but are just leftover state from previous runs.
 
-**How to apply:** Before every `ros2 launch`, run this cleanup sequence:
-```bash
-pkill -9 -f "ros2|gz|ruby" 2>/dev/null
-sleep 2
-rm -rf /dev/shm/cyclone* /dev/shm/dds* /dev/shm/iox* /tmp/gz-* /tmp/ign-*
-pgrep -a "ros2|gz" || echo "All clean"
-```
-Never launch a second simulation without first killing the first one AND cleaning shared memory. Never run sim in background without a way to verify cleanup.
+**How to apply:**
+- Use `make sim` or `make e2e-test` — both auto-run `sim-stop` first
+- If running ros2 launch directly: run `make sim-stop` manually first
+- Never have two simulation instances running simultaneously
+- The cleanup sequence is: pkill ros2/gz → rm /dev/shm/cyclone* → verify clean
