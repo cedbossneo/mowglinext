@@ -15,7 +15,7 @@
   "dependencies": {
     "@formily/antd-v5": "^1.2.4",
     "@formily/core": "2.3.7",
-    "@formily/react": "2.3.1",
+    "@formily/react": "2.3.7",
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@turf/area": "^7.3.4",
@@ -61,8 +61,8 @@
     "vitest": "^4.1.2"
   },
   "resolutions": {
-    "**/@formily/core": "2.3.1",
-    "**/@formily/reactive": "2.3.1"
+    "**/@formily/core": "2.3.7",
+    "**/@formily/reactive": "2.3.7"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
