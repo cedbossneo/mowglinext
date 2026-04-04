@@ -210,36 +210,56 @@ def generate_launch_description() -> LaunchDescription:
 
         return actions
 
-    slam_toolbox_launch = OpaqueFunction(function=_launch_slam_toolbox)
+    slam_toolbox_opaque = OpaqueFunction(function=_launch_slam_toolbox)
 
-    # ------------------------------------------------------------------
-    # 2. robot_localization – odom EKF
-    # ------------------------------------------------------------------
-    ekf_odom_node = Node(
-        condition=IfCondition(use_ekf),
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_odom",
-        output="screen",
-        parameters=[
-            localization_params,
-            {"use_sim_time": use_sim_time},
-        ],
-        remappings=[("odometry/filtered", "/mowgli/localization/odom")],
+    # Delay slam_toolbox startup by 10s so Gazebo's /clock bridge is
+    # established first.  Without this, use_sim_time lifecycle nodes
+    # can't process configure/activate transitions and SLAM never starts.
+    slam_toolbox_launch = TimerAction(
+        period=10.0,
+        actions=[slam_toolbox_opaque],
     )
 
-    # 3. robot_localization – map EKF
-    ekf_map_node = Node(
-        condition=IfCondition(use_ekf),
-        package="robot_localization",
-        executable="ekf_node",
-        name="ekf_map",
-        output="screen",
-        parameters=[
-            localization_params,
-            {"use_sim_time": use_sim_time},
+    # ------------------------------------------------------------------
+    # 2. robot_localization – dual EKF
+    #    Delayed 15s so the Gazebo clock bridge is established first.
+    #    Without this, the EKF nodes hang on "Waiting for clock to start"
+    #    and never publish the odom→base_link TF that Nav2 needs.
+    # ------------------------------------------------------------------
+    ekf_odom_node = TimerAction(
+        period=15.0,
+        actions=[
+            Node(
+                condition=IfCondition(use_ekf),
+                package="robot_localization",
+                executable="ekf_node",
+                name="ekf_odom",
+                output="screen",
+                parameters=[
+                    localization_params,
+                    {"use_sim_time": use_sim_time},
+                ],
+                remappings=[("odometry/filtered", "/mowgli/localization/odom")],
+            ),
         ],
-        remappings=[("odometry/filtered", "/mowgli/localization/odom_map")],
+    )
+
+    ekf_map_node = TimerAction(
+        period=15.0,
+        actions=[
+            Node(
+                condition=IfCondition(use_ekf),
+                package="robot_localization",
+                executable="ekf_node",
+                name="ekf_map",
+                output="screen",
+                parameters=[
+                    localization_params,
+                    {"use_sim_time": use_sim_time},
+                ],
+                remappings=[("odometry/filtered", "/mowgli/localization/odom_map")],
+            ),
+        ],
     )
 
     # ------------------------------------------------------------------
@@ -252,12 +272,12 @@ def generate_launch_description() -> LaunchDescription:
     # hardcoded params (ignoring params_file for the lifecycle manager node).
     # Wrap in a GroupAction with SetParameter so bond_timeout is available as
     # a global parameter override — lifecycle_manager will pick it up.
-    # Delay Nav2 startup by 10 s so slam_toolbox has time to activate and
-    # start publishing the map → odom TF.  Without this delay, the
-    # planner_server's global costmap times out waiting for the map frame
-    # and the lifecycle_manager aborts the entire bringup.
+    # Delay Nav2 startup so SLAM / static TF has time to publish the
+    # map → odom transform.  Without this delay, the planner_server's
+    # global costmap times out waiting for the map frame and the
+    # lifecycle_manager aborts the entire bringup.
     nav2_navigation = TimerAction(
-        period=20.0,
+        period=40.0,
         actions=[
             GroupAction(
                 actions=[
