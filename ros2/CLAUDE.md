@@ -18,10 +18,10 @@ Before starting a session, scan the TODO list and verify each item against the c
 
 - **ROS distro:** Jazzy
 - **DDS:** Cyclone DDS (`rmw_cyclonedds_cpp`)
-- **Build:** `colcon build` (ament_cmake for C++, ament_python for launch)
-- **Run simulation:** `cd docker && docker compose -f docker-compose.simulation.yaml up dev-sim` (Gazebo + Nav2 + Foxglove on ws://localhost:8765)
-- **Run E2E test:** `docker compose -f docker-compose.simulation.yaml exec dev-sim bash -c "source /ros2_ws/install/setup.bash && python3 /ros2_ws/src/e2e_test.py"`
-- **Run hardware:** `docker compose up mowgli` (requires /dev/mowgli)
+- **Build:** `make build` (or `colcon build` directly)
+- **Run simulation:** `make sim` (Gazebo + Nav2 + Foxglove on ws://localhost:8765)
+- **Run E2E test:** `make e2e-test` (simulation must be running)
+- **Run hardware:** `cd ../docker && docker compose up mowgli` (requires /dev/mowgli)
 - **Send mow command:** `ros2 service call /behavior_tree_node/high_level_control mowgli_interfaces/srv/HighLevelControl "{command: 1}"`
 - **Source workspace inside container:** `source /ros2_ws/install/setup.bash`
 - **GUI:** openmower-gui (Go backend + React frontend), connects to rosbridge on port 9090
@@ -270,16 +270,17 @@ gh pr create --title "feat: my feature" --body "..."
 ```
 Branch naming: `feat/`, `fix/`, `refactor/`, `test/`, `chore/`, `docs/`
 
-### Edit config/launch (no rebuild):
+### Edit config/launch (no rebuild with --symlink-install):
 ```bash
 # Edit files under src/mowgli_bringup/config/ or src/mowgli_behavior/trees/
-docker compose restart dev-sim  # picks up changes via bind-mount
+# Restart the simulation to pick up changes (Ctrl-C + make sim)
 ```
 
 ### Edit C++ source (rebuild required):
 ```bash
-docker compose build dev-sim    # rebuilds image
-docker compose up -d dev-sim    # starts with new code
+make build                              # rebuild all
+make build-pkg PKG=mowgli_behavior      # rebuild one package
+# Then restart the simulation
 ```
 
 ### Monitor mowing:

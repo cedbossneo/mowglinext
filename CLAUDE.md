@@ -78,15 +78,26 @@ gh pr create --title "feat: my feature" --body "..."
 
 ## Quick Commands
 
+All ROS2 commands assume you are inside the devcontainer.
+
 ```bash
-# Deploy on hardware
-cd docker && docker compose up -d
+# Build ROS2 workspace
+cd ros2 && make build
 
-# Build ROS2 locally
-cd ros2 && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+# Build a single package
+cd ros2 && make build-pkg PKG=mowgli_behavior
 
-# Run simulation
-cd docker && docker compose -f docker-compose.simulation.yaml up dev-sim
+# Run headless simulation
+cd ros2 && make sim
+
+# Run E2E tests (simulation must be running in another terminal)
+cd ros2 && make e2e-test
+
+# Format C++ code
+cd ros2 && make format
+
+# Run unit tests
+cd ros2 && make test
 
 # Build firmware
 cd firmware/stm32/ros_usbnode && pio run
