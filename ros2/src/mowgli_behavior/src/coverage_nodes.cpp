@@ -294,6 +294,106 @@ void ExecuteSwathBySwath::sendSwathGoal(const BTContext::Swath & swath)
     swath_index_ + 1, total_swaths_, len);
 }
 
+nav_msgs::msg::Path ExecuteSwathBySwath::remainingSwathPath(
+  const BTContext::Swath & swath, double from_x, double from_y,
+  const rclcpp::Node::SharedPtr & node) const
+{
+  // Project (from_x, from_y) onto the swath line to find the resume point.
+  const double dx = swath.end.x - swath.start.x;
+  const double dy = swath.end.y - swath.start.y;
+  const double seg_len_sq = dx * dx + dy * dy;
+  double t = 0.0;
+  if (seg_len_sq > 1e-12) {
+    t = ((from_x - swath.start.x) * dx + (from_y - swath.start.y) * dy) / seg_len_sq;
+    t = std::max(0.0, std::min(1.0, t));
+  }
+
+  const double yaw = std::atan2(dy, dx);
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, yaw);
+  const auto quat = tf2::toMsg(q);
+
+  nav_msgs::msg::Path path;
+  path.header.stamp = node->now();
+  path.header.frame_id = "map";
+
+  const double remaining_len = std::hypot(dx, dy) * (1.0 - t);
+  const double spacing = 0.10;
+  const int num_points = std::max(2, static_cast<int>(std::ceil(remaining_len / spacing)) + 1);
+
+  for (int i = 0; i < num_points; ++i) {
+    const double frac = t + (1.0 - t) * static_cast<double>(i) / static_cast<double>(num_points - 1);
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = path.header;
+    pose.pose.position.x = swath.start.x + frac * dx;
+    pose.pose.position.y = swath.start.y + frac * dy;
+    pose.pose.orientation = quat;
+    path.poses.push_back(pose);
+  }
+
+  return path;
+}
+
+void ExecuteSwathBySwath::sendRerouteGoal(
+  const BTContext::Swath & swath, double rx, double ry)
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  // Find a waypoint past the obstacle: project current position onto swath,
+  // then advance by 1.5m (enough to clear a typical obstacle + inflation).
+  const double dx = swath.end.x - swath.start.x;
+  const double dy = swath.end.y - swath.start.y;
+  const double seg_len = std::hypot(dx, dy);
+  double t = 0.0;
+  if (seg_len > 1e-6) {
+    t = ((rx - swath.start.x) * dx + (ry - swath.start.y) * dy) / (seg_len * seg_len);
+    t = std::max(0.0, std::min(1.0, t));
+  }
+
+  // Advance 1.5m past current position along the swath
+  const double advance = 1.5;
+  const double t_advance = t + advance / std::max(seg_len, 0.01);
+  const double t_target = std::min(t_advance, 1.0);
+
+  Nav2Navigate::Goal goal;
+  goal.pose.header.stamp = ctx->node->now();
+  goal.pose.header.frame_id = "map";
+  goal.pose.pose.position.x = swath.start.x + t_target * dx;
+  goal.pose.pose.position.y = swath.start.y + t_target * dy;
+
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, std::atan2(dy, dx));
+  goal.pose.pose.orientation = tf2::toMsg(q);
+
+  nav_handle_.reset();
+  nav_future_ = nav_client_->async_send_goal(goal);
+  blocked_swath_fraction_ = t_target;
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+    "ExecuteSwathBySwath: rerouting around obstacle on swath %zu/%zu "
+    "(from %.2f,%.2f to %.2f,%.2f via planner)",
+    swath_index_ + 1, total_swaths_, rx, ry,
+    goal.pose.pose.position.x, goal.pose.pose.position.y);
+}
+
+void ExecuteSwathBySwath::sendRemainingSwathGoal(
+  const BTContext::Swath & swath, double from_x, double from_y)
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  Nav2FollowPath::Goal goal;
+  goal.path = remainingSwathPath(swath, from_x, from_y, ctx->node);
+  goal.controller_id = "FollowCoveragePath";
+  goal.goal_checker_id = "coverage_goal_checker";
+
+  follow_handle_.reset();
+  follow_future_ = follow_client_->async_send_goal(goal);
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+    "ExecuteSwathBySwath: resuming swath %zu/%zu from (%.2f, %.2f)",
+    swath_index_ + 1, total_swaths_, from_x, from_y);
+}
+
 void ExecuteSwathBySwath::setBladeEnabled(bool enabled)
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
@@ -388,6 +488,8 @@ BT::NodeStatus ExecuteSwathBySwath::onStart()
 
   setBladeEnabled(false);
   phase_ = Phase::TRANSIT_TO_SWATH;
+  reroute_attempts_ = 0;
+  blocked_swath_fraction_ = 0.0;
   last_progress_time_ = std::chrono::steady_clock::now();
   last_progress_x_ = 0.0;
   last_progress_y_ = 0.0;
@@ -509,11 +611,36 @@ BT::NodeStatus ExecuteSwathBySwath::onRunning()
 
     if (checkStuck(ctx)) {
       RCLCPP_WARN(ctx->node->get_logger(),
-        "ExecuteSwathBySwath: stuck during swath %zu", swath_index_ + 1);
+        "ExecuteSwathBySwath: stuck during swath %zu (obstacle?)", swath_index_ + 1);
       follow_client_->async_cancel_goal(follow_handle_);
       follow_handle_.reset();
       setBladeEnabled(false);
+
+      // Try rerouting around the obstacle using NavigateToPose (planner-aware).
+      if (reroute_attempts_ < max_reroute_attempts_) {
+        reroute_attempts_++;
+        double rx = last_progress_x_;
+        double ry = last_progress_y_;
+        try {
+          auto tf = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+          rx = tf.transform.translation.x;
+          ry = tf.transform.translation.y;
+        } catch (const tf2::TransformException &) {}
+
+        RCLCPP_INFO(ctx->node->get_logger(),
+          "ExecuteSwathBySwath: rerouting attempt %zu/%zu around obstacle on swath %zu",
+          reroute_attempts_, max_reroute_attempts_, swath_index_ + 1);
+        phase_ = Phase::REROUTING_AROUND_OBSTACLE;
+        last_progress_time_ = now;
+        sendRerouteGoal(ctx->coverage_plan->swaths[swath_index_], rx, ry);
+        return BT::NodeStatus::RUNNING;
+      }
+
+      // Rerouting exhausted — skip this swath.
+      RCLCPP_WARN(ctx->node->get_logger(),
+        "ExecuteSwathBySwath: reroute attempts exhausted, skipping swath %zu", swath_index_ + 1);
       skipped_swaths_++;
+      reroute_attempts_ = 0;
       if (!advanceToNextSwath()) {
         phase_ = Phase::DONE;
         return (completed_swaths_ > 0) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
@@ -530,6 +657,7 @@ BT::NodeStatus ExecuteSwathBySwath::onRunning()
       follow_handle_.reset();
       setBladeEnabled(false);
       completed_swaths_++;
+      reroute_attempts_ = 0;
 
       if (!advanceToNextSwath()) {
         RCLCPP_INFO(ctx->node->get_logger(),
@@ -548,10 +676,120 @@ BT::NodeStatus ExecuteSwathBySwath::onRunning()
       status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
     {
       RCLCPP_WARN(ctx->node->get_logger(),
-        "ExecuteSwathBySwath: swath %zu follow failed", swath_index_ + 1);
+        "ExecuteSwathBySwath: swath %zu follow aborted/canceled", swath_index_ + 1);
       follow_handle_.reset();
       setBladeEnabled(false);
+
+      // Attempt reroute before skipping.
+      if (reroute_attempts_ < max_reroute_attempts_) {
+        reroute_attempts_++;
+        double rx = last_progress_x_;
+        double ry = last_progress_y_;
+        try {
+          auto tf = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+          rx = tf.transform.translation.x;
+          ry = tf.transform.translation.y;
+        } catch (const tf2::TransformException &) {}
+
+        phase_ = Phase::REROUTING_AROUND_OBSTACLE;
+        last_progress_time_ = now;
+        sendRerouteGoal(ctx->coverage_plan->swaths[swath_index_], rx, ry);
+        return BT::NodeStatus::RUNNING;
+      }
+
       skipped_swaths_++;
+      reroute_attempts_ = 0;
+      if (!advanceToNextSwath()) {
+        phase_ = Phase::DONE;
+        return (completed_swaths_ > 0) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+      }
+      phase_ = Phase::TRANSIT_TO_SWATH;
+      transit_cooldown_until_ = now + std::chrono::seconds(3);
+      sendTransitGoal(ctx->coverage_plan->swaths[swath_index_]);
+      return BT::NodeStatus::RUNNING;
+    }
+
+    return BT::NodeStatus::RUNNING;
+  }
+
+  // ── REROUTING_AROUND_OBSTACLE: NavigateToPose around obstacle, then resume swath ──
+  if (phase_ == Phase::REROUTING_AROUND_OBSTACLE) {
+    if (!nav_handle_) {
+      if (nav_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+        return BT::NodeStatus::RUNNING;
+      }
+      nav_handle_ = nav_future_.get();
+      if (!nav_handle_) {
+        RCLCPP_WARN(ctx->node->get_logger(),
+          "ExecuteSwathBySwath: reroute goal rejected for swath %zu", swath_index_ + 1);
+        // Fall back to skipping.
+        skipped_swaths_++;
+        reroute_attempts_ = 0;
+        if (!advanceToNextSwath()) {
+          phase_ = Phase::DONE;
+          return (completed_swaths_ > 0) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+        }
+        phase_ = Phase::TRANSIT_TO_SWATH;
+        transit_cooldown_until_ = now + std::chrono::seconds(3);
+        sendTransitGoal(ctx->coverage_plan->swaths[swath_index_]);
+        return BT::NodeStatus::RUNNING;
+      }
+      last_progress_time_ = now;
+    }
+
+    auto status = nav_handle_->get_status();
+
+    if (checkStuck(ctx)) {
+      RCLCPP_WARN(ctx->node->get_logger(),
+        "ExecuteSwathBySwath: stuck during reroute on swath %zu", swath_index_ + 1);
+      nav_client_->async_cancel_goal(nav_handle_);
+      nav_handle_.reset();
+      skipped_swaths_++;
+      reroute_attempts_ = 0;
+      if (!advanceToNextSwath()) {
+        phase_ = Phase::DONE;
+        return (completed_swaths_ > 0) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+      }
+      phase_ = Phase::TRANSIT_TO_SWATH;
+      transit_cooldown_until_ = now + std::chrono::seconds(3);
+      sendTransitGoal(ctx->coverage_plan->swaths[swath_index_]);
+      return BT::NodeStatus::RUNNING;
+    }
+
+    if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
+      RCLCPP_INFO(ctx->node->get_logger(),
+        "ExecuteSwathBySwath: rerouted past obstacle on swath %zu, resuming mowing",
+        swath_index_ + 1);
+      nav_handle_.reset();
+
+      // Resume mowing from current position to swath end.
+      double rx = 0.0, ry = 0.0;
+      try {
+        auto tf = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+        rx = tf.transform.translation.x;
+        ry = tf.transform.translation.y;
+      } catch (const tf2::TransformException &) {
+        // Use the target point from the reroute goal.
+        const auto & sw = ctx->coverage_plan->swaths[swath_index_];
+        rx = sw.start.x + blocked_swath_fraction_ * (sw.end.x - sw.start.x);
+        ry = sw.start.y + blocked_swath_fraction_ * (sw.end.y - sw.start.y);
+      }
+
+      setBladeEnabled(true);
+      phase_ = Phase::MOWING_SWATH;
+      last_progress_time_ = now;
+      sendRemainingSwathGoal(ctx->coverage_plan->swaths[swath_index_], rx, ry);
+      return BT::NodeStatus::RUNNING;
+    }
+
+    if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+        "ExecuteSwathBySwath: reroute navigation failed for swath %zu", swath_index_ + 1);
+      nav_handle_.reset();
+      skipped_swaths_++;
+      reroute_attempts_ = 0;
       if (!advanceToNextSwath()) {
         phase_ = Phase::DONE;
         return (completed_swaths_ > 0) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
@@ -583,6 +821,8 @@ void ExecuteSwathBySwath::onHalted()
   nav_handle_.reset();
   follow_handle_.reset();
   phase_ = Phase::DONE;
+  reroute_attempts_ = 0;
+  blocked_swath_fraction_ = 0.0;
 
   RCLCPP_INFO(ctx->node->get_logger(),
     "ExecuteSwathBySwath: halted (%zu completed, %zu skipped of %zu)",

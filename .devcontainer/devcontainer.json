@@ -1,0 +1,77 @@
+{
+  "name": "MowgliNext ROS2 Dev",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // 8-core minimum for Gazebo headless + colcon parallel build.
+  // 16-core recommended for ~1x realtime simulation.
+  "hostRequirements": {
+    "cpus": 8,
+    "memory": "16gb",
+    "storage": "64gb"
+  },
+
+  // Mount the repo at /ros2_ws/src (ROS2 workspace convention)
+  "workspaceMount": "source=${localWorkspaceFolder},target=/ros2_ws/src/mowglinext,type=bind",
+  "workspaceFolder": "/ros2_ws/src/mowglinext",
+
+  // Forward ports for visualization and debugging
+  "forwardPorts": [
+    8765,   // Foxglove Bridge WebSocket
+    6080,   // noVNC (if Gazebo GUI needed)
+    9090    // rosbridge WebSocket (GUI)
+  ],
+  "portsAttributes": {
+    "8765": { "label": "Foxglove Studio", "onAutoForward": "notify" },
+    "6080": { "label": "noVNC Gazebo GUI", "onAutoForward": "ignore" },
+    "9090": { "label": "rosbridge (GUI)", "onAutoForward": "ignore" }
+  },
+
+  // Build the ROS2 workspace after container creation
+  "postCreateCommand": ".devcontainer/post-create.sh",
+
+  // Environment
+  "containerEnv": {
+    "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp",
+    "CYCLONEDDS_URI": "file:///etc/cyclonedds.xml",
+    "ROS_DOMAIN_ID": "0",
+    "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST",
+    "RCUTILS_COLORIZED_OUTPUT": "1",
+    "RCUTILS_LOGGING_USE_STDOUT": "1"
+  },
+
+  // VS Code extensions for ROS2 development
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-iot.vscode-ros",
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-python.python",
+        "redhat.vscode-yaml",
+        "streetsidesoftware.code-spell-checker"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "C_Cpp.default.compileCommands": "/ros2_ws/build/compile_commands.json",
+        "files.associations": {
+          "*.launch.py": "python",
+          "*.xacro": "xml",
+          "*.sdf": "xml",
+          "*.urdf": "xml"
+        },
+        "python.analysis.extraPaths": [
+          "/opt/ros/jazzy/lib/python3.12/site-packages",
+          "/ros2_ws/install/mowgli_interfaces/lib/python3.12/site-packages"
+        ]
+      }
+    },
+    "codespaces": {
+      "openFiles": [
+        "ros2/CLAUDE.md"
+      ]
+    }
+  }
+}

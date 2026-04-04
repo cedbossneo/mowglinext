@@ -81,7 +81,7 @@
           <SaveObstacles/>
           <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <Fallback name="CriticalNavOrStop">
-            <NavigateToPose goal="{dock_pose}"/>
+            <DockRobot dock_pose="{dock_pose}" dock_type="simple_charging_dock"/>
             <!-- Navigation failed — stay stopped, battery is critical -->
             <Sequence>
               <PublishHighLevelStatus state="0" state_name="CRITICAL_BATTERY_NAV_FAILED"/>
@@ -105,16 +105,13 @@
           <Fallback name="UndockOrSkip">
             <!-- Already undocked? Skip. -->
             <Inverter><IsCharging/></Inverter>
-            <!-- On dock — record GPS, back up, verify, calibrate heading -->
+            <!-- On dock — record GPS, undock via opennav_docking, calibrate heading -->
             <Sequence name="UndockSequence">
               <RecordUndockStart/>
               <RetryUntilSuccessful num_attempts="3" name="UndockRetry">
-                <Sequence name="UndockAndVerify">
-                  <BackUp backup_dist="1.5" backup_speed="0.15"/>
-                  <WaitForDuration duration_sec="2.0"/>
-                  <Inverter><IsCharging/></Inverter>
-                </Sequence>
+                <UndockRobot dock_type="simple_charging_dock"/>
               </RetryUntilSuccessful>
+              <WaitForDuration duration_sec="2.0"/>
               <!-- Compute heading from GPS displacement during undock -->
               <CalibrateHeadingFromUndock/>
             </Sequence>
@@ -152,7 +149,7 @@
                   <SaveObstacles/>
                   <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <Fallback name="RainNavOrStay">
-                    <NavigateToPose goal="{dock_pose}"/>
+                    <DockRobot dock_pose="{dock_pose}" dock_type="simple_charging_dock"/>
                     <AlwaysSuccess/>
                   </Fallback>
                   <PublishHighLevelStatus state="1" state_name="RAIN_WAITING"/>
@@ -173,11 +170,7 @@
                   <WaitForDuration duration_sec="1.0"/>
                   <Fallback name="RainResumeUndock">
                     <RetryUntilSuccessful num_attempts="3">
-                      <Sequence>
-                        <BackUp backup_dist="1.5" backup_speed="0.15"/>
-                        <WaitForDuration duration_sec="2.0"/>
-                        <Inverter><IsCharging/></Inverter>
-                      </Sequence>
+                      <UndockRobot dock_type="simple_charging_dock"/>
                     </RetryUntilSuccessful>
                     <Sequence>
                       <StopMoving/>
@@ -199,7 +192,7 @@
                   <PublishHighLevelStatus state="1" state_name="LOW_BATTERY_DOCKING"/>
                   <SaveObstacles/>
                   <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
-                  <NavigateToPose goal="{dock_pose}"/>
+                  <DockRobot dock_pose="{dock_pose}" dock_type="simple_charging_dock"/>
                   <PublishHighLevelStatus state="1" state_name="CHARGING"/>
                   <!-- Wait for charge, max ~8 hours (960 × 30s) -->
                   <RetryUntilSuccessful num_attempts="960">
@@ -216,11 +209,7 @@
                   <WaitForDuration duration_sec="1.0"/>
                   <Fallback name="ResumeUndockOrAbort">
                     <RetryUntilSuccessful num_attempts="3" name="ResumeUndockRetry">
-                      <Sequence>
-                        <BackUp backup_dist="1.5" backup_speed="0.15"/>
-                        <WaitForDuration duration_sec="2.0"/>
-                        <Inverter><IsCharging/></Inverter>
-                      </Sequence>
+                      <UndockRobot dock_type="simple_charging_dock"/>
                     </RetryUntilSuccessful>
                     <!-- Resume undock failed — abort mowing -->
                     <Sequence>
@@ -262,7 +251,7 @@
               <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
               <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
               <Fallback name="FailedCoverageNavOrStop">
-                <NavigateToPose goal="{dock_pose}"/>
+                <DockRobot dock_pose="{dock_pose}" dock_type="simple_charging_dock"/>
                 <Sequence>
                   <PublishHighLevelStatus state="0" state_name="NAV_TO_DOCK_FAILED"/>
                   <AlwaysSuccess/>
@@ -278,7 +267,7 @@
           <PublishHighLevelStatus state="1" state_name="MOWING_COMPLETE"/>
           <SaveObstacles/>
           <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
-          <NavigateToPose goal="{dock_pose}"/>
+          <DockRobot dock_pose="{dock_pose}" dock_type="simple_charging_dock"/>
           <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
           <ClearCommand/>
         </Sequence>
@@ -294,7 +283,7 @@
           <SaveObstacles/>
           <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <Fallback name="HomeNavOrStop">
-            <NavigateToPose goal="{dock_pose}"/>
+            <DockRobot dock_pose="{dock_pose}" dock_type="simple_charging_dock"/>
             <Sequence>
               <PublishHighLevelStatus state="0" state_name="NAV_TO_DOCK_FAILED"/>
               <AlwaysSuccess/>

@@ -65,6 +65,17 @@ No Co-Authored-By lines. Keep messages concise and focused on "why".
 
 See `ros2/CLAUDE.md` for detailed package descriptions, topics, and architecture.
 
+## Git Workflow
+
+**NEVER commit directly to main.** Always use feature branches and PRs:
+```bash
+git checkout main && git pull
+git checkout -b feat/my-feature    # or fix/, refactor/, test/, chore/, docs/
+# ... make changes ...
+git add <files> && git commit -m "feat: description"
+gh pr create --title "feat: my feature" --body "..."
+```
+
 ## Quick Commands
 
 ```bash
@@ -75,7 +86,7 @@ cd docker && docker compose up -d
 cd ros2 && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # Run simulation
-cd ros2 && ros2 launch mowgli_bringup simulation.launch.py
+cd docker && docker compose -f docker-compose.simulation.yaml up dev-sim
 
 # Build firmware
 cd firmware/stm32/ros_usbnode && pio run

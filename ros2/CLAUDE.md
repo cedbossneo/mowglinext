@@ -17,30 +17,30 @@ Before starting a session, scan the TODO list and verify each item against the c
 ## Quick Reference
 
 - **ROS distro:** Jazzy
-- **DDS:** FastDDS (`rmw_fastrtps_cpp`)
+- **DDS:** Cyclone DDS (`rmw_cyclonedds_cpp`)
 - **Build:** `colcon build` (ament_cmake for C++, ament_python for launch)
-- **Run simulation:** `docker compose up dev-sim` (Gazebo + Nav2 + Foxglove on ws://localhost:8765)
+- **Run simulation:** `cd docker && docker compose -f docker-compose.simulation.yaml up dev-sim` (Gazebo + Nav2 + Foxglove on ws://localhost:8765)
+- **Run E2E test:** `docker compose -f docker-compose.simulation.yaml exec dev-sim bash -c "source /ros2_ws/install/setup.bash && python3 /ros2_ws/src/e2e_test.py"`
 - **Run hardware:** `docker compose up mowgli` (requires /dev/mowgli)
 - **Send mow command:** `ros2 service call /behavior_tree_node/high_level_control mowgli_interfaces/srv/HighLevelControl "{command: 1}"`
 - **Source workspace inside container:** `source /ros2_ws/install/setup.bash`
 - **GUI:** openmower-gui (Go backend + React frontend), connects to rosbridge on port 9090
 
-## Packages (12)
+## Packages (11)
 
 | Package | Purpose |
 |---------|---------|
 | `mowgli_interfaces` | ROS2 msg/srv definitions (12 msgs, 9 srvs) |
 | `mowgli_hardware` | COBS serial bridge to STM32 (IMU, blade, E-stop, battery) |
-| `mowgli_bringup` | Launch files (mowgli.launch.py + full_system.launch.py), Nav2 config, EKF config |
-| `mowgli_description` | URDF/xacro model, meshes |
+| `mowgli_bringup` | Launch files (mowgli.launch.py + full_system.launch.py), Nav2 config, EKF config, URDF |
 | `mowgli_localization` | Wheel odometry, GPS converter (navsat_to_absolute_pose), dual EKF, localization monitor |
 | `mowgli_nav2_plugins` | FTCController (Nav2 plugin), oscillation detector |
-| `mowgli_behavior` | BehaviorTree.CPP v4 action nodes + main_tree.xml |
+| `mowgli_behavior` | BehaviorTree.CPP v4 action nodes, DockRobot/UndockRobot, ExecuteSwathBySwath + main_tree.xml |
 | `mowgli_map` | map_server_node (area management, GridMap) + obstacle_tracker_node (persistent LiDAR obstacle detection) |
-| `mowgli_coverage_planner` | Fields2Cover v2 (headland + boustrophedon + Dubins curves) via opennav_coverage |
+| `mowgli_coverage_planner` | Fields2Cover v2.0.0 direct integration (headland + boustrophedon + ReedsShepp turns) |
 | `mowgli_monitoring` | Diagnostics aggregator (8 checks) + optional MQTT bridge |
-| `mowgli_simulation` | Gazebo Harmonic worlds, mower SDF model, VNC support |
-| `opennav_coverage` | Third-party: Nav2 coverage server (built from source, jazzy branch) |
+| `mowgli_simulation` | Gazebo Harmonic worlds, mower SDF model, GPS degradation sim, VNC support |
+| `mowgli_description` | URDF/xacro model (currently in mowgli_bringup/urdf/) |
 
 ## Launch Structure
 
@@ -54,8 +54,8 @@ Two-tier launch:
 2. **`full_system.launch.py`** — full nav stack (includes mowgli.launch.py):
    - `behavior_tree_node` (BT executor, publishes `/behavior_tree_node/high_level_status`)
    - `map_server_node` (area CRUD, docking point, GridMap layers)
-   - `opennav_coverage` (coverage_server lifecycle node)
-   - `lifecycle_manager` (manages coverage_server)
+   - `coverage_planner_node` (Fields2Cover v2 direct integration)
+   - `docking_server` (opennav_docking, SimpleChargingDock) + `lifecycle_manager_docking`
    - `wheel_odometry_node` → `navsat_to_absolute_pose_node` → `gps_pose_converter_node` → `localization_monitor_node`
    - Nav2 stack (via `nav2_bringup` include)
    - `diagnostics_node`, `mqtt_bridge_node` (optional)
@@ -120,9 +120,11 @@ All Mowgli-specific topics are now namespaced under `/mowgli/` for clean separat
 Behavior Tree (main_tree.xml)
   |-- Emergency / Rain / Battery guards (reactive, highest priority)
   |-- Mowing sequence:
-  |     Undock (BackUp 1.5m) -> PlanCoverage -> NavigateToPose -> FollowCoveragePath
+  |     UndockRobot (opennav_docking) -> PlanCoverage -> ExecuteSwathBySwath
+  |     ExecuteSwathBySwath per swath: NavigateToPose (transit) -> FollowPath (mow)
+  |     Mid-swath obstacle: cancel FollowPath -> NavigateToPose (reroute 1.5m) -> resume FollowPath
   |-- Recovery: 3 retries with ClearCostmap + BackUp between attempts
-  |-- On completion or failure: SaveSlamMap -> Dock
+  |-- On completion or failure: SaveSlamMap -> DockRobot (opennav_docking)
 
 Localization (dual EKF):
   ekf_odom (50Hz): wheel_odom velocity + IMU yaw -> odom->base_link
@@ -177,7 +179,7 @@ All live-editable via docker-compose.override.yml bind-mounts (no rebuild needed
 
 ### Dockerfile stages
 1. `base` — ros:jazzy-ros-base + all apt deps (nav2, slam_toolbox, rosbridge-suite, foxglove-bridge, etc.)
-2. `deps` — build tools + rosdep + Fields2Cover v1.2.1 from source + opennav_coverage from source
+2. `deps` — build tools + rosdep + Fields2Cover v2.0.0 from source
 3. `build-interfaces` — builds mowgli_interfaces only (cached layer)
 4. `build` — builds all remaining packages
 5. `runtime` — minimal image with compiled install tree + entrypoint
@@ -202,17 +204,17 @@ MPPI's Euclidean nearest-point matching jumps between adjacent parallel boustrop
 ### Localization: GPS dominates, wheel ticks are unreliable
 Wheel encoders slip on wet/soft terrain. GPS RTK is the primary position source. Wheel ticks provide velocity hints only, with HIGH process noise in the EKF. IMU is the most reliable heading source.
 
-### Docking: undock = reverse, dock = frontal
-The robot reverses 1.5m to undock. Docking requires precise frontal alignment with charging contacts.
+### Docking: opennav_docking (SimpleChargingDock)
+Docking and undocking use opennav_docking's action servers via DockRobot/UndockRobot BT nodes. The docking_server runs with its own lifecycle manager. SimpleChargingDock plugin handles staging, approach, and contact alignment. RecordUndockStart + CalibrateHeadingFromUndock still run for GPS heading calibration after undock.
 
 ### Progress Checker: single with long timeout
 Nav2 Jazzy's bt_navigator sends empty `progress_checker_id` for NavigateToPose. Multiple progress checker plugins cause failures. Use one checker with `movement_time_allowance: 3600s` (effectively disabled for long coverage runs).
 
-### Collision Monitor: disabled scan source in simulation
-The Gazebo LiDAR (range_min=0.10m) produces self-reflections from the robot chassis at ~0.26-0.30m. These phantom readings trigger PolygonStop and FootprintApproach, permanently blocking the robot. The scan source is disabled in the nav2_params.yaml config. Re-enable for real hardware where self-reflections don't occur.
+### Collision Monitor: enabled with self-reflection mitigation
+The Gazebo LiDAR model.sdf has `range_min=0.35m` to filter chassis self-reflections (~0.26-0.30m). PolygonStop and FootprintApproach are both enabled in nav2_params.yaml. The scan source `obstacle_min_range: 0.35` in costmaps also filters self-reflections.
 
 ### Obstacles: navigate around, not just stop
-Obstacles detected by LiDAR are tracked by obstacle_tracker_node and promoted to persistent after meeting age/observation thresholds. The SLAM map must persist obstacles so replanning routes around them. The robot should navigate around obstacles, not simply stop.
+Obstacles detected by LiDAR are tracked by obstacle_tracker_node and promoted to persistent after meeting age/observation thresholds. The SLAM map must persist obstacles so replanning routes around them. ExecuteSwathBySwath implements mid-swath obstacle rerouting: when stuck/aborted during a swath, it cancels FollowPath, uses NavigateToPose (SmacPlanner2D) to route 1.5m past the obstacle along the swath, then resumes FollowPath for the remaining swath. Up to 2 reroute attempts per swath before skipping.
 
 ## Known Issues & TODOs
 
@@ -228,7 +230,7 @@ Obstacles detected by LiDAR are tracked by obstacle_tracker_node and promoted to
 - [ ] Add DockingSensor.msg to mowgli_interfaces (port from old mower_msgs/DockingSensor.msg: stamp, detected_left, detected_right)
 - [ ] Wire `mowgli_robot.yaml` centralized config into all launch files (file exists and is loaded in full_system.launch.py:131 but params not used to override other configs)
 - [ ] FTCController integration — plugin exists (ftc_controller.cpp) but nav2_params still uses RPP for both FollowPath and FollowCoveragePath
-- [ ] Wire opennav_docking into BT — docking_server is fully configured in nav2_params.yaml (SimpleChargingDock plugin) but the BT uses NavigateToPose for docking instead of the docking action
+- [x] Wire opennav_docking into BT — DockRobot/UndockRobot BT nodes replace BackUp undock and NavigateToPose dock
 
 ### TODO: Medium Priority
 - [ ] Test rain and battery dock/resume flows end-to-end in simulation (BT guards exist, no automated tests)
@@ -250,9 +252,23 @@ Obstacles detected by LiDAR are tracked by obstacle_tracker_node and promoted to
 - [x] SLAM map persistence: lifelong mode + SaveSlamMap action before dock, saves to /ros2_ws/maps/garden_map
 - [x] Mow progress tracking: map_server_node publishes ~/mow_progress OccupancyGrid
 - [x] Obstacle avoidance: obstacle_tracker promotes detections to persistent, feeds costmap for inflation-based avoidance
+- [x] Mid-swath obstacle rerouting: ExecuteSwathBySwath REROUTING_AROUND_OBSTACLE phase — NavigateToPose around obstacle, then resume FollowPath
+- [x] opennav_docking integration: DockRobot/UndockRobot BT nodes, docking_server with SimpleChargingDock plugin, own lifecycle manager
+- [x] Simulation docker-compose: docker/docker-compose.simulation.yaml with simulation, dev-sim, and simulation-gui services
 - [ ] Install `rtcm_msgs` package to silence foxglove_bridge schema error
 
 ## Development Workflow
+
+### Git workflow: feature branches + PRs
+**NEVER commit directly to main.** Always work on a feature branch and create a PR:
+```bash
+git checkout main && git pull
+git checkout -b feat/my-feature    # or fix/, refactor/, test/
+# ... make changes ...
+git add <files> && git commit
+gh pr create --title "feat: my feature" --body "..."
+```
+Branch naming: `feat/`, `fix/`, `refactor/`, `test/`, `chore/`, `docs/`
 
 ### Edit config/launch (no rebuild):
 ```bash

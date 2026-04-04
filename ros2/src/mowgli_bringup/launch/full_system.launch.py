@@ -368,7 +368,26 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 13. Obstacle tracker — persistent LiDAR obstacle detection
+    # 13. Docking server (opennav_docking) — dock/undock action server
+    #     Managed by its own lifecycle manager since Nav2's
+    #     navigation_launch.py manages a separate set of nodes.
+    # ------------------------------------------------------------------
+    docking_server_node = Node(
+        package="opennav_docking",
+        executable="opennav_docking",
+        name="docking_server",
+        output="screen",
+        parameters=[
+            nav2_params_file,
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # Lifecycle managed by Nav2's lifecycle_manager_navigation (docking_server
+    # is already in its node list). No separate lifecycle manager needed.
+
+    # ------------------------------------------------------------------
+    # 14. Obstacle tracker — persistent LiDAR obstacle detection
     # ------------------------------------------------------------------
     obstacle_tracker_params = os.path.join(
         map_dir, "config", "obstacle_tracker.yaml"
@@ -408,6 +427,7 @@ def generate_launch_description() -> LaunchDescription:
             map_server_node,
             coverage_planner_node,
             obstacle_tracker_node,
+            docking_server_node,
             wheel_odometry_node,
             navsat_converter_node,
             gps_pose_converter_node,

@@ -17,6 +17,8 @@
 #include "nav2_msgs/action/back_up.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "nav2_msgs/action/dock_robot.hpp"
+#include "nav2_msgs/action/undock_robot.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -534,6 +536,82 @@ public:
   }
 
   BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
+// DockRobot
+// ---------------------------------------------------------------------------
+
+/// Calls opennav_docking's /docking_server/dock_robot action to dock the robot.
+/// Uses the SimpleChargingDock plugin configured in nav2_params.yaml.
+///
+/// Input ports:
+///   dock_pose (string) – dock pose as "x;y;yaw" (frame_id = "map").
+///   dock_type (string, default "simple_charging_dock") – dock plugin name.
+class DockRobot : public BT::StatefulActionNode
+{
+public:
+  using DockAction = nav2_msgs::action::DockRobot;
+  using GoalHandle = rclcpp_action::ClientGoalHandle<DockAction>;
+
+  DockRobot(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+      BT::InputPort<std::string>("dock_pose", "Dock pose as 'x;y;yaw'"),
+      BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
+      BT::InputPort<bool>("navigate_to_staging_pose", true, "Navigate to staging pose first"),
+    };
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  rclcpp_action::Client<DockAction>::SharedPtr action_client_;
+  std::shared_future<GoalHandle::SharedPtr> goal_handle_future_;
+  GoalHandle::SharedPtr goal_handle_;
+};
+
+// ---------------------------------------------------------------------------
+// UndockRobot
+// ---------------------------------------------------------------------------
+
+/// Calls opennav_docking's /docking_server/undock_robot action to undock.
+///
+/// Input ports:
+///   dock_type (string, default "simple_charging_dock") – dock plugin name.
+class UndockRobot : public BT::StatefulActionNode
+{
+public:
+  using UndockAction = nav2_msgs::action::UndockRobot;
+  using GoalHandle = rclcpp_action::ClientGoalHandle<UndockAction>;
+
+  UndockRobot(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+      BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
+    };
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  rclcpp_action::Client<UndockAction>::SharedPtr action_client_;
+  std::shared_future<GoalHandle::SharedPtr> goal_handle_future_;
+  GoalHandle::SharedPtr goal_handle_;
 };
 
 // ---------------------------------------------------------------------------

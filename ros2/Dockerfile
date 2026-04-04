@@ -52,6 +52,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-rtcm-msgs \
     # tinyxml2 (required at runtime by BehaviorTree.CPP)
     libtinyxml2-dev \
+    # DDS middleware — Cyclone DDS required for all containers
+    ros-jazzy-rmw-cyclonedds-cpp \
+    # Topic tools (relay, throttle — used in simulation for topic remapping)
+    ros-jazzy-topic-tools \
+    # Docking (opennav_docking — dock/undock action server)
+    # DockRobot/UndockRobot actions are in nav2_msgs (already installed).
+    # The docking_server executable is in opennav_docking.
+    ros-jazzy-opennav-docking \
     # Rotation shim controller for transit navigation
     ros-jazzy-nav2-rotation-shim-controller \
     # Nav2 core headers (FTC controller plugin depends on nav2_core)
@@ -196,10 +204,12 @@ FROM base AS runtime
 
 WORKDIR /ros2_ws
 
-# Pull Fields2Cover and steering_functions shared libraries from build stage
+# Pull Fields2Cover and all its runtime dependencies from build stage
 # (needed at runtime by coverage_planner_node)
 COPY --from=build /usr/local/lib/libFields2Cover* /usr/local/lib/
 COPY --from=build /usr/local/lib/libsteering_functions* /usr/local/lib/
+COPY --from=build /usr/local/lib/libortools* /usr/local/lib/
+COPY --from=build /usr/local/lib/libmatplot* /usr/local/lib/
 COPY --from=build /usr/local/include/fields2cover* /usr/local/include/
 
 # Ensure libtinyxml2 .so.9 and .so.10 both resolve. The build stage may

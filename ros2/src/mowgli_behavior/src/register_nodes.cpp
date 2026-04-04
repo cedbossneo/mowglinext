@@ -40,6 +40,10 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<RecordUndockStart>("RecordUndockStart");
   factory.registerNodeType<CalibrateHeadingFromUndock>("CalibrateHeadingFromUndock");
 
+  // Docking nodes (opennav_docking)
+  factory.registerNodeType<DockRobot>("DockRobot");
+  factory.registerNodeType<UndockRobot>("UndockRobot");
+
   // Coverage nodes (opennav_coverage integration)
   factory.registerNodeType<ComputeCoverage>("ComputeCoverage");
   factory.registerNodeType<ExecuteSwathBySwath>("ExecuteSwathBySwath");

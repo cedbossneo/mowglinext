@@ -93,12 +93,17 @@ public:
   void onHalted() override;
 
 private:
-  enum class Phase { TRANSIT_TO_SWATH, MOWING_SWATH, DONE };
+  enum class Phase { TRANSIT_TO_SWATH, MOWING_SWATH, REROUTING_AROUND_OBSTACLE, DONE };
 
   nav_msgs::msg::Path swathToPath(
     const BTContext::Swath & swath, const rclcpp::Node::SharedPtr & node) const;
+  nav_msgs::msg::Path remainingSwathPath(
+    const BTContext::Swath & swath, double from_x, double from_y,
+    const rclcpp::Node::SharedPtr & node) const;
   void sendTransitGoal(const BTContext::Swath & swath);
   void sendSwathGoal(const BTContext::Swath & swath);
+  void sendRerouteGoal(const BTContext::Swath & swath, double rx, double ry);
+  void sendRemainingSwathGoal(const BTContext::Swath & swath, double from_x, double from_y);
   void setBladeEnabled(bool enabled);
   bool advanceToNextSwath();
   bool checkStuck(const std::shared_ptr<BTContext> & ctx);
@@ -125,6 +130,12 @@ private:
 
   /// True when the current transit uses FollowPath instead of NavigateToPose.
   bool use_follow_for_transit_{false};
+
+  // Obstacle rerouting state
+  size_t reroute_attempts_{0};
+  static constexpr size_t max_reroute_attempts_{2};
+  /// Fraction along the swath where the robot was blocked (0.0 = start, 1.0 = end).
+  double blocked_swath_fraction_{0.0};
 
   // Stuck detection
   static constexpr double stuck_timeout_sec_{10.0};

@@ -114,6 +114,30 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 1b. Topic relays: simulation topics → hardware namespace
+    #     The EKF config (localization.yaml) expects /mowgli/hardware/*
+    #     topics that come from hardware_bridge on real hardware. In sim,
+    #     the Gazebo bridge publishes /wheel_odom and /imu/data directly.
+    # ------------------------------------------------------------------
+    relay_wheel_odom = Node(
+        package="topic_tools",
+        executable="relay",
+        name="relay_wheel_odom",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        arguments=["/wheel_odom", "/mowgli/hardware/wheel_odom"],
+    )
+
+    relay_imu = Node(
+        package="topic_tools",
+        executable="relay",
+        name="relay_imu",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+        arguments=["/imu/data", "/mowgli/hardware/imu"],
+    )
+
+    # ------------------------------------------------------------------
     # 2. Navigation stack — SLAM, dual EKF, Nav2
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
@@ -232,7 +256,24 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 8. Obstacle tracker — persistent LiDAR obstacle detection
+    # 8. Docking server (opennav_docking) — dock/undock action server
+    # ------------------------------------------------------------------
+    docking_server_node = Node(
+        package="opennav_docking",
+        executable="opennav_docking",
+        name="docking_server",
+        output="screen",
+        parameters=[
+            nav2_params_file,
+            {"use_sim_time": True},
+        ],
+    )
+
+    # Lifecycle managed by Nav2's lifecycle_manager_navigation (docking_server
+    # is already in its node list). No separate lifecycle manager needed.
+
+    # ------------------------------------------------------------------
+    # 9. Obstacle tracker — persistent LiDAR obstacle detection
     # ------------------------------------------------------------------
     obstacle_tracker_params = os.path.join(map_dir, "config", "obstacle_tracker.yaml")
 
@@ -306,6 +347,9 @@ def generate_launch_description() -> LaunchDescription:
             headless_arg,
             use_rviz_arg,
             gps_degradation_arg,
+            # Topic relays (sim → hardware namespace)
+            relay_wheel_odom,
+            relay_imu,
             # Subsystem includes
             simulation_launch,
             navigation_launch,
@@ -315,6 +359,7 @@ def generate_launch_description() -> LaunchDescription:
             map_server_node,
             coverage_planner_node,
             obstacle_tracker_node,
+            docking_server_node,
             diagnostics_node,
             foxglove_bridge_node,
             navsat_to_pose_node,

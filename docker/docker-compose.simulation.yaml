@@ -1,0 +1,123 @@
+# Mowgli ROS2 — Simulation environment
+# Usage:
+#   docker compose -f docker-compose.simulation.yaml build
+#   docker compose -f docker-compose.simulation.yaml up dev-sim
+#
+# Foxglove Studio: ws://localhost:8765
+# noVNC (Gazebo GUI): http://localhost:6080
+#
+# Run E2E test:
+#   docker compose -f docker-compose.simulation.yaml exec dev-sim \
+#     bash -c "source /ros2_ws/install/setup.bash && python3 /ros2_ws/src/e2e_test.py"
+
+x-ros2-env: &ros2-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  CYCLONEDDS_URI: file:///cyclonedds.xml
+  ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+  RCUTILS_COLORIZED_OUTPUT: "1"
+  RCUTILS_LOGGING_USE_STDOUT: "1"
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Headless simulation — Gazebo + full Nav2 + BT + coverage + Foxglove
+  # No GUI, lowest resource usage. Good for CI and automated E2E tests.
+  # -------------------------------------------------------------------------
+  simulation:
+    container_name: mowgli_simulation
+    build:
+      context: ../ros2
+      dockerfile: Dockerfile
+      target: simulation
+    network_mode: host
+    ipc: host
+    environment:
+      <<: *ros2-env
+    command: >
+      ros2 launch mowgli_bringup sim_full_system.launch.py
+      headless:=true
+      use_rviz:=false
+    volumes:
+      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+      - mowgli_sim_maps:/ros2_ws/maps
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+
+  # -------------------------------------------------------------------------
+  # Development simulation — live bind-mounts for config/launch/trees
+  # Edit config → restart container → changes take effect (no rebuild).
+  # -------------------------------------------------------------------------
+  dev-sim:
+    container_name: mowgli_dev_sim
+    build:
+      context: ../ros2
+      dockerfile: Dockerfile
+      target: simulation
+    network_mode: host
+    ipc: host
+    environment:
+      <<: *ros2-env
+    command: >
+      ros2 launch mowgli_bringup sim_full_system.launch.py
+      headless:=true
+      use_rviz:=false
+    volumes:
+      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+      - mowgli_sim_maps:/ros2_ws/maps
+      # Live-edit config (no rebuild needed)
+      - ../ros2/src/mowgli_bringup/config:/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config
+      - ../ros2/src/mowgli_bringup/launch:/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/launch
+      - ../ros2/src/mowgli_behavior/trees:/ros2_ws/install/mowgli_behavior/share/mowgli_behavior/trees
+      - ../ros2/src/mowgli_behavior/config:/ros2_ws/install/mowgli_behavior/share/mowgli_behavior/config
+      - ../ros2/src/mowgli_map/config:/ros2_ws/install/mowgli_map/share/mowgli_map/config
+      - ../ros2/src/mowgli_localization/config:/ros2_ws/install/mowgli_localization/share/mowgli_localization/config
+      - ../ros2/src/mowgli_simulation/launch:/ros2_ws/install/mowgli_simulation/share/mowgli_simulation/launch
+      - ../ros2/src/mowgli_simulation/worlds:/ros2_ws/install/mowgli_simulation/share/mowgli_simulation/worlds
+      - ../ros2/src/mowgli_simulation/config:/ros2_ws/install/mowgli_simulation/share/mowgli_simulation/config
+      # E2E test script
+      - ../ros2/src/e2e_test.py:/ros2_ws/src/e2e_test.py
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 10m
+
+  # -------------------------------------------------------------------------
+  # Simulation with VNC GUI — Gazebo visible via browser at :6080
+  # Useful for visual debugging and watching the robot mow.
+  # -------------------------------------------------------------------------
+  simulation-gui:
+    container_name: mowgli_sim_gui
+    build:
+      context: ../ros2
+      dockerfile: Dockerfile
+      target: simulation
+    network_mode: host
+    ipc: host
+    environment:
+      <<: *ros2-env
+      DISPLAY: ":1"
+    command: >
+      bash -c "/ros2_ws/scripts/start_vnc.sh &
+      sleep 3 &&
+      ros2 launch mowgli_bringup sim_full_system.launch.py
+      headless:=false
+      use_rviz:=false"
+    volumes:
+      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+      - mowgli_sim_maps:/ros2_ws/maps
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+
+volumes:
+  mowgli_sim_maps:

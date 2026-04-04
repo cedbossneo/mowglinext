@@ -1265,4 +1265,173 @@ void BackUp::onHalted()
   goal_handle_ = nullptr;
 }
 
+// ---------------------------------------------------------------------------
+// DockRobot
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus DockRobot::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!action_client_) {
+    action_client_ = rclcpp_action::create_client<DockAction>(
+      ctx->node, "/docking_server/dock_robot");
+  }
+
+  if (!action_client_->wait_for_action_server(std::chrono::seconds(10))) {
+    RCLCPP_ERROR(ctx->node->get_logger(), "DockRobot: dock_robot action not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  std::string dock_type = "simple_charging_dock";
+  getInput("dock_type", dock_type);
+
+  bool navigate_to_staging = true;
+  getInput("navigate_to_staging_pose", navigate_to_staging);
+
+  DockAction::Goal goal;
+  goal.dock_type = dock_type;
+  goal.navigate_to_staging_pose = navigate_to_staging;
+
+  // Parse dock_pose if provided
+  std::string pose_str;
+  if (getInput("dock_pose", pose_str) && !pose_str.empty()) {
+    std::istringstream ss(pose_str);
+    std::string token;
+    double x = 0.0, y = 0.0, yaw = 0.0;
+    if (std::getline(ss, token, ';')) x = std::stod(token);
+    if (std::getline(ss, token, ';')) y = std::stod(token);
+    if (std::getline(ss, token, ';')) yaw = std::stod(token);
+
+    goal.dock_pose.header.stamp = ctx->node->now();
+    goal.dock_pose.header.frame_id = "map";
+    goal.dock_pose.pose.position.x = x;
+    goal.dock_pose.pose.position.y = y;
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, yaw);
+    goal.dock_pose.pose.orientation = tf2::toMsg(q);
+    goal.use_dock_id = false;
+
+    RCLCPP_INFO(ctx->node->get_logger(),
+      "DockRobot: docking at (%.2f, %.2f, yaw=%.2f) type=%s",
+      x, y, yaw, dock_type.c_str());
+  } else {
+    RCLCPP_INFO(ctx->node->get_logger(),
+      "DockRobot: docking with type=%s (no explicit pose)", dock_type.c_str());
+  }
+
+  goal_handle_future_ = action_client_->async_send_goal(goal);
+  goal_handle_ = nullptr;
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus DockRobot::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!goal_handle_) {
+    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+      return BT::NodeStatus::RUNNING;
+    }
+    goal_handle_ = goal_handle_future_.get();
+    if (!goal_handle_) {
+      RCLCPP_ERROR(ctx->node->get_logger(), "DockRobot: goal rejected");
+      return BT::NodeStatus::FAILURE;
+    }
+  }
+
+  auto status = goal_handle_->get_status();
+  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
+    RCLCPP_INFO(ctx->node->get_logger(), "DockRobot: docking complete");
+    return BT::NodeStatus::SUCCESS;
+  }
+  if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED) {
+    RCLCPP_WARN(ctx->node->get_logger(), "DockRobot: docking failed (status=%d)",
+      static_cast<int>(status));
+    return BT::NodeStatus::FAILURE;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void DockRobot::onHalted()
+{
+  if (goal_handle_) {
+    auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+    action_client_->async_cancel_goal(goal_handle_);
+    RCLCPP_INFO(ctx->node->get_logger(), "DockRobot: halted, goal cancelled");
+  }
+  goal_handle_ = nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// UndockRobot
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus UndockRobot::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!action_client_) {
+    action_client_ = rclcpp_action::create_client<UndockAction>(
+      ctx->node, "/docking_server/undock_robot");
+  }
+
+  if (!action_client_->wait_for_action_server(std::chrono::seconds(10))) {
+    RCLCPP_ERROR(ctx->node->get_logger(), "UndockRobot: undock_robot action not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  std::string dock_type = "simple_charging_dock";
+  getInput("dock_type", dock_type);
+
+  UndockAction::Goal goal;
+  goal.dock_type = dock_type;
+
+  RCLCPP_INFO(ctx->node->get_logger(), "UndockRobot: undocking (type=%s)", dock_type.c_str());
+
+  goal_handle_future_ = action_client_->async_send_goal(goal);
+  goal_handle_ = nullptr;
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus UndockRobot::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!goal_handle_) {
+    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+      return BT::NodeStatus::RUNNING;
+    }
+    goal_handle_ = goal_handle_future_.get();
+    if (!goal_handle_) {
+      RCLCPP_ERROR(ctx->node->get_logger(), "UndockRobot: goal rejected");
+      return BT::NodeStatus::FAILURE;
+    }
+  }
+
+  auto status = goal_handle_->get_status();
+  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
+    RCLCPP_INFO(ctx->node->get_logger(), "UndockRobot: undocking complete");
+    return BT::NodeStatus::SUCCESS;
+  }
+  if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED) {
+    RCLCPP_WARN(ctx->node->get_logger(), "UndockRobot: undocking failed (status=%d)",
+      static_cast<int>(status));
+    return BT::NodeStatus::FAILURE;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void UndockRobot::onHalted()
+{
+  if (goal_handle_) {
+    auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+    action_client_->async_cancel_goal(goal_handle_);
+    RCLCPP_INFO(ctx->node->get_logger(), "UndockRobot: halted, goal cancelled");
+  }
+  goal_handle_ = nullptr;
+}
+
 }  // namespace mowgli_behavior
