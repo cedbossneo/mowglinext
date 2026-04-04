@@ -112,7 +112,8 @@ private:
 
     // GPS position for heading calibration during undock
     gps_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
-        "/mowgli/gps/absolute_pose", 10,
+        "/mowgli/gps/absolute_pose",
+        10,
         [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
         {
           context_->gps_x = msg->pose.pose.position.x;

@@ -42,8 +42,8 @@ NavSatToPoseNode::NavSatToPoseNode(const rclcpp::NodeOptions& options)
     RCLCPP_INFO(get_logger(), "NavSatToPoseNode will use first fix as datum");
   }
 
-  pose_pub_ =
-      create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/mowgli/gps/pose", rclcpp::QoS(10));
+  pose_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/mowgli/gps/pose",
+                                                                              rclcpp::QoS(10));
 
   fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
       "/gps/fix",

@@ -42,8 +42,8 @@
 #include "mowgli_hardware/packet_handler.hpp"
 #include "mowgli_hardware/serial_port.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
-#include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
+#include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
@@ -107,7 +107,9 @@ private:
     pub_power_ = create_publisher<mowgli_interfaces::msg::Power>("~/power", 10);
     pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", 10);
     pub_wheel_odom_ = create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", 10);
-    pub_dock_pose_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/mowgli/dock/pose_fix", 10);
+    pub_dock_pose_ =
+        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/mowgli/dock/pose_fix",
+                                                                        10);
   }
 
   void create_subscribers()
@@ -128,8 +130,10 @@ private:
         [this](mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg)
         {
           current_mode_ = msg->state;
-          RCLCPP_DEBUG(get_logger(), "High-level mode updated to %u (%s)",
-                       msg->state, msg->state_name.c_str());
+          RCLCPP_DEBUG(get_logger(),
+                       "High-level mode updated to %u (%s)",
+                       msg->state,
+                       msg->state_name.c_str());
         });
   }
 
@@ -353,11 +357,11 @@ private:
       pose_msg.pose.pose.orientation.z = std::sin(dock_yaw_ / 2.0);
       pose_msg.pose.pose.orientation.w = std::cos(dock_yaw_ / 2.0);
       // Extremely tight covariance — must dominate GPS completely
-      pose_msg.pose.covariance[0] = 1e-8;    // x
-      pose_msg.pose.covariance[7] = 1e-8;    // y
-      pose_msg.pose.covariance[14] = 1e6;    // z
-      pose_msg.pose.covariance[21] = 1e6;    // roll
-      pose_msg.pose.covariance[28] = 1e6;    // pitch
+      pose_msg.pose.covariance[0] = 1e-8;  // x
+      pose_msg.pose.covariance[7] = 1e-8;  // y
+      pose_msg.pose.covariance[14] = 1e6;  // z
+      pose_msg.pose.covariance[21] = 1e6;  // roll
+      pose_msg.pose.covariance[28] = 1e6;  // pitch
       // Yaw: tight if we have a heading (from config or magnetometer),
       // loose if completely unknown
       pose_msg.pose.covariance[35] = (dock_yaw_ != 0.0 || mag_initialized_) ? 1e-4 : 1e6;
@@ -613,8 +617,7 @@ private:
     pkt.blade_on = on;
     pkt.blade_dir = dir;
 
-    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt),
-                    sizeof(LlCmdBlade) - sizeof(uint16_t));
+    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdBlade) - sizeof(uint16_t));
   }
 
   void handle_blade_status(const uint8_t* data, std::size_t len)
@@ -642,8 +645,7 @@ private:
   {
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u &&
-        (msg->linear.x != 0.0 || msg->angular.z != 0.0))
+    if (current_mode_ == 0u && (msg->linear.x != 0.0 || msg->angular.z != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();

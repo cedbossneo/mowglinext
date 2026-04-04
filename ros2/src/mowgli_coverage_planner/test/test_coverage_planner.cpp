@@ -58,8 +58,7 @@ protected:
     // Build a minimal client node.
     client_node_ = rclcpp::Node::make_shared("test_client_node");
     action_client_ =
-        rclcpp_action::create_client<PlanCoverageAction>(client_node_,
-                                                         "/mowgli/coverage/plan");
+        rclcpp_action::create_client<PlanCoverageAction>(client_node_, "/mowgli/coverage/plan");
 
     // Spin both nodes on a background thread.
     executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();

@@ -146,7 +146,7 @@ BT::NodeStatus IsNewRain::tick()
   // Only trigger if it's raining NOW and it was NOT raining when mowing started.
   bool raining_now = ctx->latest_status.rain_detected;
   return (raining_now && !ctx->raining_at_mow_start) ? BT::NodeStatus::SUCCESS
-                                                      : BT::NodeStatus::FAILURE;
+                                                     : BT::NodeStatus::FAILURE;
 }
 
 }  // namespace mowgli_behavior

@@ -225,7 +225,8 @@ BT::NodeStatus RecordUndockStart::tick()
   ctx->undock_start_recorded = true;
   RCLCPP_INFO(ctx->node->get_logger(),
               "RecordUndockStart: pos=(%.3f, %.3f)",
-              ctx->undock_start_x, ctx->undock_start_y);
+              ctx->undock_start_x,
+              ctx->undock_start_y);
   return BT::NodeStatus::SUCCESS;
 }
 
@@ -239,8 +240,7 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
   if (!ctx->undock_start_recorded)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "CalibrateHeadingFromUndock: no start position recorded");
+    RCLCPP_WARN(ctx->node->get_logger(), "CalibrateHeadingFromUndock: no start position recorded");
     return BT::NodeStatus::SUCCESS;  // non-fatal
   }
 
@@ -251,7 +251,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   if (dist < 0.3)
   {
     RCLCPP_WARN(ctx->node->get_logger(),
-                "CalibrateHeadingFromUndock: displacement too small (%.2f m), skipping", dist);
+                "CalibrateHeadingFromUndock: displacement too small (%.2f m), skipping",
+                dist);
     return BT::NodeStatus::SUCCESS;  // non-fatal
   }
 
@@ -260,7 +261,10 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
   RCLCPP_INFO(ctx->node->get_logger(),
               "CalibrateHeadingFromUndock: displacement=(%.3f, %.3f) dist=%.2f heading=%.1f deg",
-              dx, dy, dist, heading * 180.0 / M_PI);
+              dx,
+              dy,
+              dist,
+              heading * 180.0 / M_PI);
 
   // Set EKF pose via /set_pose service
   auto client = ctx->node->create_client<robot_localization::srv::SetPose>("/set_pose");
@@ -279,8 +283,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   request->pose.pose.pose.orientation.z = std::sin(heading / 2.0);
   request->pose.pose.pose.orientation.w = std::cos(heading / 2.0);
   // Tight covariance for position and yaw
-  request->pose.pose.covariance[0] = 0.01;   // x
-  request->pose.pose.covariance[7] = 0.01;   // y
+  request->pose.pose.covariance[0] = 0.01;  // x
+  request->pose.pose.covariance[7] = 0.01;  // y
   request->pose.pose.covariance[35] = 0.05;  // yaw
 
   auto future = client->async_send_request(request);
@@ -513,8 +517,7 @@ BT::NodeStatus PlanCoveragePath::onStart()
   if (!action_client_)
   {
     action_client_ =
-        rclcpp_action::create_client<PlanCoverageAction>(ctx->node,
-                                                         "/mowgli/coverage/plan");
+        rclcpp_action::create_client<PlanCoverageAction>(ctx->node, "/mowgli/coverage/plan");
   }
 
   if (!action_client_->wait_for_action_server(std::chrono::milliseconds(500)))
@@ -535,8 +538,8 @@ BT::NodeStatus PlanCoveragePath::onStart()
     // Use a temporary node to avoid "already added to an executor" error
     // (the main behavior_tree_node is already spinning in rclcpp::spin).
     auto tmp_node = rclcpp::Node::make_shared("_plan_coverage_srv_helper");
-    auto tmp_client = tmp_node->create_client<mowgli_interfaces::srv::GetMowingArea>(
-        "/mowgli/map/get_area");
+    auto tmp_client =
+        tmp_node->create_client<mowgli_interfaces::srv::GetMowingArea>("/mowgli/map/get_area");
     if (!tmp_client->wait_for_service(std::chrono::milliseconds(2000)))
     {
       RCLCPP_ERROR(
@@ -934,8 +937,7 @@ BT::NodeStatus ReplanCoverage::onStart()
   if (!action_client_)
   {
     action_client_ =
-        rclcpp_action::create_client<PlanCoverageAction>(ctx->node,
-                                                         "/mowgli/coverage/plan");
+        rclcpp_action::create_client<PlanCoverageAction>(ctx->node, "/mowgli/coverage/plan");
   }
 
   if (!action_client_->wait_for_action_server(std::chrono::milliseconds(500)))
@@ -955,8 +957,8 @@ BT::NodeStatus ReplanCoverage::onStart()
 
     // Use a temporary node to avoid "already added to an executor" error.
     auto tmp_node = rclcpp::Node::make_shared("_replan_coverage_srv_helper");
-    auto tmp_client = tmp_node->create_client<mowgli_interfaces::srv::GetMowingArea>(
-        "/mowgli/map/get_area");
+    auto tmp_client =
+        tmp_node->create_client<mowgli_interfaces::srv::GetMowingArea>("/mowgli/map/get_area");
     if (!tmp_client->wait_for_service(std::chrono::milliseconds(2000)))
     {
       RCLCPP_ERROR(ctx->node->get_logger(),
@@ -1273,12 +1275,14 @@ BT::NodeStatus DockRobot::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  if (!action_client_) {
-    action_client_ = rclcpp_action::create_client<DockAction>(
-      ctx->node, "/docking_server/dock_robot");
+  if (!action_client_)
+  {
+    action_client_ =
+        rclcpp_action::create_client<DockAction>(ctx->node, "/docking_server/dock_robot");
   }
 
-  if (!action_client_->wait_for_action_server(std::chrono::seconds(10))) {
+  if (!action_client_->wait_for_action_server(std::chrono::seconds(10)))
+  {
     RCLCPP_ERROR(ctx->node->get_logger(), "DockRobot: dock_robot action not available");
     return BT::NodeStatus::FAILURE;
   }
@@ -1295,13 +1299,17 @@ BT::NodeStatus DockRobot::onStart()
 
   // Parse dock_pose if provided
   std::string pose_str;
-  if (getInput("dock_pose", pose_str) && !pose_str.empty()) {
+  if (getInput("dock_pose", pose_str) && !pose_str.empty())
+  {
     std::istringstream ss(pose_str);
     std::string token;
     double x = 0.0, y = 0.0, yaw = 0.0;
-    if (std::getline(ss, token, ';')) x = std::stod(token);
-    if (std::getline(ss, token, ';')) y = std::stod(token);
-    if (std::getline(ss, token, ';')) yaw = std::stod(token);
+    if (std::getline(ss, token, ';'))
+      x = std::stod(token);
+    if (std::getline(ss, token, ';'))
+      y = std::stod(token);
+    if (std::getline(ss, token, ';'))
+      yaw = std::stod(token);
 
     goal.dock_pose.header.stamp = ctx->node->now();
     goal.dock_pose.header.frame_id = "map";
@@ -1313,11 +1321,17 @@ BT::NodeStatus DockRobot::onStart()
     goal.use_dock_id = false;
 
     RCLCPP_INFO(ctx->node->get_logger(),
-      "DockRobot: docking at (%.2f, %.2f, yaw=%.2f) type=%s",
-      x, y, yaw, dock_type.c_str());
-  } else {
+                "DockRobot: docking at (%.2f, %.2f, yaw=%.2f) type=%s",
+                x,
+                y,
+                yaw,
+                dock_type.c_str());
+  }
+  else
+  {
     RCLCPP_INFO(ctx->node->get_logger(),
-      "DockRobot: docking with type=%s (no explicit pose)", dock_type.c_str());
+                "DockRobot: docking with type=%s (no explicit pose)",
+                dock_type.c_str());
   }
 
   goal_handle_future_ = action_client_->async_send_goal(goal);
@@ -1329,26 +1343,32 @@ BT::NodeStatus DockRobot::onRunning()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  if (!goal_handle_) {
-    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+  if (!goal_handle_)
+  {
+    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    {
       return BT::NodeStatus::RUNNING;
     }
     goal_handle_ = goal_handle_future_.get();
-    if (!goal_handle_) {
+    if (!goal_handle_)
+    {
       RCLCPP_ERROR(ctx->node->get_logger(), "DockRobot: goal rejected");
       return BT::NodeStatus::FAILURE;
     }
   }
 
   auto status = goal_handle_->get_status();
-  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
+  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
+  {
     RCLCPP_INFO(ctx->node->get_logger(), "DockRobot: docking complete");
     return BT::NodeStatus::SUCCESS;
   }
   if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
-      status == action_msgs::msg::GoalStatus::STATUS_CANCELED) {
-    RCLCPP_WARN(ctx->node->get_logger(), "DockRobot: docking failed (status=%d)",
-      static_cast<int>(status));
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "DockRobot: docking failed (status=%d)",
+                static_cast<int>(status));
     return BT::NodeStatus::FAILURE;
   }
   return BT::NodeStatus::RUNNING;
@@ -1356,7 +1376,8 @@ BT::NodeStatus DockRobot::onRunning()
 
 void DockRobot::onHalted()
 {
-  if (goal_handle_) {
+  if (goal_handle_)
+  {
     auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
     action_client_->async_cancel_goal(goal_handle_);
     RCLCPP_INFO(ctx->node->get_logger(), "DockRobot: halted, goal cancelled");
@@ -1372,12 +1393,14 @@ BT::NodeStatus UndockRobot::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  if (!action_client_) {
-    action_client_ = rclcpp_action::create_client<UndockAction>(
-      ctx->node, "/docking_server/undock_robot");
+  if (!action_client_)
+  {
+    action_client_ =
+        rclcpp_action::create_client<UndockAction>(ctx->node, "/docking_server/undock_robot");
   }
 
-  if (!action_client_->wait_for_action_server(std::chrono::seconds(10))) {
+  if (!action_client_->wait_for_action_server(std::chrono::seconds(10)))
+  {
     RCLCPP_ERROR(ctx->node->get_logger(), "UndockRobot: undock_robot action not available");
     return BT::NodeStatus::FAILURE;
   }
@@ -1399,26 +1422,32 @@ BT::NodeStatus UndockRobot::onRunning()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  if (!goal_handle_) {
-    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+  if (!goal_handle_)
+  {
+    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    {
       return BT::NodeStatus::RUNNING;
     }
     goal_handle_ = goal_handle_future_.get();
-    if (!goal_handle_) {
+    if (!goal_handle_)
+    {
       RCLCPP_ERROR(ctx->node->get_logger(), "UndockRobot: goal rejected");
       return BT::NodeStatus::FAILURE;
     }
   }
 
   auto status = goal_handle_->get_status();
-  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED) {
+  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
+  {
     RCLCPP_INFO(ctx->node->get_logger(), "UndockRobot: undocking complete");
     return BT::NodeStatus::SUCCESS;
   }
   if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
-      status == action_msgs::msg::GoalStatus::STATUS_CANCELED) {
-    RCLCPP_WARN(ctx->node->get_logger(), "UndockRobot: undocking failed (status=%d)",
-      static_cast<int>(status));
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "UndockRobot: undocking failed (status=%d)",
+                static_cast<int>(status));
     return BT::NodeStatus::FAILURE;
   }
   return BT::NodeStatus::RUNNING;
@@ -1426,7 +1455,8 @@ BT::NodeStatus UndockRobot::onRunning()
 
 void UndockRobot::onHalted()
 {
-  if (goal_handle_) {
+  if (goal_handle_)
+  {
     auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
     action_client_->async_cancel_goal(goal_handle_);
     RCLCPP_INFO(ctx->node->get_logger(), "UndockRobot: halted, goal cancelled");

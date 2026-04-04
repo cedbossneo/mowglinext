@@ -68,8 +68,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   last_decay_time_ = now();
 
   // ── Publishers ───────────────────────────────────────────────────────────
-  grid_map_pub_ =
-      create_publisher<grid_map_msgs::msg::GridMap>("~/grid_map", rclcpp::QoS(1));
+  grid_map_pub_ = create_publisher<grid_map_msgs::msg::GridMap>("~/grid_map", rclcpp::QoS(1));
 
   mow_progress_pub_ =
       create_publisher<nav_msgs::msg::OccupancyGrid>("~/mow_progress", rclcpp::QoS(1));
@@ -190,8 +189,9 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   boundary_violation_pub_ =
       create_publisher<std_msgs::msg::Bool>("~/boundary_violation", rclcpp::QoS(1));
 
-  docking_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(
-      "~/docking_pose", rclcpp::QoS(1).transient_local());
+  docking_pose_pub_ =
+      create_publisher<geometry_msgs::msg::PoseStamped>("~/docking_pose",
+                                                        rclcpp::QoS(1).transient_local());
 
   // ── Obstacle subscription ─────────────────────────────────────────────
   obstacle_sub_ = create_subscription<mowgli_interfaces::msg::ObstacleArray>(
@@ -432,7 +432,11 @@ void MapServerNode::resize_map_to_areas()
 
   RCLCPP_INFO(get_logger(),
               "Map resized to %.1f×%.1f m (center: %.1f, %.1f) to fit %zu areas",
-              map_size_x_, map_size_y_, center_x, center_y, areas_.size());
+              map_size_x_,
+              map_size_y_,
+              center_x,
+              center_y,
+              areas_.size());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -754,9 +758,8 @@ void MapServerNode::on_clear_map(const std_srvs::srv::Trigger::Request::SharedPt
   RCLCPP_INFO(get_logger(), "%s", res->message.c_str());
 }
 
-void MapServerNode::on_add_area(
-    const mowgli_interfaces::srv::AddMowingArea::Request::SharedPtr req,
-    mowgli_interfaces::srv::AddMowingArea::Response::SharedPtr res)
+void MapServerNode::on_add_area(const mowgli_interfaces::srv::AddMowingArea::Request::SharedPtr req,
+                                mowgli_interfaces::srv::AddMowingArea::Response::SharedPtr res)
 {
   const auto& polygon_msg = req->area.area;
 
@@ -1616,8 +1619,7 @@ void MapServerNode::apply_area_classifications()
       grid_map::Polygon obs_gm;
       for (const auto& pt : obstacle.points)
       {
-        obs_gm.addVertex(
-            grid_map::Position(static_cast<double>(pt.x), static_cast<double>(pt.y)));
+        obs_gm.addVertex(grid_map::Position(static_cast<double>(pt.x), static_cast<double>(pt.y)));
       }
       for (grid_map::PolygonIterator it(map_, obs_gm); !it.isPastEnd(); ++it)
       {

@@ -194,7 +194,8 @@ void DiagnosticsNode::create_subscriptions()
 
 void DiagnosticsNode::create_publishers()
 {
-  pub_diagnostics_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/mowgli/diagnostics", 10);
+  pub_diagnostics_ =
+      create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/mowgli/diagnostics", 10);
 }
 
 void DiagnosticsNode::create_timer()
