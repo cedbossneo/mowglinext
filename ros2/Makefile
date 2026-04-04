@@ -87,14 +87,7 @@ clean:
 # MUST be run before launching a new simulation to avoid stale state
 # causing "Failed to find a free participant" or clock conflicts.
 sim-stop:
-	@echo "Stopping all ROS2/Gazebo processes..."
-	@bash -c '\
-	  for proc in $$(pgrep -f "ros2.launch\|gz.sim\|parameter_bridge\|ekf_node\|foxglove_bridge\|behavior_tree_node\|coverage_planner\|map_server_node\|slam_toolbox\|controller_server\|planner_server\|bt_navigator\|lifecycle_manager\|collision_monitor\|velocity_smoother\|robot_state_publisher\|static_transform\|opennav_docking\|diagnostics_node\|obstacle_tracker\|navsat_to_pose\|gps_degradation\|relay" 2>/dev/null); do \
-	    kill -9 $$proc 2>/dev/null; \
-	  done; \
-	  sleep 2; \
-	  rm -rf /dev/shm/cyclone* /dev/shm/dds* /dev/shm/iox* /tmp/gz-* /tmp/ign-*; \
-	  echo "All clean."'
+	@scripts/sim-stop.sh
 
 sim: sim-stop
 	@echo "Starting headless simulation..."
