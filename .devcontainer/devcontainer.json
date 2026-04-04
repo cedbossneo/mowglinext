@@ -29,6 +29,11 @@
     "9090": { "label": "rosbridge (GUI)", "onAutoForward": "ignore" }
   },
 
+  // Claude Code CLI
+  "features": {
+    "ghcr.io/anthropics/devcontainer-features/claude-code:latest": {}
+  },
+
   // Build the ROS2 workspace after container creation
   "postCreateCommand": ".devcontainer/post-create.sh",
 
