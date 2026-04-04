@@ -98,6 +98,15 @@ nav .links a {
 
 nav .links a:hover { color: var(--text-heading); text-decoration: none; }
 
+.nav-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+}
+
 /* ─── Hero ────────────────────────────────────────── */
 .hero {
   padding: 60px 0 80px;
@@ -282,21 +291,18 @@ nav .links a:hover { color: var(--text-heading); text-decoration: none; }
   margin-bottom: 48px;
 }
 
-.arch-diagram {
+.arch-svg-wrap {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 32px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  overflow-x: auto;
-  white-space: pre;
-  color: var(--text-muted);
+  padding: 24px;
 }
 
-.arch-diagram .highlight { color: var(--green); font-weight: 600; }
-.arch-diagram .accent { color: var(--accent); }
+.arch-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
 
 /* ─── Getting Started ─────────────────────────────── */
 .getting-started {
@@ -486,6 +492,26 @@ footer a:hover { color: var(--text-heading); }
 
 /* ─── Responsive ──────────────────────────────────── */
 @media (max-width: 768px) {
+  .nav-toggle { display: block; }
+
+  nav .links {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: rgba(15, 23, 42, 0.98);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    gap: 12px;
+  }
+
+  nav .links.open { display: flex; }
+
+  nav .container { position: relative; }
+
   .flow {
     flex-direction: column;
     align-items: center;
@@ -497,6 +523,22 @@ footer a:hover { color: var(--text-heading); }
   .flow-step {
     max-width: 100%;
   }
+
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .thanks-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .arch-svg-wrap {
+    padding: 12px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -505,5 +547,5 @@ footer a:hover { color: var(--text-heading); }
   .hero { padding: 40px 0; }
   .mower-scene { margin-bottom: 16px; }
   .features, .architecture, .getting-started, .how-it-works, .tribute, .community { padding: 48px 0; }
-  nav .links { gap: 12px; font-size: 0.8rem; }
+  .beta-banner { font-size: 0.75rem; padding: 8px 16px; }
 }
