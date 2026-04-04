@@ -88,17 +88,13 @@ clean:
 # causing "Failed to find a free participant" or clock conflicts.
 sim-stop:
 	@echo "Stopping all ROS2/Gazebo processes..."
-	@pkill -9 -f "ros2|gz|ruby" 2>/dev/null || true
-	@sleep 2
-	@rm -rf /dev/shm/cyclone* /dev/shm/dds* /dev/shm/iox* /tmp/gz-* /tmp/ign-*
-	@echo "Waiting for cleanup..."
-	@sleep 1
-	@if pgrep -f "ros2|gz" > /dev/null 2>&1; then \
-	  echo "WARNING: some processes still running, force killing..."; \
-	  pkill -9 -f "ros2|gz|ruby" 2>/dev/null || true; \
+	@bash -c '\
+	  for proc in $$(pgrep -f "ros2.launch\|gz.sim\|parameter_bridge\|ekf_node\|foxglove_bridge\|behavior_tree_node\|coverage_planner\|map_server_node\|slam_toolbox\|controller_server\|planner_server\|bt_navigator\|lifecycle_manager\|collision_monitor\|velocity_smoother\|robot_state_publisher\|static_transform\|opennav_docking\|diagnostics_node\|obstacle_tracker\|navsat_to_pose\|gps_degradation\|relay" 2>/dev/null); do \
+	    kill -9 $$proc 2>/dev/null; \
+	  done; \
 	  sleep 2; \
-	fi
-	@echo "All clean."
+	  rm -rf /dev/shm/cyclone* /dev/shm/dds* /dev/shm/iox* /tmp/gz-* /tmp/ign-*; \
+	  echo "All clean."'
 
 sim: sim-stop
 	@echo "Starting headless simulation..."
