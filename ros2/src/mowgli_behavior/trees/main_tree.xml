@@ -223,10 +223,10 @@
                 </Sequence>
               </Fallback>
 
-              <!-- Swath execution with recovery -->
-              <RetryUntilSuccessful num_attempts="3" name="RetrySwathExecution">
+              <!-- Coverage path execution with recovery -->
+              <RetryUntilSuccessful num_attempts="3" name="RetryCoverageExecution">
                 <Fallback name="ExecuteOrRecover">
-                  <ExecuteSwathBySwath/>
+                  <ExecuteFullCoveragePath/>
                   <Sequence name="RecoverAndRetry">
                     <PublishHighLevelStatus state="2" state_name="RECOVERING"/>
                     <SetMowerEnabled enabled="false"/>

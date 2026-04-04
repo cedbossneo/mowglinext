@@ -103,8 +103,7 @@ struct BTContext
 
   // -----------------------------------------------------------------------
   // Coverage path components (set by ComputeCoverage, consumed by
-  // ExecuteSwathBySwath).  Using simple structs to avoid depending on
-  // opennav_coverage_msgs in the context header.
+  // ExecuteFullCoveragePath).
   // -----------------------------------------------------------------------
 
   struct Swath
@@ -115,15 +114,14 @@ struct BTContext
 
   struct CoveragePlan
   {
+    /// Full discretized F2C path (swaths + Dubins turns) for FollowPath.
+    nav_msgs::msg::Path full_path;
+    /// Swath endpoints for future per-section blade on/off control.
     std::vector<Swath> swaths;
-    std::vector<nav_msgs::msg::Path> turns;  // N-1 turns for N swaths
   };
 
-  /// Populated by ComputeCoverage, consumed by ExecuteSwathBySwath.
+  /// Populated by ComputeCoverage, consumed by ExecuteFullCoveragePath.
   std::optional<CoveragePlan> coverage_plan;
-
-  /// Progress tracking across charge cycles.
-  size_t next_swath_index{0};
 
   // -----------------------------------------------------------------------
   // TF buffer (shared across all BT nodes)

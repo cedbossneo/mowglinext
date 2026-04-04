@@ -47,6 +47,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   // Coverage nodes (opennav_coverage integration)
   factory.registerNodeType<ComputeCoverage>("ComputeCoverage");
   factory.registerNodeType<ExecuteSwathBySwath>("ExecuteSwathBySwath");
+  factory.registerNodeType<ExecuteFullCoveragePath>("ExecuteFullCoveragePath");
 }
 
 }  // namespace mowgli_behavior

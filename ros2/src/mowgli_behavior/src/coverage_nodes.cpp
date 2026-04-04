@@ -191,9 +191,11 @@ BT::NodeStatus ComputeCoverage::onRunning()
     return BT::NodeStatus::FAILURE;
   }
 
+  // Store the full F2C discretized path (swaths + Dubins turns).
+  plan.full_path = latest_result_->path;
+
   // Store in context.
   ctx->coverage_plan = std::move(plan);
-  ctx->next_swath_index = 0;
 
   // Output first swath start pose.
   const auto& first = ctx->coverage_plan->swaths.front();
@@ -454,8 +456,6 @@ void ExecuteSwathBySwath::setBladeEnabled(bool enabled)
 bool ExecuteSwathBySwath::advanceToNextSwath()
 {
   swath_index_++;
-  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-  ctx->next_swath_index = swath_index_;
   return swath_index_ < total_swaths_;
 }
 
@@ -501,7 +501,7 @@ BT::NodeStatus ExecuteSwathBySwath::onStart()
   }
 
   total_swaths_ = ctx->coverage_plan->swaths.size();
-  swath_index_ = ctx->next_swath_index;
+  swath_index_ = 0;
   completed_swaths_ = 0;
   skipped_swaths_ = 0;
 
@@ -937,6 +937,239 @@ void ExecuteSwathBySwath::onHalted()
               completed_swaths_,
               skipped_swaths_,
               total_swaths_);
+}
+
+// ===========================================================================
+// ExecuteFullCoveragePath — sends full F2C path to Nav2 FollowPath
+// ===========================================================================
+
+size_t ExecuteFullCoveragePath::findClosestPoseIndex(
+    const nav_msgs::msg::Path & path, double rx, double ry) const
+{
+  size_t best = 0;
+  double best_dist = std::numeric_limits<double>::max();
+  for (size_t i = 0; i < path.poses.size(); ++i)
+  {
+    const double dx = path.poses[i].pose.position.x - rx;
+    const double dy = path.poses[i].pose.position.y - ry;
+    const double d = dx * dx + dy * dy;
+    if (d < best_dist)
+    {
+      best_dist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+void ExecuteFullCoveragePath::setBladeEnabled(bool enabled)
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!blade_client_)
+  {
+    blade_client_ = ctx->node->create_client<mowgli_interfaces::srv::MowerControl>(
+        "/mowgli/hardware/mower_control");
+  }
+
+  if (!blade_client_->service_is_ready())
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: blade service unavailable (sim mode)");
+    return;
+  }
+
+  auto req = std::make_shared<mowgli_interfaces::srv::MowerControl::Request>();
+  req->mow_enabled = enabled ? 1u : 0u;
+  req->mow_direction = 0u;
+  blade_client_->async_send_request(req);
+}
+
+bool ExecuteFullCoveragePath::checkStuck(const std::shared_ptr<BTContext> & ctx)
+{
+  double rx = 0.0, ry = 0.0;
+  try
+  {
+    auto transform = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+    rx = transform.transform.translation.x;
+    ry = transform.transform.translation.y;
+  }
+  catch (const tf2::TransformException &)
+  {
+    return false;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const double dist = std::hypot(rx - last_progress_x_, ry - last_progress_y_);
+
+  if (dist >= stuck_min_progress_)
+  {
+    last_progress_x_ = rx;
+    last_progress_y_ = ry;
+    last_progress_time_ = now;
+    return false;
+  }
+
+  const double elapsed = std::chrono::duration<double>(now - last_progress_time_).count();
+  return elapsed >= stuck_timeout_sec_;
+}
+
+BT::NodeStatus ExecuteFullCoveragePath::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!ctx->coverage_plan || ctx->coverage_plan->full_path.poses.empty())
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: no coverage path in context");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (!follow_client_)
+  {
+    follow_client_ = rclcpp_action::create_client<Nav2FollowPath>(ctx->node, "/follow_path");
+  }
+
+  if (!follow_client_->wait_for_action_server(std::chrono::seconds(5)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: /follow_path not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  // On first run, start from pose 0.  On retry-after-stuck, find the
+  // closest pose to the robot's current position and resume from there.
+  const auto & full_path = ctx->coverage_plan->full_path;
+  size_t start_index = 0;
+
+  if (has_started_)
+  {
+    try
+    {
+      auto tf = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+      double rx = tf.transform.translation.x;
+      double ry = tf.transform.translation.y;
+      start_index = findClosestPoseIndex(full_path, rx, ry);
+      RCLCPP_INFO(ctx->node->get_logger(),
+                  "ExecuteFullCoveragePath: retry — robot at (%.2f, %.2f), resuming from pose %zu/%zu",
+                  rx, ry, start_index, full_path.poses.size());
+    }
+    catch (const tf2::TransformException & ex)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "ExecuteFullCoveragePath: TF lookup failed (%s), starting from pose 0",
+                  ex.what());
+    }
+  }
+  else
+  {
+    has_started_ = true;
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: starting from pose 0/%zu",
+                full_path.poses.size());
+  }
+
+  // Build the sub-path from start_index to end.
+  nav_msgs::msg::Path sub_path;
+  sub_path.header = full_path.header;
+  sub_path.header.stamp = ctx->node->now();
+  sub_path.poses.assign(
+      full_path.poses.begin() + static_cast<long>(start_index),
+      full_path.poses.end());
+
+  if (sub_path.poses.empty())
+  {
+    RCLCPP_INFO(ctx->node->get_logger(), "ExecuteFullCoveragePath: path already completed");
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  // Enable blade and send FollowPath goal.
+  setBladeEnabled(true);
+
+  Nav2FollowPath::Goal goal;
+  goal.path = sub_path;
+  goal.controller_id = "FollowCoveragePath";
+  goal.goal_checker_id = "coverage_goal_checker";
+
+  follow_handle_.reset();
+  follow_future_ = follow_client_->async_send_goal(goal);
+
+  last_progress_time_ = std::chrono::steady_clock::now();
+  last_progress_x_ = 0.0;
+  last_progress_y_ = 0.0;
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "ExecuteFullCoveragePath: following %zu-pose coverage path (from index %zu)",
+              sub_path.poses.size(),
+              start_index);
+
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus ExecuteFullCoveragePath::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  // Wait for goal acceptance.
+  if (!follow_handle_)
+  {
+    if (follow_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    {
+      return BT::NodeStatus::RUNNING;
+    }
+    follow_handle_ = follow_future_.get();
+    if (!follow_handle_)
+    {
+      RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: goal rejected");
+      setBladeEnabled(false);
+      return BT::NodeStatus::FAILURE;
+    }
+    last_progress_time_ = std::chrono::steady_clock::now();
+  }
+
+  auto status = follow_handle_->get_status();
+
+  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(), "ExecuteFullCoveragePath: coverage path completed");
+    follow_handle_.reset();
+    setBladeEnabled(false);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(), "ExecuteFullCoveragePath: FollowPath aborted/canceled");
+    follow_handle_.reset();
+    setBladeEnabled(false);
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (checkStuck(ctx))
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: stuck detected, canceling path");
+    follow_client_->async_cancel_goal(follow_handle_);
+    follow_handle_.reset();
+    setBladeEnabled(false);
+    return BT::NodeStatus::FAILURE;
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void ExecuteFullCoveragePath::onHalted()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (follow_handle_)
+  {
+    follow_client_->async_cancel_goal(follow_handle_);
+  }
+  follow_handle_.reset();
+  setBladeEnabled(false);
+  has_started_ = false;
+
+  RCLCPP_INFO(ctx->node->get_logger(), "ExecuteFullCoveragePath: halted");
 }
 
 }  // namespace mowgli_behavior
