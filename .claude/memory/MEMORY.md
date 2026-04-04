@@ -1,0 +1,1 @@
+- [Always clean DDS/Gazebo state before sim launch](feedback_sim_cleanup.md) — kill processes + rm /dev/shm/cyclone* before every ros2 launch
