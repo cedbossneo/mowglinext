@@ -278,12 +278,12 @@ export default function Root() {
                     height: 64,
                     flexShrink: 0,
                 }}>
-                    <img src={mode === 'dark' ? '/logo-square.svg' : '/logo-square-dark.svg'} alt="OpenMower" style={{width: 24, height: 24, flexShrink: 0}} />
+                    <img src={mode === 'dark' ? '/logo-square.svg' : '/logo-square-dark.svg'} alt="MowgliNext" style={{width: 24, height: 24, flexShrink: 0}} />
                     {railExpanded && (
                         <Typography.Text strong style={{
                             fontSize: 18, color: colors.text, whiteSpace: 'nowrap',
                         }}>
-                            OpenMower
+                            MowgliNext
                         </Typography.Text>
                     )}
                 </div>

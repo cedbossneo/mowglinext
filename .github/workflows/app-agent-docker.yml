@@ -1,16 +1,16 @@
-name: GUI — Docker
+name: App — Agent Docker
 
 on:
   push:
     branches: [main]
     paths:
-      - 'gui/**'
-      - '.github/workflows/gui-docker.yml'
+      - 'app/agent/**'
+      - '.github/workflows/app-agent-docker.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'gui/**'
-      - '.github/workflows/gui-docker.yml'
+      - 'app/agent/**'
+      - '.github/workflows/app-agent-docker.yml'
   workflow_dispatch:
     inputs:
       no-cache:
@@ -19,15 +19,14 @@ on:
         default: false
 
 concurrency:
-  group: gui-docker-${{ github.ref }}
+  group: app-agent-docker-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/mowglinext-gui
+  IMAGE_NAME: ghcr.io/${{ github.repository }}/mowglinext-agent
 
 jobs:
-  # ─── Build each arch on native runners ──────────────────────────────────────
   build:
     name: Build (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -70,7 +69,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ./gui
+          context: ./app/agent
           platforms: ${{ matrix.arch }}
           no-cache: ${{ inputs.no-cache == true }}
           cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}:buildcache-{1}', env.IMAGE_NAME, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
@@ -93,12 +92,11 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-gui-${{ env.ARTIFACT_NAME }}
+          name: digests-agent-${{ env.ARTIFACT_NAME }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
-  # ─── Merge into multi-arch manifest ─────────────────────────────────────────
   merge:
     name: Merge manifest
     runs-on: ubuntu-24.04
@@ -112,7 +110,7 @@ jobs:
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
-          pattern: digests-gui-*
+          pattern: digests-agent-*
           merge-multiple: true
           path: /tmp/digests
 

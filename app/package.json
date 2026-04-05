@@ -1,5 +1,18 @@
 {
   "name": "mowglinext-app",
   "private": true,
-  "workspaces": ["common", "web", "mobile"]
+  "workspaces": ["common", "web", "mobile"],
+  "scripts": {
+    "dev:web": "npm run dev -w @mowglinext/web",
+    "dev:mobile": "npm run dev -w @mowglinext/mobile",
+    "build:web": "npm run build -w @mowglinext/web",
+    "build:mobile": "npm run build -w @mowglinext/mobile",
+    "lint:web": "npm run lint -w @mowglinext/web",
+    "test:web": "npm run test -w @mowglinext/web",
+    "build": "npm run build -w @mowglinext/web && npm run build -w @mowglinext/mobile",
+    "sync:mobile": "npm run sync -w @mowglinext/mobile",
+    "ios": "npm run ios -w @mowglinext/mobile",
+    "android": "npm run android -w @mowglinext/mobile",
+    "generate:api": "npm run generate:api -w @mowglinext/web"
+  }
 }

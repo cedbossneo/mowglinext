@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api": "swagger-typescript-api -p ../../gui/docs/swagger.json -o src/api"
+    "generate:api": "swagger-typescript-api -p ../server/docs/swagger.json -o src/api"
   },
   "dependencies": {
     "@mowglinext/common": "*",

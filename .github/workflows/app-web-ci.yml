@@ -1,0 +1,61 @@
+name: App — Web CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/web/**'
+      - 'app/mobile/**'
+      - 'app/common/**'
+      - 'app/package.json'
+      - 'app/package-lock.json'
+      - '.github/workflows/app-web-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/web/**'
+      - 'app/mobile/**'
+      - 'app/common/**'
+      - 'app/package.json'
+      - 'app/package-lock.json'
+      - '.github/workflows/app-web-ci.yml'
+
+concurrency:
+  group: app-web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Lint web
+        working-directory: app/web
+        run: npm run lint
+
+      - name: Test web
+        working-directory: app/web
+        run: npm run test
+
+      - name: Build web
+        working-directory: app/web
+        run: npm run build
+
+      - name: Build mobile
+        working-directory: app/mobile
+        run: npm run build
