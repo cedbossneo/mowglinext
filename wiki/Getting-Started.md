@@ -81,20 +81,25 @@ ros2 launch mowgli_bringup sim_full_system.launch.py headless:=true
 
 ## Quick Start on Hardware (Automated)
 
-The easiest way to deploy on real hardware is the interactive install script. SSH into your mower's board and run:
+The easiest way to deploy on real hardware is the install composer at [mowgli.garden](https://mowgli.garden/#getting-started). Pick your hardware (GPS, LiDAR, rangefinders) and copy the generated command. Or run the installer directly:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/cedbossneo/mowglinext/main/docker/install.sh | bash
+curl -sSL https://mowgli.garden/install.sh | bash
 ```
 
 The installer handles:
 - Docker installation (if needed)
-- udev rules for serial devices (`/dev/mowgli`, `/dev/gps`)
-- Interactive configuration (GPS datum, dock position, NTRIP, battery, sensor positions)
+- udev rules for serial devices (`/dev/mowgli`, `/dev/gps`, `/dev/lidar`)
+- Sensor configuration (pre-filled if you used the web composer, interactive otherwise)
+- Mower configuration (GPS datum, dock position, NTRIP credentials)
 - Pulling and launching all containers
 - Post-install diagnostics
 
-Run with `--check` to diagnose an existing installation without reinstalling.
+Run diagnostics on an existing installation:
+
+```bash
+cd ~/mowglinext/install && ./mowglinext.sh --check
+```
 
 ## Manual Install
 

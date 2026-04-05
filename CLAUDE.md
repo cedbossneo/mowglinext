@@ -18,11 +18,12 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
 | Directory | Language | Build | Description |
 |-----------|----------|-------|-------------|
 | `ros2/` | C++17, Python | `colcon build` | ROS2 stack: 12 packages (Nav2, SLAM, BT, coverage, hardware bridge) |
+| `install/` | Shell | `./mowglinext.sh` | Interactive installer, hardware presets, modular Docker Compose configs |
 | `gui/` | Go, TypeScript/React | `go build`, `yarn build` | Web interface for config, map editing, monitoring |
-| `docker/` | YAML, Shell | `docker compose` | Deployment configs, DDS, service orchestration |
+| `docker/` | YAML, Shell | `docker compose` | Manual deployment configs, DDS, service orchestration |
 | `sensors/` | Dockerfile | `docker build` | Dockerized sensor drivers (GPS, LiDAR) |
 | `firmware/` | C | `pio run` | STM32F103 firmware (motor, IMU, blade, battery) |
-| `docs/` | HTML, CSS | GitHub Pages | Landing page at mowgli.garden |
+| `docs/` | HTML, CSS, JS | GitHub Pages | Landing page + install composer at mowgli.garden |
 
 ## Architecture Invariants (DO NOT VIOLATE)
 

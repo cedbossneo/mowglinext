@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MowgliNext — Open-Source ROS2 Robot Mower</title>
-  <meta name="description" content="Autonomous robot mower built on ROS2 Jazzy with LiDAR SLAM, RTK-GPS, behavior trees, and coverage planning. Open source, community driven, AI powered.">
+  <meta name="description" content="Autonomous robot mower built on ROS2 Jazzy with LiDAR SLAM, RTK-GPS, behavior trees, and coverage planning. Open source, community driven.">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -204,12 +204,6 @@
       </div>
 
       <div class="feature-card">
-        <div class="icon">🤖</div>
-        <h3>AI-Powered Dev</h3>
-        <p>Claude reviews every PR, proposes improvements weekly, and responds to @claude mentions. Community + AI collaboration.</p>
-      </div>
-
-      <div class="feature-card">
         <div class="icon">🔌</div>
         <h3>Your Existing Hardware</h3>
         <p>Works with your stock YardForce board — no need to replace electronics. Add sensors and capabilities on top of what you have.</p>
@@ -261,31 +255,193 @@
 <section class="getting-started" id="getting-started">
   <div class="container">
     <h2>Get Started</h2>
-    <div class="steps">
+    <p class="section-subtitle">Pick your hardware, copy the command, paste it on your mower's board. Done.</p>
 
+    <!-- ─── Install Composer ──────────────────────────── -->
+    <div class="composer">
+
+      <!-- GPS -->
+      <div class="composer-group">
+        <h3>GPS Receiver</h3>
+        <p class="composer-hint">u-blox ZED-F9P recommended for RTK precision</p>
+        <div class="composer-options" data-group="gps">
+          <button class="composer-option active" data-value="ubx-uart">
+            <span class="option-icon">📡</span>
+            <span class="option-label">UBX / UART</span>
+            <span class="option-desc">PCB default — ttyAMA4</span>
+          </button>
+          <button class="composer-option" data-value="ubx-usb">
+            <span class="option-icon">🔌</span>
+            <span class="option-label">UBX / USB</span>
+            <span class="option-desc">USB cable to GPS</span>
+          </button>
+          <button class="composer-option" data-value="nmea-uart">
+            <span class="option-icon">📡</span>
+            <span class="option-label">NMEA / UART</span>
+            <span class="option-desc">Generic NMEA GPS</span>
+          </button>
+          <button class="composer-option" data-value="nmea-usb">
+            <span class="option-icon">🔌</span>
+            <span class="option-label">NMEA / USB</span>
+            <span class="option-desc">Generic NMEA via USB</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- LiDAR -->
+      <div class="composer-group">
+        <h3>LiDAR Sensor</h3>
+        <p class="composer-hint">Required for obstacle avoidance and SLAM mapping</p>
+        <div class="composer-options" data-group="lidar">
+          <button class="composer-option active" data-value="ldlidar-uart">
+            <span class="option-icon">🔴</span>
+            <span class="option-label">LDLiDAR / UART</span>
+            <span class="option-desc">LD06, LD14, LD19 — PCB default</span>
+          </button>
+          <button class="composer-option" data-value="ldlidar-usb">
+            <span class="option-icon">🔴</span>
+            <span class="option-label">LDLiDAR / USB</span>
+            <span class="option-desc">LD06, LD14, LD19 via USB</span>
+          </button>
+          <button class="composer-option" data-value="rplidar-uart">
+            <span class="option-icon">🟠</span>
+            <span class="option-label">RPLidar / UART</span>
+            <span class="option-desc">Slamtec A1, A2, A3</span>
+          </button>
+          <button class="composer-option" data-value="rplidar-usb">
+            <span class="option-icon">🟠</span>
+            <span class="option-label">RPLidar / USB</span>
+            <span class="option-desc">Slamtec A1, A2, A3 via USB</span>
+          </button>
+          <button class="composer-option" data-value="stl27l-uart">
+            <span class="option-icon">🟡</span>
+            <span class="option-label">STL27L / UART</span>
+            <span class="option-desc">STL27L sensor</span>
+          </button>
+          <button class="composer-option" data-value="stl27l-usb">
+            <span class="option-icon">🟡</span>
+            <span class="option-label">STL27L / USB</span>
+            <span class="option-desc">STL27L via USB</span>
+          </button>
+          <button class="composer-option" data-value="none">
+            <span class="option-icon">❌</span>
+            <span class="option-label">None</span>
+            <span class="option-desc">No LiDAR</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Rangefinders -->
+      <div class="composer-group">
+        <h3>TF-Luna Rangefinders</h3>
+        <p class="composer-hint">Optional — for ground edge detection and front obstacle sensing</p>
+        <div class="composer-options" data-group="tfluna">
+          <button class="composer-option active" data-value="none">
+            <span class="option-icon">❌</span>
+            <span class="option-label">None</span>
+            <span class="option-desc">No rangefinders</span>
+          </button>
+          <button class="composer-option" data-value="front">
+            <span class="option-icon">📏</span>
+            <span class="option-label">Front only</span>
+            <span class="option-desc">Front obstacle sensor</span>
+          </button>
+          <button class="composer-option" data-value="edge">
+            <span class="option-icon">📏</span>
+            <span class="option-label">Edge only</span>
+            <span class="option-desc">Ground edge detector</span>
+          </button>
+          <button class="composer-option" data-value="both">
+            <span class="option-icon">📏</span>
+            <span class="option-label">Front + Edge</span>
+            <span class="option-desc">Both sensors</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Generated command -->
+      <div class="composer-result">
+        <h3>Your install command</h3>
+        <p class="composer-hint">SSH into your Raspberry Pi and paste this command:</p>
+        <div class="composer-command-wrapper">
+          <code class="composer-command" id="install-command"></code>
+          <button class="composer-copy" id="copy-btn" title="Copy to clipboard">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span id="copy-text">Copy</span>
+          </button>
+        </div>
+        <p class="composer-note">The installer will still ask for mower-specific settings (GPS datum, NTRIP, dock position) interactively.</p>
+      </div>
+
+    </div>
+
+    <!-- Steps below composer -->
+    <div class="steps" style="margin-top: 48px;">
       <div class="step">
         <div class="step-number">1</div>
-        <h3>One-Line Install</h3>
-        <p>SSH into your mower's board and run the interactive installer. It handles everything — Docker, udev rules, sensors, configuration.</p>
-        <code>curl -sSL https://raw.githubusercontent.com/cedbossneo/mowglinext/main/docker/install.sh | bash</code>
+        <h3>Configure &amp; Copy</h3>
+        <p>Pick your sensors above. The composer generates a one-line install command tailored to your hardware.</p>
       </div>
-
       <div class="step">
         <div class="step-number">2</div>
-        <h3>Follow the Wizard</h3>
-        <p>The installer walks you through GPS datum, dock position, NTRIP credentials, sensor positions, and battery thresholds. No manual config editing needed.</p>
+        <h3>Run on Your Board</h3>
+        <p>SSH into your mower's Raspberry Pi and paste the command. It installs Docker, drivers, and the full ROS2 stack.</p>
       </div>
-
       <div class="step">
         <div class="step-number">3</div>
         <h3>Open the GUI</h3>
         <p>Once running, open the web interface to define mowing areas, monitor the robot, and fine-tune settings.</p>
         <code>http://&lt;mower-ip&gt;:4006</code>
       </div>
-
     </div>
+
   </div>
 </section>
+
+<!-- ─── Composer JS ─────────────────────────────────── -->
+<script>
+(function() {
+  var state = { gps: 'ubx-uart', lidar: 'ldlidar-uart', tfluna: 'none' };
+  var baseUrl = 'https://mowgli.garden/install.sh';
+
+  function updateCommand() {
+    var parts = ['curl -sSL ' + baseUrl + ' | bash -s --'];
+    parts.push('--gps=' + state.gps);
+    parts.push('--lidar=' + state.lidar);
+    parts.push('--tfluna=' + state.tfluna);
+    document.getElementById('install-command').textContent = parts.join(' \\\n  ');
+  }
+
+  // Option click handlers
+  document.querySelectorAll('.composer-options').forEach(function(group) {
+    var groupName = group.dataset.group;
+    group.querySelectorAll('.composer-option').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        group.querySelectorAll('.composer-option').forEach(function(b) {
+          b.classList.remove('active');
+        });
+        btn.classList.add('active');
+        state[groupName] = btn.dataset.value;
+        updateCommand();
+      });
+    });
+  });
+
+  // Copy button
+  document.getElementById('copy-btn').addEventListener('click', function() {
+    var cmd = document.getElementById('install-command').textContent;
+    // Collapse multiline for clipboard
+    var oneline = cmd.replace(/\s*\\\n\s*/g, ' ');
+    navigator.clipboard.writeText(oneline).then(function() {
+      var text = document.getElementById('copy-text');
+      text.textContent = 'Copied!';
+      setTimeout(function() { text.textContent = 'Copy'; }, 2000);
+    });
+  });
+
+  updateCommand();
+})();
+</script>
 
 <!-- ─── OpenMower Tribute ───────────────────────────── -->
 <section class="tribute" id="openmower">
@@ -348,10 +504,10 @@
 <!-- ─── Community ───────────────────────────────────── -->
 <section class="community" id="community">
   <div class="container">
-    <h2>Community Powered, AI Assisted</h2>
+    <h2>Community Powered</h2>
     <p>
-      MowgliNext is built by the community with AI assistance. Claude reviews every PR,
-      proposes improvements, and answers questions. Mention <strong>@claude</strong> in any issue or PR.
+      MowgliNext is built by the community. Join us — report bugs, suggest features,
+      or contribute code. Every contribution makes autonomous mowing better for everyone.
     </p>
     <div class="buttons">
       <a href="https://github.com/cedbossneo/mowglinext/discussions" class="btn btn-primary">Join Discussions</a>

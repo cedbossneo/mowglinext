@@ -1,0 +1,19 @@
+  # -------------------------------------------------------------------------
+  # MQTT broker — Home Assistant integration and general pub/sub
+  # -------------------------------------------------------------------------
+
+services:
+
+  mosquitto:
+    container_name: mowgli-mqtt
+    image: eclipse-mosquitto:latest
+    labels:
+      project: openmower
+      app: mqtt
+    hostname: mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./config/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped

@@ -54,19 +54,23 @@ The LiDAR connects to a hardware UART on the compute board, not USB. Set
 
 ## Quick start
 
-### Option A — one-line install (recommended)
+### Option A — web composer + one-line install (recommended)
 
-The install script handles Docker, udev rules, interactive configuration,
-image pull, and first startup. Run it again at any time to upgrade.
+Visit [mowgli.garden](https://mowgli.garden/#getting-started) to configure
+your hardware (GPS, LiDAR, rangefinders) and get a personalized install
+command. Or run the installer directly:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/cedbossneo/mowgli-docker/v3/install.sh | bash
+curl -sSL https://mowgli.garden/install.sh | bash
 ```
+
+The installer handles Docker, udev rules, sensor configuration, image pull,
+and first startup. Run it again at any time to upgrade.
 
 To run diagnostics only against an existing installation:
 
 ```bash
-./install.sh --check
+cd ~/mowglinext/install && ./mowglinext.sh --check
 ```
 
 ### Option B — manual install
@@ -85,8 +89,8 @@ required. Verify with `docker compose version`.
 #### 2. Clone this repository
 
 ```bash
-git clone --branch v3 --depth 1 https://github.com/cedbossneo/mowgli-docker.git
-cd mowgli-docker
+git clone --depth 1 https://github.com/cedbossneo/mowglinext.git
+cd mowglinext/docker
 ```
 
 #### 3. Install udev rules (stable device symlinks)
@@ -449,10 +453,10 @@ Connect Foxglove Studio to `ws://<board-ip>:8765`.
 
 ## Updating images
 
-Re-run the install script (handles pull, restart, and any new config keys):
+Re-run the installer (handles pull, restart, and any new config keys):
 
 ```bash
-./install.sh
+cd ~/mowglinext/install && ./mowglinext.sh
 ```
 
 Or manually:
@@ -479,7 +483,7 @@ docker exec mowgli-watchtower /watchtower --run-once
 ### Diagnostics script
 
 ```bash
-./install.sh --check
+cd ~/mowglinext/install && ./mowglinext.sh --check
 ```
 
 Checks: Docker, device nodes, container health, firmware response,

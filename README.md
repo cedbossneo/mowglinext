@@ -44,20 +44,22 @@ Thank you, OpenMower team. You showed us what's possible.
 | Directory | Description |
 |-----------|-------------|
 | [`ros2/`](ros2/) | ROS2 stack: Nav2, SLAM Toolbox, behavior trees, coverage planner, hardware bridge |
-| [`docker/`](docker/) | Docker Compose deployment, DDS config, service orchestration |
+| [`install/`](install/) | Interactive installer, hardware presets, modular Docker Compose configs |
+| [`docker/`](docker/) | Docker Compose deployment for manual setup, DDS config |
 | [`sensors/`](sensors/) | Dockerized sensor drivers (GPS, LiDAR) — one directory per model |
 | [`gui/`](gui/) | React + Go web interface for configuration, map editing, and monitoring |
 | [`firmware/`](firmware/) | STM32 firmware for motor control, IMU, blade safety |
+| [`docs/`](docs/) | GitHub Pages site at [mowgli.garden](https://mowgli.garden) — install composer |
 
 ## Quick Start
 
-Run the interactive install script on your mower's board:
+Visit [mowgli.garden](https://mowgli.garden/#getting-started) to configure your hardware and get a personalized install command. Or run the installer directly:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/cedbossneo/mowglinext/main/docker/install.sh | bash
+curl -sSL https://mowgli.garden/install.sh | bash
 ```
 
-It walks you through udev rules, sensor setup, GPS datum, dock position, NTRIP credentials, and launches everything automatically.
+The web composer lets you pick your GPS, LiDAR, and rangefinders — the generated command pre-configures the installer so you skip those prompts. It still walks you through GPS datum, dock position, NTRIP credentials, and launches everything automatically.
 
 GUI at `http://<mower-ip>:4006` | Foxglove at `ws://<mower-ip>:8765`
 

@@ -1,6 +1,5 @@
 # Build artifacts
 build/
-install/
 log/
 *.pyc
 __pycache__/
@@ -16,6 +15,7 @@ __pycache__/
 # ROS2
 *.bag
 *.db3
+ros2/install
 
 # PlatformIO (firmware)
 .pio/

@@ -1,0 +1,49 @@
+# compose/docker-compose.base.yml
+
+# Mowgli ROS2 v3 — main deployment
+# Requires Docker Compose v2.20+ (no version key needed)
+
+x-ros2-env: &ros2-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  CYCLONEDDS_URI: file:///cyclonedds.xml
+  ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+  RCUTILS_COLORIZED_OUTPUT: "1"
+  RCUTILS_LOGGING_USE_STDOUT: "1"
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Main ROS2 robot service
+  # Runs the full mowgli_ros2 stack: hardware bridge, Nav2, behavior trees,
+  # coverage planning, SLAM map server, rosbridge (port 9090), and optionally
+  # foxglove_bridge (port 8765).
+  # -------------------------------------------------------------------------
+  mowgli:
+    container_name: mowgli-ros2
+    image: ${MOWGLI_ROS2_IMAGE}
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      <<: *ros2-env
+    command: >
+      ros2 launch mowgli_bringup full_system.launch.py
+      enable_rosbridge:=true
+      enable_foxglove:=true
+      enable_coverage:=true
+    volumes:
+      - /dev:/dev
+      - mowgli_maps:/ros2_ws/maps
+      - ./config/mowgli:/ros2_ws/config:ro
+      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 10m
+
+volumes:
+  mowgli_maps:

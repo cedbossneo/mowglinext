@@ -1,0 +1,46 @@
+  # -------------------------------------------------------------------------
+  # LiDAR driver — LD06/LD14/LD19 on hardware UART, publishes /scan (LaserScan)
+  #
+  # Replace this service with a different driver image if you use a different
+  # LiDAR (e.g., rplidar, sllidar), as long as it publishes /scan.
+  # -------------------------------------------------------------------------
+
+x-ros2-env: &ros2-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+  ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+  RCUTILS_COLORIZED_OUTPUT: "1"
+  RCUTILS_LOGGING_USE_STDOUT: "1"
+
+services:
+
+  lidar:
+    container_name: mowgli-lidar
+    image: ${LIDAR_IMAGE}
+    build:
+      context: ../sensors/lidar
+    network_mode: host
+    ipc: host
+    privileged: true
+    devices:
+      - ${LIDAR_PORT:-/dev/lidar}:${LIDAR_PORT:-/dev/lidar}
+    environment:
+      <<: *ros2-env
+    command: >
+      ros2 run ldlidar_stl_ros2 ldlidar_stl_ros2_node
+      --ros-args
+      -p product_name:=LDLiDAR_LD19
+      -p topic_name:=scan
+      -p frame_id:=lidar_link
+      -p port_name:=${LIDAR_PORT:-/dev/lidar}
+      -p port_baudrate:=${LIDAR_BAUD:-230400}
+      -p laser_scan_dir:=true
+      -p enable_angle_crop_func:=false
+    volumes:
+      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 5m

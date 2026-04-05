@@ -1,0 +1,33 @@
+# compose/docker-compose.lidar-rplidar.yml
+
+x-ros2-env: &ros2-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+  ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+  RCUTILS_COLORIZED_OUTPUT: "1"
+  RCUTILS_LOGGING_USE_STDOUT: "1"
+
+services:
+  lidar:
+    container_name: mowgli-lidar
+    image: ${LIDAR_IMAGE}
+    build:
+      context: ./lidar
+    network_mode: host
+    ipc: host
+    privileged: true
+    devices:
+      - ${LIDAR_PORT:-/dev/lidar}:${LIDAR_PORT:-/dev/lidar}
+    environment:
+      <<: *ros2-env
+    command: >
+      ros2 launch rplidar_ros rplidar.launch.py
+      serial_port:=${LIDAR_PORT:-/dev/lidar}
+      serial_baudrate:=${LIDAR_BAUD:-115200}
+      frame_id:=lidar_link
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 5m

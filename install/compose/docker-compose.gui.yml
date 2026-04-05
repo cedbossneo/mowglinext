@@ -1,0 +1,29 @@
+  # -------------------------------------------------------------------------
+  # OpenMower GUI — Go backend + React frontend
+  # Connects to mowgli's rosbridge WebSocket on ws://localhost:9090
+  # -------------------------------------------------------------------------
+services:
+  gui:
+    container_name: openmower-gui
+    image: ${GUI_IMAGE}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      project: openmower
+      app: gui
+    network_mode: host
+    privileged: true
+    environment:
+      ROSBRIDGE_URL: ws://localhost:9090
+      MOWER_CONFIG_FILE: /config/mower_config.sh
+      MOWER_YAML_CONFIG_FILE: /mowgli_config/mowgli_robot.yaml
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DB_PATH: /db
+    volumes:
+      - ./config/db:/db
+      - ./config/om:/config:ro
+      - ./config/mowgli:/mowgli_config
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /dev/bus/usb:/dev/bus/usb
+    depends_on:
+      - mowgli
+    restart: unless-stopped
