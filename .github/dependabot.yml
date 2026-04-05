@@ -27,15 +27,6 @@ updates:
       - "app"
       - "chore"
 
-  # Go (App agent)
-  - package-ecosystem: "gomod"
-    directory: "/app/agent"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "app"
-      - "chore"
-
   # npm (App workspace — web, mobile, common)
   - package-ecosystem: "npm"
     directory: "/app"
@@ -66,15 +57,6 @@ updates:
   # Docker (App proxy)
   - package-ecosystem: "docker"
     directory: "/app/proxy"
-    schedule:
-      interval: "monthly"
-    labels:
-      - "app"
-      - "chore"
-
-  # Docker (App agent)
-  - package-ecosystem: "docker"
-    directory: "/app/agent"
     schedule:
       interval: "monthly"
     labels:

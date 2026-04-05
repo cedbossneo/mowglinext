@@ -27,7 +27,11 @@ var EnvFallbacks = map[string]string{
 	"system.ros.nodeName":      "ROS_NODE_NAME",
 	"system.ros.nodeHost":      "ROS_NODE_HOST",
 	"system.ros.rosbridgeUrl":  "ROSBRIDGE_URL",
-	"system.homekit.pincode":  "HOMEKIT_PINCODE",
+	"system.homekit.pincode":       "HOMEKIT_PINCODE",
+	"system.tunnel.enabled":        "TUNNEL_ENABLED",
+	"system.tunnel.proxy_url":      "PROXY_URL",
+	"system.tunnel.robot_token":    "ROBOT_TOKEN",
+	"system.tunnel.robot_id":       "ROBOT_ID",
 }
 var Defaults = map[string]string{
 	"system.api.addr":         ":4006",
@@ -43,8 +47,12 @@ var Defaults = map[string]string{
 	"system.mower.configFile":     "/config/mower_config.sh",
 	"system.mower.yamlConfigFile": "/config/mowgli_robot.yaml",
 	"system.ros.masterUri":    "http://localhost:11311",
-	"system.ros.nodeName":     "mowglinext",
-	"system.ros.nodeHost":     "localhost",
+	"system.ros.nodeName":          "mowglinext",
+	"system.ros.nodeHost":          "localhost",
+	"system.tunnel.enabled":        "false",
+	"system.tunnel.proxy_url":      "",
+	"system.tunnel.robot_token":    "",
+	"system.tunnel.robot_id":       "",
 }
 
 func (d *DBProvider) Set(key string, value []byte) error {

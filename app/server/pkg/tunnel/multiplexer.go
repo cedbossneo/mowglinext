@@ -35,11 +35,6 @@ var blockedPaths = []string{
 	"/api/setup",
 }
 
-// FrameSender can send frames through the tunnel
-type FrameSender interface {
-	SendFrame(frame *TunnelFrame) error
-}
-
 // Multiplexer routes tunnel frames to local HTTP/WS connections
 type Multiplexer struct {
 	localURL string

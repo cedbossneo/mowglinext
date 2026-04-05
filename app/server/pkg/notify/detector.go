@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cedbossneo/mowglinext/app/agent/tunnel"
+	"github.com/cedbossneo/mowglinext/app/server/pkg/tunnel"
 	"github.com/gorilla/websocket"
 )
 
@@ -35,22 +35,17 @@ type Emergency struct {
 	Reason           string `json:"Reason"`
 }
 
-// FrameSender can send frames through the tunnel
-type FrameSender interface {
-	SendFrame(frame *tunnel.TunnelFrame) error
-}
-
 // Detector monitors local ROS topics and emits notification events
 type Detector struct {
 	localURL       string
-	sender         FrameSender
+	sender         tunnel.FrameSender
 	lastState      string
 	lastEmergency  bool
 	lowBatterySent bool
 	gpsLostSent    bool
 }
 
-func NewDetector(localURL string, sender FrameSender) *Detector {
+func NewDetector(localURL string, sender tunnel.FrameSender) *Detector {
 	return &Detector{
 		localURL: localURL,
 		sender:   sender,

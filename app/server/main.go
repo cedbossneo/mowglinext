@@ -28,5 +28,12 @@ func main() {
 		providers.NewMqttProvider(rosProvider, dbProvider)
 	}
 	providers.NewSchedulerProvider(rosProvider, dbProvider)
+	tunnelEnabled, err := dbProvider.Get("system.tunnel.enabled")
+	if err != nil {
+		panic(err)
+	}
+	if string(tunnelEnabled) == "true" {
+		providers.NewTunnelProvider(dbProvider)
+	}
 	api.NewAPI(dbProvider, dockerProvider, rosProvider, firmwareProvider)
 }

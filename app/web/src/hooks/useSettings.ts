@@ -135,6 +135,22 @@ export const SettingsDesc: Record<string, Setting> = {
         type: SettingValueType.String,
         defaultValue: "localhost",
         description: "ROS node host",
+    },
+    "system.tunnel.enabled": {
+        settingType: SettingType.Db,
+        section: "Remote Access",
+        type: SettingValueType.Boolean,
+        defaultValue: false,
+        description: "Enable remote access",
+        help: "Connect to cloud proxy for remote access via the mobile app. Requires a restart.",
+    },
+    "system.tunnel.proxy_url": {
+        settingType: SettingType.Db,
+        section: "Remote Access",
+        type: SettingValueType.String,
+        defaultValue: "",
+        description: "Proxy URL",
+        help: "Cloud proxy endpoint (e.g. https://proxy.mowgli.garden)",
     }
 }
 export type SettingsConfig = {

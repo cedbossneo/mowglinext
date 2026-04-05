@@ -46,6 +46,11 @@ export const SettingsComponent: React.FC<{
                             state.display = field.value ? "visible" : "hidden";
                         })
                     })
+                    onFieldValueChange('system.tunnel.enabled', (field) => {
+                        form.setFieldState('*(system.tunnel.proxy_url)', (state) => {
+                            state.display = field.value ? "visible" : "hidden";
+                        })
+                    })
                 },
             }),
         [],

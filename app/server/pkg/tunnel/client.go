@@ -9,30 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cedbossneo/mowglinext/app/agent/config"
 	"github.com/gorilla/websocket"
-)
-
-// TunnelFrame is the JSON envelope for multiplexed tunnel messages
-type TunnelFrame struct {
-	Type      string            `json:"type"`
-	StreamID  string            `json:"stream_id,omitempty"`
-	Topic     string            `json:"topic,omitempty"`
-	Method    string            `json:"method,omitempty"`
-	Path      string            `json:"path,omitempty"`
-	Status    int               `json:"status,omitempty"`
-	Body      string            `json:"body,omitempty"`
-	RequestID string            `json:"request_id,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-}
-
-const (
-	FrameSubscribe   = "subscribe"
-	FrameUnsubscribe = "unsubscribe"
-	FrameMessage     = "message"
-	FrameRequest     = "request"
-	FrameResponse    = "response"
-	FrameHeartbeat   = "heartbeat"
 )
 
 // ErrNotConnected is returned when sending on a closed tunnel
@@ -40,7 +17,7 @@ var ErrNotConnected = errors.New("not connected to proxy")
 
 // Client manages the outbound tunnel connection to the proxy
 type Client struct {
-	cfg    *config.Config
+	cfg    *Config
 	conn   *websocket.Conn
 	mu     sync.Mutex
 	mux    *Multiplexer
@@ -48,7 +25,7 @@ type Client struct {
 	closed bool
 }
 
-func NewClient(cfg *config.Config) *Client {
+func NewClient(cfg *Config) *Client {
 	return &Client{
 		cfg:  cfg,
 		done: make(chan struct{}),
