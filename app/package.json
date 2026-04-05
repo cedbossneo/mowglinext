@@ -1,0 +1,5 @@
+{
+  "name": "mowglinext-app",
+  "private": true,
+  "workspaces": ["common", "web", "mobile"]
+}

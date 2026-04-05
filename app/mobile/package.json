@@ -1,0 +1,38 @@
+{
+  "name": "@mowglinext/mobile",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "sync": "cap sync",
+    "ios": "cap open ios",
+    "android": "cap open android"
+  },
+  "dependencies": {
+    "@mowglinext/common": "*",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/haptics": "^6.0.1",
+    "@capacitor/preferences": "^6.0.2",
+    "@capacitor/push-notifications": "^6.0.2",
+    "@capacitor/status-bar": "^6.0.1",
+    "antd": "^5.29.3",
+    "mapbox-gl": "^3.20.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-joystick-component": "^6.2.1",
+    "react-map-gl": "^8.1.0",
+    "react-router-dom": "^7.13.2",
+    "react-use-websocket": "4.13.0",
+    "styled-components": "^6.3.12"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.2"
+  }
+}

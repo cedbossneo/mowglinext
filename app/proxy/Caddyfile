@@ -1,0 +1,3 @@
+proxy.mowgli.garden {
+    reverse_proxy proxy:8080
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@mowglinext/common",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "antd": "^5.29.3",
+    "react-use-websocket": "4.13.0",
+    "styled-components": "^6.3.12"
+  }
+}

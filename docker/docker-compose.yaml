@@ -169,6 +169,23 @@ services:
       WATCHTOWER_LABEL_ENABLE: "true"
     restart: unless-stopped
 
+  # -------------------------------------------------------------------------
+  # Tunnel agent — outbound WS to cloud proxy for remote access
+  # Opt-in: docker compose --profile cloud up
+  # -------------------------------------------------------------------------
+  tunnel-agent:
+    container_name: mowgli-tunnel-agent
+    image: ghcr.io/cedbossneo/mowglinext-agent:latest
+    network_mode: host
+    environment:
+      PROXY_URL: ${PROXY_URL:-}
+      ROBOT_TOKEN: ${ROBOT_TOKEN:-}
+      ROBOT_ID: ${ROBOT_ID:-}
+      LOCAL_GUI_URL: http://localhost:80
+    profiles:
+      - cloud
+    restart: unless-stopped
+
 volumes:
   # Persists SLAM maps across container restarts and image updates
   mowgli_maps:
