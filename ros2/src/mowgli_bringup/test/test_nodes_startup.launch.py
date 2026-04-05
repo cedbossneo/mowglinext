@@ -23,6 +23,7 @@ import time
 import unittest
 
 import launch
+import launch.events.process
 import launch_ros.actions
 import launch_testing
 import launch_testing.actions
@@ -163,11 +164,15 @@ class TestNodesStartup(unittest.TestCase):
             ("behavior_tree_node", behavior_tree),
         ]:
             with self.subTest(node=label):
-                self.assertIsNone(
-                    proc_info[proc].returncode,
-                    msg=f"{label} has already exited (returncode="
-                        f"{proc_info[proc].returncode})",
+                info = proc_info[proc]
+                is_exited = isinstance(
+                    info, launch.events.process.ProcessExited
                 )
+                if is_exited:
+                    self.fail(
+                        f"{label} has already exited (returncode="
+                        f"{info.returncode})"
+                    )
 
     # ------------------------------------------------------------------
     # test_expected_topics
@@ -177,8 +182,8 @@ class TestNodesStartup(unittest.TestCase):
         """Key topics must be advertised within 10 seconds of startup."""
         required_topics = {
             "/wheel_odom",
-            "/diagnostics",
-            "/map_server_node/grid_map",
+            "/mowgli/diagnostics",
+            "/map_server/grid_map",
             "/coverage_planner_node/coverage_path",
         }
 
@@ -206,7 +211,7 @@ class TestNodesStartup(unittest.TestCase):
         required_services = {
             "/map_server/save_map",
             "/map_server/clear_map",
-            "/coverage_planner_node/plan_coverage",
+            "/coverage_planner_node/plan_coverage/_action/send_goal",
         }
 
         deadline = time.monotonic() + 10.0

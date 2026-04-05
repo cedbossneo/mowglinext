@@ -191,9 +191,11 @@ BT::NodeStatus ComputeCoverage::onRunning()
     return BT::NodeStatus::FAILURE;
   }
 
+  // Store the full F2C discretized path (swaths + Dubins turns).
+  plan.full_path = latest_result_->path;
+
   // Store in context.
   ctx->coverage_plan = std::move(plan);
-  ctx->next_swath_index = 0;
 
   // Output first swath start pose.
   const auto& first = ctx->coverage_plan->swaths.front();
@@ -454,8 +456,6 @@ void ExecuteSwathBySwath::setBladeEnabled(bool enabled)
 bool ExecuteSwathBySwath::advanceToNextSwath()
 {
   swath_index_++;
-  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-  ctx->next_swath_index = swath_index_;
   return swath_index_ < total_swaths_;
 }
 
@@ -501,7 +501,7 @@ BT::NodeStatus ExecuteSwathBySwath::onStart()
   }
 
   total_swaths_ = ctx->coverage_plan->swaths.size();
-  swath_index_ = ctx->next_swath_index;
+  swath_index_ = 0;
   completed_swaths_ = 0;
   skipped_swaths_ = 0;
 
@@ -937,6 +937,364 @@ void ExecuteSwathBySwath::onHalted()
               completed_swaths_,
               skipped_swaths_,
               total_swaths_);
+}
+
+// ===========================================================================
+// ExecuteFullCoveragePath — sends full F2C path to Nav2 FollowPath
+// ===========================================================================
+
+size_t ExecuteFullCoveragePath::findClosestPoseIndex(const nav_msgs::msg::Path& path,
+                                                     double rx,
+                                                     double ry) const
+{
+  size_t best = 0;
+  double best_dist = std::numeric_limits<double>::max();
+  for (size_t i = 0; i < path.poses.size(); ++i)
+  {
+    const double dx = path.poses[i].pose.position.x - rx;
+    const double dy = path.poses[i].pose.position.y - ry;
+    const double d = dx * dx + dy * dy;
+    if (d < best_dist)
+    {
+      best_dist = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+void ExecuteFullCoveragePath::setBladeEnabled(bool enabled)
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!blade_client_)
+  {
+    blade_client_ = ctx->node->create_client<mowgli_interfaces::srv::MowerControl>(
+        "/mowgli/hardware/mower_control");
+  }
+
+  if (!blade_client_->service_is_ready())
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: blade service unavailable (sim mode)");
+    return;
+  }
+
+  auto req = std::make_shared<mowgli_interfaces::srv::MowerControl::Request>();
+  req->mow_enabled = enabled ? 1u : 0u;
+  req->mow_direction = 0u;
+  blade_client_->async_send_request(req);
+}
+
+bool ExecuteFullCoveragePath::checkStuck(const std::shared_ptr<BTContext>& ctx)
+{
+  double rx = 0.0, ry = 0.0;
+  try
+  {
+    auto transform = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+    rx = transform.transform.translation.x;
+    ry = transform.transform.translation.y;
+  }
+  catch (const tf2::TransformException&)
+  {
+    return false;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const double dist = std::hypot(rx - last_progress_x_, ry - last_progress_y_);
+
+  if (dist >= stuck_min_progress_)
+  {
+    last_progress_x_ = rx;
+    last_progress_y_ = ry;
+    last_progress_time_ = now;
+    return false;
+  }
+
+  const double elapsed = std::chrono::duration<double>(now - last_progress_time_).count();
+  return elapsed >= stuck_timeout_sec_;
+}
+
+BT::NodeStatus ExecuteFullCoveragePath::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!ctx->coverage_plan || ctx->coverage_plan->full_path.poses.empty())
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: no coverage path in context");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (!nav_client_)
+  {
+    nav_client_ = rclcpp_action::create_client<Nav2Navigate>(ctx->node, "/navigate_to_pose");
+  }
+  if (!follow_client_)
+  {
+    follow_client_ = rclcpp_action::create_client<Nav2FollowPath>(ctx->node, "/follow_path");
+  }
+
+  if (!nav_client_->wait_for_action_server(std::chrono::seconds(5)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(),
+                 "ExecuteFullCoveragePath: /navigate_to_pose not available");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (!follow_client_->wait_for_action_server(std::chrono::seconds(5)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: /follow_path not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  last_progress_time_ = std::chrono::steady_clock::now();
+  last_progress_x_ = 0.0;
+  last_progress_y_ = 0.0;
+
+  const auto& full_path = ctx->coverage_plan->full_path;
+
+  // Check robot distance to the closest point on the path.
+  // If close enough (< 2m), send FollowPath directly from that point.
+  // Otherwise, NavigateToPose to the path start first.
+  double rx = 0.0, ry = 0.0;
+  bool have_pose = false;
+  try
+  {
+    auto tf = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+    rx = tf.transform.translation.x;
+    ry = tf.transform.translation.y;
+    have_pose = true;
+  }
+  catch (const tf2::TransformException&)
+  {
+  }
+
+  size_t closest_index = 0;
+  double closest_dist = std::numeric_limits<double>::max();
+  if (have_pose)
+  {
+    closest_index = findClosestPoseIndex(full_path, rx, ry);
+    const double dx = full_path.poses[closest_index].pose.position.x - rx;
+    const double dy = full_path.poses[closest_index].pose.position.y - ry;
+    closest_dist = std::hypot(dx, dy);
+  }
+
+  // Always send the path directly to FollowPath, starting from the closest
+  // point.  Avoid NavigateToPose transit because a prior NavigateToPose call
+  // followed by a FollowPath call crashes controller_server in Nav2 Jazzy
+  // (SIGSEGV on second goal).  If the robot is far from the path, prepend
+  // the robot's current position so the controller smoothly drives to the
+  // path start.
+  if (have_pose)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: robot at (%.2f, %.2f), %.2fm from path, "
+                "following from pose %zu/%zu",
+                rx,
+                ry,
+                closest_dist,
+                closest_index,
+                full_path.poses.size());
+
+    nav_msgs::msg::Path sub_path;
+    sub_path.header = full_path.header;
+    sub_path.header.stamp = ctx->node->now();
+
+    // If robot is far from the path, prepend current position as first waypoint
+    if (closest_dist > 0.5)
+    {
+      geometry_msgs::msg::PoseStamped robot_pose;
+      robot_pose.header = full_path.header;
+      robot_pose.header.stamp = ctx->node->now();
+      robot_pose.pose.position.x = rx;
+      robot_pose.pose.position.y = ry;
+      // Use orientation from the first coverage pose
+      robot_pose.pose.orientation = full_path.poses[0].pose.orientation;
+      sub_path.poses.push_back(robot_pose);
+    }
+
+    sub_path.poses.insert(sub_path.poses.end(),
+                          full_path.poses.begin() + static_cast<long>(closest_index),
+                          full_path.poses.end());
+
+    if (sub_path.poses.empty())
+    {
+      return BT::NodeStatus::SUCCESS;
+    }
+
+    setBladeEnabled(true);
+
+    // Distance-based path thinning.  Keep poses at most `min_spacing` apart,
+    // but always retain poses where heading changes significantly (turns between
+    // swaths).  This preserves turn geometry while staying manageable.
+    nav_msgs::msg::Path send_path = sub_path;
+    if (send_path.poses.size() > 5000)
+    {
+      const double target_count = 1400.0;
+      const double total_len = [&]()
+      {
+        double d = 0.0;
+        for (size_t i = 1; i < send_path.poses.size(); ++i)
+        {
+          const double dx =
+              send_path.poses[i].pose.position.x - send_path.poses[i - 1].pose.position.x;
+          const double dy =
+              send_path.poses[i].pose.position.y - send_path.poses[i - 1].pose.position.y;
+          d += std::hypot(dx, dy);
+        }
+        return d;
+      }();
+      const double min_spacing = total_len / target_count;
+      const double heading_threshold = 0.3;  // ~17 deg — keep turn waypoints
+
+      nav_msgs::msg::Path thinned;
+      thinned.header = send_path.header;
+      thinned.poses.push_back(send_path.poses.front());
+      double accum_dist = 0.0;
+      for (size_t i = 1; i < send_path.poses.size(); ++i)
+      {
+        const double dx =
+            send_path.poses[i].pose.position.x - send_path.poses[i - 1].pose.position.x;
+        const double dy =
+            send_path.poses[i].pose.position.y - send_path.poses[i - 1].pose.position.y;
+        accum_dist += std::hypot(dx, dy);
+
+        // Check heading change (detect turns between swaths)
+        bool is_turn = false;
+        if (i + 1 < send_path.poses.size())
+        {
+          const double dx1 = dx, dy1 = dy;
+          const double dx2 =
+              send_path.poses[i + 1].pose.position.x - send_path.poses[i].pose.position.x;
+          const double dy2 =
+              send_path.poses[i + 1].pose.position.y - send_path.poses[i].pose.position.y;
+          const double len1 = std::hypot(dx1, dy1);
+          const double len2 = std::hypot(dx2, dy2);
+          if (len1 > 1e-6 && len2 > 1e-6)
+          {
+            const double cross = std::abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2);
+            is_turn = cross > heading_threshold;
+          }
+        }
+
+        if (accum_dist >= min_spacing || is_turn)
+        {
+          thinned.poses.push_back(send_path.poses[i]);
+          accum_dist = 0.0;
+        }
+      }
+      // Always include the last pose
+      const auto& last = send_path.poses.back();
+      const auto& kept = thinned.poses.back();
+      if (last.pose.position.x != kept.pose.position.x ||
+          last.pose.position.y != kept.pose.position.y)
+      {
+        thinned.poses.push_back(last);
+      }
+      RCLCPP_INFO(ctx->node->get_logger(),
+                  "ExecuteFullCoveragePath: thinned %zu -> %zu poses (spacing=%.3fm, path=%.1fm)",
+                  send_path.poses.size(),
+                  thinned.poses.size(),
+                  min_spacing,
+                  total_len);
+      send_path = thinned;
+    }
+
+    Nav2FollowPath::Goal goal;
+    goal.path = send_path;
+    // Use "FollowPath" (same as transit) to avoid controller_server segfault
+    // when switching controllers in Nav2 Jazzy.  The FollowPath controller
+    // uses RotationShimController with angular_dist_threshold=3.14 (disabled),
+    // so behavior is identical to bare RPP for straight/curved paths.
+    goal.controller_id = "FollowPath";
+    goal.goal_checker_id = "coverage_goal_checker";
+    follow_handle_.reset();
+    follow_future_ = follow_client_->async_send_goal(goal);
+    phase_ = Phase::FOLLOWING_PATH;
+  }
+  else
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: no robot pose available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus ExecuteFullCoveragePath::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  // ── FOLLOWING_PATH: FollowPath along the full F2C coverage path ──
+  if (phase_ == Phase::FOLLOWING_PATH)
+  {
+    if (!follow_handle_)
+    {
+      if (follow_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+      {
+        return BT::NodeStatus::RUNNING;
+      }
+      follow_handle_ = follow_future_.get();
+      if (!follow_handle_)
+      {
+        RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: FollowPath goal rejected");
+        setBladeEnabled(false);
+        return BT::NodeStatus::FAILURE;
+      }
+      last_progress_time_ = std::chrono::steady_clock::now();
+    }
+
+    auto status = follow_handle_->get_status();
+
+    if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
+    {
+      RCLCPP_INFO(ctx->node->get_logger(), "ExecuteFullCoveragePath: coverage path completed");
+      follow_handle_.reset();
+      setBladeEnabled(false);
+      return BT::NodeStatus::SUCCESS;
+    }
+
+    if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+        status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(), "ExecuteFullCoveragePath: FollowPath aborted/canceled");
+      follow_handle_.reset();
+      setBladeEnabled(false);
+      return BT::NodeStatus::FAILURE;
+    }
+
+    if (checkStuck(ctx))
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "ExecuteFullCoveragePath: stuck detected, canceling path");
+      follow_client_->async_cancel_goal(follow_handle_);
+      follow_handle_.reset();
+      setBladeEnabled(false);
+      return BT::NodeStatus::FAILURE;
+    }
+
+    return BT::NodeStatus::RUNNING;
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void ExecuteFullCoveragePath::onHalted()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (nav_handle_)
+  {
+    nav_client_->async_cancel_goal(nav_handle_);
+  }
+  if (follow_handle_)
+  {
+    follow_client_->async_cancel_goal(follow_handle_);
+  }
+  nav_handle_.reset();
+  follow_handle_.reset();
+  setBladeEnabled(false);
+
+  RCLCPP_INFO(ctx->node->get_logger(), "ExecuteFullCoveragePath: halted");
 }
 
 }  // namespace mowgli_behavior

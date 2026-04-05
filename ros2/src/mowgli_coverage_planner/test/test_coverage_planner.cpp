@@ -58,7 +58,8 @@ protected:
     // Build a minimal client node.
     client_node_ = rclcpp::Node::make_shared("test_client_node");
     action_client_ =
-        rclcpp_action::create_client<PlanCoverageAction>(client_node_, "/mowgli/coverage/plan");
+        rclcpp_action::create_client<PlanCoverageAction>(client_node_,
+                                                         "/coverage_planner_node/plan_coverage");
 
     // Spin both nodes on a background thread.
     executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
@@ -335,49 +336,38 @@ TEST_F(CoveragePlannerTest, BoustrophedonHeadingAlternates)
     return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
   };
 
-  // Swath spacing used by the test fixture is 0.5 m.
-  // A pose-pair is a U-turn boundary if the lateral (Y) distance between the
-  // two poses exceeds 0.3 m (more than half the spacing) while the along-swath
-  // (X) distance is small.  We use a simpler but robust heuristic: the total
-  // Euclidean distance is ≥ 0.3 m and ≤ 1.0 m AND the headings differ by > π/2.
-  const double spacing = 0.5;
-  int uturn_count = 0;
-  int alternation_failures = 0;
+  // Boustrophedon paths alternate heading by ~180° between consecutive swaths.
+  // F2C v2 inserts Reeds-Shepp turn waypoints between swaths, so we cannot
+  // rely on consecutive-pose distance to detect U-turns.  Instead, collect
+  // the dominant heading of each straight run and verify alternation.
+  //
+  // Strategy: accumulate the heading of each pose.  When the heading flips
+  // by more than 90° compared to the current run's dominant heading, we are
+  // on a new swath.  Count the number of heading reversals.
+
+  const double flip_threshold = M_PI / 2.0;  // 90°
+  double run_yaw = quat_to_yaw(poses.front().pose.orientation);
+  int heading_flips = 0;
 
   for (size_t i = 1; i < poses.size(); ++i)
   {
-    const double dx = poses[i].pose.position.x - poses[i - 1].pose.position.x;
-    const double dy = poses[i].pose.position.y - poses[i - 1].pose.position.y;
-    const double dist = std::hypot(dx, dy);
-
-    // Skip intra-swath steps (very short) and large gaps (shouldn't exist).
-    if (dist < spacing * 0.5 || dist > spacing * 2.0)
-    {
-      continue;
-    }
-
-    ++uturn_count;
-
-    const double yaw_prev = quat_to_yaw(poses[i - 1].pose.orientation);
-    const double yaw_curr = quat_to_yaw(poses[i].pose.orientation);
-    double delta = std::abs(yaw_curr - yaw_prev);
+    const double yaw = quat_to_yaw(poses[i].pose.orientation);
+    double delta = std::abs(yaw - run_yaw);
     while (delta > M_PI)
       delta = std::abs(delta - 2.0 * M_PI);
 
-    // Heading should differ by at least 135° (3π/4) at a U-turn.
-    if (delta < M_PI * 3.0 / 4.0)
+    if (delta > flip_threshold)
     {
-      ++alternation_failures;
-      ADD_FAILURE() << "U-turn at pose " << i << ": heading delta = " << delta * 180.0 / M_PI
-                    << "° (expected ≥ 135°)." << "  yaw_prev=" << yaw_prev * 180.0 / M_PI
-                    << "° yaw_curr=" << yaw_curr * 180.0 / M_PI << "°";
+      ++heading_flips;
+      run_yaw = yaw;
     }
   }
 
-  EXPECT_GT(uturn_count, 0) << "No U-turn boundaries detected — path may contain only one swath "
-                               "or swath spacing heuristic needs adjustment";
-  EXPECT_EQ(alternation_failures, 0)
-      << alternation_failures << " U-turn(s) did not alternate heading by ~180°";
+  // A 10×10 m² area with 0.5 m headland inset → 9×9 inner area.
+  // With 0.5 m spacing and 0° angle, expect ~18 swaths → ~17 U-turns.
+  // Be generous: at least 5 heading flips proves boustrophedon alternation.
+  EXPECT_GE(heading_flips, 5)
+      << "Expected multiple heading alternations in boustrophedon path, got " << heading_flips;
 }
 
 // ---------------------------------------------------------------------------

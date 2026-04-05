@@ -200,6 +200,14 @@ def generate_launch_description() -> LaunchDescription:
             map_params,
             {"use_sim_time": True},
         ],
+        remappings=[
+            ("~/get_mowing_area", "/mowgli/map/get_area"),
+            ("~/add_area", "/mowgli/map/add_area"),
+            ("~/clear_map", "/mowgli/map/clear_map"),
+            ("~/set_docking_point", "/mowgli/map/set_docking_point"),
+            ("~/save_areas", "/mowgli/map/save_areas"),
+            ("~/load_areas", "/mowgli/map/load_areas"),
+        ],
     )
 
     # ------------------------------------------------------------------
@@ -255,25 +263,13 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # ------------------------------------------------------------------
-    # 8. Docking server (opennav_docking) — dock/undock action server
-    # ------------------------------------------------------------------
-    docking_server_node = Node(
-        package="opennav_docking",
-        executable="opennav_docking",
-        name="docking_server",
-        output="screen",
-        parameters=[
-            nav2_params_file,
-            {"use_sim_time": True},
-        ],
-    )
-
-    # Lifecycle managed by Nav2's lifecycle_manager_navigation (docking_server
-    # is already in its node list). No separate lifecycle manager needed.
+    # NOTE: docking_server is launched and lifecycle-managed by Nav2's
+    # navigation_launch.py (in the lifecycle_nodes list). Do NOT launch
+    # it here — duplicating it exhausts DDS participants and causes
+    # lifecycle conflicts.
 
     # ------------------------------------------------------------------
-    # 9. Obstacle tracker — persistent LiDAR obstacle detection
+    # 8. Obstacle tracker — persistent LiDAR obstacle detection
     # ------------------------------------------------------------------
     obstacle_tracker_params = os.path.join(map_dir, "config", "obstacle_tracker.yaml")
 
@@ -359,7 +355,6 @@ def generate_launch_description() -> LaunchDescription:
             map_server_node,
             coverage_planner_node,
             obstacle_tracker_node,
-            docking_server_node,
             diagnostics_node,
             foxglove_bridge_node,
             navsat_to_pose_node,

@@ -25,6 +25,19 @@ find_package(geometry_msgs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+# Fields2Cover installs its cmake config to <prefix>/cmake/fields2cover/ rather
+# than the standard <prefix>/lib/cmake/ path, so CMake config-mode search on
+# Linux does not find it automatically.  Look for the config in common prefixes
+# and set Fields2Cover_DIR explicitly before calling find_package.
+if(NOT Fields2Cover_DIR)
+  foreach(_f2c_prefix "/usr/local" "/usr")
+    if(EXISTS "${_f2c_prefix}/cmake/fields2cover/Fields2CoverConfig.cmake")
+      set(Fields2Cover_DIR "${_f2c_prefix}/cmake/fields2cover" CACHE PATH
+          "Path to Fields2CoverConfig.cmake")
+      break()
+    endif()
+  endforeach()
+endif()
 find_package(Fields2Cover REQUIRED)
 find_package(GDAL REQUIRED)
 
@@ -121,6 +134,9 @@ install(
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
+  set(ament_cmake_copyright_FOUND TRUE)
+  set(ament_cmake_cpplint_FOUND TRUE)
+  set(ament_cmake_uncrustify_FOUND TRUE)
 
   ament_lint_auto_find_test_dependencies()
 

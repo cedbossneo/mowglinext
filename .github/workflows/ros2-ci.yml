@@ -16,7 +16,7 @@ concurrency:
 
 env:
   ROS_DISTRO: jazzy
-  FIELDS2COVER_VERSION: v1.2.1-devel
+  FIELDS2COVER_VERSION: v2.0.0
 
 jobs:
   # ─── Build & Test ────────────────────────────────────────────────────────────

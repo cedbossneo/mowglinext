@@ -252,10 +252,10 @@ def generate_launch_description() -> LaunchDescription:
     # hardcoded params (ignoring params_file for the lifecycle manager node).
     # Wrap in a GroupAction with SetParameter so bond_timeout is available as
     # a global parameter override — lifecycle_manager will pick it up.
-    # Delay Nav2 startup by 10 s so slam_toolbox has time to activate and
-    # start publishing the map → odom TF.  Without this delay, the
-    # planner_server's global costmap times out waiting for the map frame
-    # and the lifecycle_manager aborts the entire bringup.
+    # Delay Nav2 startup so SLAM / static TF has time to publish the
+    # map → odom transform.  Without this delay, the planner_server's
+    # global costmap times out waiting for the map frame and the
+    # lifecycle_manager aborts the entire bringup.
     nav2_navigation = TimerAction(
         period=20.0,
         actions=[

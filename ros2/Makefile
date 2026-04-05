@@ -7,71 +7,70 @@ DOCKER_TAG    ?= latest
 ROBOT_HOST    ?= mowgli.local
 ROBOT_USER    ?= pi
 
-# GitHub Container Registry image name (set GITHUB_REPOSITORY in CI env)
-GHCR_IMAGE    ?= ghcr.io/$(GITHUB_REPOSITORY)/$(DOCKER_IMAGE)
+# Fields2Cover cmake hint (devcontainer installs to /usr/local)
+F2C_DIR       ?= /usr/local/cmake/fields2cover
 
-.PHONY: help build build-debug test clean \
-        docker docker-build docker-sim docker-dev \
-        run-sim run-sim-gui run-hardware foxglove \
-        dev-sim dev-build dev-build-pkg dev-restart dev-shell \
+.PHONY: help build build-debug build-pkg test clean \
+        sim sim-stop e2e-test \
+        docker docker-sim \
         lint format format-check \
         deploy backup-maps
 
 # ─── Help ──────────────────────────────────────────────────────────────────────
 
 help:
-	@echo "Mowgli ROS2 Build System"
+	@echo "Mowgli ROS2 Build System (devcontainer)"
 	@echo ""
-	@echo "Build targets:"
-	@echo "  build          Build all packages with colcon (Release)"
-	@echo "  build-debug    Build with Debug symbols"
-	@echo "  test           Run all unit tests with colcon"
-	@echo "  clean          Remove build/ install/ log/ directories"
+	@echo "Build:"
+	@echo "  build              Build all packages (Release)"
+	@echo "  build-debug        Build with Debug symbols"
+	@echo "  build-pkg PKG=x    Build a single package"
+	@echo "  test               Run all unit tests"
+	@echo "  clean              Remove build/ install/ log/"
 	@echo ""
-	@echo "Docker targets:"
-	@echo "  docker         Build production Docker image (runtime stage)"
-	@echo "  docker-sim     Build simulation Docker image"
-	@echo "  docker-dev     Build development Docker image"
-	@echo "  run-sim        Run headless simulation (connect Foxglove to ws://localhost:8765)"
-	@echo "  run-sim-gui    Run simulation with Gazebo GUI via noVNC (http://localhost:6080/vnc.html)"
-	@echo "  run-hardware   Run hardware stack via docker compose"
-	@echo "  foxglove       Open Foxglove Studio with the Mowgli layout"
+	@echo "Simulation & testing:"
+	@echo "  sim                Launch headless simulation (auto-stops previous)"
+	@echo "  sim-stop           Kill all ROS2/Gazebo processes and clean DDS state"
+	@echo "  e2e-test           Launch sim + run E2E test + stop (self-contained)"
 	@echo ""
-	@echo "Dev simulation (fast iteration with volume mounts):"
-	@echo "  dev-sim        Start dev simulation (edit host → build container → restart)"
-	@echo "  dev-build      Rebuild all packages inside dev container"
-	@echo "  dev-build-pkg  Rebuild single package (PKG=mowgli_behavior)"
-	@echo "  dev-restart    Restart dev simulation (picks up rebuilt code)"
-	@echo "  dev-shell      Open shell inside running dev-sim container"
+	@echo "Docker images (CI / production):"
+	@echo "  docker             Build production image (runtime stage)"
+	@echo "  docker-sim         Build simulation image"
 	@echo ""
 	@echo "Code quality:"
-	@echo "  lint           Run cppcheck + cpplint on all C++ sources"
-	@echo "  format         Apply clang-format to all C++ files in-place"
-	@echo "  format-check   Verify formatting without modifying files"
+	@echo "  lint               Run cppcheck + cpplint"
+	@echo "  format             Apply clang-format in-place"
+	@echo "  format-check       Verify formatting (dry run)"
 	@echo ""
 	@echo "Deployment:"
-	@echo "  deploy         Sync install tree to Raspberry Pi and restart service"
-	@echo "  backup-maps    Pull SLAM maps from robot into maps_backup/"
-	@echo ""
-	@echo "Overridable variables:"
-	@echo "  ROS_DISTRO     ROS 2 distribution (default: jazzy)"
-	@echo "  BUILD_TYPE     CMake build type (default: Release)"
-	@echo "  DOCKER_IMAGE   Base image name (default: mowgli-ros2)"
-	@echo "  DOCKER_TAG     Image tag (default: latest)"
-	@echo "  ROBOT_HOST     Target hostname for deploy (default: mowgli.local)"
-	@echo "  ROBOT_USER     SSH user for deploy (default: pi)"
+	@echo "  deploy             Sync install tree to robot and restart"
+	@echo "  backup-maps        Pull SLAM maps from robot"
 
 # ─── Build ─────────────────────────────────────────────────────────────────────
 
 build:
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	colcon build \
-	  --cmake-args -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+	  --cmake-args \
+	    -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+	    -DFields2Cover_DIR=$(F2C_DIR) \
 	  --parallel-workers $$(nproc) \
+	  --symlink-install \
 	  --event-handlers console_cohesion+
 
 build-debug:
 	$(MAKE) build BUILD_TYPE=Debug
+
+build-pkg:
+	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
+	source install/setup.bash 2>/dev/null; \
+	colcon build \
+	  --packages-select $(PKG) \
+	  --cmake-args \
+	    -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+	    -DFields2Cover_DIR=$(F2C_DIR) \
+	  --parallel-workers $$(nproc) \
+	  --symlink-install
 
 test:
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
@@ -82,13 +81,43 @@ test:
 clean:
 	rm -rf build/ install/ log/
 
-# ─── Docker ────────────────────────────────────────────────────────────────────
+# ─── Simulation & Testing ─────────────────────────────────────────────────────
 
-docker-build:
-	docker build --target build \
-	  --build-arg BUILD_TYPE=$(BUILD_TYPE) \
-	  --progress=plain \
-	  -t $(DOCKER_IMAGE)-build:$(DOCKER_TAG) .
+# Kill all ROS2/Gazebo processes and clean DDS shared memory.
+# MUST be run before launching a new simulation to avoid stale state
+# causing "Failed to find a free participant" or clock conflicts.
+sim-stop:
+	@scripts/sim-stop.sh
+
+sim: sim-stop
+	@echo "Starting headless simulation..."
+	@echo "  Foxglove: ws://localhost:8765"
+	@echo ""
+	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
+	source install/setup.bash && \
+	ros2 launch mowgli_bringup sim_full_system.launch.py \
+	  headless:=true use_rviz:=false
+
+e2e-test: sim-stop
+	@echo "Starting simulation + E2E test..."
+	@echo ""
+	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
+	source install/setup.bash && \
+	ros2 launch mowgli_bringup sim_full_system.launch.py \
+	  headless:=true use_rviz:=false &
+	SIM_PID=$$!; \
+	echo "Simulation PID: $$SIM_PID"; \
+	echo "Waiting 90s for Nav2 to activate..."; \
+	sleep 90; \
+	echo "Running E2E test..."; \
+	python3 src/e2e_test.py; \
+	TEST_EXIT=$$?; \
+	echo "Stopping simulation..."; \
+	kill $$SIM_PID 2>/dev/null; \
+	$(MAKE) sim-stop; \
+	exit $$TEST_EXIT
+
+# ─── Docker Images (CI / production) ──────────────────────────────────────────
 
 docker:
 	docker build --target runtime \
@@ -99,103 +128,6 @@ docker-sim:
 	docker build --target simulation \
 	  --build-arg BUILD_TYPE=$(BUILD_TYPE) \
 	  -t $(DOCKER_IMAGE)-sim:$(DOCKER_TAG) .
-
-docker-dev:
-	docker build -f Dockerfile.dev \
-	  -t $(DOCKER_IMAGE)-dev:$(DOCKER_TAG) .
-
-sim-build:
-	@echo "Compiling workspace inside simulation container..."
-	docker compose exec simulation bash -c "\
-	  source /opt/ros/$(ROS_DISTRO)/setup.bash && \
-	  cd /ros2_ws && \
-	  colcon build \
-	    --cmake-args -DCMAKE_BUILD_TYPE=Release \
-	    --parallel-workers \$$(nproc) \
-	    --event-handlers console_cohesion+"
-
-sim-build-pkg:
-	@echo "Compiling $(PKG) inside simulation container..."
-	docker compose exec simulation bash -c "\
-	  source /opt/ros/$(ROS_DISTRO)/setup.bash && \
-	  source /ros2_ws/install/setup.bash && \
-	  cd /ros2_ws && \
-	  colcon build \
-	    --packages-select $(PKG) \
-	    --cmake-args -DCMAKE_BUILD_TYPE=Release \
-	    --parallel-workers \$$(nproc)"
-
-sim-restart:
-	docker compose restart simulation
-
-# ─── Dev Simulation (volume-mounted source, fast iteration) ──────────────────
-
-dev-sim:
-	@echo "Starting dev simulation (source mounted from host)..."
-	@echo "  Gazebo GUI:      http://localhost:6080/vnc.html"
-	@echo "  Foxglove Studio: ws://localhost:8765"
-	@echo ""
-	@echo "Workflow:"
-	@echo "  1. Edit source files on your host"
-	@echo "  2. make dev-build                       (rebuild all)"
-	@echo "     make dev-build-pkg PKG=mowgli_behavior  (rebuild one)"
-	@echo "  3. make dev-restart                     (restart sim)"
-	@echo ""
-	docker compose up dev-sim
-
-dev-build:
-	@echo "Building all packages inside dev container..."
-	docker compose exec dev-sim bash -c "\
-	  source /opt/ros/$(ROS_DISTRO)/setup.bash && \
-	  cd /ros2_ws && \
-	  colcon build \
-	    --cmake-args -DCMAKE_BUILD_TYPE=Release \
-	    --parallel-workers \$$(nproc) \
-	    --event-handlers console_cohesion+"
-
-dev-build-pkg:
-	@echo "Building $(PKG) inside dev container..."
-	docker compose exec dev-sim bash -c "\
-	  source /opt/ros/$(ROS_DISTRO)/setup.bash && \
-	  source /ros2_ws/install/setup.bash 2>/dev/null; \
-	  cd /ros2_ws && \
-	  colcon build \
-	    --packages-select $(PKG) \
-	    --cmake-args -DCMAKE_BUILD_TYPE=Release \
-	    --parallel-workers \$$(nproc)"
-
-dev-restart:
-	docker compose restart dev-sim
-
-dev-shell:
-	@echo "Opening shell inside dev-sim container..."
-	docker compose exec dev-sim bash
-
-run-sim:
-	@echo "Starting headless simulation..."
-	@echo "  Foxglove Studio: ws://localhost:8765"
-	@echo "  Import layout:   foxglove/mowgli_sim.json"
-	@echo ""
-	docker compose up simulation
-
-run-sim-gui:
-	@echo "Starting simulation with Gazebo GUI..."
-	@echo "  Gazebo GUI:      http://localhost:6080/vnc.html"
-	@echo "  Foxglove Studio: ws://localhost:8765"
-	@echo ""
-	docker compose up simulation-gui
-
-run-hardware:
-	docker compose up mowgli
-
-foxglove:
-	@echo "Opening Foxglove Studio..."
-	@echo "Make sure to connect to ws://localhost:8765 (Foxglove Bridge)"
-	@echo "Import the layout from foxglove/mowgli_sim.json"
-	@open -a "Foxglove Studio" 2>/dev/null || \
-	  (echo "Foxglove Studio not found. Install from https://foxglove.dev/download" && \
-	   echo "Or use the web version: https://app.foxglove.dev" && \
-	   open "https://app.foxglove.dev/?ds=foxglove-websocket&ds.url=ws%3A%2F%2Flocalhost%3A8765")
 
 # ─── Code Quality ──────────────────────────────────────────────────────────────
 

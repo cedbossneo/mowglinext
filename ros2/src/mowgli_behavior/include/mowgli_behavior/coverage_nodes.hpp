@@ -154,4 +154,71 @@ private:
   double last_progress_y_{0.0};
 };
 
+// ---------------------------------------------------------------------------
+// ExecuteFullCoveragePath
+// ---------------------------------------------------------------------------
+
+/// Sends the full F2C coverage path (swaths + Dubins turns) to Nav2's
+/// FollowPath action as a single continuous path.  Much simpler than the
+/// per-swath ExecuteSwathBySwath — no NavigateToPose transits, no per-swath
+/// phase state machine.
+///
+/// Blade is enabled at start and disabled on completion/halt.
+/// On retry (after stuck/abort), finds the closest pose on the path to the
+/// robot's current position and sends the remaining sub-path.
+class ExecuteFullCoveragePath : public BT::StatefulActionNode
+{
+public:
+  using Nav2Navigate = nav2_msgs::action::NavigateToPose;
+  using Nav2FollowPath = nav2_msgs::action::FollowPath;
+  using NavGoalHandle = rclcpp_action::ClientGoalHandle<Nav2Navigate>;
+  using FollowGoalHandle = rclcpp_action::ClientGoalHandle<Nav2FollowPath>;
+
+  ExecuteFullCoveragePath(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  enum class Phase
+  {
+    TRANSIT_TO_START,
+    FOLLOWING_PATH,
+    DONE
+  };
+
+  void setBladeEnabled(bool enabled);
+  bool checkStuck(const std::shared_ptr<BTContext>& ctx);
+  size_t findClosestPoseIndex(const nav_msgs::msg::Path& path, double rx, double ry) const;
+
+  Phase phase_{Phase::TRANSIT_TO_START};
+
+  // Action clients
+  rclcpp_action::Client<Nav2Navigate>::SharedPtr nav_client_;
+  rclcpp_action::Client<Nav2FollowPath>::SharedPtr follow_client_;
+  rclcpp::Client<mowgli_interfaces::srv::MowerControl>::SharedPtr blade_client_;
+
+  // Goal handles
+  std::shared_future<NavGoalHandle::SharedPtr> nav_future_;
+  NavGoalHandle::SharedPtr nav_handle_;
+  std::shared_future<FollowGoalHandle::SharedPtr> follow_future_;
+  FollowGoalHandle::SharedPtr follow_handle_;
+
+  // Stuck detection
+  static constexpr double stuck_timeout_sec_{30.0};
+  static constexpr double stuck_min_progress_{0.05};
+  std::chrono::steady_clock::time_point last_progress_time_{};
+  double last_progress_x_{0.0};
+  double last_progress_y_{0.0};
+};
+
 }  // namespace mowgli_behavior
