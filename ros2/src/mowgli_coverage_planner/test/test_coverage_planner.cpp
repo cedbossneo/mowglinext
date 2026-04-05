@@ -369,8 +369,7 @@ TEST_F(CoveragePlannerTest, BoustrophedonHeadingAlternates)
     {
       ++alternation_failures;
       ADD_FAILURE() << "U-turn at pose " << i << ": heading delta = " << delta * 180.0 / M_PI
-                    << "° (expected ≥ 135°)."
-                    << "  yaw_prev=" << yaw_prev * 180.0 / M_PI
+                    << "° (expected ≥ 135°)." << "  yaw_prev=" << yaw_prev * 180.0 / M_PI
                     << "° yaw_curr=" << yaw_curr * 180.0 / M_PI << "°";
     }
   }
