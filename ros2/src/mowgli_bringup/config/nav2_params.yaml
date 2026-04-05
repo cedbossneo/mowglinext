@@ -39,7 +39,7 @@ controller_server:
     failure_tolerance: 5.0
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["stopped_goal_checker", "coverage_goal_checker"]
-    controller_plugins: ["FollowPath", "FollowCoveragePath"]
+    controller_plugins: ["FollowPath"]
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
@@ -60,65 +60,29 @@ controller_server:
       yaw_goal_tolerance: 6.28  # Don't check yaw for coverage paths
       stateful: true             # succeed once within tolerance, don't re-check
 
-    # RPP for transit/dock navigation, wrapped in RotationShimController
-    # to rotate-in-place toward the path before driving.
+    # Single RPP controller for both transit and coverage path following.
+    # Using one controller avoids a Nav2 Jazzy segfault when switching
+    # between multiple controller plugins in the same server.
+    # Wrapped in RotationShimController (angular_dist_threshold=3.14
+    # effectively disables rotation shim — RPP handles all heading).
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      angular_dist_threshold: 3.14   # disabled — don't rotate in place, just drive
+      angular_dist_threshold: 3.14   # effectively disabled
       forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 1.5
-      max_angular_accel: 2.5
+      rotate_to_heading_angular_vel: 1.8
+      max_angular_accel: 3.0
       # RPP parameters (passed through to primary controller)
       desired_linear_vel: 0.3
       lookahead_dist: 0.4
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
-      lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 1.5
-      transform_tolerance: 2.0
-      use_velocity_scaled_lookahead_dist: false
-      min_approach_linear_velocity: 0.05
-      approach_velocity_scaling_dist: 0.6
-      use_collision_detection: false
-      use_regulated_linear_velocity_scaling: true
-      use_fixed_curvature_lookahead: false
-      curvature_lookahead_dist: 0.6
-      use_cost_regulated_linear_velocity_scaling: false
-      regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.1
-      use_rotate_to_heading: false
-      allow_reversing: false
-      max_angular_accel: 2.5
-      max_angular_vel: 1.5
-      max_robot_pose_search_dist: 100.0
-
-    # RPP controller for coverage path following.
-    # RPP follows the path sequentially with a lookahead point, avoiding the
-    # nearest-point pruning issue that MPPI has with parallel boustrophedon
-    # swaths (only 0.18m apart).  Obstacle avoidance comes from costmap
-    # inflation — RPP slows down near inflated obstacles.
-    FollowCoveragePath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.3
-      lookahead_dist: 0.4
-      min_lookahead_dist: 0.2
-      max_lookahead_dist: 0.6
       lookahead_time: 1.0
-      rotate_to_heading_angular_vel: 1.8
       transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
       approach_velocity_scaling_dist: 0.4
-      # Collision detection during coverage mowing: disabled.
-      # RPP uses the local costmap to check for obstacles ahead. During
-      # mowing, swaths run near boundaries — inflated costmap triggers
-      # false "collision ahead". Real obstacle avoidance relies on the
-      # collision_monitor node (FootprintApproach) which watches LiDAR.
-      # In simulation, Gazebo LiDAR self-reflections from the chassis
-      # also trigger false collisions.
       use_collision_detection: false
-      # Slow down near obstacles detected in costmap (inflation layer costs).
       use_regulated_linear_velocity_scaling: true
       use_cost_regulated_linear_velocity_scaling: true
       cost_scaling_dist: 0.5
@@ -127,14 +91,12 @@ controller_server:
       curvature_lookahead_dist: 0.4
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.1
-      # Don't rotate in place — RPP naturally curves into the next swath.
       use_rotate_to_heading: false
       allow_reversing: false
-      max_angular_accel: 3.0
       max_angular_vel: 1.8
-      # Limit search distance along the path to prevent jumping to adjacent
-      # parallel swaths (only 0.18m apart Euclidean).
-      max_robot_pose_search_dist: 2.0
+      max_robot_pose_search_dist: 1000.0
+
+
 
 # ---------------------------------------------------------------------------
 # Planner server

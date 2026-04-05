@@ -204,7 +204,7 @@ private:
   FollowGoalHandle::SharedPtr follow_handle_;
 
   // Stuck detection
-  static constexpr double stuck_timeout_sec_{15.0};
+  static constexpr double stuck_timeout_sec_{30.0};
   static constexpr double stuck_min_progress_{0.05};
   std::chrono::steady_clock::time_point last_progress_time_{};
   double last_progress_x_{0.0};

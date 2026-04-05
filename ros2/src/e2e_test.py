@@ -121,7 +121,7 @@ class E2ETestNode(Node):
         )
         self.create_subscription(
             Path,
-            "/coverage_planner_node/coverage_path",
+            "/mowgli/coverage/path",
             self._on_coverage_path,
             reliable_qos,
         )

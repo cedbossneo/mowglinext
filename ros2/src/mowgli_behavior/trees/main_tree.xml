@@ -224,7 +224,7 @@
               </Fallback>
 
               <!-- Coverage path execution with recovery -->
-              <RetryUntilSuccessful num_attempts="3" name="RetryCoverageExecution">
+              <RetryUntilSuccessful num_attempts="10" name="RetryCoverageExecution">
                 <Fallback name="ExecuteOrRecover">
                   <ExecuteFullCoveragePath/>
                   <Sequence name="RecoverAndRetry">

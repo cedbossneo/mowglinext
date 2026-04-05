@@ -1076,9 +1076,14 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
     closest_dist = std::hypot(dx, dy);
   }
 
-  if (have_pose && closest_dist < 2.0)
+  // Always send the path directly to FollowPath, starting from the closest
+  // point.  Avoid NavigateToPose transit because a prior NavigateToPose call
+  // followed by a FollowPath call crashes controller_server in Nav2 Jazzy
+  // (SIGSEGV on second goal).  If the robot is far from the path, prepend
+  // the robot's current position so the controller smoothly drives to the
+  // path start.
+  if (have_pose)
   {
-    // Robot is near the path — send remaining path directly to FollowPath.
     RCLCPP_INFO(ctx->node->get_logger(),
                 "ExecuteFullCoveragePath: robot at (%.2f, %.2f), %.2fm from path, "
                 "following from pose %zu/%zu",
@@ -1087,7 +1092,21 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
     nav_msgs::msg::Path sub_path;
     sub_path.header = full_path.header;
     sub_path.header.stamp = ctx->node->now();
-    sub_path.poses.assign(
+
+    // If robot is far from the path, prepend current position as first waypoint
+    if (closest_dist > 0.5)
+    {
+      geometry_msgs::msg::PoseStamped robot_pose;
+      robot_pose.header = full_path.header;
+      robot_pose.header.stamp = ctx->node->now();
+      robot_pose.pose.position.x = rx;
+      robot_pose.pose.position.y = ry;
+      // Use orientation from the first coverage pose
+      robot_pose.pose.orientation = full_path.poses[0].pose.orientation;
+      sub_path.poses.push_back(robot_pose);
+    }
+
+    sub_path.poses.insert(sub_path.poses.end(),
         full_path.poses.begin() + static_cast<long>(closest_index),
         full_path.poses.end());
 
@@ -1098,33 +1117,79 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
 
     setBladeEnabled(true);
 
-    // Subsample path if too large — RPP segfaults on very large paths
-    // (>5000 poses). Keep every Nth pose to stay under the limit.
+    // Distance-based path thinning.  Keep poses at most `min_spacing` apart,
+    // but always retain poses where heading changes significantly (turns between
+    // swaths).  This preserves turn geometry while staying manageable.
     nav_msgs::msg::Path send_path = sub_path;
     if (send_path.poses.size() > 5000)
     {
-      const size_t step = (send_path.poses.size() / 4000) + 1;
-      nav_msgs::msg::Path sampled;
-      sampled.header = send_path.header;
-      for (size_t i = 0; i < send_path.poses.size(); i += step)
+      const double target_count = 1400.0;
+      const double total_len = [&]() {
+        double d = 0.0;
+        for (size_t i = 1; i < send_path.poses.size(); ++i)
+        {
+          const double dx = send_path.poses[i].pose.position.x - send_path.poses[i - 1].pose.position.x;
+          const double dy = send_path.poses[i].pose.position.y - send_path.poses[i - 1].pose.position.y;
+          d += std::hypot(dx, dy);
+        }
+        return d;
+      }();
+      const double min_spacing = total_len / target_count;
+      const double heading_threshold = 0.3;  // ~17 deg — keep turn waypoints
+
+      nav_msgs::msg::Path thinned;
+      thinned.header = send_path.header;
+      thinned.poses.push_back(send_path.poses.front());
+      double accum_dist = 0.0;
+      for (size_t i = 1; i < send_path.poses.size(); ++i)
       {
-        sampled.poses.push_back(send_path.poses[i]);
+        const double dx = send_path.poses[i].pose.position.x - send_path.poses[i - 1].pose.position.x;
+        const double dy = send_path.poses[i].pose.position.y - send_path.poses[i - 1].pose.position.y;
+        accum_dist += std::hypot(dx, dy);
+
+        // Check heading change (detect turns between swaths)
+        bool is_turn = false;
+        if (i + 1 < send_path.poses.size())
+        {
+          const double dx1 = dx, dy1 = dy;
+          const double dx2 = send_path.poses[i + 1].pose.position.x - send_path.poses[i].pose.position.x;
+          const double dy2 = send_path.poses[i + 1].pose.position.y - send_path.poses[i].pose.position.y;
+          const double len1 = std::hypot(dx1, dy1);
+          const double len2 = std::hypot(dx2, dy2);
+          if (len1 > 1e-6 && len2 > 1e-6)
+          {
+            const double cross = std::abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2);
+            is_turn = cross > heading_threshold;
+          }
+        }
+
+        if (accum_dist >= min_spacing || is_turn)
+        {
+          thinned.poses.push_back(send_path.poses[i]);
+          accum_dist = 0.0;
+        }
       }
       // Always include the last pose
-      if (sampled.poses.back().pose.position.x != send_path.poses.back().pose.position.x ||
-          sampled.poses.back().pose.position.y != send_path.poses.back().pose.position.y)
+      const auto & last = send_path.poses.back();
+      const auto & kept = thinned.poses.back();
+      if (last.pose.position.x != kept.pose.position.x ||
+          last.pose.position.y != kept.pose.position.y)
       {
-        sampled.poses.push_back(send_path.poses.back());
+        thinned.poses.push_back(last);
       }
       RCLCPP_INFO(ctx->node->get_logger(),
-                  "ExecuteFullCoveragePath: subsampled %zu -> %zu poses (step=%zu)",
-                  send_path.poses.size(), sampled.poses.size(), step);
-      send_path = sampled;
+                  "ExecuteFullCoveragePath: thinned %zu -> %zu poses (spacing=%.3fm, path=%.1fm)",
+                  send_path.poses.size(), thinned.poses.size(), min_spacing, total_len);
+      send_path = thinned;
     }
 
     Nav2FollowPath::Goal goal;
     goal.path = send_path;
-    goal.controller_id = "FollowCoveragePath";
+    // Use "FollowPath" (same as transit) to avoid controller_server segfault
+    // when switching controllers in Nav2 Jazzy.  The FollowPath controller
+    // uses RotationShimController with angular_dist_threshold=3.14 (disabled),
+    // so behavior is identical to bare RPP for straight/curved paths.
+    goal.controller_id = "FollowPath";
     goal.goal_checker_id = "coverage_goal_checker";
     follow_handle_.reset();
     follow_future_ = follow_client_->async_send_goal(goal);
@@ -1132,22 +1197,8 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
   }
   else
   {
-    // Robot is far from the path — navigate to the start first.
-    const auto & first_pose = full_path.poses.front();
-    Nav2Navigate::Goal goal;
-    goal.pose = first_pose;
-    goal.pose.header.stamp = ctx->node->now();
-    nav_handle_.reset();
-    nav_future_ = nav_client_->async_send_goal(goal);
-    phase_ = Phase::TRANSIT_TO_START;
-
-    RCLCPP_INFO(ctx->node->get_logger(),
-                "ExecuteFullCoveragePath: robot %.1fm from path, navigating to start (%.2f, %.2f), "
-                "then following %zu poses",
-                closest_dist,
-                first_pose.pose.position.x,
-                first_pose.pose.position.y,
-                full_path.poses.size());
+    RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: no robot pose available");
+    return BT::NodeStatus::FAILURE;
   }
 
   return BT::NodeStatus::RUNNING;
@@ -1156,87 +1207,6 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
 BT::NodeStatus ExecuteFullCoveragePath::onRunning()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-
-  // ── TRANSIT_TO_START: NavigateToPose to first coverage pose ──
-  if (phase_ == Phase::TRANSIT_TO_START)
-  {
-    if (!nav_handle_)
-    {
-      if (nav_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-      {
-        return BT::NodeStatus::RUNNING;
-      }
-      nav_handle_ = nav_future_.get();
-      if (!nav_handle_)
-      {
-        RCLCPP_ERROR(ctx->node->get_logger(), "ExecuteFullCoveragePath: transit goal rejected");
-        return BT::NodeStatus::FAILURE;
-      }
-      last_progress_time_ = std::chrono::steady_clock::now();
-    }
-
-    auto status = nav_handle_->get_status();
-
-    if (checkStuck(ctx))
-    {
-      RCLCPP_WARN(ctx->node->get_logger(), "ExecuteFullCoveragePath: stuck during transit");
-      nav_client_->async_cancel_goal(nav_handle_);
-      nav_handle_.reset();
-      return BT::NodeStatus::FAILURE;
-    }
-
-    if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
-    {
-      RCLCPP_INFO(ctx->node->get_logger(), "ExecuteFullCoveragePath: arrived at path start, beginning coverage");
-      nav_handle_.reset();
-
-      // Now send the full coverage path to FollowPath.
-      setBladeEnabled(true);
-      nav_msgs::msg::Path send_path = ctx->coverage_plan->full_path;
-      send_path.header.stamp = ctx->node->now();
-
-      // Subsample if too large
-      if (send_path.poses.size() > 5000)
-      {
-        const size_t step = (send_path.poses.size() / 4000) + 1;
-        nav_msgs::msg::Path sampled;
-        sampled.header = send_path.header;
-        for (size_t i = 0; i < send_path.poses.size(); i += step)
-        {
-          sampled.poses.push_back(send_path.poses[i]);
-        }
-        if (sampled.poses.back().pose.position.x != send_path.poses.back().pose.position.x ||
-            sampled.poses.back().pose.position.y != send_path.poses.back().pose.position.y)
-        {
-          sampled.poses.push_back(send_path.poses.back());
-        }
-        RCLCPP_INFO(ctx->node->get_logger(),
-                    "ExecuteFullCoveragePath: subsampled %zu -> %zu poses",
-                    send_path.poses.size(), sampled.poses.size());
-        send_path = sampled;
-      }
-
-      Nav2FollowPath::Goal goal;
-      goal.path = send_path;
-      goal.controller_id = "FollowCoveragePath";
-      goal.goal_checker_id = "coverage_goal_checker";
-      follow_handle_.reset();
-      follow_future_ = follow_client_->async_send_goal(goal);
-      phase_ = Phase::FOLLOWING_PATH;
-      last_progress_time_ = std::chrono::steady_clock::now();
-      return BT::NodeStatus::RUNNING;
-    }
-
-    if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
-        status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
-    {
-      RCLCPP_WARN(ctx->node->get_logger(), "ExecuteFullCoveragePath: transit to path start failed");
-      nav_handle_.reset();
-      return BT::NodeStatus::FAILURE;
-    }
-
-    return BT::NodeStatus::RUNNING;
-  }
 
   // ── FOLLOWING_PATH: FollowPath along the full F2C coverage path ──
   if (phase_ == Phase::FOLLOWING_PATH)
