@@ -43,7 +43,7 @@ jobs:
           echo "## TODOs in Code" >> /tmp/context.md
           grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.cpp" --include="*.hpp" \
             --include="*.py" --include="*.go" --include="*.ts" --include="*.tsx" \
-            ros2/ gui/ firmware/ sensors/ 2>/dev/null | head -30 >> /tmp/context.md
+            ros2/ app/ firmware/ sensors/ 2>/dev/null | head -30 >> /tmp/context.md
 
           CONTEXT=$(cat /tmp/context.md | head -300)
           echo "data<<EOF" >> "$GITHUB_OUTPUT"

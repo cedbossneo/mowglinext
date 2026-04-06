@@ -3,7 +3,7 @@
 
 # Component owners
 /ros2/ @cedbossneo
-/gui/ @cedbossneo
+/app/ @cedbossneo
 /docker/ @cedbossneo
 /sensors/ @cedbossneo
 /firmware/ @cedbossneo

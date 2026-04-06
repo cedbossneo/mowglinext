@@ -3,9 +3,9 @@ ros2:
   - changed-files:
       - any-glob-to-any-file: 'ros2/**'
 
-gui:
+app:
   - changed-files:
-      - any-glob-to-any-file: 'gui/**'
+      - any-glob-to-any-file: 'app/**'
 
 docker:
   - changed-files:

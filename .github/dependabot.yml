@@ -9,22 +9,31 @@ updates:
       - "ci"
       - "chore"
 
-  # Go (GUI)
+  # Go (App server)
   - package-ecosystem: "gomod"
-    directory: "/gui"
+    directory: "/app/server"
     schedule:
       interval: "weekly"
     labels:
-      - "gui"
+      - "app"
       - "chore"
 
-  # npm (GUI frontend)
-  - package-ecosystem: "npm"
-    directory: "/gui/web"
+  # Go (App proxy)
+  - package-ecosystem: "gomod"
+    directory: "/app/proxy"
     schedule:
       interval: "weekly"
     labels:
-      - "gui"
+      - "app"
+      - "chore"
+
+  # npm (App workspace — web, mobile, common)
+  - package-ecosystem: "npm"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "app"
       - "chore"
 
   # Docker (ROS2)
@@ -34,6 +43,24 @@ updates:
       interval: "monthly"
     labels:
       - "ros2"
+      - "chore"
+
+  # Docker (App server)
+  - package-ecosystem: "docker"
+    directory: "/app/server"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "app"
+      - "chore"
+
+  # Docker (App proxy)
+  - package-ecosystem: "docker"
+    directory: "/app/proxy"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "app"
       - "chore"
 
   # Docker (sensors)

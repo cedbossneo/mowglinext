@@ -104,7 +104,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 2. Fields2Cover v2.0.0 from source
+# 2. Node.js 22 (needed for app/web, app/mobile, app/common)
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# 3. Fields2Cover v2.0.0 from source
 # ---------------------------------------------------------------------------
 RUN git clone --branch main --depth 1 \
       https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c && \
@@ -118,17 +125,17 @@ RUN git clone --branch main --depth 1 \
     rm -rf /tmp/f2c
 
 # ---------------------------------------------------------------------------
-# 3. rosdep init (needed for resolving deps on first build)
+# 4. rosdep init (needed for resolving deps on first build)
 # ---------------------------------------------------------------------------
 RUN rosdep update --rosdistro jazzy || true
 
 # ---------------------------------------------------------------------------
-# 4. Workspace directory
+# 5. Workspace directory
 # ---------------------------------------------------------------------------
 WORKDIR /ros2_ws
 
 # ---------------------------------------------------------------------------
-# 5. Environment setup — auto-source ROS2 + workspace in every shell
+# 6. Environment setup — auto-source ROS2 + workspace in every shell
 # ---------------------------------------------------------------------------
 RUN echo 'source /opt/ros/jazzy/setup.bash' >> /etc/bash.bashrc && \
     echo '[ -f /ros2_ws/install/setup.bash ] && source /ros2_ws/install/setup.bash' >> /etc/bash.bashrc && \
@@ -136,7 +143,7 @@ RUN echo 'source /opt/ros/jazzy/setup.bash' >> /etc/bash.bashrc && \
     echo 'export RCUTILS_COLORIZED_OUTPUT=1' >> /etc/bash.bashrc
 
 # ---------------------------------------------------------------------------
-# 6. Cyclone DDS config (localhost-only discovery for containers)
+# 7. Cyclone DDS config (localhost-only discovery for containers)
 # ---------------------------------------------------------------------------
 COPY docker/config/cyclonedds.xml /etc/cyclonedds.xml
 ENV CYCLONEDDS_URI=file:///etc/cyclonedds.xml

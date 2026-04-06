@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- Background -->
+  <rect width="128" height="128" rx="28" fill="#f8fafc"/>
+
+  <!-- Grass -->
+  <path d="M12 88 Q64 78 116 88 L116 100 Q64 90 12 100 Z" fill="#22c55e" opacity="0.7"/>
+
+  <!-- Mower body -->
+  <rect x="32" y="52" rx="8" ry="8" width="64" height="32" fill="#334155" stroke="#475569" stroke-width="1.5"/>
+
+  <!-- Wheels -->
+  <circle cx="46" cy="86" r="7" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+  <circle cx="82" cy="86" r="7" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+
+  <!-- LiDAR -->
+  <circle cx="64" cy="48" r="5" fill="#22c55e"/>
+  <circle cx="64" cy="48" r="2.5" fill="#f8fafc"/>
+
+  <!-- LiDAR rays -->
+  <line x1="64" y1="43" x2="48" y2="32" stroke="#22c55e" stroke-width="1" opacity="0.4"/>
+  <line x1="64" y1="43" x2="64" y2="28" stroke="#22c55e" stroke-width="1" opacity="0.5"/>
+  <line x1="64" y1="43" x2="80" y2="32" stroke="#22c55e" stroke-width="1" opacity="0.4"/>
+
+  <!-- GPS -->
+  <circle cx="82" cy="42" r="3" fill="#38bdf8"/>
+  <line x1="82" y1="48" x2="82" y2="45" stroke="#64748b" stroke-width="1.5"/>
+</svg>

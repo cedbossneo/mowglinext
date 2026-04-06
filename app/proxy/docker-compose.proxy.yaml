@@ -1,0 +1,32 @@
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  proxy:
+    build: .
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URI: mongodb://mongo:27017/mowglinext
+      JWT_SECRET: ${JWT_SECRET}
+      FCM_CREDENTIALS: ${FCM_CREDENTIALS:-}
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  caddy_data:

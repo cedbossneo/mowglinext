@@ -170,6 +170,7 @@ services:
       WATCHTOWER_LABEL_ENABLE: "true"
     restart: unless-stopped
 
+
 volumes:
   # Persists SLAM maps across container restarts and image updates
   mowgli_maps:
