@@ -76,6 +76,7 @@ services:
   #
   # Replace this service with a different driver image if you use a different
   # LiDAR (e.g., rplidar, sllidar), as long as it publishes /scan.
+  # For RPLiDAR, use: LIDAR_IMAGE=... with build context ../sensors/lidar-rplidar
   # -------------------------------------------------------------------------
   lidar:
     container_name: mowgli-lidar

@@ -1,8 +1,12 @@
 # compose/docker-compose.lidar-rplidar.yml
+# RPLiDAR A1/A2/A3/S1/S2/S3/C1 driver — publishes /scan (LaserScan)
+#
+# Default launch file is for A2M8. For other models, override the command
+# with the appropriate launch file (e.g. rplidar_a1_launch.py, rplidar_s2_launch.py).
 
 x-ros2-env: &ros2-env
   ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
-  RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
   ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
   RCUTILS_COLORIZED_OUTPUT: "1"
   RCUTILS_LOGGING_USE_STDOUT: "1"
@@ -10,9 +14,9 @@ x-ros2-env: &ros2-env
 services:
   lidar:
     container_name: mowgli-lidar
-    image: ${LIDAR_IMAGE}
+    image: ${LIDAR_IMAGE:-ghcr.io/cedbossneo/mowglinext/lidar-rplidar:main}
     build:
-      context: ./lidar
+      context: ../sensors/lidar-rplidar
     network_mode: host
     ipc: host
     privileged: true
@@ -21,10 +25,13 @@ services:
     environment:
       <<: *ros2-env
     command: >
-      ros2 launch rplidar_ros rplidar.launch.py
+      ros2 launch rplidar_ros rplidar_a2m8_launch.py
       serial_port:=${LIDAR_PORT:-/dev/lidar}
       serial_baudrate:=${LIDAR_BAUD:-115200}
       frame_id:=lidar_link
+      topic_name:=/scan
+    volumes:
+      - ../docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     restart: unless-stopped
     logging:
       driver: json-file
