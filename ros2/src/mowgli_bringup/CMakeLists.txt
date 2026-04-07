@@ -26,6 +26,8 @@ if(BUILD_TESTING)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   set(ament_cmake_uncrustify_FOUND TRUE)
+  # Exclude uncrustify — we use clang-format (see .clang-format)
+  set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
   find_package(launch_testing_ament_cmake REQUIRED)

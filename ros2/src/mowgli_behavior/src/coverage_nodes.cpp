@@ -1,10 +1,17 @@
 // Copyright 2026 Mowgli Project
 //
-// Licensed under the GNU General Public License, version 3 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-//     https://www.gnu.org/licenses/gpl-3.0.html
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "mowgli_behavior/coverage_nodes.hpp"
 
@@ -949,7 +956,7 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
     }
 
     sub_path.poses.insert(sub_path.poses.end(),
-                          full_path.poses.begin() + static_cast<long>(closest_index),
+                          full_path.poses.begin() + static_cast<int64_t>(closest_index),
                           full_path.poses.end());
 
     if (sub_path.poses.empty())
@@ -1174,7 +1181,7 @@ bool ExecuteFullCoveragePath::resendFromCurrentPose(const std::shared_ptr<BTCont
   sub_path.poses.push_back(robot_pose);
 
   sub_path.poses.insert(sub_path.poses.end(),
-                        full_path.poses.begin() + static_cast<long>(resume_index),
+                        full_path.poses.begin() + static_cast<int64_t>(resume_index),
                         full_path.poses.end());
 
   RCLCPP_INFO(ctx->node->get_logger(),

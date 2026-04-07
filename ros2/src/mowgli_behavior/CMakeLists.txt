@@ -99,6 +99,8 @@ install(DIRECTORY include/
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  # Exclude uncrustify — we use clang-format (see .clang-format)
+  set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 

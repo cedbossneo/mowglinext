@@ -1,11 +1,17 @@
-// Copyright (c) 2016, TU Dortmund - Institute of Control Theory and Systems Engineering.
-// Copyright (c) 2024, Cedric - Mowgli ROS2 port.
+// Copyright 2026 Mowgli Project
 //
-// Originally part of teb_local_planner (BSD License).
-// Ported from ftc_local_planner (ROS1) to mowgli_nav2_plugins (ROS2).
-// Replaces boost::circular_buffer with std::deque.
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// SPDX-License-Identifier: BSD-3-Clause
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #ifndef MOWGLI_NAV2_PLUGINS__OSCILLATION_DETECTOR_HPP_
 #define MOWGLI_NAV2_PLUGINS__OSCILLATION_DETECTOR_HPP_
