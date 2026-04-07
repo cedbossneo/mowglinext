@@ -732,5 +732,35 @@
       </joint>
     </model>
 
+    <!-- Test obstacles: cylinders for e2e coverage + obstacle avoidance testing.
+         Placed on early swaths so the robot encounters them quickly. -->
+    <model name="obs_swath1">
+      <static>true</static>
+      <pose>-6.5 0.0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><cylinder><radius>0.30</radius><length>1.0</length></cylinder></geometry></collision>
+        <visual name="v"><geometry><cylinder><radius>0.30</radius><length>1.0</length></cylinder></geometry>
+          <material><ambient>1 0.3 0 1</ambient><diffuse>1 0.3 0 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="obs_swath2">
+      <static>true</static>
+      <pose>-6.0 -3.0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><cylinder><radius>0.30</radius><length>1.0</length></cylinder></geometry></collision>
+        <visual name="v"><geometry><cylinder><radius>0.30</radius><length>1.0</length></cylinder></geometry>
+          <material><ambient>1 0.3 0 1</ambient><diffuse>1 0.3 0 1</diffuse></material></visual>
+      </link>
+    </model>
+    <model name="obs_mid">
+      <static>true</static>
+      <pose>3.0 0.0 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><cylinder><radius>0.30</radius><length>1.0</length></cylinder></geometry></collision>
+        <visual name="v"><geometry><cylinder><radius>0.30</radius><length>1.0</length></cylinder></geometry>
+          <material><ambient>1 0.3 0 1</ambient><diffuse>1 0.3 0 1</diffuse></material></visual>
+      </link>
+    </model>
+
   </world>
 </sdf>

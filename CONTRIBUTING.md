@@ -27,7 +27,7 @@ Thanks for your interest in contributing! MowgliNext is a community-driven proje
 # Requires ROS2 Jazzy on Ubuntu 24.04
 cd ros2
 source /opt/ros/jazzy/setup.bash
-rosdep install --from-paths src --ignore-src --skip-keys "fields2cover" -y
+rosdep install --from-paths src --ignore-src -y
 colcon build
 colcon test
 ```

@@ -19,6 +19,75 @@
 
 ---
 
+## Project Status
+
+MowgliNext has a fully functional autonomous mowing stack running on real hardware. Here's what's built and working today, and what's coming next.
+
+### Core Stack
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| ROS2 Jazzy | Done | Full stack on differential-drive mower, Cyclone DDS, multi-arch Docker |
+| SLAM Toolbox | Done | Lifelong mode for mapping and localization |
+| Dual EKF Localization | Done | `ekf_odom` (50 Hz, wheel + IMU) and `ekf_map` (20 Hz, GPS + SLAM heading) |
+| RTK-GPS | Done | u-blox F9P support with GPS degradation handling and wait-for-fix logic |
+| Nav2 Navigation | Done | RPP controller for transit paths |
+| Collision Monitor | Done | LiDAR-based real-time obstacle detection |
+| Obstacle Tracker | Done | DBSCAN clustering, persistence promotion, overlapping merge |
+
+### Coverage Planning & Execution
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| B-RV Coverage Planner | Done | Boustrophedon + Rapid Voronoi path planning with Minimum Bounding Box |
+| Grid-based coverage | Done | Obstacle-aware decomposition with dynamic replanning |
+| Voronoi roadmap | Done | Inter-region transit between mowing zones |
+| FTCController | Done | Follow-the-Carrot with PID — sub-10 mm lateral accuracy on coverage paths |
+
+### Autonomy & Behavior
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Behavior Tree | Done | Full mowing cycle: undock, plan, mow, dock |
+| Rain detection | Done | Pause-and-wait behavior during rain |
+| Battery monitoring | Done | Low-battery dock with resume after charge |
+| Obstacle replanning | Done | Re-plan coverage when new obstacles detected |
+| Recovery sequences | Done | Stuck detection, reverse, re-attempt |
+
+### Infrastructure
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Simulation | Done | Gazebo Harmonic with full sensor simulation (LiDAR, IMU, GPS, wheel odom) |
+| E2E Testing | Done | Automated simulation testing with live dashboard metrics |
+| Web GUI | Done | React + Go interface for monitoring and control |
+| Docker Deployment | Done | Multi-arch (amd64 / arm64), Cyclone DDS, Docker Compose |
+| Firmware | Done | STM32F103 for motor control, IMU, blade safety, battery |
+| Interactive Installer | Done | Shell-based with hardware presets, i18n, UART detection |
+
+### Planned
+
+| Feature | Description |
+|---------|-------------|
+| Headland passes | Mow the perimeter outline before filling the interior |
+| 3D terrain handling | Slope-aware planning and speed adjustment |
+| Multi-zone mowing | Schedule and sequence multiple mowing areas |
+| Improved obstacle shapes | Track obstacle contours beyond bounding circles |
+| Coverage checkpoint resume | Resume a mowing session after reboot or power loss |
+
+### Supported Hardware
+
+| Category | Tested Models |
+|----------|---------------|
+| Chassis | YardForce Classic 500, 500B, LUV1000Ri (OpenMower-compatible differential drive) |
+| Compute | Rockchip RK3566 / RK3588, Raspberry Pi 4 / 5 |
+| RTK-GPS | u-blox ZED-F9P (recommended), other u-blox F9P boards |
+| LiDAR | LDRobot LD19, RPLiDAR A-series |
+| IMU | WT931 or similar 9-DOF |
+| Motor controller | STM32F103-based (Mowgli firmware) |
+
+---
+
 ## A Word About OpenMower
 
 MowgliNext exists because of [OpenMower](https://openmower.de/). Full stop.

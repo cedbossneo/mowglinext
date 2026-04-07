@@ -16,7 +16,6 @@ concurrency:
 
 env:
   ROS_DISTRO: jazzy
-  FIELDS2COVER_VERSION: v2.0.0
 
 jobs:
   # ─── Build & Test ────────────────────────────────────────────────────────────
@@ -61,36 +60,7 @@ jobs:
             --from-paths src \
             --ignore-src \
             --rosdistro ${{ matrix.ros_distro }} \
-            --skip-keys "fields2cover" \
             -y
-
-      - name: Cache Fields2Cover
-        id: cache-f2c
-        uses: actions/cache@v4
-        with:
-          path: /tmp/f2c-install
-          key: f2c-${{ env.FIELDS2COVER_VERSION }}-${{ matrix.ubuntu }}
-
-      - name: Build Fields2Cover from source
-        if: steps.cache-f2c.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get install -y libgdal-dev
-          git clone --branch ${{ env.FIELDS2COVER_VERSION }} --depth 1 \
-            https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c
-          cmake -S /tmp/f2c -B /tmp/f2c/build \
-            -DCMAKE_INSTALL_PREFIX=/tmp/f2c-install \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF \
-            -DBUILD_PYTHON=OFF
-          cmake --build /tmp/f2c/build -j$(nproc)
-          cmake --install /tmp/f2c/build
-          rm -rf /tmp/f2c
-
-      - name: Install Fields2Cover
-        run: |
-          sudo apt-get install -y libgdal-dev
-          sudo cp -a /tmp/f2c-install/. /usr/local/
-          sudo ldconfig
 
       - name: Cache colcon workspace
         uses: actions/cache@v4

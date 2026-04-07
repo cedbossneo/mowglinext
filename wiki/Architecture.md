@@ -28,9 +28,9 @@ Mowgli ROS2 is organized as a **12-package ecosystem** with clear separation of 
 │  └──────────────────┘  └──────────────────┘  └──────────────────────┘   │
 │                                                                           │
 │  ┌──────────────────────────────┐  ┌──────────────────────────────────┐ │
-│  │  mowgli_coverage_planner     │  │  mowgli_monitoring               │ │
-│  │  (Fields2Cover v2, action    │  │  (Diagnostics aggregator,        │ │
-│  │   server, boustrophedon)     │  │   MQTT bridge)                   │ │
+│  │  mowgli_brv_planner           │  │  mowgli_monitoring               │ │
+│  │  (B-RV algorithm, action     │  │  (Diagnostics aggregator,        │ │
+│  │   server, Voronoi transit)   │  │   MQTT bridge)                   │ │
 │  └──────────────────────────────┘  └──────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────┘
                                      │
@@ -68,13 +68,12 @@ Mowgli ROS2 is organized as a **12-package ecosystem** with clear separation of 
 | **mowgli_hardware** | Serial bridge to STM32 firmware (COBS + CRC-16 protocol) | mowgli_interfaces |
 | **mowgli_localization** | Multi-source localization (wheel odometry, IMU, RTK-GPS fusion, EKF) | mowgli_interfaces, robot_localization |
 | **mowgli_nav2_plugins** | Nav2 controller plugins (FTC, RPP + RotationShimController, goal checkers) | nav2_core, mowgli_interfaces |
-| **mowgli_coverage_planner** | Coverage path planning using Fields2Cover v2 (boustrophedon, Dubins turns) | mowgli_interfaces, fields2cover, nav_msgs |
+| **mowgli_brv_planner** | Coverage path planning using B-RV algorithm (MBB sweep direction, grid-based boustrophedon, Voronoi roadmap transit) | mowgli_interfaces, nav_msgs |
 | **mowgli_behavior** | Reactive behavior tree control (BehaviorTree.CPP v4) | mowgli_interfaces, nav2_msgs |
 | **mowgli_monitoring** | Diagnostics aggregation and MQTT bridge for external monitoring | diagnostic_msgs |
 | **mowgli_simulation** | Gazebo Harmonic worlds, robot models, and ros_gz_bridge configuration | mowgli_bringup, ros_gz_sim, ros_gz_bridge |
 | **mowgli_map** | Map server, storage, persistence for offline maps, and obstacle_tracker_node (persistent LiDAR obstacle detection) | nav_msgs, nav2_map_server, mowgli_interfaces |
 | **mowgli_description** | URDF/xacro robot model and meshes | xacro, robot_state_publisher |
-| **opennav_coverage** | Third-party Nav2 coverage server (built from source, jazzy branch) | nav2_core, fields2cover |
 | **mowgli_bringup** | Configuration, launch orchestration, and integration layer | All packages above |
 
 ## Package Dependency Graph
@@ -94,7 +93,7 @@ mowgli_interfaces (base layer)
     ├──→ mowgli_behavior
     │       └──→ mowgli_bringup
     │
-    ├──→ mowgli_coverage_planner
+    ├──→ mowgli_brv_planner
     │       └──→ mowgli_bringup
     │
     ├──→ mowgli_monitoring
@@ -677,13 +676,11 @@ Starts:
 
 **Controller Profiles (Active Configuration):**
 
-RPP (RegulatedPurePursuit) is the active controller for both navigation modes:
+Two controllers are active for different navigation modes:
 1. **FollowPath** – Transit navigation and docking (RPP + RotationShimController wrapper)
-2. **FollowCoveragePath** – Coverage path following (RPP, sequential lookahead tracking)
+2. **FollowCoveragePath** – Coverage path following (FTCController with 3-axis PID, <10mm lateral accuracy)
 
-The FTC controller plugin exists but is not yet activated. See the FTC architecture below for reference.
-
-#### FTCController: 5-State FSM & Path-Indexed Algorithm
+#### FTCController: 4-State FSM & Path-Indexed Algorithm (Active for Coverage)
 
 **State Machine:**
 
@@ -783,8 +780,9 @@ The `FailureDetector` class tracks velocity history:
 ```yaml
 FollowPath:
   plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-  # FTC is available but not yet activated:
-  # plugin: "mowgli_nav2_plugins::FTCController"
+
+FollowCoveragePath:
+  plugin: "mowgli_nav2_plugins::FTCController"
 
   # Speed profiles (state-dependent)
   speed_fast: 0.5                           # m/s in FOLLOWING state
@@ -967,7 +965,7 @@ class NavigateToPose : public BT::AsyncActionNode
 // Returns RUNNING (in progress), SUCCESS (reached), FAILURE (abort/timeout)
 
 class PlanCoveragePath : public BT::AsyncActionNode
-// Sends PlanCoverage action to mowgli_coverage_planner
+// Sends PlanCoverage action to mowgli_brv_planner
 // Port In: area_index (0-based area number)
 // Publishes feedback during planning (progress_percent, phase)
 // Returns SUCCESS with path, FAILURE if planning failed
@@ -1018,7 +1016,7 @@ class RetryUntilSuccessful : public BT::ControlNode
 - `/mower_control` – Enable/disable blade
 - `/emergency_stop` – Release latched emergency
 - `/navigate_to_pose` (Nav2) – Send navigation goals
-- `/plan_coverage` (mowgli_coverage_planner) – Generate coverage paths
+- `/plan_coverage` (mowgli_brv_planner) – Generate coverage paths
 
 **Publishing:**
 - `/high_level_status` (std_msgs/UInt8) – Current state (IDLE, UNDOCKING, MOWING, etc.)
@@ -1053,11 +1051,11 @@ BT_REGISTER_NODES(factory) {
 
 ---
 
-### 7. mowgli_coverage_planner
+### 7. mowgli_brv_planner
 
-**Purpose:** Autonomous coverage path planning using Fields2Cover v2 library.
+**Purpose:** Autonomous coverage path planning using the B-RV algorithm (Huang et al., 2021: "A novel solution with rapid Voronoi-based coverage path planning in irregular environment for robotic mowing systems").
 
-**Location:** `src/mowgli_coverage_planner/`
+**Location:** `src/mowgli_brv_planner/`
 
 **Architecture:**
 
@@ -1066,74 +1064,69 @@ Coverage Planner Node (ROS2)
     │
     ├── Inputs:
     │   ├── /plan_coverage action server (PlanCoverage.action)
-    │   │   └── Goal: outer_boundary (geometry_msgs/Polygon), mow_angle_deg, skip_outline
+    │   │   └── Goal: outer_boundary (geometry_msgs/Polygon), obstacles, mow_angle_deg, skip_outline
     │   │   └── Feedback: progress_percent (0-100), phase (string)
     │   │   └── Result: path (nav_msgs/Path), outline_path, total_distance, coverage_area
     │   │
     │   └── Parameters:
-    │       ├── tool_width (m) – mower cutting width
+    │       ├── tool_width (m) – mower cutting width (grid cell size)
     │       ├── headland_passes – number of perimeter passes
     │       ├── headland_width (m) – offset distance per pass
-    │       ├── path_spacing (m) – inter-swath spacing
-    │       ├── min_turning_radius (m) – Dubins curve radius
-    │       └── default_mow_angle (deg) – fixed angle, or -1.0 for auto-optimize
+    │       └── map_frame – coordinate frame
     │
-    ├── Fields2Cover v2 Pipeline:
-    │   ├── 1. Validate outer_boundary polygon
-    │   ├── 2. Generate headland cells (ConstHL) – perimeter passes
-    │   ├── 3. Generate swaths (BruteForce) – optimal angle search
-    │   ├── 4. Order swaths (BoustrophedonOrder) – minimize turns
-    │   ├── 5. Plan Dubins path (DubinsCurves) – smooth turnarounds
-    │   └── 6. Convert F2C states to nav_msgs::Path (poses + orientations)
+    ├── B-RV Algorithm Pipeline:
+    │   ├── 1. Headland pass generation (perimeter coverage)
+    │   ├── 2. MBB (Minimum Bounding Box) – rotating calipers on convex hull for optimal sweep direction
+    │   ├── 3. Grid-based coverage – discretize area into cells (size = tool_width), boustrophedon zigzag
+    │   ├── 4. Obstacle handling – sweep full columns, skip obstacle cells
+    │   ├── 5. Voronoi roadmap – Boost.Polygon Voronoi from boundary/obstacle samples, kd-tree KNN, Dijkstra shortest path for inter-region transit
+    │   └── 6. B-RV orchestrator – Headland → MBB → Grid → Sweep+Voronoi loop
     │
     └── Outputs:
-        ├── /coverage_path (nav_msgs/Path, transient_local QoS)
-        │   └── Full boustrophedon path with poses for FollowCoveragePath controller
-        └── /coverage_outline (nav_msgs/Path, transient_local QoS)
-            └── Headland outline for visualization in RViz
+        ├── /coverage_planner_node/coverage_path (nav_msgs/Path, transient_local QoS)
+        │   └── Full coverage path with poses for FTCController
+        ├── /coverage_planner_node/coverage_outline (nav_msgs/Path, transient_local QoS)
+        │   └── Headland outline for visualization in RViz
+        └── GeoJSON output compatible with Nav2 route_server
 ```
 
-**Algorithm: Fields2Cover Workflow**
+**Algorithm: B-RV Workflow**
 
-The coverage planner follows this deterministic pipeline:
+The coverage planner follows this pipeline:
 
-1. **Headland Generation (ConstHL):**
-   - Offset the outer boundary inward by `headland_passes * headland_width_`
+1. **Headland Generation:**
+   - Offset the outer boundary inward by `headland_passes * headland_width`
    - Creates a nested ring of passes around the perimeter
    - Used for edge coverage (e.g., trim grass borders)
 
-2. **Swath Generation (BruteForce):**
-   - If `mow_angle_deg < 0.0`, auto-search all angles and select minimum-swath orientation
-   - Otherwise, generate swaths parallel to the specified angle
-   - Spacing between swaths = `path_spacing` (typically same as `tool_width`)
-   - Returns a list of line segments (swaths)
+2. **MBB (Minimum Bounding Box):**
+   - Compute convex hull of the mowing area
+   - Apply rotating calipers to find the minimum bounding box
+   - Determines optimal sweep direction for minimal turns
 
-3. **Swath Ordering (BoustrophedonOrder):**
-   - Arrange swaths in a boustrophedon pattern (back-and-forth)
-   - Minimizes travel distance between consecutive swaths
-   - Reduces number of sharp turns
+3. **Grid-based Coverage:**
+   - Discretize the interior area into grid cells (cell size = tool_width)
+   - Generate boustrophedon zigzag sweep pattern across full columns
+   - Skip cells that overlap with obstacle polygons
 
-4. **Path Planning (DubinsCurves):**
-   - Connect consecutive swaths with smooth Dubins curves
-   - Respects `min_turning_radius` for robot dynamics
-   - Ensures kinematically feasible turns (no infinite curvature)
+4. **Voronoi Roadmap Transit:**
+   - Build Voronoi diagram from boundary and obstacle sample points using Boost.Polygon
+   - Connect Voronoi vertices via kd-tree KNN
+   - Use Dijkstra shortest path for inter-region transit between disconnected sweep segments
 
-5. **Path Conversion:**
-   - Convert F2C `State` objects (x, y, angle) to `geometry_msgs/PoseStamped`
-   - Generate continuous path suitable for RPP controller
-   - Poses include orientation for turn preparation
+5. **Path Assembly:**
+   - Combine headland passes, sweep segments, and Voronoi transit paths
+   - Generate poses with orientations for in-place rotation at swath turns
+   - Output path suitable for FTCController (differential drive, in-place turns)
 
 **Parameters (coverage_planner.yaml):**
 
 ```yaml
 coverage_planner_node:
   ros__parameters:
-    tool_width: 0.18                  # m – mower blade width
+    tool_width: 0.18                  # m – mower blade width and grid cell size
     headland_passes: 2                # number of perimeter passes
     headland_width: 0.18              # m – offset per pass
-    path_spacing: 0.18                # m – swath spacing (usually = tool_width)
-    min_turning_radius: 0.3           # m – minimum Dubins radius
-    default_mow_angle: -1.0           # deg (-1.0 for auto-optimize)
     map_frame: "map"
 ```
 
@@ -1141,12 +1134,7 @@ coverage_planner_node:
 
 During planning, the action publishes feedback at each phase:
 ```
-Phase 0: headland (5%)
-Phase 1: swaths (35%)
-Phase 2: routing (55%)
-Phase 3: path_planning (75%)
-Phase 4: path_planning (90%)
-Phase 5: path_planning (100%) → SUCCESS
+Phase: headland → mbb → grid → sweep → voronoi → complete
 ```
 
 Allows behavior tree to monitor progress and detect hangs.
@@ -1412,12 +1400,12 @@ foxglove_bridge:
        ├─ SetMowerEnabled(true) → blade motor on
        ├─ PublishHighLevelStatus(UNDOCKING)
        └─ PlanCoveragePath action:
-            └─→ mowgli_coverage_planner processes goal
-                ├─ 1. Headland generation (ConstHL, F2C v2)
-                ├─ 2. Swath generation (BruteForce angle search)
-                ├─ 3. Route ordering (BoustrophedonOrder)
-                ├─ 4. Dubins path planning (smooth turns)
-                └─ 5. Publishes /coverage_path and /coverage_outline
+            └─→ mowgli_brv_planner processes goal
+                ├─ 1. Headland generation (perimeter passes)
+                ├─ 2. MBB optimal sweep direction (rotating calipers)
+                ├─ 3. Grid-based boustrophedon sweep (obstacle-aware)
+                ├─ 4. Voronoi roadmap transit (inter-region Dijkstra)
+                └─ 5. Publishes coverage_path and coverage_outline
                     [BT receives path in result]
 
 3. Navigation to coverage start:
@@ -1429,8 +1417,9 @@ foxglove_bridge:
 
 4. Coverage path following (CoverageWithRecovery loop):
    FollowCoveragePath:
-     ├─ RPP controller (RegulatedPurePursuit, sequential lookahead)
-     ├─ max_robot_pose_search_dist: 5.0 prevents jumping to adjacent swaths
+     ├─ FTCController (Follow-the-Carrot with 3-axis PID, <10mm lateral accuracy)
+     ├─ State machine: PRE_ROTATE → FOLLOWING → WAITING_FOR_GOAL_APPROACH → POST_ROTATE
+     ├─ In-place rotation at swath turns (differential drive)
      ├─ Oscillation detection (FailureDetector)
      ├─ Obstacle avoidance (costmap checking)
      └─ Updates: state → WAITING_FOR_GOAL_APPROACH → POST_ROTATE → FINISHED
@@ -1465,10 +1454,10 @@ foxglove_bridge:
      ├─ Output: /map (occupancy grid)
      └─→ /tf: map → odom (loop closure correction)
 
-   RPP Controller (10 Hz):
+   FTCController (10 Hz, coverage) / RPP Controller (10 Hz, transit):
      ├─ Reads robot pose from /tf: odom → base_link
-     ├─ Sequential lookahead along coverage path
-     ├─ Regulated pure pursuit with curvature-based speed scaling
+     ├─ FTC: path-indexed PID on longitudinal, lateral, angular axes
+     ├─ RPP: regulated pure pursuit with curvature-based speed scaling (transit only)
      └─→ /cmd_vel (geometry_msgs/Twist)
 
 6. Command routing (twist_mux, priority-based):
@@ -1602,8 +1591,8 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | `/odometry/filtered_odom` | nav_msgs/Odometry | ekf_odom (robot_localization) | 50 Hz | Local estimate (odom frame) |
 | `/odometry/filtered_map` | nav_msgs/Odometry | ekf_map (robot_localization) | 20 Hz | Global estimate (map frame) with GPS correction |
 | `/localization/status` | diagnostic_msgs/DiagnosticStatus | localization_monitor_node | 2 Hz | EKF health, degradation mode |
-| `/coverage_path` | nav_msgs/Path | coverage_planner_node | Once per plan | Boustrophedon coverage path with poses |
-| `/coverage_outline` | nav_msgs/Path | coverage_planner_node | Once per plan | Headland outline for visualization |
+| `/coverage_planner_node/coverage_path` | nav_msgs/Path | coverage_planner_node | Once per plan | B-RV coverage path with poses |
+| `/coverage_planner_node/coverage_outline` | nav_msgs/Path | coverage_planner_node | Once per plan | Headland outline for visualization |
 | `/path` | nav_msgs/Path | planner_server (Nav2) | 1 Hz | Global path from Nav2 planner |
 | `/cmd_vel` | geometry_msgs/Twist | twist_mux | 10–50 Hz | Final velocity command (to hardware/Gazebo) |
 | `/diagnostics` | diagnostic_msgs/DiagnosticArray | diagnostics_node (mowgli_monitoring) | 1 Hz | System health aggregation |
@@ -1623,7 +1612,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | `/emergency` | behavior_tree_node, diagnostics_node | Emergency monitoring |
 | `/power` | behavior_tree_node, diagnostics_node | Battery level monitoring |
 | `/wheel_odom` | diagnostics_node | Monitor odometry freshness |
-| `/coverage_path` | FollowCoveragePath BT node, diagnostics_node (optional) | Coverage execution |
+| `/coverage_planner_node/coverage_path` | FollowCoveragePath BT node, diagnostics_node (optional) | Coverage execution |
 
 **Services (Request-Response):**
 
@@ -1639,7 +1628,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | Action | Type | Server | Client | Purpose |
 |--------|------|--------|--------|---------|
 | `/navigate_to_pose` | nav2_msgs/NavigateToPose | nav2_behavior_tree_navigator | behavior_tree_node (NavigateToPose BT node) | Non-blocking navigation goal |
-| `/plan_coverage` | mowgli_interfaces/PlanCoverage | coverage_planner_node | behavior_tree_node (PlanCoveragePath BT node) | Coverage path planning with feedback |
+| `/plan_coverage` | mowgli_interfaces/PlanCoverage | coverage_planner_node (mowgli_brv_planner) | behavior_tree_node (PlanCoveragePath BT node) | Coverage path planning with feedback |
 
 ---
 
@@ -1649,8 +1638,8 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
    - **Core:** mowgli_interfaces (message definitions)
    - **Hardware:** mowgli_hardware (STM32 bridge via COBS)
    - **Perception:** mowgli_localization (EKF fusion, multi-sensor)
-   - **Control:** mowgli_nav2_plugins (path tracking, RPP active, FTC available)
-   - **Planning:** mowgli_coverage_planner (Fields2Cover v2, boustrophedon)
+   - **Control:** mowgli_nav2_plugins (RPP for transit, FTCController for coverage)
+   - **Planning:** mowgli_brv_planner (B-RV algorithm, Voronoi roadmap transit)
    - **Behavior:** mowgli_behavior (BehaviorTree.CPP, 10 Hz reactive control)
    - **Monitoring:** mowgli_monitoring (diagnostics, MQTT bridge)
    - **Simulation:** mowgli_simulation (Gazebo Harmonic, ros_gz_bridge)
@@ -1668,9 +1657,9 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
    - Global (ekf_map, 20 Hz): Corrects drift using GPS or SLAM loop closures
    - Graceful degradation: operates without GPS in GNSS-denied areas
 
-6. **Coverage Path Following:** RPP (RegulatedPurePursuit) is the active controller for both FollowPath and FollowCoveragePath. Sequential lookahead with `max_robot_pose_search_dist: 5.0` prevents jumping between adjacent boustrophedon swaths. FTC controller plugin exists with a 5-state FSM but is not yet activated.
+6. **Coverage Path Following:** FTCController (Follow-the-Carrot) is the active controller for FollowCoveragePath, achieving <10mm lateral accuracy with 3-axis PID control and in-place rotation at swath turns. RPP remains active for FollowPath (transit and docking).
 
-7. **Fields2Cover v2 Coverage Planning:** Deterministic boustrophedon path generation with Dubins curve smoothing, optimal angle search, and headland generation for complete edge coverage.
+7. **B-RV Coverage Planning:** Grid-based boustrophedon sweep with MBB optimal direction (rotating calipers on convex hull), obstacle-aware cell skipping, and Voronoi roadmap transit (Boost.Polygon Voronoi + Dijkstra shortest path) for inter-region connections. No Fields2Cover dependency.
 
 8. **Reactive Behavior Trees (BehaviorTree.CPP v4):** 10 Hz non-preemptive tree execution with priority-based fallback selection:
    - Emergency guard: highest priority, interrupts all activity
@@ -1700,7 +1689,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | SLAM Config | src/mowgli_bringup/config/slam_toolbox.yaml | Loop closure, occupancy grid updates |
 | Nav2 Config | src/mowgli_bringup/config/nav2_params.yaml | Planner, controller, costmap tuning |
 | Behavior Tree | src/mowgli_behavior/trees/main_tree.xml | High-level state machine and sequencing |
-| Coverage Config | src/mowgli_coverage_planner/config/coverage_planner.yaml | Fields2Cover parameters (headland, spacing) |
+| Coverage Config | src/mowgli_brv_planner/config/coverage_planner.yaml | B-RV planner parameters (tool width, headland) |
 | Gazebo Worlds | src/mowgli_simulation/worlds/ | garden.sdf (realistic), empty_garden.sdf (testing) |
 
 **Testing Workflow:**

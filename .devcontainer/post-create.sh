@@ -41,7 +41,6 @@ rosdep install \
     --from-paths src \
     --ignore-src \
     --rosdistro jazzy \
-    --skip-keys "fields2cover" \
     -y || true
 
 # ---------------------------------------------------------------------------
@@ -52,7 +51,6 @@ colcon build \
     --cmake-args \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_TESTING=OFF \
-        -DFields2Cover_DIR=/usr/local/cmake/fields2cover \
     --parallel-workers "$(nproc)" \
     --symlink-install \
     --event-handlers console_cohesion+

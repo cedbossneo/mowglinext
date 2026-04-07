@@ -98,13 +98,44 @@ CoverageResult plan_coverage(const Polygon2D& boundary,
     return result;
   }
 
-  // Find initial start (top-left corner of first unvisited region)
-  auto regions = grid.get_unvisited_region_starts();
-  if (regions.empty())
-    return result;
+  // Find initial start — nearest unvisited cell to robot position,
+  // or top-left corner if robot position is not provided.
+  int cur_row, cur_col;
+  if (!std::isnan(params.robot_x) && !std::isnan(params.robot_y))
+  {
+    // Find the grid cell nearest to the robot
+    auto nearest = grid.find_nearest_unvisited(
+        grid.rows() / 2, grid.cols() / 2);  // rough center as seed
+    // Better: convert robot pos to grid coords and search from there
+    // For now, just use find_nearest_unvisited from a rough grid position
+    // by trying all unvisited region starts and picking the closest
+    auto regions = grid.get_unvisited_region_starts();
+    if (regions.empty())
+      return result;
 
-  int cur_row = regions[0].first;
-  int cur_col = regions[0].second;
+    double best_dist = std::numeric_limits<double>::max();
+    cur_row = regions[0].first;
+    cur_col = regions[0].second;
+    for (const auto& [r, c] : regions)
+    {
+      Point2D cell_pos = grid.cell_to_map(r, c);
+      double d = std::hypot(cell_pos.x - params.robot_x, cell_pos.y - params.robot_y);
+      if (d < best_dist)
+      {
+        best_dist = d;
+        cur_row = r;
+        cur_col = c;
+      }
+    }
+  }
+  else
+  {
+    auto regions = grid.get_unvisited_region_starts();
+    if (regions.empty())
+      return result;
+    cur_row = regions[0].first;
+    cur_col = regions[0].second;
+  }
   Point2D cur_pos = grid.cell_to_map(cur_row, cur_col);
 
   int iteration = 0;

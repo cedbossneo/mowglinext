@@ -118,8 +118,8 @@ private:
 
     // Replan / boundary signals from map_server_node
     replan_needed_sub_ =
-        create_subscription<std_msgs::msg::Bool>("/map_server/replan_needed",
-                                                 rclcpp::QoS(1).transient_local(),
+        create_subscription<std_msgs::msg::Bool>("/map_server_node/replan_needed",
+                                                 rclcpp::QoS(1),
                                                  [this](std_msgs::msg::Bool::ConstSharedPtr msg)
                                                  {
                                                    std::lock_guard<std::mutex> lock(

@@ -13,7 +13,7 @@ config/
 ├── hardware_bridge.yaml      # Serial protocol parameters
 ├── localization.yaml          # Dual EKF tuning
 ├── nav2_params.yaml           # Navigation stack (planner, controller, costmap)
-├── coverage_planner.yaml      # Coverage path planning parameters
+├── coverage_planner.yaml      # B-RV coverage path planning parameters
 ├── slam_toolbox.yaml          # SLAM parameters
 ├── twist_mux.yaml             # Velocity multiplexer priorities
 ├── foxglove_bridge.yaml       # Foxglove Studio visualization bridge
@@ -709,66 +709,45 @@ velocity_smoother:
 
 **File:** `src/mowgli_bringup/config/coverage_planner.yaml`
 
-**Purpose:** Configure the autonomous mowing coverage planner.
+**Purpose:** Configure the B-RV autonomous mowing coverage planner (mowgli_brv_planner).
 
 **Full Configuration:**
 
 ```yaml
-coverage_planner:
+coverage_planner_node:
   ros__parameters:
+    # Tool and grid parameters
+    tool_width: 0.18                       # m (mowing blade width and grid cell size)
+
     # Headland (boundary pass) parameters
-    headland_passes: 3                     # Number of passes around the perimeter
-    headland_width: 0.5                    # m (how far from boundary)
+    headland_passes: 2                     # Number of passes around the perimeter
+    headland_width: 0.18                   # m (offset per pass)
 
-    # Tool and cutting parameters
-    tool_width: 0.55                       # m (mowing deck width)
-    cutting_height: 0.08                   # m (grass cutting height)
-
-    # Mowing pattern
-    mowing_angle: 0.0                      # rad (direction of mowing rows; 0 = North-South)
-    mowing_angle_variance: 0.2             # rad (random offset per pass)
-    row_spacing: 0.5                       # m (distance between passes)
-
-    # Robot constraints
-    min_turning_radius: 0.4                # m (minimum curvature radius)
-    max_angular_vel: 1.0                   # rad/s
-    goal_tolerance: 0.3                    # m
-
-    # Optimization
-    use_coverage_goal_checker: true        # Use CoverageGoalChecker instead of StoppedGoalChecker
-    optimize_path_smoothness: true
+    # Coordinate frame
+    map_frame: "map"
 ```
 
 ### Key Parameters
 
-#### `headland_passes`
-
-- **Type:** integer
-- **Default:** `3`
-- **Description:** Number of passes around yard perimeter before mowing interior
-- **Rationale:** Ensures boundary coverage and creates safety margin before interior work
-
 #### `tool_width`
 
 - **Type:** double (m)
-- **Default:** `0.55`
-- **Description:** Physical width of mowing deck
-- **Use case:** Row spacing auto-calculated as `tool_width * 0.95` (5% overlap for safety)
+- **Default:** `0.18`
+- **Description:** Physical width of mowing blade; also used as grid cell size for the B-RV discretization
+- **Impact:** Determines sweep lane spacing and coverage resolution
 
-#### `mowing_angle`
+#### `headland_passes`
 
-- **Type:** double (radians)
-- **Default:** `0.0`
-- **Range:** `0.0` to `6.28` (0° to 360°)
-- **Description:** Preferred direction of mowing rows (0 = North-South, π/2 = East-West)
-- **Tuning:** Adjust based on field topography to minimize drift on slopes
+- **Type:** integer
+- **Default:** `2`
+- **Description:** Number of passes around yard perimeter before mowing interior
+- **Rationale:** Ensures boundary coverage and creates safety margin before interior work
 
-#### `min_turning_radius`
+#### `headland_width`
 
 - **Type:** double (m)
-- **Default:** `0.4`
-- **Description:** Minimum radius the robot can execute (physical constraint)
-- **Must match:** Robot wheelbase and max angular velocity: `radius = linear_vel / angular_vel`
+- **Default:** `0.18`
+- **Description:** Offset distance per headland pass (typically matches tool_width)
 
 ---
 

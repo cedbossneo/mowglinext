@@ -280,6 +280,9 @@ BT::NodeStatus ComputeCoverage::onRunning()
   ctx->next_swath_index = 0;
   ctx->current_area = static_cast<int>(area_index_);
 
+  // Clear the replan flag — this plan includes the latest obstacles.
+  ctx->replan_needed = false;
+
   // Check for a saved checkpoint — resume from where we left off if the
   // plan hash matches (same area, same swath layout).
   {

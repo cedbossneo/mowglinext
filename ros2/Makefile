@@ -7,8 +7,6 @@ DOCKER_TAG    ?= latest
 ROBOT_HOST    ?= mowgli.local
 ROBOT_USER    ?= pi
 
-# Fields2Cover cmake hint (devcontainer installs to /usr/local)
-F2C_DIR       ?= /usr/local/cmake/fields2cover
 
 .PHONY: help build build-debug build-pkg test clean \
         sim sim-stop e2e-test e2e-test-no-lidar \
@@ -53,7 +51,6 @@ build:
 	colcon build \
 	  --cmake-args \
 	    -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-	    -DFields2Cover_DIR=$(F2C_DIR) \
 	  --parallel-workers $$(nproc) \
 	  --symlink-install \
 	  --event-handlers console_cohesion+
@@ -68,7 +65,6 @@ build-pkg:
 	  --packages-select $(PKG) \
 	  --cmake-args \
 	    -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-	    -DFields2Cover_DIR=$(F2C_DIR) \
 	  --parallel-workers $$(nproc) \
 	  --symlink-install
 

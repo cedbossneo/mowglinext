@@ -462,9 +462,9 @@ collision_monitor:
 # via RewrittenYaml.
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# Coverage server (opennav_coverage)
-# Plans coverage paths using Fields2Cover v1.2.1.
-# Called by ComputeCoverage BT node via ComputeCoveragePath action.
+# Coverage server (legacy opennav_coverage config — kept for reference)
+# The B-RV planner (mowgli_brv_planner) now handles coverage planning.
+# Called by ComputeCoverage BT node via PlanCoverage action.
 # ---------------------------------------------------------------------------
 coverage_server:
   ros__parameters:

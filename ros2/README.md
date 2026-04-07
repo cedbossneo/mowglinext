@@ -1,8 +1,8 @@
 # Mowgli ROS2
 
-A complete ROS2 Jazzy robot mower stack built from scratch. Autonomous coverage mowing with RTK GPS, LiDAR SLAM, Fields2Cover v2 path planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
+A complete ROS2 Jazzy robot mower stack built from scratch. Autonomous coverage mowing with RTK GPS, LiDAR SLAM, B-RV coverage path planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
 
-Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Jazzy with Nav2, slam_toolbox lifelong mode, and direct Fields2Cover v2 integration.
+Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Jazzy with Nav2, slam_toolbox lifelong mode, and B-RV coverage planning.
 
 [![CI](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml)
 [![Docker](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml)
@@ -46,7 +46,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
         |                  |                   |
  +------v------+  +--------v--------+   +------v---------------------+
  |  map_server |  |coverage_planner |   |          Nav2 Jazzy         |
- |  GridMap    |  | Fields2Cover v2 |   |  FollowPath (RPP+Rotation)  |
+ |  GridMap    |  | B-RV Planner    |   |  FollowPath (RPP+Rotation)  |
  |  keepout/   |  | Boustrophedon   |   |  FollowCoveragePath (RPP)   |
  |  speed masks|  | Dubins curves   |   |  SmacPlanner2D              |
  |  mow_progres|  | GeoJSON output  |   |  collision_monitor          |
@@ -84,7 +84,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 ## Features
 
 - **Full autonomous mowing** — plan, mow, dock, charge, resume. No manual intervention required.
-- **Fields2Cover v2** — boustrophedon swath generation with headland, Dubins-curve turns, cell decomposition for irregular polygons, and GeoJSON route graph output.
+- **B-RV coverage planner** — grid-based boustrophedon sweep with MBB optimal direction (rotating calipers), obstacle-aware cell skipping, and Voronoi roadmap transit for inter-region connections. No external dependencies beyond Boost.
 - **slam_toolbox lifelong mode** — LiDAR SLAM that accumulates across sessions. Pose graph persisted to disk before docking and reloaded on next session.
 - **RTK GPS localization** — UBX protocol. RTK fixed gives ~2 cm absolute accuracy. `ekf_map` fuses GPS + SLAM heading + wheel velocity with adaptive covariances.
 - **Dual EKF** — `ekf_odom` for wheel+IMU dead reckoning at 50 Hz, `ekf_map` for GPS+SLAM fusion at 20 Hz. SLAM is the sole map→odom TF authority.
@@ -112,7 +112,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 | `mowgli_localization` | `wheel_odometry_node` `navsat_to_absolute_pose_node` `gps_pose_converter_node` `slam_heading_node` `localization_monitor_node` | Wheel odometry, GPS conversion pipeline, SLAM heading extractor, dual EKF, localization mode monitor |
 | `mowgli_behavior` | `behavior_tree_node` | BehaviorTree.CPP v4 executor. Loads `main_tree.xml`. All BT action and condition nodes |
 | `mowgli_map` | `map_server_node` `obstacle_tracker_node` | GridMap with 4 layers, area CRUD services, keepout/speed filter masks, mow progress. Persistent LiDAR obstacle detection |
-| `mowgli_coverage_planner` | `coverage_planner_node` | Fields2Cover v2 pipeline: headland then swaths then Dubins path. Exposes `PlanCoverage` action server |
+| `mowgli_brv_planner` | `coverage_planner_node` | B-RV coverage planner: headland passes, MBB-optimal boustrophedon sweep, Voronoi roadmap transit. Exposes `PlanCoverage` action server |
 | `mowgli_nav2_plugins` | — | `FTCController` Nav2 controller plugin library loaded by `controller_server` |
 | `mowgli_monitoring` | `diagnostics_node` `mqtt_bridge_node` | Diagnostics aggregator monitoring 8 subsystems at 1 Hz. Optional MQTT bridge |
 | `mowgli_simulation` | `gps_degradation_sim_node` `navsat_to_pose_node` | Gazebo Harmonic worlds, SDF mower model, GPS degradation simulator |
@@ -353,7 +353,7 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 
 ### Coverage Planner Parameters
 
-`src/mowgli_coverage_planner/config/coverage_planner.yaml`:
+`src/mowgli_brv_planner/config/coverage_planner.yaml`:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -377,7 +377,7 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 | `src/mowgli_bringup/config/localization.yaml` | Dual EKF tuning and GPS covariances |
 | `src/mowgli_bringup/config/slam_toolbox.yaml` | SLAM scan matching, loop closure, map update rate |
 | `src/mowgli_bringup/config/twist_mux.yaml` | `cmd_vel` multiplexer priorities and timeouts |
-| `src/mowgli_coverage_planner/config/coverage_planner.yaml` | Fields2Cover pipeline parameters |
+| `src/mowgli_brv_planner/config/coverage_planner.yaml` | B-RV coverage planner parameters |
 | `src/mowgli_map/config/obstacle_tracker.yaml` | LiDAR obstacle detection thresholds |
 | `src/mowgli_behavior/config/behavior_tree.yaml` | BT node parameters |
 | `src/mowgli_behavior/trees/main_tree.xml` | Full BT structure: guards, sequences, recovery |
@@ -389,25 +389,8 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 ### Prerequisites
 
 - ROS2 Jazzy on Ubuntu 24.04
-- Fields2Cover v2 built from source (see below)
+- Boost (libboost-dev) for Voronoi roadmap transit in `mowgli_brv_planner`
 - `colcon`, `rosdep`, `xacro` (`python3-colcon-common-extensions`, `python3-rosdep`)
-
-### Build Fields2Cover from Source
-
-```bash
-sudo apt-get install -y libgdal-dev
-git clone --branch main --depth 1 \
-  https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c
-cmake -S /tmp/f2c -B /tmp/f2c/build \
-  -DCMAKE_INSTALL_PREFIX=/usr/local \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_TESTING=OFF \
-  -DBUILD_PYTHON=OFF
-cmake --build /tmp/f2c/build -j$(nproc)
-sudo cmake --install /tmp/f2c/build
-sudo ldconfig
-rm -rf /tmp/f2c
-```
 
 ### Build the Workspace
 
@@ -416,12 +399,10 @@ source /opt/ros/jazzy/setup.bash
 cd /path/to/mowgli-ros2
 
 rosdep update --rosdistro jazzy
-rosdep install --from-paths src --ignore-src --rosdistro jazzy \
-  --skip-keys "fields2cover" -y
+rosdep install --from-paths src --ignore-src --rosdistro jazzy -y
 
 colcon build \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
-               -DFields2Cover_DIR=/usr/local/cmake/fields2cover \
   --parallel-workers $(nproc) \
   --event-handlers console_cohesion+
 
@@ -457,7 +438,7 @@ make lint            # cppcheck + cpplint
 | Stage | From | Contents |
 |-------|------|----------|
 | `base` | `ros:jazzy-ros-base` | All apt runtime deps: Nav2, slam_toolbox, rosbridge-suite, foxglove-bridge, Cyclone DDS |
-| `deps` | `base` | Build tools, rosdep resolution, Fields2Cover v2 built from source |
+| `deps` | `base` | Build tools, rosdep resolution |
 | `build-interfaces` | `deps` | `mowgli_interfaces` compiled only (cached layer, rarely rebuilt) |
 | `build` | `build-interfaces` | All remaining packages compiled, unit tests run |
 | `runtime` | `base` | Compiled install tree + rosbridge CBOR patch applied. Sets `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` |
@@ -540,7 +521,7 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 - `navigation.launch.py` — slam_toolbox, dual EKF (`ekf_odom` + `ekf_map`), Nav2 bringup
 - `behavior_tree_node` — BT mission executor
 - `map_server_node` + `obstacle_tracker_node` — area management and obstacle tracking
-- `coverage_planner_node` — Fields2Cover v2 action server
+- `coverage_planner_node` — B-RV coverage planner action server
 - `wheel_odometry_node`, `navsat_to_absolute_pose_node`, `gps_pose_converter_node`, `slam_heading_node`, `localization_monitor_node` — localization pipeline
 - `diagnostics_node` — robot health monitoring
 - `mqtt_bridge_node` — optional, `enable_mqtt:=true`
@@ -626,7 +607,7 @@ MowingSequence
       UndockRobot               opennav_docking undock action
       CalibrateHeadingFromUndock compute map heading from GPS displacement
   WasRainingAtStart             record rain state at session start
-  ComputeCoverage(area_index=0) PlanCoverage action -> Fields2Cover pipeline
+  ComputeCoverage(area_index=0) PlanCoverage action -> B-RV planner pipeline
   PublishHighLevelStatus("MOWING")
 
   AdaptiveCoverage (ReactiveSequence)

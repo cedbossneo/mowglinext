@@ -282,7 +282,10 @@
                 </Sequence>
               </Fallback>
 
-              <!-- Coverage path execution with recovery -->
+              <!-- Coverage path execution with recovery.
+                   On failure (stuck/abort), recovery always replans with latest
+                   obstacles — B-RV planner is fast (~5ms) so no cost to replan
+                   every recovery. ComputeCoverage clears replan_needed flag. -->
               <RetryUntilSuccessful num_attempts="10" name="RetryCoverageExecution">
                 <Fallback name="ExecuteOrRecover">
                   <ExecuteFullCoveragePath/>
@@ -295,6 +298,9 @@
                       <AlwaysSuccess/>
                     </Fallback>
                     <ClearCostmap/>
+                    <ComputeCoverage area_index="0" first_swath_start="{first_wp}"/>
+                    <SetMowerEnabled enabled="true"/>
+                    <PublishHighLevelStatus state="2" state_name="MOWING"/>
                     <WaitForDuration duration_sec="3.0"/>
                     <AlwaysFailure/>
                   </Sequence>

@@ -52,7 +52,7 @@ The devcontainer provides a complete ROS2 Jazzy development environment:
 
 - Full Nav2 navigation stack, SLAM Toolbox, robot_localization
 - Gazebo Harmonic simulation (headless)
-- Fields2Cover v2.0.0 coverage planner (built from source)
+- B-RV coverage planner (mowgli_brv_planner)
 - Foxglove Bridge + rosbridge for visualization
 - Claude Code CLI + GitHub CLI for AI-assisted development
 - clang-format, gdb, htop, and other dev tools

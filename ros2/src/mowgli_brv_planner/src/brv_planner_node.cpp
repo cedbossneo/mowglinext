@@ -10,6 +10,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include "mowgli_brv_planner/brv_algorithm.hpp"
 #include "mowgli_brv_planner/types.hpp"
@@ -92,6 +94,10 @@ public:
           execute(goal_handle);
         });
 
+    // TF buffer for robot position lookup
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
     RCLCPP_INFO(get_logger(),
                 "BrvPlannerNode: tool_width=%.3f m, headland_passes=%d, "
                 "headland_width=%.3f m, voronoi_knn=%d, frame='%s'",
@@ -171,6 +177,20 @@ private:
     params.voronoi_sample_spacing = voronoi_sample_spacing_;
     params.voronoi_knn = voronoi_knn_;
     params.min_obstacle_area = min_obstacle_area_;
+
+    // Get robot position from TF so the sweep starts near the robot
+    try
+    {
+      auto tf = tf_buffer_->lookupTransform(map_frame_, "base_link", tf2::TimePointZero);
+      params.robot_x = tf.transform.translation.x;
+      params.robot_y = tf.transform.translation.y;
+      RCLCPP_INFO(get_logger(), "Robot at (%.2f, %.2f) — sweep starts from nearest cell",
+                  params.robot_x, params.robot_y);
+    }
+    catch (const tf2::TransformException& ex)
+    {
+      RCLCPP_WARN(get_logger(), "Could not get robot position: %s — starting from corner", ex.what());
+    }
 
     // Progress callback
     auto progress_fn = [&](float pct, const std::string& phase)
@@ -408,6 +428,10 @@ private:
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr voronoi_pub_;
   rclcpp::Subscription<mowgli_interfaces::msg::ObstacleArray>::SharedPtr obstacle_sub_;
   rclcpp_action::Server<PlanCoverage>::SharedPtr action_server_;
+
+  // TF
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
   // Tracked obstacles
   std::mutex obs_mutex_;

@@ -18,6 +18,10 @@ struct PlannerParams
   double voronoi_sample_spacing = 0.18;
   int voronoi_knn = 10;
   double min_obstacle_area = 0.01;
+  // Robot start position — sweep begins from nearest cell to this point.
+  // If NaN, starts from top-left corner of first unvisited region.
+  double robot_x = std::numeric_limits<double>::quiet_NaN();
+  double robot_y = std::numeric_limits<double>::quiet_NaN();
 };
 
 // Progress callback: (percent, phase_name)

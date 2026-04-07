@@ -68,9 +68,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-foxglove-bridge \
     # Rosbridge (WebSocket bridge for openmower-gui)
     ros-jazzy-rosbridge-suite \
-    # Coverage planning (F2C v1.2.1-devel built from source below)
-    # ros-jazzy-fields2cover -- removed: opennav_coverage requires F2C v1.2.1
-    libgdal-dev \
+    # Boost (required by mowgli_brv_planner — Voronoi roadmap transit)
+    libboost-dev \
     # Gazebo Harmonic + ROS bridge
     ros-jazzy-ros-gz-sim \
     ros-jazzy-ros-gz-bridge \
@@ -98,26 +97,6 @@ RUN apt-get install -y --no-install-recommends \
     git \
     git-lfs \
  && true
-
-# ---- Fields2Cover v1.2.1-devel from source (required by opennav_coverage) ----
-RUN git clone --branch v1.2.1-devel --depth 1 \
-      https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c && \
-    cd /tmp/f2c && mkdir build && cd build && \
-    cmake .. \
-      -DCMAKE_INSTALL_PREFIX=/usr/local \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_TESTING=OFF \
-      -DBUILD_PYTHON=OFF && \
-    make -j"$(nproc)" && make install && ldconfig && \
-    rm -rf /tmp/f2c
-
-# ---- opennav_coverage from source (jazzy branch) ----------------------------
-# In dev mode, src/ is bind-mounted from the host, so we clone opennav_coverage
-# into the host src/ directory instead. This clone provides a fallback for
-# non-bind-mounted builds (e.g., docker build without compose).
-RUN git clone --branch jazzy --depth 1 \
-      https://github.com/open-navigation/opennav_coverage.git \
-      /ros2_ws/src/opennav_coverage
 
 # ---- Compiler cache (significantly speeds up incremental builds) -------------
 RUN apt-get install -y --no-install-recommends ccache \

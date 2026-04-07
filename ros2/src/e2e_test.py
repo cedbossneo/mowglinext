@@ -1324,29 +1324,12 @@ def main():
         node.get_logger().info(f"Starting test in {i}s...")
         time.sleep(1)
 
-    # Pre-spawn physical obstacles in Gazebo BEFORE starting mowing.
-    # These are detected by LiDAR and trigger obstacle tracker + replanning.
-    obstacle_positions = [
-        (5.0, 0.0, "obs_center"),       # center of garden
-        (3.0, -3.0, "obs_bottom"),       # bottom-left area
-        (8.0, 2.0, "obs_right"),         # right side
-        (-2.0, 4.0, "obs_topleft"),      # top-left
-        (7.0, -4.0, "obs_bottomright"),  # bottom-right
-    ]
-    spawned_obstacles = []
-    for ox, oy, name in obstacle_positions:
-        if node._spawn_obstacle_at(ox, oy, name):
-            spawned_obstacles.append(name)
-            node.get_logger().info(f"Spawned obstacle '{name}' at ({ox}, {oy})")
-        else:
-            node.get_logger().warn(f"Failed to spawn obstacle '{name}' at ({ox}, {oy})")
-
-    if spawned_obstacles:
-        node.obstacle_spawned = True
-        node.get_logger().info(f"Spawned {len(spawned_obstacles)} physical obstacles in Gazebo")
-    else:
-        node.get_logger().warn("Could not spawn any obstacles — avoidance test will be skipped")
-        node.obstacle_test_result = "SKIP"
+    # Physical obstacles are pre-placed in the Gazebo world SDF (garden.sdf).
+    # obs_swath1 at (-6.5, 0.0), obs_swath2 at (-6.0, -3.0), obs_mid at (3.0, 0.0).
+    # They exist from sim start so the obstacle tracker detects them before mowing.
+    node.obstacle_spawned = True
+    spawned_obstacles = ["obs_swath1", "obs_swath2", "obs_mid"]
+    node.get_logger().info("Using 3 pre-placed obstacles from Gazebo world")
 
     # Send START command
     if not node.send_start_command():

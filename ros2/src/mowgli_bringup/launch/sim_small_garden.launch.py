@@ -182,7 +182,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Coverage planner (Fields2Cover v2)
+    # 5. Coverage planner (B-RV planner)
     # ------------------------------------------------------------------
     coverage_planner_node = Node(
         package="mowgli_brv_planner",

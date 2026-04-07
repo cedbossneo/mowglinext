@@ -18,6 +18,7 @@
 
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -250,6 +251,8 @@ private:
   // ── Replanning state ──────────────────────────────────────────────────────
   /// Number of persistent obstacles at last replan (for change detection).
   std::size_t last_obstacle_count_{0};
+  /// Persistent obstacle IDs already included in a replan.
+  std::set<uint32_t> planned_obstacle_ids_;
   /// Timestamp of last replan trigger (for cooldown).
   rclcpp::Time last_replan_time_;
   /// Minimum seconds between replan triggers.

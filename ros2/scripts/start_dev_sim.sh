@@ -21,7 +21,7 @@ if [ ! -f /ros2_ws/install/setup.bash ]; then
     echo "=== First run: building full workspace from mounted sources ==="
     cd /ros2_ws
     colcon build \
-        --cmake-args -DCMAKE_BUILD_TYPE=Release -DFields2Cover_DIR=/usr/local/cmake/fields2cover \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release \
         --parallel-workers "$(nproc)" \
         --event-handlers console_cohesion+
     echo "=== Build complete ==="

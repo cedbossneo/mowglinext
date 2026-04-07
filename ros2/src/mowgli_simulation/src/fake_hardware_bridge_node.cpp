@@ -30,13 +30,17 @@
  *   - /hardware_bridge/emergency (mowgli_interfaces/Emergency) — no emergency
  */
 
+#include <cmath>
 #include <memory>
+#include <mutex>
 
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/battery_state.hpp"
 
 class FakeHardwareBridgeNode : public rclcpp::Node
 {
@@ -54,6 +58,14 @@ public:
           RCLCPP_DEBUG(get_logger(), "Fake mower_control: mow_enabled=%u", req->mow_enabled);
         });
 
+    // Dock position (origin) and proximity threshold
+    declare_parameter<double>("dock_x", 0.0);
+    declare_parameter<double>("dock_y", 0.0);
+    declare_parameter<double>("dock_proximity", 0.3);
+    dock_x_ = get_parameter("dock_x").as_double();
+    dock_y_ = get_parameter("dock_y").as_double();
+    dock_proximity_ = get_parameter("dock_proximity").as_double();
+
     // Publishers
     status_pub_ = create_publisher<mowgli_interfaces::msg::Status>("/hardware_bridge/status",
                                                                    rclcpp::QoS(10));
@@ -62,6 +74,19 @@ public:
     emergency_pub_ =
         create_publisher<mowgli_interfaces::msg::Emergency>("/hardware_bridge/emergency",
                                                             rclcpp::QoS(10));
+    battery_state_pub_ =
+        create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", 10);
+
+    // Subscribe to wheel odometry to determine robot position
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        "/wheel_odom", rclcpp::SensorDataQoS(),
+        [this](const nav_msgs::msg::Odometry::SharedPtr msg)
+        {
+          std::lock_guard<std::mutex> lock(odom_mutex_);
+          robot_x_ = msg->pose.pose.position.x;
+          robot_y_ = msg->pose.pose.position.y;
+          odom_received_ = true;
+        });
 
     // Publish at 1 Hz
     timer_ = create_wall_timer(std::chrono::seconds(1),
@@ -78,6 +103,23 @@ private:
   {
     auto now = this->now();
 
+    // Determine if robot is near the dock
+    bool near_dock = false;
+    {
+      std::lock_guard<std::mutex> lock(odom_mutex_);
+      if (odom_received_)
+      {
+        double dx = robot_x_ - dock_x_;
+        double dy = robot_y_ - dock_y_;
+        near_dock = std::sqrt(dx * dx + dy * dy) < dock_proximity_;
+      }
+      else
+      {
+        // Before first odom, assume docked (robot starts at dock)
+        near_dock = true;
+      }
+    }
+
     mowgli_interfaces::msg::Status status;
     status.stamp = now;
     status_pub_->publish(status);
@@ -85,9 +127,23 @@ private:
     mowgli_interfaces::msg::Power power;
     power.stamp = now;
     power.v_battery = 28.0;
-    power.v_charge = 0.0;
-    power.charge_current = 0.0;
+    power.v_charge = near_dock ? 28.5 : 0.0;
+    power.charge_current = near_dock ? 1.5 : 0.0;
+    power.charger_enabled = near_dock;
     power_pub_->publish(power);
+
+    // BatteryState for opennav_docking charge detection
+    sensor_msgs::msg::BatteryState battery;
+    battery.header.stamp = now;
+    battery.header.frame_id = "base_link";
+    battery.voltage = 28.0f;
+    battery.current = near_dock ? 1.5f : 0.0f;
+    battery.percentage = 1.0f;
+    battery.power_supply_status =
+        near_dock ? sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
+                  : sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_NOT_CHARGING;
+    battery.present = true;
+    battery_state_pub_->publish(battery);
 
     mowgli_interfaces::msg::Emergency emergency;
     emergency.stamp = now;
@@ -100,7 +156,20 @@ private:
   rclcpp::Publisher<mowgli_interfaces::msg::Status>::SharedPtr status_pub_;
   rclcpp::Publisher<mowgli_interfaces::msg::Power>::SharedPtr power_pub_;
   rclcpp::Publisher<mowgli_interfaces::msg::Emergency>::SharedPtr emergency_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr battery_state_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
+
+  // Robot position from odometry
+  std::mutex odom_mutex_;
+  double robot_x_ = 0.0;
+  double robot_y_ = 0.0;
+  bool odom_received_ = false;
+
+  // Dock position and proximity threshold
+  double dock_x_ = 0.0;
+  double dock_y_ = 0.0;
+  double dock_proximity_ = 0.3;
 };
 
 int main(int argc, char **argv)

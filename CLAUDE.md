@@ -1,6 +1,6 @@
 # MowgliNext
 
-Open-source autonomous robot mower monorepo. ROS2 Jazzy, Nav2, SLAM Toolbox, BehaviorTree.CPP v4, Fields2Cover v2.
+Open-source autonomous robot mower monorepo. ROS2 Jazzy, Nav2, SLAM Toolbox, BehaviorTree.CPP v4, B-RV coverage planner.
 
 **Website:** https://mowgli.garden | **Wiki:** https://github.com/cedbossneo/mowglinext/wiki
 
@@ -33,6 +33,8 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation transform
 5. **Costmap obstacles disabled in coverage planner** — collision_monitor handles real-time avoidance
 6. **dock_pose_yaw from phone compass** — measured once at installation, not computed
+7. **B-RV planner for coverage** — `mowgli_brv_planner` replaces `mowgli_coverage_planner` (no Fields2Cover dependency)
+8. **FTCController for coverage paths** — RPP for transit only, FTCController (PID on 3 axes) for coverage path following
 
 ## Code Style
 
@@ -62,7 +64,7 @@ No Co-Authored-By lines. Keep messages concise and focused on "why".
 - **Frames:** `map` (global), `odom` (local), `base_link` (robot), `lidar_link`, `imu_link`
 - **Units:** SI throughout (metres, radians, seconds)
 - **Dual EKF:** `ekf_odom` (50Hz, wheel+IMU) and `ekf_map` (20Hz, odom+GPS)
-- **Navigation:** RPP for both transit and coverage (NOT MPPI — it jumps between adjacent swaths)
+- **Navigation:** RPP for transit, FTCController (Follow-the-Carrot with 3-axis PID) for coverage paths (NOT MPPI — it jumps between adjacent swaths)
 
 See sections below for detailed package descriptions, topics, and architecture.
 
@@ -134,3 +136,4 @@ When using Claude Code on this project:
 - Do NOT send blade commands without firmware safety checks
 - Do NOT hardcode GPS coordinates, dock poses, or NTRIP credentials
 - Do NOT use MPPI controller for coverage paths — it jumps between swaths
+- Do NOT use RPP for coverage paths — use FTCController for <10mm lateral accuracy on swaths

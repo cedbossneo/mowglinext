@@ -10,6 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
@@ -68,6 +69,8 @@ target_include_directories(fake_hardware_bridge_node
 ament_target_dependencies(fake_hardware_bridge_node
   rclcpp
   mowgli_interfaces
+  nav_msgs
+  sensor_msgs
 )
 
 install(TARGETS

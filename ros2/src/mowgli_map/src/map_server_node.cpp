@@ -185,7 +185,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
 
   // ── Replan / boundary publishers ────────────────────────────────────────
   replan_needed_pub_ =
-      create_publisher<std_msgs::msg::Bool>("~/replan_needed", rclcpp::QoS(1).transient_local());
+      create_publisher<std_msgs::msg::Bool>("~/replan_needed", rclcpp::QoS(1));
   boundary_violation_pub_ =
       create_publisher<std_msgs::msg::Bool>("~/boundary_violation", rclcpp::QoS(1));
 
@@ -854,18 +854,29 @@ void MapServerNode::on_get_mowing_area(
     const auto& entry = areas_[idx];
     res->area.name = entry.name;
     res->area.area = entry.polygon;
+    // Start with user-defined (static) obstacles from config.
     res->area.obstacles = entry.obstacles;
     res->area.is_navigation_area = entry.is_navigation_area;
-    // Only return user-defined (static) obstacles. Dynamic obstacles from the
-    // LiDAR tracker are handled separately via the costmap and should not be
-    // included here — otherwise the GUI saves them as static, duplicating
-    // obstacles on every save/load cycle.
+
+    // Also include persistent tracked obstacles from the obstacle tracker
+    // so the coverage planner can avoid them in the initial plan.
+    const auto n_static = res->area.obstacles.size();
+    for (const auto& obs_poly : obstacle_polygons_)
+    {
+      if (obs_poly.points.size() >= 3)
+      {
+        res->area.obstacles.push_back(obs_poly);
+      }
+    }
+
     res->success = true;
     RCLCPP_INFO(get_logger(),
-                "GetMowingArea[%u]: area='%s', %zu obstacles",
+                "GetMowingArea[%u]: area='%s', %zu obstacles (%zu static + %zu tracked)",
                 req->index,
                 entry.name.c_str(),
-                entry.obstacles.size());
+                res->area.obstacles.size(),
+                n_static,
+                res->area.obstacles.size() - n_static);
   }
   else
   {
@@ -1264,13 +1275,53 @@ void MapServerNode::check_boundary_violation(double x, double y)
 void MapServerNode::diff_and_update_obstacles(
     const std::vector<mowgli_interfaces::msg::TrackedObstacle>& incoming)
 {
-  const std::size_t incoming_count = incoming.size();
+  // Always update obstacle polygons for costmap/keepout.
+  obstacle_polygons_.clear();
+  for (const auto& obs : incoming)
+  {
+    if (obs.polygon.points.size() >= 3)
+    {
+      obstacle_polygons_.push_back(obs.polygon);
+    }
+  }
 
-  if (incoming_count == last_obstacle_count_)
+  // Check for new persistent obstacles not yet planned around.
+  // Only persistent obstacles with stable IDs trigger replanning.
+  bool has_new_persistent = false;
+  std::set<uint32_t> current_persistent_ids;
+  for (const auto& obs : incoming)
+  {
+    if (obs.status == mowgli_interfaces::msg::TrackedObstacle::PERSISTENT)
+    {
+      current_persistent_ids.insert(obs.id);
+      if (planned_obstacle_ids_.find(obs.id) == planned_obstacle_ids_.end())
+      {
+        has_new_persistent = true;
+        RCLCPP_INFO(get_logger(),
+                    "New persistent obstacle #%u detected (not yet planned around)",
+                    obs.id);
+      }
+    }
+  }
+
+  const std::size_t incoming_count = current_persistent_ids.size();
+  if (incoming_count != last_obstacle_count_)
+  {
+    RCLCPP_INFO(get_logger(),
+                "Obstacle change detected: %zu -> %zu persistent obstacles",
+                last_obstacle_count_,
+                incoming_count);
+    last_obstacle_count_ = incoming_count;
+    masks_dirty_ = true;
+  }
+
+  // Handle deferred replans.
+  if (!has_new_persistent)
   {
     if (replan_pending_ && (now() - last_replan_time_).seconds() >= replan_cooldown_sec_)
     {
       replan_pending_ = false;
+      planned_obstacle_ids_ = current_persistent_ids;
       std_msgs::msg::Bool msg;
       msg.data = true;
       replan_needed_pub_->publish(msg);
@@ -1280,25 +1331,7 @@ void MapServerNode::diff_and_update_obstacles(
     return;
   }
 
-  RCLCPP_INFO(get_logger(),
-              "Obstacle change detected: %zu -> %zu persistent obstacles",
-              last_obstacle_count_,
-              incoming_count);
-
-  obstacle_polygons_.clear();
-  for (const auto& obs : incoming)
-  {
-    // Include all obstacles with valid polygons (both transient and persistent).
-    // The robot should mow around detected obstacles regardless of confirmation status.
-    if (obs.polygon.points.size() >= 3)
-    {
-      obstacle_polygons_.push_back(obs.polygon);
-    }
-  }
-
-  last_obstacle_count_ = incoming_count;
-  masks_dirty_ = true;
-
+  // New persistent obstacle — trigger or defer replan.
   if ((now() - last_replan_time_).seconds() < replan_cooldown_sec_)
   {
     replan_pending_ = true;
@@ -1310,11 +1343,14 @@ void MapServerNode::diff_and_update_obstacles(
   }
 
   replan_pending_ = false;
+  planned_obstacle_ids_ = current_persistent_ids;
   std_msgs::msg::Bool msg;
   msg.data = true;
   replan_needed_pub_->publish(msg);
   last_replan_time_ = now();
-  RCLCPP_INFO(get_logger(), "Replan triggered due to obstacle map change");
+  RCLCPP_INFO(get_logger(),
+              "Replan triggered: %zu new persistent obstacles",
+              current_persistent_ids.size() - (planned_obstacle_ids_.size() - current_persistent_ids.size()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 # MowgliNext Development Container
 #
 # All-in-one image for GitHub Codespaces and local devcontainer usage.
-# Includes: ROS2 Jazzy, Nav2, Gazebo Harmonic (headless), Fields2Cover v2,
+# Includes: ROS2 Jazzy, Nav2, Gazebo Harmonic (headless),
 # build tools, and developer utilities.
 #
 # Gazebo runs headless (CPU rendering) — connect Foxglove Studio to
@@ -79,8 +79,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
-    # ── Fields2Cover build dependency ──
-    libgdal-dev \
+    # ── Boost (required by mowgli_brv_planner — Voronoi roadmap transit) ──
+    libboost-dev \
     # ── Runtime deps ──
     libtinyxml2-dev \
     python3-argcomplete \
@@ -106,31 +106,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 2. Fields2Cover v2.0.0 from source
-# ---------------------------------------------------------------------------
-RUN git clone --branch main --depth 1 \
-      https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c && \
-    cd /tmp/f2c && mkdir build && cd build && \
-    cmake .. \
-      -DCMAKE_INSTALL_PREFIX=/usr/local \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_TESTING=OFF \
-      -DBUILD_PYTHON=OFF && \
-    make -j"$(nproc)" && make install && ldconfig && \
-    rm -rf /tmp/f2c
-
-# ---------------------------------------------------------------------------
-# 3. rosdep init (needed for resolving deps on first build)
+# 2. rosdep init (needed for resolving deps on first build)
 # ---------------------------------------------------------------------------
 RUN rosdep update --rosdistro jazzy || true
 
 # ---------------------------------------------------------------------------
-# 4. Workspace directory
+# 3. Workspace directory
 # ---------------------------------------------------------------------------
 WORKDIR /ros2_ws
 
 # ---------------------------------------------------------------------------
-# 5. Environment setup — auto-source ROS2 + workspace in every shell
+# 4. Environment setup — auto-source ROS2 + workspace in every shell
 # ---------------------------------------------------------------------------
 RUN echo 'source /opt/ros/jazzy/setup.bash' >> /etc/bash.bashrc && \
     echo '[ -f /ros2_ws/install/setup.bash ] && source /ros2_ws/install/setup.bash' >> /etc/bash.bashrc && \
@@ -138,7 +124,7 @@ RUN echo 'source /opt/ros/jazzy/setup.bash' >> /etc/bash.bashrc && \
     echo 'export RCUTILS_COLORIZED_OUTPUT=1' >> /etc/bash.bashrc
 
 # ---------------------------------------------------------------------------
-# 6. Cyclone DDS config (localhost-only discovery for containers)
+# 5. Cyclone DDS config (localhost-only discovery for containers)
 # ---------------------------------------------------------------------------
 COPY docker/config/cyclonedds.xml /etc/cyclonedds.xml
 ENV CYCLONEDDS_URI=file:///etc/cyclonedds.xml

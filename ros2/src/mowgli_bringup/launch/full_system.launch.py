@@ -215,7 +215,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Coverage planner (Fields2Cover v2 — replaces opennav_coverage)
+    # 5. Coverage planner (B-RV planner — replaces opennav_coverage)
     # ------------------------------------------------------------------
     coverage_planner_node = Node(
         package="mowgli_brv_planner",

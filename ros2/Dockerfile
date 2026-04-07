@@ -65,9 +65,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-nav2-util \
     # Nav2 msgs (CostmapFilterInfo for costmap filters)
     ros-jazzy-nav2-msgs \
-    # Coverage planning (F2C v1.2.1 built from source in deps stage)
-    # ros-jazzy-fields2cover -- removed: we build F2C v2.0.0 from source
-    libgdal-dev \
+    # Boost (required by mowgli_brv_planner — Voronoi roadmap transit)
+    libboost-dev \
     # Simulation bridge (needed at runtime for ros_gz_bridge topic bridging)
     ros-jazzy-ros-gz-sim \
     ros-jazzy-ros-gz-bridge \
@@ -100,21 +99,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /ros2_ws
 
-# ---- Fields2Cover v2.0.0 from source -----------------------------------------
-# v2 adds cell decomposition for irregular gardens, OR-tools route optimization,
-# and better obstacle handling. opennav_coverage is no longer used — the project
-# calls F2C directly from coverage_planner_node.
-RUN git clone --branch main --depth 1 \
-      https://github.com/Fields2Cover/Fields2Cover.git /tmp/f2c && \
-    cd /tmp/f2c && mkdir build && cd build && \
-    cmake .. \
-      -DCMAKE_INSTALL_PREFIX=/usr/local \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_TESTING=OFF \
-      -DBUILD_PYTHON=OFF && \
-    make -j"$(nproc)" && make install && ldconfig && \
-    rm -rf /tmp/f2c
-
 # Copy only package.xml + CMakeLists.txt to resolve rosdep deps (cache layer).
 # This ensures the expensive rosdep install is only re-run when package
 # definitions change, NOT when source code changes.
@@ -126,8 +110,8 @@ COPY src/mowgli_localization/package.xml  src/mowgli_localization/package.xml
 COPY src/mowgli_localization/CMakeLists.txt src/mowgli_localization/CMakeLists.txt
 COPY src/mowgli_map/package.xml           src/mowgli_map/package.xml
 COPY src/mowgli_map/CMakeLists.txt        src/mowgli_map/CMakeLists.txt
-COPY src/mowgli_coverage_planner/package.xml src/mowgli_coverage_planner/package.xml
-COPY src/mowgli_coverage_planner/CMakeLists.txt src/mowgli_coverage_planner/CMakeLists.txt
+COPY src/mowgli_brv_planner/package.xml src/mowgli_brv_planner/package.xml
+COPY src/mowgli_brv_planner/CMakeLists.txt src/mowgli_brv_planner/CMakeLists.txt
 COPY src/mowgli_nav2_plugins/package.xml  src/mowgli_nav2_plugins/package.xml
 COPY src/mowgli_nav2_plugins/CMakeLists.txt src/mowgli_nav2_plugins/CMakeLists.txt
 COPY src/mowgli_behavior/package.xml      src/mowgli_behavior/package.xml
@@ -145,7 +129,6 @@ RUN rosdep update --rosdistro jazzy \
       --from-paths src \
       --ignore-src \
       --rosdistro jazzy \
-      --skip-keys "fields2cover" \
       -y \
  || true
 
@@ -183,7 +166,7 @@ RUN /bin/bash -c "\
     source /opt/ros/jazzy/setup.bash && \
     source install/setup.bash && \
     colcon build \
-      --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF -DFields2Cover_DIR=/usr/local/cmake/fields2cover \
+      --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF \
       --parallel-workers \$(nproc) \
       --event-handlers console_cohesion+ \
     "
@@ -204,13 +187,6 @@ RUN /bin/bash -c "\
 FROM base AS runtime
 
 WORKDIR /ros2_ws
-
-# Pull Fields2Cover and its dependencies from build stage
-# (needed at runtime by coverage_planner_node)
-# Copy all /usr/local/lib shared libraries installed by Fields2Cover build
-# (includes F2C, OR-Tools, matplotlibcpp, steering_functions, abseil, etc.)
-COPY --from=build /usr/local/lib/ /usr/local/lib/
-RUN ldconfig
 
 # Ensure libtinyxml2 .so.9 and .so.10 both resolve. The build stage may
 # compile against a different minor version than the runtime base provides
