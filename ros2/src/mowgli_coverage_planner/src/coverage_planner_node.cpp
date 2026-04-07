@@ -813,8 +813,7 @@ void CoveragePlannerNode::publish_route_graph(
          << swath_ends[i].x << ", " << swath_ends[i].y << "]]]}, \"properties\": {"
          << "\"id\": " << edge_id++ << ", \"startid\": " << start_id << ", \"endid\": " << end_id
          << ", \"cost\": " << cost << ", \"speed_limit\": " << mowing_speed
-         << ", \"operation\": \"blade_on\""
-         << "}}";
+         << ", \"operation\": \"blade_on\"" << "}}";
   }
 
   // --- Turn edges (blade_off) ---
@@ -832,8 +831,7 @@ void CoveragePlannerNode::publish_route_graph(
          << swath_starts[i + 1].x << ", " << swath_starts[i + 1].y << "]]]}, \"properties\": {"
          << "\"id\": " << edge_id++ << ", \"startid\": " << start_id << ", \"endid\": " << end_id
          << ", \"cost\": " << cost << ", \"speed_limit\": " << transit_speed
-         << ", \"operation\": \"blade_off\""
-         << "}}";
+         << ", \"operation\": \"blade_off\"" << "}}";
   }
 
   json << "\n  ]\n";

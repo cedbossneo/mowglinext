@@ -64,7 +64,7 @@ No Co-Authored-By lines. Keep messages concise and focused on "why".
 - **Dual EKF:** `ekf_odom` (50Hz, wheel+IMU) and `ekf_map` (20Hz, odom+GPS)
 - **Navigation:** RPP for both transit and coverage (NOT MPPI — it jumps between adjacent swaths)
 
-See `ros2/CLAUDE.md` for detailed package descriptions, topics, and architecture.
+See sections below for detailed package descriptions, topics, and architecture.
 
 ## Git Workflow
 
