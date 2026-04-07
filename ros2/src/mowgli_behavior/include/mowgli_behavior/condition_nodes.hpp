@@ -280,7 +280,7 @@ private:
   std::chrono::steady_clock::time_point baseline_time_{};
 
   static constexpr double check_interval_sec_{1800.0};  // 30 minutes
-  static constexpr float min_increase_{1.0f};            // 1% minimum
+  static constexpr float min_increase_{1.0f};  // 1% minimum
 };
 
 }  // namespace mowgli_behavior

@@ -64,40 +64,42 @@ private:
   {
     using namespace mowgli_interfaces::msg;
 
-    status_sub_ = create_subscription<Status>("/hardware_bridge/status",
-                                              10,
-                                              [this](Status::ConstSharedPtr msg)
-                                              {
-                                                std::lock_guard<std::mutex> lock(context_->context_mutex);
-                                                context_->latest_status = *msg;
-                                              });
+    status_sub_ =
+        create_subscription<Status>("/hardware_bridge/status",
+                                    10,
+                                    [this](Status::ConstSharedPtr msg)
+                                    {
+                                      std::lock_guard<std::mutex> lock(context_->context_mutex);
+                                      context_->latest_status = *msg;
+                                    });
 
-    emergency_sub_ = create_subscription<Emergency>("/hardware_bridge/emergency",
-                                                    10,
-                                                    [this](Emergency::ConstSharedPtr msg)
-                                                    {
-                                                      std::lock_guard<std::mutex> lock(context_->context_mutex);
-                                                      context_->latest_emergency = *msg;
-                                                      context_->last_emergency_time =
-                                                          std::chrono::steady_clock::now();
-                                                    });
+    emergency_sub_ =
+        create_subscription<Emergency>("/hardware_bridge/emergency",
+                                       10,
+                                       [this](Emergency::ConstSharedPtr msg)
+                                       {
+                                         std::lock_guard<std::mutex> lock(context_->context_mutex);
+                                         context_->latest_emergency = *msg;
+                                         context_->last_emergency_time =
+                                             std::chrono::steady_clock::now();
+                                       });
 
-    power_sub_ = create_subscription<Power>("/hardware_bridge/power",
-                                            10,
-                                            [this](Power::ConstSharedPtr msg)
-                                            {
-                                              std::lock_guard<std::mutex> lock(context_->context_mutex);
-                                              context_->latest_power = *msg;
+    power_sub_ =
+        create_subscription<Power>("/hardware_bridge/power",
+                                   10,
+                                   [this](Power::ConstSharedPtr msg)
+                                   {
+                                     std::lock_guard<std::mutex> lock(context_->context_mutex);
+                                     context_->latest_power = *msg;
 
-                                              // Derive battery_percent from voltage using
-                                              // configurable thresholds from ROS parameters.
-                                              const float v_max = battery_full_voltage_;
-                                              const float v_min = battery_empty_voltage_;
-                                              const float clamped =
-                                                  std::clamp(msg->v_battery, v_min, v_max);
-                                              context_->battery_percent =
-                                                  100.0f * (clamped - v_min) / (v_max - v_min);
-                                            });
+                                     // Derive battery_percent from voltage using
+                                     // configurable thresholds from ROS parameters.
+                                     const float v_max = battery_full_voltage_;
+                                     const float v_min = battery_empty_voltage_;
+                                     const float clamped = std::clamp(msg->v_battery, v_min, v_max);
+                                     context_->battery_percent =
+                                         100.0f * (clamped - v_min) / (v_max - v_min);
+                                   });
 
     // Replan / boundary signals from map_server_node
     replan_needed_sub_ =
@@ -105,7 +107,8 @@ private:
                                                  rclcpp::QoS(1).transient_local(),
                                                  [this](std_msgs::msg::Bool::ConstSharedPtr msg)
                                                  {
-                                                   std::lock_guard<std::mutex> lock(context_->context_mutex);
+                                                   std::lock_guard<std::mutex> lock(
+                                                       context_->context_mutex);
                                                    context_->replan_needed = msg->data;
                                                  });
 
@@ -114,13 +117,15 @@ private:
                                                  10,
                                                  [this](std_msgs::msg::Bool::ConstSharedPtr msg)
                                                  {
-                                                   std::lock_guard<std::mutex> lock(context_->context_mutex);
+                                                   std::lock_guard<std::mutex> lock(
+                                                       context_->context_mutex);
                                                    context_->boundary_violation = msg->data;
                                                  });
 
     // GPS position and quality for heading calibration during undock
     gps_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
-        "/gps/absolute_pose", 10,
+        "/gps/absolute_pose",
+        10,
         [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
         {
           std::lock_guard<std::mutex> lock(context_->context_mutex);
@@ -152,8 +157,7 @@ private:
           }
 
           // RTK fixed (fix_type >= 4) with reasonable accuracy → GPS is fixed.
-          context_->gps_is_fixed = (context_->gps_fix_type >= 4) &&
-                                   (msg->position_accuracy < 0.1f);
+          context_->gps_is_fixed = (context_->gps_fix_type >= 4) && (msg->position_accuracy < 0.1f);
           context_->gps_quality = std::clamp(1.0f - msg->position_accuracy, 0.0f, 1.0f);
         });
 
@@ -164,20 +168,18 @@ private:
   {
     using HighLevelControl = mowgli_interfaces::srv::HighLevelControl;
 
-    high_level_control_srv_ =
-        create_service<HighLevelControl>("~/high_level_control",
-                                         [this](const HighLevelControl::Request::SharedPtr req,
-                                                HighLevelControl::Response::SharedPtr resp)
-                                         {
-                                           RCLCPP_INFO(get_logger(),
-                                                       "HighLevelControl: received command=%u",
-                                                       req->command);
-                                           {
-                                             std::lock_guard<std::mutex> lock(context_->context_mutex);
-                                             context_->current_command = req->command;
-                                           }
-                                           resp->success = true;
-                                         });
+    high_level_control_srv_ = create_service<HighLevelControl>(
+        "~/high_level_control",
+        [this](const HighLevelControl::Request::SharedPtr req,
+               HighLevelControl::Response::SharedPtr resp)
+        {
+          RCLCPP_INFO(get_logger(), "HighLevelControl: received command=%u", req->command);
+          {
+            std::lock_guard<std::mutex> lock(context_->context_mutex);
+            context_->current_command = req->command;
+          }
+          resp->success = true;
+        });
 
     RCLCPP_DEBUG(get_logger(), "~/high_level_control service server created");
   }
@@ -228,10 +230,10 @@ private:
     declare_parameter<double>("tick_rate", 10.0);
 
     // Battery voltage curve — configurable via mowgli_robot.yaml
-    battery_full_voltage_ = static_cast<float>(
-        declare_parameter<double>("battery_full_voltage", 28.5));
-    battery_empty_voltage_ = static_cast<float>(
-        declare_parameter<double>("battery_empty_voltage", 24.0));
+    battery_full_voltage_ =
+        static_cast<float>(declare_parameter<double>("battery_full_voltage", 28.5));
+    battery_empty_voltage_ =
+        static_cast<float>(declare_parameter<double>("battery_empty_voltage", 24.0));
 
     tree_ = factory_.createTreeFromFile(tree_file, blackboard_);
 

@@ -42,8 +42,7 @@ static constexpr double METERS_PER_DEG = EARTH_RADIUS_M * DEG_TO_RAD;
 // Constructor
 // ---------------------------------------------------------------------------
 
-NavSatToAbsolutePoseNode::NavSatToAbsolutePoseNode(
-    const rclcpp::NodeOptions& options)
+NavSatToAbsolutePoseNode::NavSatToAbsolutePoseNode(const rclcpp::NodeOptions& options)
     : Node("navsat_to_absolute_pose", options)
 {
   declare_parameters();
@@ -53,7 +52,8 @@ NavSatToAbsolutePoseNode::NavSatToAbsolutePoseNode(
 
   RCLCPP_INFO(get_logger(),
               "NavSatToAbsolutePoseNode started — datum: [%.7f, %.7f]",
-              datum_lat_, datum_lon_);
+              datum_lat_,
+              datum_lon_);
 }
 
 // ---------------------------------------------------------------------------
@@ -68,8 +68,8 @@ void NavSatToAbsolutePoseNode::declare_parameters()
 
 void NavSatToAbsolutePoseNode::create_publishers()
 {
-  pose_pub_ = create_publisher<mowgli_interfaces::msg::AbsolutePose>(
-      "/gps/absolute_pose", rclcpp::QoS(10));
+  pose_pub_ =
+      create_publisher<mowgli_interfaces::msg::AbsolutePose>("/gps/absolute_pose", rclcpp::QoS(10));
 }
 
 void NavSatToAbsolutePoseNode::create_subscribers()
@@ -87,8 +87,7 @@ void NavSatToAbsolutePoseNode::create_subscribers()
 // Callback
 // ---------------------------------------------------------------------------
 
-void NavSatToAbsolutePoseNode::on_navsat_fix(
-    sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
+void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
 {
   using AbsPose = mowgli_interfaces::msg::AbsolutePose;
   using NavSat = sensor_msgs::msg::NavSatFix;
@@ -151,8 +150,7 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(
     // Take the mean of lat/lon variance as horizontal accuracy.
     const double lat_var = msg->position_covariance[0];
     const double lon_var = msg->position_covariance[4];
-    out.position_accuracy =
-        static_cast<float>(std::sqrt((lat_var + lon_var) / 2.0));
+    out.position_accuracy = static_cast<float>(std::sqrt((lat_var + lon_var) / 2.0));
   }
   else
   {
@@ -167,8 +165,10 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(
 // WGS84 → ENU projection
 // ---------------------------------------------------------------------------
 
-void NavSatToAbsolutePoseNode::wgs84_to_enu(
-    double lat, double lon, double& east, double& north) const
+void NavSatToAbsolutePoseNode::wgs84_to_enu(double lat,
+                                            double lon,
+                                            double& east,
+                                            double& north) const
 {
   east = (lon - datum_lon_) * cos_datum_lat_ * METERS_PER_DEG;
   north = (lat - datum_lat_) * METERS_PER_DEG;
@@ -183,8 +183,7 @@ void NavSatToAbsolutePoseNode::wgs84_to_enu(
 int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(
-      std::make_shared<mowgli_localization::NavSatToAbsolutePoseNode>());
+  rclcpp::spin(std::make_shared<mowgli_localization::NavSatToAbsolutePoseNode>());
   rclcpp::shutdown();
   return 0;
 }

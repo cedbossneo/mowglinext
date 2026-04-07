@@ -130,7 +130,7 @@ struct BTContext
   {
     std::vector<Swath> swaths;
     std::vector<nav_msgs::msg::Path> turns;  // N-1 turns for N swaths
-    nav_msgs::msg::Path full_path;           // Full F2C discretized path (swaths + turns)
+    nav_msgs::msg::Path full_path;  // Full F2C discretized path (swaths + turns)
   };
 
   /// Populated by ComputeCoverage, consumed by ExecuteSwathBySwath.

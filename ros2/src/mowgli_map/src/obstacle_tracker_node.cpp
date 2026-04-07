@@ -186,7 +186,8 @@ void ObstacleTrackerNode::on_costmap(nav_msgs::msg::OccupancyGrid::ConstSharedPt
   const double ox = msg->info.origin.position.x;
   const double oy = msg->info.origin.position.y;
 
-  if (w == 0 || h == 0) return;
+  if (w == 0 || h == 0)
+    return;
 
   // Mark cells that are unsafe for the robot (cost >= 50 captures the
   // inflation zone, not just lethal cells). This gives obstacle polygons
@@ -201,7 +202,8 @@ void ObstacleTrackerNode::on_costmap(nav_msgs::msg::OccupancyGrid::ConstSharedPt
     for (int x = 0; x < w; ++x)
     {
       const int idx = y * w + x;
-      if (visited[idx] || msg->data[idx] < OBSTACLE_COST) continue;
+      if (visited[idx] || msg->data[idx] < OBSTACLE_COST)
+        continue;
 
       // BFS flood-fill
       std::vector<std::pair<double, double>> cluster;
@@ -220,7 +222,7 @@ void ObstacleTrackerNode::on_costmap(nav_msgs::msg::OccupancyGrid::ConstSharedPt
         cluster.emplace_back(mx, my);
 
         // 4-connected neighbors
-        for (auto [dx, dy] : std::vector<std::pair<int,int>>{{1,0},{-1,0},{0,1},{0,-1}})
+        for (auto [dx, dy] : std::vector<std::pair<int, int>>{{1, 0}, {-1, 0}, {0, 1}, {0, -1}})
         {
           int nx = cx + dx, ny = cy + dy;
           if (nx >= 0 && nx < w && ny >= 0 && ny < h)

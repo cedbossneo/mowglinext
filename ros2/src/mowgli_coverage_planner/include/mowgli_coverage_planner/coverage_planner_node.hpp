@@ -21,10 +21,9 @@
 #define MOWGLI_COVERAGE_PLANNER__COVERAGE_PLANNER_NODE_HPP_
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
-
-#include <mutex>
 
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -157,11 +156,10 @@ private:
    * @param mowing_speed  Speed limit for mowing edges [m/s].
    * @param transit_speed Speed limit for turn/transit edges [m/s].
    */
-  void publish_route_graph(
-    const std::vector<geometry_msgs::msg::Point>& swath_starts,
-    const std::vector<geometry_msgs::msg::Point>& swath_ends,
-    double mowing_speed,
-    double transit_speed);
+  void publish_route_graph(const std::vector<geometry_msgs::msg::Point>& swath_starts,
+                           const std::vector<geometry_msgs::msg::Point>& swath_ends,
+                           double mowing_speed,
+                           double transit_speed);
 
   // -------------------------------------------------------------------------
   // ROS interfaces

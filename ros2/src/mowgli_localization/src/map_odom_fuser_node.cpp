@@ -26,8 +26,8 @@
 namespace mowgli_localization
 {
 
-MapOdomFuserNode::MapOdomFuserNode(const rclcpp::NodeOptions & options)
-: Node("map_odom_fuser", options)
+MapOdomFuserNode::MapOdomFuserNode(const rclcpp::NodeOptions &options)
+    : Node("map_odom_fuser", options)
 {
   publish_rate_ = declare_parameter<double>("publish_rate", 50.0);
   offset_alpha_ = declare_parameter<double>("offset_alpha", 0.01);
@@ -39,22 +39,25 @@ MapOdomFuserNode::MapOdomFuserNode(const rclcpp::NodeOptions & options)
   tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(this);
 
   ekf_map_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-    "/odometry/filtered_map", rclcpp::QoS(10),
-    std::bind(&MapOdomFuserNode::ekf_map_callback, this, std::placeholders::_1));
+      "/odometry/filtered_map",
+      rclcpp::QoS(10),
+      std::bind(&MapOdomFuserNode::ekf_map_callback, this, std::placeholders::_1));
 
-  timer_ = create_wall_timer(
-    std::chrono::duration<double>(1.0 / publish_rate_),
-    std::bind(&MapOdomFuserNode::timer_callback, this));
+  timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
+                             std::bind(&MapOdomFuserNode::timer_callback, this));
 
   RCLCPP_INFO(get_logger(),
-    "MapOdomFuserNode started (rate=%.0f Hz, offset_alpha=%.3f)",
-    publish_rate_, offset_alpha_);
+              "MapOdomFuserNode started (rate=%.0f Hz, offset_alpha=%.3f)",
+              publish_rate_,
+              offset_alpha_);
 }
 
 double MapOdomFuserNode::normalize_angle(double a)
 {
-  while (a > M_PI) a -= 2.0 * M_PI;
-  while (a < -M_PI) a += 2.0 * M_PI;
+  while (a > M_PI)
+    a -= 2.0 * M_PI;
+  while (a < -M_PI)
+    a += 2.0 * M_PI;
   return a;
 }
 
@@ -64,13 +67,17 @@ void MapOdomFuserNode::ekf_map_callback(const nav_msgs::msg::Odometry::SharedPtr
   has_ekf_ = true;
 
   // Update heading offset when we have both sources
-  if (has_slam_) {
+  if (has_slam_)
+  {
     const double raw_offset = normalize_angle(ekf_yaw_ - slam_yaw_);
 
-    if (!offset_initialized_) {
+    if (!offset_initialized_)
+    {
       yaw_offset_ = raw_offset;
       offset_initialized_ = true;
-    } else {
+    }
+    else
+    {
       // EMA smoothing on the unit circle (avoids wraparound issues)
       const double sin_err = std::sin(raw_offset) - std::sin(yaw_offset_);
       const double cos_err = std::cos(raw_offset) - std::cos(yaw_offset_);
@@ -84,20 +91,24 @@ void MapOdomFuserNode::ekf_map_callback(const nav_msgs::msg::Odometry::SharedPtr
 void MapOdomFuserNode::timer_callback()
 {
   // Read SLAM's map->odom TF
-  try {
-    auto tf = tf_buffer_->lookupTransform(
-      map_frame_, odom_frame_, tf2::TimePointZero);
+  try
+  {
+    auto tf = tf_buffer_->lookupTransform(map_frame_, odom_frame_, tf2::TimePointZero);
 
     const rclcpp::Time tf_stamp(tf.header.stamp);
-    if (!has_slam_ || tf_stamp != last_slam_stamp_) {
+    if (!has_slam_ || tf_stamp != last_slam_stamp_)
+    {
       slam_x_ = tf.transform.translation.x;
       slam_y_ = tf.transform.translation.y;
       slam_yaw_ = tf2::getYaw(tf.transform.rotation);
       last_slam_stamp_ = tf_stamp;
       has_slam_ = true;
     }
-  } catch (const tf2::TransformException &) {
-    if (!has_slam_) {
+  }
+  catch (const tf2::TransformException &)
+  {
+    if (!has_slam_)
+    {
       return;
     }
   }
@@ -125,7 +136,7 @@ void MapOdomFuserNode::timer_callback()
 
 }  // namespace mowgli_localization
 
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<mowgli_localization::MapOdomFuserNode>());

@@ -34,7 +34,7 @@ namespace mowgli_localization
 class MapOdomFuserNode : public rclcpp::Node
 {
 public:
-  explicit MapOdomFuserNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  explicit MapOdomFuserNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
   ~MapOdomFuserNode() override = default;
 
 private:

@@ -44,8 +44,8 @@
 #include "mowgli_hardware/packet_handler.hpp"
 #include "mowgli_hardware/serial_port.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
-#include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
+#include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
@@ -133,8 +133,10 @@ private:
         [this](mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg)
         {
           current_mode_ = msg->state;
-          RCLCPP_DEBUG(get_logger(), "High-level mode updated to %u (%s)",
-                       msg->state, msg->state_name.c_str());
+          RCLCPP_DEBUG(get_logger(),
+                       "High-level mode updated to %u (%s)",
+                       msg->state,
+                       msg->state_name.c_str());
         });
   }
 
@@ -396,9 +398,9 @@ private:
       msg.voltage = pkt.v_system;
       msg.current = pkt.charging_current;
       msg.percentage = static_cast<float>(pkt.batt_percentage) / 100.0f;
-      msg.power_supply_status = is_charging_
-          ? sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
-          : sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_DISCHARGING;
+      msg.power_supply_status =
+          is_charging_ ? sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
+                       : sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_DISCHARGING;
       msg.present = true;
       pub_battery_state_->publish(msg);
     }
@@ -443,12 +445,15 @@ private:
       const double dy = dock_y_;
       // dock_yaw_ is from user config only (magnetometer no longer used)
       std::ofstream f("/tmp/dock_start_pose.txt");
-      if (f.is_open()) {
+      if (f.is_open())
+      {
         f << dx << " " << dy << " " << dock_yaw_ << std::endl;
         dock_pose_written_ = true;
         RCLCPP_INFO(get_logger(),
-          "Wrote dock start pose to /tmp/dock_start_pose.txt: [%.2f, %.2f, %.3f]",
-          dx, dy, dock_yaw_);
+                    "Wrote dock start pose to /tmp/dock_start_pose.txt: [%.2f, %.2f, %.3f]",
+                    dx,
+                    dy,
+                    dock_yaw_);
       }
     }
 
@@ -459,9 +464,9 @@ private:
     // Gyro covariance: WT901 gyro z-axis severely under-reports yaw rate
     // (~17% of actual). Set high covariance so the EKF trusts wheel odom
     // angular velocity over the gyro for yaw rate.
-    msg.angular_velocity_covariance[0] = 0.1;   // roll rate
-    msg.angular_velocity_covariance[4] = 0.1;   // pitch rate
-    msg.angular_velocity_covariance[8] = 1.0;   // yaw rate — low confidence
+    msg.angular_velocity_covariance[0] = 0.1;  // roll rate
+    msg.angular_velocity_covariance[4] = 0.1;  // pitch rate
+    msg.angular_velocity_covariance[8] = 1.0;  // yaw rate — low confidence
 
     pub_imu_->publish(msg);
   }
@@ -499,11 +504,17 @@ private:
 
     // Debug: log raw tick values periodically
     static int odom_debug_count = 0;
-    if (++odom_debug_count % 50 == 0) {
+    if (++odom_debug_count % 50 == 0)
+    {
       RCLCPP_INFO(get_logger(),
-        "Odom raw: L=%d R=%d dt=%u spd_L=%d spd_R=%d dir_L=%u dir_R=%u",
-        pkt.left_ticks, pkt.right_ticks, pkt.dt_millis,
-        pkt.left_speed, pkt.right_speed, pkt.left_direction, pkt.right_direction);
+                  "Odom raw: L=%d R=%d dt=%u spd_L=%d spd_R=%d dir_L=%u dir_R=%u",
+                  pkt.left_ticks,
+                  pkt.right_ticks,
+                  pkt.dt_millis,
+                  pkt.left_speed,
+                  pkt.right_speed,
+                  pkt.left_direction,
+                  pkt.right_direction);
     }
 
     // Compute tick deltas since last packet.
@@ -512,8 +523,10 @@ private:
     // Apply sign based on direction so differential kinematics work.
     int32_t d_left = pkt.left_ticks - prev_left_ticks_;
     int32_t d_right = pkt.right_ticks - prev_right_ticks_;
-    if (pkt.left_direction == 2) d_left = -d_left;   // reverse
-    if (pkt.right_direction == 2) d_right = -d_right; // reverse
+    if (pkt.left_direction == 2)
+      d_left = -d_left;  // reverse
+    if (pkt.right_direction == 2)
+      d_right = -d_right;  // reverse
     prev_left_ticks_ = pkt.left_ticks;
     prev_right_ticks_ = pkt.right_ticks;
 
@@ -613,8 +626,7 @@ private:
     pkt.blade_on = on;
     pkt.blade_dir = dir;
 
-    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt),
-                    sizeof(LlCmdBlade) - sizeof(uint16_t));
+    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdBlade) - sizeof(uint16_t));
   }
 
   void handle_blade_status(const uint8_t* data, std::size_t len)
@@ -642,8 +654,7 @@ private:
   {
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u &&
-        (msg->linear.x != 0.0 || msg->angular.z != 0.0))
+    if (current_mode_ == 0u && (msg->linear.x != 0.0 || msg->angular.z != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();

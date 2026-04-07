@@ -228,7 +228,8 @@ BT::NodeStatus RecordUndockStart::tick()
   ctx->undock_start_recorded = true;
   RCLCPP_INFO(ctx->node->get_logger(),
               "RecordUndockStart: pos=(%.3f, %.3f)",
-              ctx->undock_start_x, ctx->undock_start_y);
+              ctx->undock_start_x,
+              ctx->undock_start_y);
   return BT::NodeStatus::SUCCESS;
 }
 
@@ -242,8 +243,7 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
   if (!ctx->undock_start_recorded)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "CalibrateHeadingFromUndock: no start position recorded");
+    RCLCPP_WARN(ctx->node->get_logger(), "CalibrateHeadingFromUndock: no start position recorded");
     return BT::NodeStatus::SUCCESS;  // non-fatal
   }
 
@@ -264,7 +264,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   if (dist < 0.3)
   {
     RCLCPP_WARN(ctx->node->get_logger(),
-                "CalibrateHeadingFromUndock: displacement too small (%.2f m), skipping", dist);
+                "CalibrateHeadingFromUndock: displacement too small (%.2f m), skipping",
+                dist);
     return BT::NodeStatus::SUCCESS;  // non-fatal
   }
 
@@ -273,7 +274,10 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
   RCLCPP_INFO(ctx->node->get_logger(),
               "CalibrateHeadingFromUndock: displacement=(%.3f, %.3f) dist=%.2f heading=%.1f deg",
-              dx, dy, dist, heading * 180.0 / M_PI);
+              dx,
+              dy,
+              dist,
+              heading * 180.0 / M_PI);
 
   // Set EKF pose via /set_pose service
   auto client = ctx->node->create_client<robot_localization::srv::SetPose>("/set_pose");
@@ -292,8 +296,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   request->pose.pose.pose.orientation.z = std::sin(heading / 2.0);
   request->pose.pose.pose.orientation.w = std::cos(heading / 2.0);
   // Tight covariance for position and yaw
-  request->pose.pose.covariance[0] = 0.01;   // x
-  request->pose.pose.covariance[7] = 0.01;   // y
+  request->pose.pose.covariance[0] = 0.01;  // x
+  request->pose.pose.covariance[7] = 0.01;  // y
   request->pose.pose.covariance[35] = 0.05;  // yaw
 
   auto future = client->async_send_request(request);
@@ -304,8 +308,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
   // Also reset SLAM so it restarts with correct heading.
   // Set map_start_pose parameter to GPS position + heading, then reset.
-  auto param_client = ctx->node->create_client<rcl_interfaces::srv::SetParameters>(
-    "/slam_toolbox/set_parameters");
+  auto param_client =
+      ctx->node->create_client<rcl_interfaces::srv::SetParameters>("/slam_toolbox/set_parameters");
   if (param_client->wait_for_service(std::chrono::seconds(2)))
   {
     auto param_req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
@@ -320,11 +324,12 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
     RCLCPP_INFO(ctx->node->get_logger(),
                 "CalibrateHeadingFromUndock: set SLAM map_start_pose to [%.3f, %.3f, %.3f]",
-                ctx->gps_x, ctx->gps_y, heading);
+                ctx->gps_x,
+                ctx->gps_y,
+                heading);
 
     // Now reset SLAM — it will restart from the new map_start_pose
-    auto reset_client = ctx->node->create_client<slam_toolbox::srv::Reset>(
-      "/slam_toolbox/reset");
+    auto reset_client = ctx->node->create_client<slam_toolbox::srv::Reset>("/slam_toolbox/reset");
     if (reset_client->wait_for_service(std::chrono::seconds(2)))
     {
       auto reset_req = std::make_shared<slam_toolbox::srv::Reset::Request>();
@@ -1367,7 +1372,8 @@ BT::NodeStatus DockRobot::onStart()
 
   RCLCPP_INFO(ctx->node->get_logger(),
               "DockRobot: goal sent (dock_id='%s', dock_type='%s')",
-              dock_id.c_str(), dock_type.c_str());
+              dock_id.c_str(),
+              dock_type.c_str());
 
   return BT::NodeStatus::RUNNING;
 }
