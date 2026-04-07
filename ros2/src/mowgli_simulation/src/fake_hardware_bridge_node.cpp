@@ -29,29 +29,34 @@
 class FakeHardwareBridgeNode : public rclcpp::Node
 {
 public:
-  FakeHardwareBridgeNode()
-  : Node("fake_hardware_bridge")
+  FakeHardwareBridgeNode() : Node("fake_hardware_bridge")
   {
     // Service: mower_control
     mower_control_srv_ = create_service<mowgli_interfaces::srv::MowerControl>(
         "/hardware_bridge/mower_control",
         [this](const std::shared_ptr<mowgli_interfaces::srv::MowerControl::Request> req,
-               std::shared_ptr<mowgli_interfaces::srv::MowerControl::Response> res) {
+               std::shared_ptr<mowgli_interfaces::srv::MowerControl::Response> res)
+        {
           (void)req;
           res->success = true;
           RCLCPP_DEBUG(get_logger(), "Fake mower_control: mow_enabled=%u", req->mow_enabled);
         });
 
     // Publishers
-    status_pub_ = create_publisher<mowgli_interfaces::msg::Status>(
-        "/hardware_bridge/status", rclcpp::QoS(10));
-    power_pub_ = create_publisher<mowgli_interfaces::msg::Power>(
-        "/hardware_bridge/power", rclcpp::QoS(10));
-    emergency_pub_ = create_publisher<mowgli_interfaces::msg::Emergency>(
-        "/hardware_bridge/emergency", rclcpp::QoS(10));
+    status_pub_ = create_publisher<mowgli_interfaces::msg::Status>("/hardware_bridge/status",
+                                                                   rclcpp::QoS(10));
+    power_pub_ =
+        create_publisher<mowgli_interfaces::msg::Power>("/hardware_bridge/power", rclcpp::QoS(10));
+    emergency_pub_ =
+        create_publisher<mowgli_interfaces::msg::Emergency>("/hardware_bridge/emergency",
+                                                            rclcpp::QoS(10));
 
     // Publish at 1 Hz
-    timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { publish_fake_data(); });
+    timer_ = create_wall_timer(std::chrono::seconds(1),
+                               [this]()
+                               {
+                                 publish_fake_data();
+                               });
 
     RCLCPP_INFO(get_logger(), "Fake hardware bridge started (simulation mode)");
   }

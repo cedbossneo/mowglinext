@@ -1089,7 +1089,8 @@ BT::NodeStatus ExecuteFullCoveragePath::onRunning()
     {
       RCLCPP_WARN(ctx->node->get_logger(),
                   "ExecuteFullCoveragePath: FollowPath aborted/canceled (retry %d/%d)",
-                  inline_retries_, max_inline_retries_);
+                  inline_retries_,
+                  max_inline_retries_);
       follow_handle_.reset();
 
       // Inline recovery: skip ahead on path and resend immediately.
@@ -1107,7 +1108,8 @@ BT::NodeStatus ExecuteFullCoveragePath::onRunning()
     {
       RCLCPP_WARN(ctx->node->get_logger(),
                   "ExecuteFullCoveragePath: stuck detected (retry %d/%d)",
-                  inline_retries_, max_inline_retries_);
+                  inline_retries_,
+                  max_inline_retries_);
       follow_client_->async_cancel_goal(follow_handle_);
       follow_handle_.reset();
 
@@ -1142,8 +1144,7 @@ bool ExecuteFullCoveragePath::resendFromCurrentPose(const std::shared_ptr<BTCont
   }
   catch (const tf2::TransformException &)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "ExecuteFullCoveragePath: resend failed — no TF");
+    RCLCPP_WARN(ctx->node->get_logger(), "ExecuteFullCoveragePath: resend failed — no TF");
     return false;
   }
 
@@ -1179,8 +1180,11 @@ bool ExecuteFullCoveragePath::resendFromCurrentPose(const std::shared_ptr<BTCont
   RCLCPP_INFO(ctx->node->get_logger(),
               "ExecuteFullCoveragePath: inline resend from pose %zu/%zu "
               "(skipped %zu poses, robot at %.2f,%.2f)",
-              resume_index, full_path.poses.size(),
-              resume_index - closest, rx, ry);
+              resume_index,
+              full_path.poses.size(),
+              resume_index - closest,
+              rx,
+              ry);
 
   Nav2FollowPath::Goal goal;
   goal.path = sub_path;
