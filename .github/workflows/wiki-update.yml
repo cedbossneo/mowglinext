@@ -45,7 +45,8 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
-          model: claude-sonnet-4-20250514
+          model: claude-sonnet-4-6
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           timeout_minutes: 15
           direct_prompt: |
             You are updating the MowgliNext wiki to reflect recent code changes.
