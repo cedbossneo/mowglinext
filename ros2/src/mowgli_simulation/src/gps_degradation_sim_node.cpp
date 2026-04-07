@@ -66,14 +66,14 @@ void GpsDegradationSimNode::declare_parameters()
 
 void GpsDegradationSimNode::create_publishers()
 {
-  pose_pub_ = create_publisher<PoseMsg>("/mowgli/gps/pose_sim", rclcpp::QoS(10));
+  pose_pub_ = create_publisher<PoseMsg>("/gps/pose_sim", rclcpp::QoS(10));
   status_pub_ = create_publisher<std_msgs::msg::String>("/gps_degradation_sim/status",
                                                         rclcpp::QoS(10).transient_local());
 }
 
 void GpsDegradationSimNode::create_subscribers()
 {
-  pose_sub_ = create_subscription<PoseMsg>("/mowgli/gps/pose",
+  pose_sub_ = create_subscription<PoseMsg>("/gps/pose",
                                            rclcpp::QoS(10),
                                            [this](PoseMsg::ConstSharedPtr msg)
                                            {

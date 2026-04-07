@@ -39,7 +39,7 @@ ekf_odom:
     # Wheel odometry: fuse linear velocity (vx, vy) and yaw rate.
     # Wheel ticks slip on wet/soft ground — treat as low-confidence velocity
     # hint, NOT a position source.  The IMU and GPS provide the real position.
-    odom0: /mowgli/hardware/wheel_odom
+    odom0: /wheel_odom
     odom0_config: [false, false, false,
                    false, false, false,
                    true,  true,  false,
@@ -50,13 +50,9 @@ ekf_odom:
     odom0_differential: false
     odom0_relative: false
 
-    # IMU: fuse yaw (differential) and yaw rate.
-    # differential=true means the EKF uses yaw CHANGES between messages,
-    # not the absolute integrated value. This avoids gyro drift while
-    # still giving the EKF smooth heading dynamics. Absolute heading
-    # references come from: GPS velocity heading (when moving with RTK)
-    # and dock_pose_fix (when docked).
-    imu0: /mowgli/hardware/imu
+    # IMU gyro: fuse yaw CHANGES and yaw rate (smooth, high-frequency).
+    # differential=true avoids gyro drift and prevents fighting with SLAM.
+    imu0: /imu/data
     imu0_config: [false, false, false,
                   false, false, true,
                   false, false, false,
@@ -67,11 +63,6 @@ ekf_odom:
     imu0_differential: true
     imu0_relative: false
     imu0_remove_gravitational_acceleration: true
-
-    # NOTE: GPS heading is fused in ekf_map (not here in ekf_odom).
-    # The gps_pose_converter derives heading from consecutive GPS positions
-    # and sets yaw covariance based on speed + RTK quality. When stationary,
-    # the very large yaw variance lets the IMU gyro dominate heading.
 
     # Process noise tuning — HIGH values for velocity states (vx=6, vy=7)
     # because wheel ticks drift on real terrain.  Position states (x=0, y=1)
@@ -111,7 +102,7 @@ ekf_map:
     # Position comes from GPS.  Using odom position here would let wheel-tick
     # drift contaminate the map frame.  We only fuse velocity + yaw rate so
     # the EKF has inter-GPS dynamics.
-    odom0: /mowgli/localization/odom
+    odom0: /odometry/filtered_odom
     odom0_config: [false, false, false,
                    false, false, false,
                    true,  true,  false,
@@ -128,7 +119,7 @@ ekf_map:
     #   covariance is speed-dependent: tight when moving (GPS heading reliable),
     #   very large when stationary (IMU dominates). This aligns the map frame
     #   with geographic ENU when the robot is moving.
-    pose0: /mowgli/gps/pose
+    pose0: /gps/pose
     pose0_config: [true,  true,  false,
                    false, false, true,
                    false, false, false,
@@ -143,27 +134,16 @@ ekf_map:
     # disagree (due to float noise) will be rejected.
     pose0_rejection_threshold: 3.0
 
-    # Dock pose fix: when charging, the hardware bridge publishes the
-    # known dock position (and orientation if configured) with very tight
-    # covariance. This anchors the robot to the dock and prevents drift.
-    # When not charging, nothing is published so this has no effect.
-    pose1: /mowgli/dock/pose_fix
-    pose1_config: [true,  true,  false,
-                   false, false, true,
-                   false, false, false,
-                   false, false, false,
-                   false, false, false]
-    pose1_queue_size: 5
-    pose1_nodelay: false
-    pose1_differential: false
-    pose1_relative: false
+    # Dock pose fix removed — ekf_map doesn't publish TF and nothing reads
+    # its output. SLAM is the sole TF authority. Re-add if ekf_map becomes
+    # the map→odom TF publisher.
 
     # SLAM heading: slam_heading_node extracts yaw from SLAM's scan matching
     # (slam_map→odom TF) and publishes it as PoseWithCovarianceStamped.
     # Only yaw is fused (position has 1e6 covariance).
     # Provides absolute heading from LiDAR features — works without
     # magnetometer, when stationary, and under tree canopy.
-    pose2: /mowgli/slam/heading
+    pose2: /slam/heading
     pose2_config: [false, false, false,
                    false, false, true,
                    false, false, false,

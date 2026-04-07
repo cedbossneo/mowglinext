@@ -15,7 +15,7 @@ slam_toolbox:
     mode: lifelong
     map_file_name: "/ros2_ws/maps/garden_map"
     map_start_pose: [0.0, 0.0, 0.0]
-    map_start_at_dock: true
+    map_start_at_dock: false
 
     # Frame IDs
     odom_frame: odom

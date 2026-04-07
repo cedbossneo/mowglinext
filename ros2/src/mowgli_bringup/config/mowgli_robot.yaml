@@ -26,8 +26,9 @@ mowgli:
     # Drive wheels (rear)
     wheel_radius: 0.04475
     wheel_width: 0.04
-    wheel_track: 0.40          # centre-to-centre
-    wheel_x_offset: -0.18     # behind base_link centre
+    wheel_track: 0.325         # centre-to-centre (from OpenMower)
+    wheel_x_offset: 0.0       # drive wheels at base_link (wheel axis centre)
+    chassis_center_x: 0.18    # chassis geometric centre forward of wheel axis (m)
     ticks_per_revolution: 1050 # encoder ticks per full wheel revolution
 
     # Front casters
@@ -41,19 +42,20 @@ mowgli:
     # -----------------------------------------------------------------
     # Lidar mount position / orientation (relative to base_link)
     # -----------------------------------------------------------------
-    lidar_x: 0.20              # forward offset (m)
+    lidar_x: 0.38              # forward offset from wheel axis (m)
     lidar_y: 0.0               # lateral offset (m)
     lidar_z: 0.22              # vertical offset (m)
     lidar_yaw: 0.0             # heading offset (rad)
 
-    # IMU mounting (relative to base_link)
-    imu_x: 0.0                 # forward offset (m)
+    # IMU mounting (relative to base_link = wheel axis centre)
+    imu_x: 0.18                # forward offset from wheel axis (m)
     imu_y: 0.0                 # lateral offset (m)
     imu_z: 0.095               # vertical offset (m) — base_height / 2
     imu_yaw: 0.0               # heading offset (rad) — if IMU is rotated
 
-    # GPS antenna mounting (relative to base_link)
-    gps_x: 0.0                 # forward offset (m)
+    # GPS antenna mounting (relative to base_link = wheel axis centre)
+    # From OpenMower: OM_ANTENNA_OFFSET_X=0.3 (antenna on front top cover)
+    gps_x: 0.3                 # forward offset from wheel axis (m)
     gps_y: 0.0                 # lateral offset (m)
     gps_z: 0.20                # vertical offset (m) — top of chassis + antenna
 
@@ -104,7 +106,7 @@ mowgli:
     # -----------------------------------------------------------------
     dock_pose_x: 0.0              # dock position in map frame (set per-site)
     dock_pose_y: 0.0
-    dock_pose_yaw: 0.0
+    dock_pose_yaw: 4.17            # measured with phone compass (239°)
     undock_distance: 1.5           # reverse distance when undocking (m)
     undock_speed: 0.15             # reverse speed (m/s)
     dock_approach_distance: 1.0    # distance to staging pose in front of dock

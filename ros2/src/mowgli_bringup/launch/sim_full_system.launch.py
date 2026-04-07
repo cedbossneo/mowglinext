@@ -208,14 +208,6 @@ def generate_launch_description() -> LaunchDescription:
             map_params,
             {"use_sim_time": True},
         ],
-        remappings=[
-            ("~/get_mowing_area", "/mowgli/map/get_area"),
-            ("~/add_area", "/mowgli/map/add_area"),
-            ("~/clear_map", "/mowgli/map/clear_map"),
-            ("~/set_docking_point", "/mowgli/map/set_docking_point"),
-            ("~/save_areas", "/mowgli/map/save_areas"),
-            ("~/load_areas", "/mowgli/map/load_areas"),
-        ],
     )
 
     # ------------------------------------------------------------------
@@ -229,11 +221,6 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             coverage_params,
             {"use_sim_time": True},
-        ],
-        remappings=[
-            ("~/coverage_path", "/mowgli/coverage/path"),
-            ("~/coverage_outline", "/mowgli/coverage/outline"),
-            ("~/plan_coverage", "/mowgli/coverage/plan"),
         ],
     )
 

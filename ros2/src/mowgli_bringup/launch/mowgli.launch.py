@@ -72,28 +72,59 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     xacro_file = os.path.join(bringup_dir, "urdf", "mowgli.urdf.xacro")
 
-    # Lidar position / orientation from robot config (with defaults)
-    lidar_x   = str(robot_params.get("lidar_x", "0.20"))
-    lidar_y   = str(robot_params.get("lidar_y", "0.0"))
-    lidar_z   = str(robot_params.get("lidar_z", "0.22"))
-    lidar_yaw = str(robot_params.get("lidar_yaw", "0.0"))
+    # Robot shape from config (all passed to URDF xacro)
+    chassis_length   = float(robot_params.get("chassis_length", 0.54))
+    chassis_width    = float(robot_params.get("chassis_width", 0.40))
+    chassis_height   = float(robot_params.get("chassis_height", 0.19))
+    chassis_center_x = float(robot_params.get("chassis_center_x", 0.18))
+    wheel_radius     = float(robot_params.get("wheel_radius", 0.04475))
+    wheel_width      = float(robot_params.get("wheel_width", 0.04))
+    wheel_track      = float(robot_params.get("wheel_track", 0.325))
+    wheel_x_offset   = float(robot_params.get("wheel_x_offset", 0.0))
+    caster_radius    = float(robot_params.get("caster_radius", 0.03))
+    caster_track     = float(robot_params.get("caster_track", 0.36))
+    blade_radius     = float(robot_params.get("blade_radius", 0.09))
 
-    # IMU position / orientation from robot config (with defaults)
-    imu_x   = str(robot_params.get("imu_x", "0.0"))
-    imu_y   = str(robot_params.get("imu_y", "0.0"))
-    imu_z   = str(robot_params.get("imu_z", "0.095"))
-    imu_yaw = str(robot_params.get("imu_yaw", "0.0"))
+    # Sensor positions from config
+    lidar_x   = str(robot_params.get("lidar_x", 0.38))
+    lidar_y   = str(robot_params.get("lidar_y", 0.0))
+    lidar_z   = str(robot_params.get("lidar_z", 0.22))
+    lidar_yaw = str(robot_params.get("lidar_yaw", 0.0))
+    imu_x     = str(robot_params.get("imu_x", 0.18))
+    imu_y     = str(robot_params.get("imu_y", 0.0))
+    imu_z     = str(robot_params.get("imu_z", 0.095))
+    imu_yaw   = str(robot_params.get("imu_yaw", 0.0))
+    gps_x     = str(robot_params.get("gps_x", 0.3))
+    gps_y     = str(robot_params.get("gps_y", 0.0))
+    gps_z     = str(robot_params.get("gps_z", 0.20))
 
-    # GPS antenna position from robot config (with defaults)
-    gps_x   = str(robot_params.get("gps_x", "0.0"))
-    gps_y   = str(robot_params.get("gps_y", "0.0"))
-    gps_z   = str(robot_params.get("gps_z", "0.20"))
+    # Compute Nav2 footprint from chassis shape
+    fp_front = chassis_center_x + chassis_length / 2.0
+    fp_rear  = chassis_center_x - chassis_length / 2.0
+    fp_half_w = chassis_width / 2.0
+    footprint = (
+        f"[[{fp_front:.3f}, {fp_half_w:.3f}], "
+        f"[{fp_front:.3f}, {-fp_half_w:.3f}], "
+        f"[{fp_rear:.3f}, {-fp_half_w:.3f}], "
+        f"[{fp_rear:.3f}, {fp_half_w:.3f}]]"
+    )
 
     robot_description_content = Command(
         [
             FindExecutable(name="xacro"),
             " ",
             xacro_file,
+            " chassis_length:=", str(chassis_length),
+            " chassis_width:=", str(chassis_width),
+            " chassis_height:=", str(chassis_height),
+            " chassis_center_x:=", str(chassis_center_x),
+            " wheel_radius:=", str(wheel_radius),
+            " wheel_width:=", str(wheel_width),
+            " wheel_track:=", str(wheel_track),
+            " wheel_x_offset:=", str(wheel_x_offset),
+            " caster_radius:=", str(caster_radius),
+            " caster_track:=", str(caster_track),
+            " blade_radius:=", str(blade_radius),
             " lidar_x:=", lidar_x,
             " lidar_y:=", lidar_y,
             " lidar_z:=", lidar_z,
@@ -147,14 +178,14 @@ def generate_launch_description() -> LaunchDescription:
             {"dock_pose_yaw": float(robot_params.get("dock_pose_yaw", 0.0))},
             {"imu_yaw": float(robot_params.get("imu_yaw", 0.0))},
         ],
-        # The node publishes on ~/topic (e.g. /hardware_bridge/wheel_odom)
-        # but the EKF and other nodes expect unprefixed names.
+        # The node publishes on ~/topic (e.g. /hardware_bridge/wheel_odom).
+        # behavior_tree_node subscribes to /hardware_bridge/status etc.
         remappings=[
-            ("~/imu/data_raw", "/mowgli/hardware/imu"),
-            ("~/wheel_odom", "/mowgli/hardware/wheel_odom"),
-            ("~/emergency", "/mowgli/hardware/emergency"),
-            ("~/power", "/mowgli/hardware/power"),
-            ("~/status", "/mowgli/hardware/status"),
+            ("~/imu/data_raw", "/imu/data"),
+            ("~/wheel_odom", "/wheel_odom"),
+            ("~/emergency", "/hardware_bridge/emergency"),
+            ("~/power", "/hardware_bridge/power"),
+            ("~/status", "/hardware_bridge/status"),
             ("~/cmd_vel", "/cmd_vel"),
         ],
     )

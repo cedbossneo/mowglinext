@@ -8,7 +8,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /mowgli/hardware/wheel_odom
+    odom_topic: /wheel_odom
     bt_loop_duration: 10
     default_server_timeout: 60
     # Custom Nav2 BT that adds GoalCheckerSelector (required when multiple
@@ -39,7 +39,7 @@ controller_server:
     failure_tolerance: 5.0
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["stopped_goal_checker", "coverage_goal_checker"]
-    controller_plugins: ["FollowPath"]
+    controller_plugins: ["FollowPath", "FollowCoveragePath"]
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
@@ -60,29 +60,65 @@ controller_server:
       yaw_goal_tolerance: 6.28  # Don't check yaw for coverage paths
       stateful: true             # succeed once within tolerance, don't re-check
 
-    # Single RPP controller for both transit and coverage path following.
-    # Using one controller avoids a Nav2 Jazzy segfault when switching
-    # between multiple controller plugins in the same server.
-    # Wrapped in RotationShimController (angular_dist_threshold=3.14
-    # effectively disables rotation shim — RPP handles all heading).
+    # RPP for transit/dock navigation, wrapped in RotationShimController
+    # to rotate-in-place toward the path before driving.
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      angular_dist_threshold: 3.14   # effectively disabled
+      angular_dist_threshold: 3.14   # disabled — don't rotate in place, just drive
       forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 1.8
-      max_angular_accel: 3.0
+      rotate_to_heading_angular_vel: 1.5
+      max_angular_accel: 2.5
       # RPP parameters (passed through to primary controller)
       desired_linear_vel: 0.3
       lookahead_dist: 0.4
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
+      lookahead_time: 1.5
+      rotate_to_heading_angular_vel: 1.5
+      transform_tolerance: 2.0
+      use_velocity_scaled_lookahead_dist: false
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: false
+      use_regulated_linear_velocity_scaling: true
+      use_fixed_curvature_lookahead: false
+      curvature_lookahead_dist: 0.6
+      use_cost_regulated_linear_velocity_scaling: false
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.1
+      use_rotate_to_heading: false
+      allow_reversing: false
+      max_angular_accel: 2.5
+      max_angular_vel: 1.5
+      max_robot_pose_search_dist: 100.0
+
+    # RPP controller for coverage path following.
+    # RPP follows the path sequentially with a lookahead point, avoiding the
+    # nearest-point pruning issue that MPPI has with parallel boustrophedon
+    # swaths (only 0.18m apart).  Obstacle avoidance comes from costmap
+    # inflation — RPP slows down near inflated obstacles.
+    FollowCoveragePath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.3
+      lookahead_dist: 0.4
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.6
       lookahead_time: 1.0
+      rotate_to_heading_angular_vel: 1.8
       transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
       approach_velocity_scaling_dist: 0.4
+      # Collision detection during coverage mowing: disabled.
+      # RPP uses the local costmap to check for obstacles ahead. During
+      # mowing, swaths run near boundaries — inflated costmap triggers
+      # false "collision ahead". Real obstacle avoidance relies on the
+      # collision_monitor node (FootprintApproach) which watches LiDAR.
+      # In simulation, Gazebo LiDAR self-reflections from the chassis
+      # also trigger false collisions.
       use_collision_detection: false
+      # Slow down near obstacles detected in costmap (inflation layer costs).
       use_regulated_linear_velocity_scaling: true
       use_cost_regulated_linear_velocity_scaling: true
       cost_scaling_dist: 0.5
@@ -91,12 +127,14 @@ controller_server:
       curvature_lookahead_dist: 0.4
       regulated_linear_scaling_min_radius: 0.9
       regulated_linear_scaling_min_speed: 0.1
+      # Don't rotate in place — RPP naturally curves into the next swath.
       use_rotate_to_heading: false
       allow_reversing: false
+      max_angular_accel: 3.0
       max_angular_vel: 1.8
-      max_robot_pose_search_dist: 1000.0
-
-
+      # Limit search distance along the path to prevent jumping to adjacent
+      # parallel swaths (only 0.18m apart Euclidean).
+      max_robot_pose_search_dist: 2.0
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -187,11 +225,15 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
+    # Topic flow: controller_server → cmd_vel_nav → velocity_smoother →
+    #             cmd_vel_smoothed → collision_monitor → cmd_vel → hardware
+    input_topic: cmd_vel_nav
+    output_topic: cmd_vel_smoothed
     max_velocity: [0.3, 0.0, 1.0]
     min_velocity: [-0.3, 0.0, -1.0]
     max_accel: [0.3, 0.0, 1.5]
     max_decel: [-0.3, 0.0, -1.5]
-    odom_topic: /mowgli/hardware/wheel_odom
+    odom_topic: /wheel_odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
@@ -210,8 +252,8 @@ global_costmap:
       # Allow up to 60s for map→base_link TF to appear (SLAM needs time to
       # initialize scan matching before publishing map→odom).
       transform_tolerance: 60.0
-      # Rectangular footprint from URDF: 0.54m x 0.40m (base_link collision box)
-      footprint: "[[0.27, 0.20], [0.27, -0.20], [-0.27, -0.20], [-0.27, 0.20]]"
+      # Footprint computed from mowgli_robot.yaml at launch time
+      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
       resolution: 0.05
       track_unknown_space: false
       # Rolling window large enough to cover transit across any garden.
@@ -268,7 +310,7 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link
-      footprint: "[[0.275, 0.20], [0.275, -0.20], [-0.275, -0.20], [-0.275, 0.20]]"
+      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
       resolution: 0.05
       rolling_window: true
       width: 6
@@ -349,20 +391,21 @@ docking_server:
     fixed_frame: odom
     dock_backwards: false
     dock_prestaging_tolerance: 0.5
+    # Named dock instances — BT uses dock_id="home_dock"
     dock_plugins: ["simple_charging_dock"]
+    docks: ["home_dock"]
+    home_dock:
+      type: "simple_charging_dock"
+      frame: map
+      pose: [0.0, 0.0, 0.0]  # Overridden at launch from dock_pose_x/y/yaw params
     simple_charging_dock:
       plugin: "opennav_docking::SimpleChargingDock"
       docking_threshold: 0.05
-      staging_x_offset: -0.7
-      use_external_detection_pose: true
-      use_battery_status: false
+      staging_x_offset: -1.0
+      use_external_detection_pose: false
+      use_battery_status: true
+      battery_topic: "/battery_state"
       use_stall_detection: false
-      external_detection_timeout: 1.0
-      external_detection_translation_x: -0.18
-      external_detection_translation_y: 0.0
-      external_detection_rotation_roll: -1.57
-      external_detection_rotation_pitch: -1.57
-      external_detection_rotation_yaw: 0.0
       filter_coef: 0.1
 
 # ---------------------------------------------------------------------------
@@ -380,26 +423,27 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    polygons: ["PolygonStop", "FootprintApproach"]
-    # Stop zone: tight safety box around the robot.
-    # Forward: 0.45m (robot radius 0.22 + 0.23m braking at 0.3m/s).
-    # Lateral: 0.30m (robot radius + 0.08m margin).
-    #
-    # NOTE: Disabled in simulation because the Gazebo LiDAR (range_min=0.10m)
-    # produces self-reflections from the robot chassis at ~0.26-0.30m.  These
-    # phantom readings fall inside the stop polygon and permanently block the
-    # robot.  Re-enable on real hardware where the LiDAR is mounted above the
-    # chassis and self-reflections do not occur.
+    polygons: ["PolygonStop", "PolygonSlow", "FootprintApproach"]
+    # Stop zone: tight safety box matching the robot footprint.
+    # front 0.45m, rear -0.09m, width +/-0.20m.
     PolygonStop:
       type: "polygon"
-      points: "[[0.45, 0.30], [0.45, -0.30], [-0.25, -0.30], [-0.25, 0.30]]"
+      points: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
       action_type: "stop"
       min_points: 2
       visualize: true
       polygon_pub_topic: "polygon_stop"
-      # LiDAR range_min=0.35m in model.sdf filters chassis self-reflections.
-      # PolygonStop provides hard safety stop if something enters the tight
-      # safety zone around the robot.
+      enabled: true
+    # Slowdown zone: extends 0.30m beyond the robot front for early braking.
+    # front 0.75m (0.45 + 0.30), rear -0.09m, width +/-0.30m.
+    PolygonSlow:
+      type: "polygon"
+      points: "[[0.75, 0.30], [0.75, -0.30], [-0.09, -0.30], [-0.09, 0.30]]"
+      action_type: "slowdown"
+      slowdown_ratio: 0.5
+      min_points: 2
+      visualize: true
+      polygon_pub_topic: "polygon_slow"
       enabled: true
     # Approach: uses dynamic robot footprint with velocity projection.
     # Gradually slows when predicted collision is within time_before_collision.
@@ -412,9 +456,6 @@ collision_monitor:
       min_points: 1
       visualize: true
       enabled: true
-    # Scan source for obstacle detection. The Gazebo LiDAR uses
-    # visibility_mask to exclude the robot's own mesh, preventing
-    # self-reflections from triggering false stops.
     observation_sources: ["scan"]
     scan:
       type: "scan"
@@ -457,6 +498,16 @@ coverage_server:
     default_path_continuity_type: "CONTINUOUS"
     # Coordinate system
     coordinates_in_cartesian_frame: true
+
+route_server:
+  ros__parameters:
+    use_sim_time: false
+    # GeoJSON graph file generated by coverage_planner_node after each plan.
+    # The route_server loads this file to serve route requests.
+    # Can also be loaded dynamically via the /route_server/load_graph service.
+    graph_filepath: "/tmp/mowing_route.geojson"
+    base_frame: base_link
+    global_frame: map
 
 lifecycle_manager_navigation:
   ros__parameters:

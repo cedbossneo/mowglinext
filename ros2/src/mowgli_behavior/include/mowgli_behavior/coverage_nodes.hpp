@@ -37,15 +37,15 @@ public:
   using CoverageAction = mowgli_interfaces::action::PlanCoverage;
   using GoalHandle = rclcpp_action::ClientGoalHandle<CoverageAction>;
 
-  ComputeCoverage(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
-  {
-  }
+  ComputeCoverage(const std::string & name, const BT::NodeConfig & config)
+  : BT::StatefulActionNode(name, config) {}
 
   static BT::PortsList providedPorts()
   {
-    return {BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
-            BT::OutputPort<std::string>("first_swath_start", "First swath start as 'x;y;yaw'")};
+    return {
+      BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
+      BT::OutputPort<std::string>("first_swath_start", "First swath start as 'x;y;yaw'")
+    };
   }
 
   BT::NodeStatus onStart() override;
@@ -58,6 +58,7 @@ private:
   GoalHandle::SharedPtr goal_handle_;
   std::shared_ptr<const CoverageAction::Result> latest_result_;
   bool result_received_{false};
+  uint32_t area_index_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -80,14 +81,15 @@ public:
   using NavGoalHandle = rclcpp_action::ClientGoalHandle<Nav2Navigate>;
   using FollowGoalHandle = rclcpp_action::ClientGoalHandle<Nav2FollowPath>;
 
-  ExecuteSwathBySwath(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
-  {
-  }
+  ExecuteSwathBySwath(const std::string & name, const BT::NodeConfig & config)
+  : BT::StatefulActionNode(name, config) {}
 
   static BT::PortsList providedPorts()
   {
-    return {};
+    return {
+      BT::InputPort<double>("stuck_timeout_sec", 10.0, "Seconds without progress before stuck"),
+      BT::InputPort<double>("stuck_min_progress", 0.05, "Minimum distance (m) to count as progress")
+    };
   }
 
   BT::NodeStatus onStart() override;
@@ -95,27 +97,15 @@ public:
   void onHalted() override;
 
 private:
-  enum class Phase
-  {
-    TRANSIT_TO_SWATH,
-    MOWING_SWATH,
-    REROUTING_AROUND_OBSTACLE,
-    DONE
-  };
+  enum class Phase { TRANSIT_TO_SWATH, MOWING_SWATH, DONE };
 
-  nav_msgs::msg::Path swathToPath(const BTContext::Swath& swath,
-                                  const rclcpp::Node::SharedPtr& node) const;
-  nav_msgs::msg::Path remainingSwathPath(const BTContext::Swath& swath,
-                                         double from_x,
-                                         double from_y,
-                                         const rclcpp::Node::SharedPtr& node) const;
-  void sendTransitGoal(const BTContext::Swath& swath);
-  void sendSwathGoal(const BTContext::Swath& swath);
-  void sendRerouteGoal(const BTContext::Swath& swath, double rx, double ry);
-  void sendRemainingSwathGoal(const BTContext::Swath& swath, double from_x, double from_y);
+  nav_msgs::msg::Path swathToPath(
+    const BTContext::Swath & swath, const rclcpp::Node::SharedPtr & node) const;
+  void sendTransitGoal(const BTContext::Swath & swath);
+  void sendSwathGoal(const BTContext::Swath & swath);
   void setBladeEnabled(bool enabled);
   bool advanceToNextSwath();
-  bool checkStuck(const std::shared_ptr<BTContext>& ctx);
+  bool checkStuck(const std::shared_ptr<BTContext> & ctx);
 
   // State
   Phase phase_{Phase::TRANSIT_TO_SWATH};
@@ -140,15 +130,9 @@ private:
   /// True when the current transit uses FollowPath instead of NavigateToPose.
   bool use_follow_for_transit_{false};
 
-  // Obstacle rerouting state
-  size_t reroute_attempts_{0};
-  static constexpr size_t max_reroute_attempts_{2};
-  /// Fraction along the swath where the robot was blocked (0.0 = start, 1.0 = end).
-  double blocked_swath_fraction_{0.0};
-
-  // Stuck detection
-  static constexpr double stuck_timeout_sec_{10.0};
-  static constexpr double stuck_min_progress_{0.05};
+  // Stuck detection (configurable via input ports)
+  double stuck_timeout_sec_{10.0};
+  double stuck_min_progress_{0.05};
   std::chrono::steady_clock::time_point last_progress_time_{};
   double last_progress_x_{0.0};
   double last_progress_y_{0.0};
@@ -174,10 +158,8 @@ public:
   using NavGoalHandle = rclcpp_action::ClientGoalHandle<Nav2Navigate>;
   using FollowGoalHandle = rclcpp_action::ClientGoalHandle<Nav2FollowPath>;
 
-  ExecuteFullCoveragePath(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
-  {
-  }
+  ExecuteFullCoveragePath(const std::string & name, const BT::NodeConfig & config)
+  : BT::StatefulActionNode(name, config) {}
 
   static BT::PortsList providedPorts()
   {
@@ -189,16 +171,12 @@ public:
   void onHalted() override;
 
 private:
-  enum class Phase
-  {
-    TRANSIT_TO_START,
-    FOLLOWING_PATH,
-    DONE
-  };
+  enum class Phase { TRANSIT_TO_START, FOLLOWING_PATH, DONE };
 
   void setBladeEnabled(bool enabled);
-  bool checkStuck(const std::shared_ptr<BTContext>& ctx);
-  size_t findClosestPoseIndex(const nav_msgs::msg::Path& path, double rx, double ry) const;
+  bool checkStuck(const std::shared_ptr<BTContext> & ctx);
+  size_t findClosestPoseIndex(
+    const nav_msgs::msg::Path & path, double rx, double ry) const;
 
   Phase phase_{Phase::TRANSIT_TO_START};
 

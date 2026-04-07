@@ -10,7 +10,7 @@
  * RTK fix quality is mapped from NavSatFix::status to AbsolutePose flags.
  *
  * Subscribed topics:
- *   /ublox_gps_node/fix   sensor_msgs/msg/NavSatFix
+ *   /gps/fix   sensor_msgs/msg/NavSatFix
  *
  * Published topics:
  *   /gps/absolute_pose    mowgli_interfaces/msg/AbsolutePose

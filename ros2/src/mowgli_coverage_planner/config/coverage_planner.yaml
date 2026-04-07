@@ -17,3 +17,8 @@ coverage_planner_node:
     # Significantly improves coverage of irregular/L-shaped gardens.
     decompose_cells: true
     map_frame: "map"
+    # Speed limits for route_server GeoJSON edges.
+    mowing_speed: 0.15
+    transit_speed: 0.3
+    # Output path for GeoJSON route graph (also published on ~/route_graph).
+    route_graph_filepath: "/tmp/mowing_route.geojson"

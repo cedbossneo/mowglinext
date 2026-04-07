@@ -251,4 +251,36 @@ public:
   BT::NodeStatus tick() override;
 };
 
+// ---------------------------------------------------------------------------
+// IsChargingProgressing
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS if battery has increased by at least 1% in the last
+/// 30 minutes of charging.  Returns FAILURE if charging appears stalled
+/// (broken charger, bad connection, etc.).  On first call it records the
+/// baseline and always returns SUCCESS.
+class IsChargingProgressing : public BT::ConditionNode
+{
+public:
+  IsChargingProgressing(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+
+private:
+  bool baseline_set_{false};
+  float baseline_battery_{0.0f};
+  std::chrono::steady_clock::time_point baseline_time_{};
+
+  static constexpr double check_interval_sec_{1800.0};  // 30 minutes
+  static constexpr float min_increase_{1.0f};            // 1% minimum
+};
+
 }  // namespace mowgli_behavior

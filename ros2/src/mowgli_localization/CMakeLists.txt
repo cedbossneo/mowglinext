@@ -127,6 +127,25 @@ ament_target_dependencies(slam_heading_node
 )
 
 # ---------------------------------------------------------------------------
+# Executable: map_odom_fuser_node
+# ---------------------------------------------------------------------------
+
+add_executable(map_odom_fuser_node
+  src/map_odom_fuser_node.cpp
+)
+
+target_include_directories(map_odom_fuser_node PUBLIC ${INCLUDE_DIR})
+
+ament_target_dependencies(map_odom_fuser_node
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
 
@@ -142,6 +161,7 @@ install(
     navsat_to_absolute_pose_node
     localization_monitor_node
     slam_heading_node
+    map_odom_fuser_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -163,11 +183,6 @@ install(
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto      REQUIRED)
-  set(ament_cmake_copyright_FOUND TRUE)
-  set(ament_cmake_cpplint_FOUND TRUE)
-  set(ament_cmake_uncrustify_FOUND TRUE)
-  set(ament_cmake_flake8_FOUND TRUE)
-  set(ament_cmake_pep257_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)

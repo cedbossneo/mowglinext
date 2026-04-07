@@ -35,7 +35,8 @@
 namespace mowgli_localization
 {
 
-SlamHeadingNode::SlamHeadingNode(const rclcpp::NodeOptions& options) : Node("slam_heading", options)
+SlamHeadingNode::SlamHeadingNode(const rclcpp::NodeOptions & options)
+: Node("slam_heading", options)
 {
   publish_rate_ = declare_parameter<double>("publish_rate", 5.0);
   yaw_variance_ = declare_parameter<double>("yaw_variance", 0.05);
@@ -45,30 +46,26 @@ SlamHeadingNode::SlamHeadingNode(const rclcpp::NodeOptions& options) : Node("sla
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-  heading_pub_ =
-      create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/mowgli/slam/heading",
-                                                                      rclcpp::QoS(10));
+  heading_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+    "/slam/heading", rclcpp::QoS(10));
 
-  timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
-                             std::bind(&SlamHeadingNode::timer_callback, this));
+  timer_ = create_wall_timer(
+    std::chrono::duration<double>(1.0 / publish_rate_),
+    std::bind(&SlamHeadingNode::timer_callback, this));
 
   RCLCPP_INFO(get_logger(),
-              "SlamHeadingNode started (rate=%.1f Hz, yaw_var=%.3f)",
-              publish_rate_,
-              yaw_variance_);
+    "SlamHeadingNode started (rate=%.1f Hz, yaw_var=%.3f)",
+    publish_rate_, yaw_variance_);
 }
 
 void SlamHeadingNode::timer_callback()
 {
   geometry_msgs::msg::TransformStamped tf;
-  try
-  {
+  try {
     // Look up SLAM's map→odom transform.
     // SLAM is the authority for this transform (ekf_map has publish_tf=false).
     tf = tf_buffer_->lookupTransform("map", "odom", tf2::TimePointZero);
-  }
-  catch (const tf2::TransformException&)
-  {
+  } catch (const tf2::TransformException &) {
     // SLAM TF not available — don't publish anything.
     // The EKF will rely on GPS heading and IMU.
     return;
@@ -82,13 +79,10 @@ void SlamHeadingNode::timer_callback()
 
   // Determine yaw variance based on TF freshness
   double variance = yaw_variance_;
-  if (age > stale_timeout_)
-  {
+  if (age > stale_timeout_) {
     // SLAM hasn't updated recently — increase variance so other sources dominate
     variance = stale_yaw_variance_;
-  }
-  else if (age > stale_timeout_ * 0.5)
-  {
+  } else if (age > stale_timeout_ * 0.5) {
     // Ramp up variance as TF ages
     const double alpha = (age - stale_timeout_ * 0.5) / (stale_timeout_ * 0.5);
     variance = yaw_variance_ + alpha * (stale_yaw_variance_ - yaw_variance_);
@@ -112,11 +106,11 @@ void SlamHeadingNode::timer_callback()
   msg.pose.pose.orientation.y = 0.0;
 
   // Covariance: huge for position, meaningful for yaw
-  msg.pose.covariance[0] = 1e6;  // x
-  msg.pose.covariance[7] = 1e6;  // y
-  msg.pose.covariance[14] = 1e6;  // z
-  msg.pose.covariance[21] = 1e6;  // roll
-  msg.pose.covariance[28] = 1e6;  // pitch
+  msg.pose.covariance[0] = 1e6;        // x
+  msg.pose.covariance[7] = 1e6;        // y
+  msg.pose.covariance[14] = 1e6;       // z
+  msg.pose.covariance[21] = 1e6;       // roll
+  msg.pose.covariance[28] = 1e6;       // pitch
   msg.pose.covariance[35] = variance;  // yaw
 
   heading_pub_->publish(msg);
@@ -124,7 +118,7 @@ void SlamHeadingNode::timer_callback()
 
 }  // namespace mowgli_localization
 
-int main(int argc, char** argv)
+int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<mowgli_localization::SlamHeadingNode>());

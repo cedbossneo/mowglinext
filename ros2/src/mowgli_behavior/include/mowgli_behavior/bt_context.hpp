@@ -1,7 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -37,6 +39,17 @@ struct BTContext
   mowgli_interfaces::msg::Status latest_status;
   mowgli_interfaces::msg::Emergency latest_emergency;
   mowgli_interfaces::msg::Power latest_power;
+
+  /// Timestamp of the last emergency message received.
+  std::chrono::steady_clock::time_point last_emergency_time{};
+
+  // -----------------------------------------------------------------------
+  // Thread safety
+  // -----------------------------------------------------------------------
+
+  /// Mutex protecting fields written by subscriber callbacks and read by
+  /// BT condition/action nodes.  Use std::lock_guard for RAII locking.
+  mutable std::mutex context_mutex;
 
   // -----------------------------------------------------------------------
   // Command state (set by HighLevelControl service handler)
@@ -103,7 +116,8 @@ struct BTContext
 
   // -----------------------------------------------------------------------
   // Coverage path components (set by ComputeCoverage, consumed by
-  // ExecuteFullCoveragePath).
+  // ExecuteSwathBySwath).  Using simple structs to avoid depending on
+  // opennav_coverage_msgs in the context header.
   // -----------------------------------------------------------------------
 
   struct Swath
@@ -114,20 +128,35 @@ struct BTContext
 
   struct CoveragePlan
   {
-    /// Full discretized F2C path (swaths + Dubins turns) for FollowPath.
-    nav_msgs::msg::Path full_path;
-    /// Swath endpoints for future per-section blade on/off control.
     std::vector<Swath> swaths;
+    std::vector<nav_msgs::msg::Path> turns;  // N-1 turns for N swaths
+    nav_msgs::msg::Path full_path;           // Full F2C discretized path (swaths + turns)
   };
 
-  /// Populated by ComputeCoverage, consumed by ExecuteFullCoveragePath.
+  /// Populated by ComputeCoverage, consumed by ExecuteSwathBySwath.
   std::optional<CoveragePlan> coverage_plan;
+
+  /// Progress tracking across charge cycles.
+  size_t next_swath_index{0};
+
+  /// Coverage progress (updated by ExecuteSwathBySwath, read by PublishHighLevelStatus).
+  int current_area{-1};
+  int total_swaths{0};
+  int completed_swaths{0};
+  int skipped_swaths{0};
 
   // -----------------------------------------------------------------------
   // TF buffer (shared across all BT nodes)
   // -----------------------------------------------------------------------
   std::shared_ptr<tf2_ros::Buffer> tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener;
+
+  // -----------------------------------------------------------------------
+  // Shared helper node for service calls (avoids creating/destroying DDS
+  // participants on every call — the main node is in rclcpp::spin so it
+  // cannot be used directly with spin_until_future_complete).
+  // -----------------------------------------------------------------------
+  rclcpp::Node::SharedPtr helper_node;
 };
 
 }  // namespace mowgli_behavior

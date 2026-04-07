@@ -13,6 +13,7 @@
  *   ~/power        mowgli_interfaces/msg/Power
  *   ~/imu/data_raw sensor_msgs/msg/Imu
  *   ~/wheel_odom   nav_msgs/msg/Odometry
+ *   /battery_state sensor_msgs/msg/BatteryState  (for opennav_docking)
  *
  * Subscribed topics:
  *   ~/cmd_vel      geometry_msgs/msg/Twist  → LlCmdVel packet to STM32
@@ -32,6 +33,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,13 +44,14 @@
 #include "mowgli_hardware/packet_handler.hpp"
 #include "mowgli_hardware/serial_port.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
-#include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
+#include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/header.hpp"
 
@@ -88,7 +91,7 @@ private:
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
-    imu_yaw_offset_ = declare_parameter<double>("imu_yaw", 0.0);
+    // imu_yaw parameter is used by URDF for mounting rotation, not needed here
 
     RCLCPP_INFO(get_logger(),
                 "Parameters: serial_port=%s baud_rate=%d heartbeat_rate=%.1f Hz "
@@ -107,9 +110,9 @@ private:
     pub_power_ = create_publisher<mowgli_interfaces::msg::Power>("~/power", 10);
     pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", 10);
     pub_wheel_odom_ = create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", 10);
-    pub_dock_pose_ =
-        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/mowgli/dock/pose_fix",
-                                                                        10);
+    pub_battery_state_ = create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", 10);
+    // dock_pose_fix publisher removed — ekf_map doesn't publish TF and nothing
+    // reads /odometry/filtered_map. Re-add if ekf_map becomes TF publisher.
   }
 
   void create_subscribers()
@@ -125,15 +128,13 @@ private:
     // Mirror the behavior tree's high-level state to the firmware so it
     // knows when to accept cmd_vel (mode != IDLE).
     sub_hl_status_ = create_subscription<mowgli_interfaces::msg::HighLevelStatus>(
-        "/mowgli/behavior/status",
+        "/behavior_tree_node/high_level_status",
         10,
         [this](mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg)
         {
           current_mode_ = msg->state;
-          RCLCPP_DEBUG(get_logger(),
-                       "High-level mode updated to %u (%s)",
-                       msg->state,
-                       msg->state_name.c_str());
+          RCLCPP_DEBUG(get_logger(), "High-level mode updated to %u (%s)",
+                       msg->state, msg->state_name.c_str());
         });
   }
 
@@ -343,30 +344,12 @@ private:
       pub_status_->publish(msg);
     }
 
-    // ---- Dock pose fix (when charging, anchor position + orientation) ----
-    // When on the dock, we know the exact position. This prevents
-    // position drift from GPS noise and gives the EKF a heading reference.
-    // dock at (0,0) is valid — it means the datum IS the dock.
-    if (is_charging_)
-    {
-      auto pose_msg = geometry_msgs::msg::PoseWithCovarianceStamped{};
-      pose_msg.header.stamp = stamp;
-      pose_msg.header.frame_id = "map";
-      pose_msg.pose.pose.position.x = dock_x_;
-      pose_msg.pose.pose.position.y = dock_y_;
-      pose_msg.pose.pose.orientation.z = std::sin(dock_yaw_ / 2.0);
-      pose_msg.pose.pose.orientation.w = std::cos(dock_yaw_ / 2.0);
-      // Extremely tight covariance — must dominate GPS completely
-      pose_msg.pose.covariance[0] = 1e-8;  // x
-      pose_msg.pose.covariance[7] = 1e-8;  // y
-      pose_msg.pose.covariance[14] = 1e6;  // z
-      pose_msg.pose.covariance[21] = 1e6;  // roll
-      pose_msg.pose.covariance[28] = 1e6;  // pitch
-      // Yaw: tight if we have a heading (from config or magnetometer),
-      // loose if completely unknown
-      pose_msg.pose.covariance[35] = (dock_yaw_ != 0.0 || mag_initialized_) ? 1e-4 : 1e6;
-      pub_dock_pose_->publish(pose_msg);
-    }
+    // ---- Dock pose fix ----
+    // Previously published dock position+heading to ekf_map while charging.
+    // Removed: ekf_map has publish_tf=false and nothing reads its output.
+    // SLAM is the sole TF authority. dock_pose_yaw is only used for SLAM
+    // map_start_pose (on saved maps) and by the BT for heading reference.
+    // If ekf_map is re-enabled as TF publisher in the future, re-add this.
 
     // ---- Emergency message ----
     {
@@ -404,6 +387,21 @@ private:
       msg.charger_status = msg.charger_enabled ? "charging" : "idle";
       pub_power_->publish(msg);
     }
+
+    // ---- BatteryState message (for opennav_docking charge detection) ----
+    {
+      auto msg = sensor_msgs::msg::BatteryState{};
+      msg.header.stamp = stamp;
+      msg.header.frame_id = "base_link";
+      msg.voltage = pkt.v_system;
+      msg.current = pkt.charging_current;
+      msg.percentage = static_cast<float>(pkt.batt_percentage) / 100.0f;
+      msg.power_supply_status = is_charging_
+          ? sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
+          : sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_DISCHARGING;
+      msg.present = true;
+      pub_battery_state_->publish(msg);
+    }
   }
 
   void handle_imu(const uint8_t* data, std::size_t len)
@@ -425,61 +423,45 @@ private:
     msg.linear_acceleration.y = static_cast<double>(pkt.acceleration_mss[1]);
     msg.linear_acceleration.z = static_cast<double>(pkt.acceleration_mss[2]);
 
-    // Gyro bias compensation: when wheels are stationary the gyro should
-    // read zero.  Any residual is bias.  Track it with an exponential
-    // moving average and subtract from all readings.
-    const double raw_gx = static_cast<double>(pkt.gyro_rads[0]);
-    const double raw_gy = static_cast<double>(pkt.gyro_rads[1]);
-    const double raw_gz = static_cast<double>(pkt.gyro_rads[2]);
+    // Publish raw gyro values without bias compensation.
+    // The EKF handles gyro drift via differential mode (imu0_differential: true).
+    // v2 (OpenMower/rosserial) published raw gyro and it worked correctly.
+    msg.angular_velocity.x = static_cast<double>(pkt.gyro_rads[0]);
+    msg.angular_velocity.y = static_cast<double>(pkt.gyro_rads[1]);
+    msg.angular_velocity.z = static_cast<double>(pkt.gyro_rads[2]);
 
-    if (wheels_stationary_)
+    // Magnetometer data is ignored — uncalibrated on metal robot chassis,
+    // gives ~229° error vs real heading. dock_pose_yaw is set from config
+    // (user measures with phone compass).
+
+    // Write resolved dock pose to file for SLAM initialization.
+    // On fresh map start, navigation.launch.py reads this file to set
+    // SLAM's map_start_pose so the map frame aligns with GPS/datum.
+    if (is_charging_ && !dock_pose_written_)
     {
-      // Update bias estimate (low-pass filter, alpha ~0.01 = slow adaptation)
-      constexpr double kAlpha = 0.05;
-      gyro_bias_x_ += kAlpha * (raw_gx - gyro_bias_x_);
-      gyro_bias_y_ += kAlpha * (raw_gy - gyro_bias_y_);
-      gyro_bias_z_ += kAlpha * (raw_gz - gyro_bias_z_);
-    }
-
-    msg.angular_velocity.x = raw_gx - gyro_bias_x_;
-    msg.angular_velocity.y = raw_gy - gyro_bias_y_;
-    msg.angular_velocity.z = raw_gz - gyro_bias_z_;
-
-    // Compute heading from magnetometer (atan2 of x,y components).
-    // The mag data is in the IMU frame (x=forward, y=left for REP-103).
-    // atan2(mag_y, mag_x) gives the heading relative to magnetic north.
-    const double mag_x = static_cast<double>(pkt.mag_uT[0]);
-    const double mag_y = static_cast<double>(pkt.mag_uT[1]);
-    // Apply imu_yaw offset to correct for IMU mounting rotation
-    const double mag_heading = std::atan2(-mag_y, mag_x) - imu_yaw_offset_;
-
-    // Track magnetometer heading with EMA when stationary (for dock yaw)
-    if (wheels_stationary_ && (mag_x != 0.0 || mag_y != 0.0))
-    {
-      if (!mag_initialized_)
-      {
-        mag_heading_avg_ = mag_heading;
-        mag_initialized_ = true;
+      const double dx = dock_x_;
+      const double dy = dock_y_;
+      // dock_yaw_ is from user config only (magnetometer no longer used)
+      std::ofstream f("/tmp/dock_start_pose.txt");
+      if (f.is_open()) {
+        f << dx << " " << dy << " " << dock_yaw_ << std::endl;
+        dock_pose_written_ = true;
+        RCLCPP_INFO(get_logger(),
+          "Wrote dock start pose to /tmp/dock_start_pose.txt: [%.2f, %.2f, %.3f]",
+          dx, dy, dock_yaw_);
       }
-      else
-      {
-        // Circular averaging via unit vector EMA
-        constexpr double kMagAlpha = 0.02;
-        mag_sin_avg_ += kMagAlpha * (std::sin(mag_heading) - mag_sin_avg_);
-        mag_cos_avg_ += kMagAlpha * (std::cos(mag_heading) - mag_cos_avg_);
-        mag_heading_avg_ = std::atan2(mag_sin_avg_, mag_cos_avg_);
-      }
-    }
-
-    // When charging and dock_yaw is not set, use magnetometer heading
-    if (is_charging_ && dock_yaw_ == 0.0 && mag_initialized_)
-    {
-      dock_yaw_ = mag_heading_avg_;
     }
 
     // Orientation not computed here; fill with identity and mark as unknown.
     msg.orientation.w = 1.0;
     msg.orientation_covariance[0] = -1.0;  // Signal: orientation unknown.
+
+    // Gyro covariance: WT901 gyro z-axis severely under-reports yaw rate
+    // (~17% of actual). Set high covariance so the EKF trusts wheel odom
+    // angular velocity over the gyro for yaw rate.
+    msg.angular_velocity_covariance[0] = 0.1;   // roll rate
+    msg.angular_velocity_covariance[4] = 0.1;   // pitch rate
+    msg.angular_velocity_covariance[8] = 1.0;   // yaw rate — low confidence
 
     pub_imu_->publish(msg);
   }
@@ -515,9 +497,23 @@ private:
     const auto stamp = now();
     const double dt_sec = static_cast<double>(pkt.dt_millis) / 1000.0;
 
-    // Compute tick deltas since last packet
-    const int32_t d_left = pkt.left_ticks - prev_left_ticks_;
-    const int32_t d_right = pkt.right_ticks - prev_right_ticks_;
+    // Debug: log raw tick values periodically
+    static int odom_debug_count = 0;
+    if (++odom_debug_count % 50 == 0) {
+      RCLCPP_INFO(get_logger(),
+        "Odom raw: L=%d R=%d dt=%u spd_L=%d spd_R=%d dir_L=%u dir_R=%u",
+        pkt.left_ticks, pkt.right_ticks, pkt.dt_millis,
+        pkt.left_speed, pkt.right_speed, pkt.left_direction, pkt.right_direction);
+    }
+
+    // Compute tick deltas since last packet.
+    // Tick counters are cumulative absolute (always increasing).
+    // The direction fields indicate forward (1) or reverse (2).
+    // Apply sign based on direction so differential kinematics work.
+    int32_t d_left = pkt.left_ticks - prev_left_ticks_;
+    int32_t d_right = pkt.right_ticks - prev_right_ticks_;
+    if (pkt.left_direction == 2) d_left = -d_left;   // reverse
+    if (pkt.right_direction == 2) d_right = -d_right; // reverse
     prev_left_ticks_ = pkt.left_ticks;
     prev_right_ticks_ = pkt.right_ticks;
 
@@ -617,7 +613,8 @@ private:
     pkt.blade_on = on;
     pkt.blade_dir = dir;
 
-    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdBlade) - sizeof(uint16_t));
+    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt),
+                    sizeof(LlCmdBlade) - sizeof(uint16_t));
   }
 
   void handle_blade_status(const uint8_t* data, std::size_t len)
@@ -645,7 +642,8 @@ private:
   {
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u && (msg->linear.x != 0.0 || msg->angular.z != 0.0))
+    if (current_mode_ == 0u &&
+        (msg->linear.x != 0.0 || msg->angular.z != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();
@@ -708,7 +706,7 @@ private:
   rclcpp::Publisher<mowgli_interfaces::msg::Power>::SharedPtr pub_power_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_imu_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_dock_pose_;
+  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_state_;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
   rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr sub_hl_status_;
@@ -743,7 +741,6 @@ private:
   double dock_x_{0.0};
   double dock_y_{0.0};
   double dock_yaw_{0.0};
-  double imu_yaw_offset_{0.0};
   bool mow_enabled_{false};
   bool is_charging_{false};
   uint8_t current_mode_{0};
@@ -766,11 +763,7 @@ private:
   double gyro_bias_y_{0.0};
   double gyro_bias_z_{0.0};
 
-  // Magnetometer heading (for dock orientation auto-detection)
-  bool mag_initialized_{false};
-  double mag_heading_avg_{0.0};
-  double mag_sin_avg_{0.0};
-  double mag_cos_avg_{0.0};
+  bool dock_pose_written_{false};
 };
 
 }  // namespace mowgli_hardware

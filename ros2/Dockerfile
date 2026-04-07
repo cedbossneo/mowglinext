@@ -52,8 +52,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-rtcm-msgs \
     # tinyxml2 (required at runtime by BehaviorTree.CPP)
     libtinyxml2-dev \
-    # DDS middleware — Cyclone DDS required for all containers
-    ros-jazzy-rmw-cyclonedds-cpp \
     # Topic tools (relay, throttle — used in simulation for topic remapping)
     ros-jazzy-topic-tools \
     # Docking (opennav_docking — dock/undock action server)
@@ -73,6 +71,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Simulation bridge (needed at runtime for ros_gz_bridge topic bridging)
     ros-jazzy-ros-gz-sim \
     ros-jazzy-ros-gz-bridge \
+    # DDS middleware — Cyclone DDS is more reliable than FastRTPS on ARM
+    # (no shared memory, no stale /dev/shm segments, better service discovery)
+    ros-jazzy-rmw-cyclonedds-cpp \
     # Utilities
     python3-argcomplete \
  && rm -rf /var/lib/apt/lists/*
@@ -204,13 +205,12 @@ FROM base AS runtime
 
 WORKDIR /ros2_ws
 
-# Pull Fields2Cover and all its runtime dependencies from build stage
+# Pull Fields2Cover and its dependencies from build stage
 # (needed at runtime by coverage_planner_node)
-COPY --from=build /usr/local/lib/libFields2Cover* /usr/local/lib/
-COPY --from=build /usr/local/lib/libsteering_functions* /usr/local/lib/
-COPY --from=build /usr/local/lib/libortools* /usr/local/lib/
-COPY --from=build /usr/local/lib/libmatplot* /usr/local/lib/
-COPY --from=build /usr/local/include/fields2cover* /usr/local/include/
+# Copy all /usr/local/lib shared libraries installed by Fields2Cover build
+# (includes F2C, OR-Tools, matplotlibcpp, steering_functions, abseil, etc.)
+COPY --from=build /usr/local/lib/ /usr/local/lib/
+RUN ldconfig
 
 # Ensure libtinyxml2 .so.9 and .so.10 both resolve. The build stage may
 # compile against a different minor version than the runtime base provides
@@ -235,6 +235,10 @@ COPY src/mowgli_localization/config/  /ros2_ws/install/mowgli_localization/share
 # See: https://github.com/RobotWebTools/rosbridge_suite/issues/965
 COPY scripts/patch_rosbridge.py /tmp/patch_rosbridge.py
 RUN python3 /tmp/patch_rosbridge.py && rm /tmp/patch_rosbridge.py
+
+# Use Cyclone DDS — FastRTPS shared memory causes stale /dev/shm segments
+# and unreliable service discovery on ARM boards
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 # Entrypoint script sources both ROS and workspace setups before exec'ing CMD
 COPY scripts/ros2_entrypoint.sh /ros2_entrypoint.sh

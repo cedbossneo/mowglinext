@@ -33,7 +33,9 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
 find_package(slam_toolbox REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(robot_localization REQUIRED)
+find_package(opennav_docking_msgs REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Executable: behavior_tree_node
@@ -68,7 +70,9 @@ ament_target_dependencies(behavior_tree_node
   std_srvs
   mowgli_interfaces
   slam_toolbox
+  rcl_interfaces
   robot_localization
+  opennav_docking_msgs
 )
 
 # ---------------------------------------------------------------------------
@@ -97,9 +101,6 @@ install(DIRECTORY include/
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  set(ament_cmake_copyright_FOUND TRUE)
-  set(ament_cmake_cpplint_FOUND TRUE)
-  set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 

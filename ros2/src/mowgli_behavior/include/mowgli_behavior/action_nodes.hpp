@@ -15,11 +15,11 @@
 #include "mowgli_interfaces/srv/get_mowing_area.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "nav2_msgs/action/back_up.hpp"
-#include "nav2_msgs/action/dock_robot.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
-#include "nav2_msgs/action/undock_robot.hpp"
 #include "nav_msgs/msg/path.hpp"
+#include "opennav_docking_msgs/action/dock_robot.hpp"
+#include "opennav_docking_msgs/action/undock_robot.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "slam_toolbox/srv/serialize_pose_graph.hpp"
@@ -171,14 +171,9 @@ class RecordUndockStart : public BT::SyncActionNode
 {
 public:
   RecordUndockStart(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config)
-  {
-  }
+      : BT::SyncActionNode(name, config) {}
 
-  static BT::PortsList providedPorts()
-  {
-    return {};
-  }
+  static BT::PortsList providedPorts() { return {}; }
   BT::NodeStatus tick() override;
 };
 
@@ -193,14 +188,9 @@ class CalibrateHeadingFromUndock : public BT::SyncActionNode
 {
 public:
   CalibrateHeadingFromUndock(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config)
-  {
-  }
+      : BT::SyncActionNode(name, config) {}
 
-  static BT::PortsList providedPorts()
-  {
-    return {};
-  }
+  static BT::PortsList providedPorts() { return {}; }
   BT::NodeStatus tick() override;
 };
 
@@ -552,16 +542,15 @@ public:
 // DockRobot
 // ---------------------------------------------------------------------------
 
-/// Calls opennav_docking's /docking_server/dock_robot action to dock the robot.
-/// Uses the SimpleChargingDock plugin configured in nav2_params.yaml.
+/// Calls the opennav_docking /dock_robot action to dock the robot.
 ///
 /// Input ports:
-///   dock_pose (string) – dock pose as "x;y;yaw" (frame_id = "map").
-///   dock_type (string, default "simple_charging_dock") – dock plugin name.
+///   dock_id   (string) – named dock instance (e.g. "home_dock")
+///   dock_type (string) – dock plugin type (e.g. "simple_charging_dock")
 class DockRobot : public BT::StatefulActionNode
 {
 public:
-  using DockAction = nav2_msgs::action::DockRobot;
+  using DockAction = opennav_docking_msgs::action::DockRobot;
   using GoalHandle = rclcpp_action::ClientGoalHandle<DockAction>;
 
   DockRobot(const std::string& name, const BT::NodeConfig& config)
@@ -571,11 +560,8 @@ public:
 
   static BT::PortsList providedPorts()
   {
-    return {
-        BT::InputPort<std::string>("dock_pose", "Dock pose as 'x;y;yaw'"),
-        BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
-        BT::InputPort<bool>("navigate_to_staging_pose", true, "Navigate to staging pose first"),
-    };
+    return {BT::InputPort<std::string>("dock_id", "home_dock", "Named dock instance"),
+            BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type")};
   }
 
   BT::NodeStatus onStart() override;
@@ -592,14 +578,14 @@ private:
 // UndockRobot
 // ---------------------------------------------------------------------------
 
-/// Calls opennav_docking's /docking_server/undock_robot action to undock.
+/// Calls the opennav_docking /undock_robot action to undock the robot.
 ///
 /// Input ports:
-///   dock_type (string, default "simple_charging_dock") – dock plugin name.
+///   dock_type (string) – dock plugin type (e.g. "simple_charging_dock")
 class UndockRobot : public BT::StatefulActionNode
 {
 public:
-  using UndockAction = nav2_msgs::action::UndockRobot;
+  using UndockAction = opennav_docking_msgs::action::UndockRobot;
   using GoalHandle = rclcpp_action::ClientGoalHandle<UndockAction>;
 
   UndockRobot(const std::string& name, const BT::NodeConfig& config)
@@ -609,9 +595,7 @@ public:
 
   static BT::PortsList providedPorts()
   {
-    return {
-        BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type"),
-    };
+    return {BT::InputPort<std::string>("dock_type", "simple_charging_dock", "Dock plugin type")};
   }
 
   BT::NodeStatus onStart() override;
