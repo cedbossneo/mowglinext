@@ -1,0 +1,177 @@
+name: Create Planned Feature Issues
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Headland passes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "feat: headland passes" \
+            --label "enhancement" \
+            --body "## Description
+
+          Mow the perimeter outline (headland) before filling the interior with the coverage pattern.
+
+          ## Motivation
+
+          Headland passes are standard practice in agricultural mowing. By mowing the perimeter first, the robot:
+          - Creates a clean boundary that defines the exact mowing area
+          - Provides turning room at the end of each interior swath without damaging the edges
+          - Produces a more professional finish
+
+          ## Requirements
+
+          - Add a configurable number of headland passes (default: 1)
+          - The headland path follows the boundary polygon inward, offset by one swath width per pass
+          - Interior coverage fill starts only after all headland passes are complete
+          - Headland direction should be configurable (CW / CCW)
+          - Integrate with the B-RV coverage planner (\`mowgli_brv_planner\`)
+          - Expose a \`headland_passes\` parameter in \`mowgli_robot.yaml\`
+
+          ## Context
+
+          - Coverage planner: \`ros2/src/mowgli_brv_planner/\`
+          - FTCController is used for coverage path following (sub-10 mm lateral accuracy)
+          - Boundary polygons are managed in the web GUI"
+
+      - name: 3D terrain handling
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "feat: 3D terrain handling" \
+            --label "enhancement" \
+            --body "## Description
+
+          Slope-aware coverage planning and speed adjustment based on the terrain elevation map.
+
+          ## Motivation
+
+          Most residential lawns have uneven terrain. Without slope awareness the mower:
+          - Moves at constant speed regardless of incline, reducing cut quality on slopes
+          - Plans straight swaths across slopes that may be unsafe or cause wheel slip
+          - Cannot warn operators when a slope exceeds the mower's safe operating limit
+
+          ## Requirements
+
+          - Integrate an elevation / slope layer into the Nav2 costmap (e.g., from a DEM or point-cloud)
+          - Reduce target speed proportional to slope angle
+          - Mark cells above a configurable maximum slope as lethal obstacles in the coverage costmap
+          - Optionally adjust swath orientation to run along contour lines rather than across slope
+          - Expose parameters: \`max_slope_deg\`, \`slope_speed_factor\`
+
+          ## Context
+
+          - Nav2 costmap plugins are in \`ros2/src/mowgli_costmap_plugins/\` (if present) or configured via YAML
+          - Coverage planner: \`ros2/src/mowgli_brv_planner/\`
+          - Robot velocity limits are managed in \`mowgli_robot.yaml\`"
+
+      - name: Multi-zone mowing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "feat: multi-zone mowing" \
+            --label "enhancement" \
+            --body "## Description
+
+          Schedule and sequence multiple independent mowing areas in a single autonomous session.
+
+          ## Motivation
+
+          Many gardens have disconnected zones separated by paths, flower beds, or obstacles. Today the
+          mower handles a single boundary polygon; users with multiple zones must manually restart for each.
+
+          ## Requirements
+
+          - Allow the GUI map editor to define and name multiple zone polygons
+          - Store zones with metadata: name, priority, last-mowed timestamp, enabled/disabled flag
+          - Behavior tree selects the next zone to mow based on priority and schedule
+          - Transit between zones uses the Nav2 global planner (RPP controller)
+          - Coverage execution per zone uses the existing B-RV planner + FTCController pipeline
+          - Zones can be mowed in a configurable order (priority queue or round-robin)
+          - GUI shows per-zone completion status during a session
+
+          ## Context
+
+          - Behavior tree entry point: \`ros2/src/mowgli_behavior/trees/main_tree.xml\`
+          - Coverage planner: \`ros2/src/mowgli_brv_planner/\`
+          - Zone polygons are stored as GeoJSON and served by the Go backend in \`gui/\`"
+
+      - name: Improved obstacle shapes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "feat: improved obstacle shapes" \
+            --label "enhancement" \
+            --body "## Description
+
+          Track obstacle contours as polygons rather than bounding circles, enabling tighter, more accurate coverage path planning around objects.
+
+          ## Motivation
+
+          The current obstacle tracker (\`mowgli_obstacle_tracker\`) represents detected obstacles as circles
+          (position + radius). This wastes mowable area around elongated or irregular objects and causes
+          the coverage planner to leave larger no-mow gaps than necessary.
+
+          ## Requirements
+
+          - Extend the obstacle representation to store a convex hull or oriented bounding rectangle
+          - Update DBSCAN clustering to output a polygon per cluster instead of a bounding circle
+          - Pass polygon obstacles to the coverage planner so it can cut tighter paths around them
+          - Maintain backward compatibility with the circular representation for the costmap inflation layer
+          - Expose a parameter \`obstacle_shape_mode\` (\`circle\` / \`polygon\`) for gradual rollout
+          - Visualise polygon obstacles as \`visualization_msgs/MarkerArray\` on \`/mowgli/obstacles_viz\`
+
+          ## Context
+
+          - Obstacle tracker: \`ros2/src/mowgli_obstacle_tracker/\`
+          - Coverage planner consumes obstacles from: TBD (check planner interface)
+          - Collision monitor handles real-time avoidance independently and is not affected by this change"
+
+      - name: Coverage checkpoint resume
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "feat: coverage checkpoint resume" \
+            --label "enhancement" \
+            --body "## Description
+
+          Persist mowing progress to disk so that a session can be resumed after a reboot or unexpected power loss.
+
+          ## Motivation
+
+          If the mower loses power mid-session (flat battery, connection loss, manual stop) all progress is
+          lost and the next run re-mows already-covered ground. For large lawns this wastes significant time
+          and battery.
+
+          ## Requirements
+
+          - Periodically serialise the coverage path and the index of the last completed waypoint to a file
+          - On startup, detect an incomplete checkpoint and offer to resume (via GUI toggle and BT condition)
+          - If resumed, the robot docks to recharge if needed, then navigates to the last checkpoint waypoint and continues
+          - Checkpoint file is invalidated when a new mowing session is started manually
+          - Checkpoint interval should be configurable (default: every 10 waypoints or every 30 s)
+          - Expose \`/mowgli/coverage/resume\` service to trigger resumption programmatically
+
+          ## Context
+
+          - Behavior tree: \`ros2/src/mowgli_behavior/trees/main_tree.xml\`
+          - Coverage execution node: \`ros2/src/mowgli_behavior/\` (check coverage action server)
+          - Checkpoint storage path should respect the ROS2 log / data directory convention"
