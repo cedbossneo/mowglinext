@@ -1074,7 +1074,10 @@ void ObstacleTrackerNode::merge_overlapping()
 
           RCLCPP_DEBUG(get_logger(),
                        "Merged obstacle #%u into #%u (dist=%.2f < %.2f)",
-                       b.id, a.id, dist, merge_dist);
+                       b.id,
+                       a.id,
+                       dist,
+                       merge_dist);
 
           // Remove j
           tracked_.erase(tracked_.begin() + static_cast<long>(j));
@@ -1082,7 +1085,8 @@ void ObstacleTrackerNode::merge_overlapping()
           break;  // restart inner loop
         }
       }
-      if (merged_any) break;  // restart outer loop
+      if (merged_any)
+        break;  // restart outer loop
     }
   }
 }

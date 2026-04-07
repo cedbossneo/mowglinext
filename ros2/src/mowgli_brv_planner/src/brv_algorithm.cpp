@@ -1,29 +1,35 @@
 #include "mowgli_brv_planner/brv_algorithm.hpp"
-#include "mowgli_brv_planner/mbb.hpp"
-#include "mowgli_brv_planner/grid_coverage.hpp"
-#include "mowgli_brv_planner/voronoi_roadmap.hpp"
-#include "mowgli_brv_planner/geometry_utils.hpp"
+
 #include <cmath>
 #include <string>
 
-namespace brv {
+#include "mowgli_brv_planner/geometry_utils.hpp"
+#include "mowgli_brv_planner/grid_coverage.hpp"
+#include "mowgli_brv_planner/mbb.hpp"
+#include "mowgli_brv_planner/voronoi_roadmap.hpp"
 
-CoverageResult plan_coverage(
-    const Polygon2D& boundary,
-    const std::vector<Polygon2D>& obstacles,
-    const PlannerParams& params,
-    ProgressCallback progress_cb)
+namespace brv
+{
+
+CoverageResult plan_coverage(const Polygon2D& boundary,
+                             const std::vector<Polygon2D>& obstacles,
+                             const PlannerParams& params,
+                             ProgressCallback progress_cb)
 {
   CoverageResult result;
 
-  auto report = [&progress_cb](float pct, const std::string& phase) {
-    if (progress_cb) progress_cb(pct, phase);
+  auto report = [&progress_cb](float pct, const std::string& phase)
+  {
+    if (progress_cb)
+      progress_cb(pct, phase);
   };
 
   // Filter small obstacles
   std::vector<Polygon2D> filtered_obs;
-  for (const auto& obs : obstacles) {
-    if (std::abs(polygon_area(obs)) >= params.min_obstacle_area) {
+  for (const auto& obs : obstacles)
+  {
+    if (std::abs(polygon_area(obs)) >= params.min_obstacle_area)
+    {
       filtered_obs.push_back(obs);
     }
   }
@@ -31,24 +37,30 @@ CoverageResult plan_coverage(
   // 1. Generate headland outline
   report(5.0f, "headland");
   Polygon2D inner_boundary = boundary;
-  if (params.headland_passes > 0) {
-    for (int pass = 0; pass < params.headland_passes; ++pass) {
+  if (params.headland_passes > 0)
+  {
+    for (int pass = 0; pass < params.headland_passes; ++pass)
+    {
       double inset = params.headland_width * (pass + 0.5);
       Polygon2D ring = offset_polygon_inward(boundary, inset);
-      if (ring.empty()) break;
+      if (ring.empty())
+        break;
       // Add outline waypoints
-      for (const auto& pt : ring) {
+      for (const auto& pt : ring)
+      {
         result.outline_path.push_back(pt);
       }
       // Close the ring
-      if (!ring.empty()) {
+      if (!ring.empty())
+      {
         result.outline_path.push_back(ring.front());
       }
     }
     // Compute inner boundary for fill
-    Polygon2D inset = offset_polygon_inward(
-        boundary, params.headland_passes * params.headland_width);
-    if (!inset.empty()) {
+    Polygon2D inset =
+        offset_polygon_inward(boundary, params.headland_passes * params.headland_width);
+    if (!inset.empty())
+    {
       inner_boundary = inset;
     }
   }
@@ -56,9 +68,12 @@ CoverageResult plan_coverage(
   // 2. Determine sweep angle via MBB (Algorithm 1)
   report(10.0f, "decomposition");
   double sweep_angle = params.mow_angle_deg;
-  if (sweep_angle < 0) {
+  if (sweep_angle < 0)
+  {
     sweep_angle = compute_mbb_angle(inner_boundary);
-  } else {
+  }
+  else
+  {
     sweep_angle = sweep_angle * M_PI / 180.0;
   }
 
@@ -68,21 +83,25 @@ CoverageResult plan_coverage(
 
   // 4. Build Voronoi roadmap (Section 4.4)
   report(30.0f, "routing");
-  VoronoiRoadmap roadmap(inner_boundary, filtered_obs,
-                         params.voronoi_sample_spacing, params.voronoi_knn);
+  VoronoiRoadmap roadmap(inner_boundary,
+                         filtered_obs,
+                         params.voronoi_sample_spacing,
+                         params.voronoi_knn);
 
   // 5. Execute B-RV coverage (main loop)
   report(40.0f, "path_planning");
 
   int total_cells = grid.count_unvisited();
-  if (total_cells == 0) {
+  if (total_cells == 0)
+  {
     result.coverage_area = 0.0;
     return result;
   }
 
   // Find initial start (top-left corner of first unvisited region)
   auto regions = grid.get_unvisited_region_starts();
-  if (regions.empty()) return result;
+  if (regions.empty())
+    return result;
 
   int cur_row = regions[0].first;
   int cur_col = regions[0].second;
@@ -91,18 +110,22 @@ CoverageResult plan_coverage(
   int iteration = 0;
   int max_iterations = total_cells + 100;  // safety limit
 
-  while (grid.has_unvisited() && iteration++ < max_iterations) {
+  while (grid.has_unvisited() && iteration++ < max_iterations)
+  {
     // Boustrophedon sweep from current position
     SweepResult sweep = boustrophedon_sweep(grid, cur_row, cur_col);
 
-    if (!sweep.waypoints.empty()) {
+    if (!sweep.waypoints.empty())
+    {
       // Record swath info
-      for (size_t si = 0; si < sweep.swath_breaks.size(); ++si) {
+      for (size_t si = 0; si < sweep.swath_breaks.size(); ++si)
+      {
         int start_idx = sweep.swath_breaks[si];
         int end_idx = (si + 1 < sweep.swath_breaks.size())
                           ? sweep.swath_breaks[si + 1] - 1
                           : static_cast<int>(sweep.waypoints.size()) - 1;
-        if (start_idx <= end_idx && end_idx < static_cast<int>(sweep.waypoints.size())) {
+        if (start_idx <= end_idx && end_idx < static_cast<int>(sweep.waypoints.size()))
+        {
           SwathInfo swath;
           swath.start = sweep.waypoints[start_idx];
           swath.end = sweep.waypoints[end_idx];
@@ -112,26 +135,31 @@ CoverageResult plan_coverage(
 
       // Append coverage waypoints to full path
       result.full_path.insert(result.full_path.end(),
-                              sweep.waypoints.begin(), sweep.waypoints.end());
+                              sweep.waypoints.begin(),
+                              sweep.waypoints.end());
       cur_pos = sweep.waypoints.back();
       cur_row = sweep.end_row;
       cur_col = sweep.end_col;
     }
 
     // Check if more unvisited regions exist
-    if (!grid.has_unvisited()) break;
+    if (!grid.has_unvisited())
+      break;
 
     // Find nearest unvisited region and transit via Voronoi
     auto [next_row, next_col] = grid.find_nearest_unvisited(cur_row, cur_col);
-    if (next_row < 0) break;
+    if (next_row < 0)
+      break;
 
     Point2D next_pos = grid.cell_to_map(next_row, next_col);
 
     // Use Voronoi roadmap for collision-free transit (Section 4.4)
     Path2D transit = roadmap.find_path(cur_pos, next_pos);
-    if (transit.size() > 2) {
+    if (transit.size() > 2)
+    {
       // Skip first (== cur_pos) and last (== next_pos) to avoid duplicates
-      for (size_t i = 1; i + 1 < transit.size(); ++i) {
+      for (size_t i = 1; i + 1 < transit.size(); ++i)
+      {
         result.full_path.push_back(transit[i]);
       }
     }

@@ -1,17 +1,21 @@
 #pragma once
 
-#include "mowgli_brv_planner/types.hpp"
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-namespace brv {
+#include "mowgli_brv_planner/types.hpp"
 
-class VoronoiRoadmap {
+namespace brv
+{
+
+class VoronoiRoadmap
+{
 public:
   VoronoiRoadmap(const Polygon2D& boundary,
                  const std::vector<Polygon2D>& obstacles,
-                 double sample_spacing, int knn);
+                 double sample_spacing,
+                 int knn);
 
   // Find shortest path from start to end via the roadmap.
   Path2D find_path(const Point2D& start, const Point2D& end) const;
@@ -20,15 +24,20 @@ public:
   std::vector<std::pair<Point2D, Point2D>> get_edges() const;
 
   // Get all nodes for visualization.
-  const std::vector<Point2D>& nodes() const { return nodes_; }
+  const std::vector<Point2D>& nodes() const
+  {
+    return nodes_;
+  }
 
 private:
   void build_from_voronoi(const Polygon2D& boundary,
                           const std::vector<Polygon2D>& obstacles,
-                          double sample_spacing, int knn);
+                          double sample_spacing,
+                          int knn);
 
   // Adjacency list: node_idx -> [(neighbor_idx, distance)]
-  struct Edge {
+  struct Edge
+  {
     int to;
     double weight;
   };

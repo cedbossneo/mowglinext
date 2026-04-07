@@ -1,19 +1,23 @@
 #include "mowgli_brv_planner/grid_coverage.hpp"
-#include "mowgli_brv_planner/geometry_utils.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <queue>
 
-namespace brv {
+#include "mowgli_brv_planner/geometry_utils.hpp"
+
+namespace brv
+{
 
 CoverageGrid::CoverageGrid(const Polygon2D& boundary,
                            const std::vector<Polygon2D>& obstacles,
-                           double resolution, double sweep_angle)
-  : resolution_(resolution),
-    sweep_angle_(sweep_angle),
-    cos_a_(std::cos(-sweep_angle)),
-    sin_a_(std::sin(-sweep_angle))
+                           double resolution,
+                           double sweep_angle)
+    : resolution_(resolution),
+      sweep_angle_(sweep_angle),
+      cos_a_(std::cos(-sweep_angle)),
+      sin_a_(std::sin(-sweep_angle))
 {
   // Rotate boundary into grid-aligned frame
   Polygon2D rot_boundary = rotate_polygon(boundary);
@@ -23,7 +27,8 @@ CoverageGrid::CoverageGrid(const Polygon2D& boundary,
   double x_max = std::numeric_limits<double>::lowest();
   double y_min = std::numeric_limits<double>::max();
   double y_max = std::numeric_limits<double>::lowest();
-  for (const auto& p : rot_boundary) {
+  for (const auto& p : rot_boundary)
+  {
     x_min = std::min(x_min, p.x);
     x_max = std::max(x_max, p.x);
     y_min = std::min(y_min, p.y);
@@ -43,18 +48,19 @@ Polygon2D CoverageGrid::rotate_polygon(const Polygon2D& poly) const
 {
   Polygon2D result;
   result.reserve(poly.size());
-  for (const auto& p : poly) {
-    result.push_back({cos_a_ * p.x - sin_a_ * p.y,
-                      sin_a_ * p.x + cos_a_ * p.y});
+  for (const auto& p : poly)
+  {
+    result.push_back({cos_a_ * p.x - sin_a_ * p.y, sin_a_ * p.x + cos_a_ * p.y});
   }
   return result;
 }
 
-void CoverageGrid::init_grid(const Polygon2D& boundary,
-                             const std::vector<Polygon2D>& obstacles)
+void CoverageGrid::init_grid(const Polygon2D& boundary, const std::vector<Polygon2D>& obstacles)
 {
-  for (int r = 0; r < rows_; ++r) {
-    for (int c = 0; c < cols_; ++c) {
+  for (int r = 0; r < rows_; ++r)
+  {
+    for (int c = 0; c < cols_; ++c)
+    {
       // Cell center in rotated frame
       double rx = grid_ox_ + (c + 0.5) * resolution_;
       double ry = grid_oy_ + (r + 0.5) * resolution_;
@@ -65,13 +71,16 @@ void CoverageGrid::init_grid(const Polygon2D& boundary,
 
       Point2D map_pt{mx, my};
 
-      if (!point_in_polygon(map_pt, boundary)) {
+      if (!point_in_polygon(map_pt, boundary))
+      {
         grid_[r * cols_ + c] = CellState::UNVISITABLE;
         continue;
       }
 
-      for (const auto& obs : obstacles) {
-        if (point_in_polygon(map_pt, obs)) {
+      for (const auto& obs : obstacles)
+      {
+        if (point_in_polygon(map_pt, obs))
+        {
           grid_[r * cols_ + c] = CellState::UNVISITABLE;
           break;
         }
@@ -92,8 +101,10 @@ Point2D CoverageGrid::cell_to_map(int row, int col) const
 
 bool CoverageGrid::has_unvisited() const
 {
-  for (auto s : grid_) {
-    if (s == CellState::UNVISITED) return true;
+  for (auto s : grid_)
+  {
+    if (s == CellState::UNVISITED)
+      return true;
   }
   return false;
 }
@@ -101,8 +112,10 @@ bool CoverageGrid::has_unvisited() const
 int CoverageGrid::count_unvisited() const
 {
   int count = 0;
-  for (auto s : grid_) {
-    if (s == CellState::UNVISITED) ++count;
+  for (auto s : grid_)
+  {
+    if (s == CellState::UNVISITED)
+      ++count;
   }
   return count;
 }
@@ -111,11 +124,15 @@ std::pair<int, int> CoverageGrid::find_nearest_unvisited(int row, int col) const
 {
   int best_r = -1, best_c = -1;
   int best_dist = std::numeric_limits<int>::max();
-  for (int r = 0; r < rows_; ++r) {
-    for (int c = 0; c < cols_; ++c) {
-      if (grid_[r * cols_ + c] == CellState::UNVISITED) {
+  for (int r = 0; r < rows_; ++r)
+  {
+    for (int c = 0; c < cols_; ++c)
+    {
+      if (grid_[r * cols_ + c] == CellState::UNVISITED)
+      {
         int d = std::abs(r - row) + std::abs(c - col);
-        if (d < best_dist) {
+        if (d < best_dist)
+        {
           best_dist = d;
           best_r = r;
           best_c = c;
@@ -131,10 +148,13 @@ std::vector<std::pair<int, int>> CoverageGrid::get_unvisited_region_starts() con
   std::vector<bool> visited(rows_ * cols_, false);
   std::vector<std::pair<int, int>> regions;
 
-  for (int r = 0; r < rows_; ++r) {
-    for (int c = 0; c < cols_; ++c) {
+  for (int r = 0; r < rows_; ++r)
+  {
+    for (int c = 0; c < cols_; ++c)
+    {
       int idx = r * cols_ + c;
-      if (grid_[idx] != CellState::UNVISITED || visited[idx]) continue;
+      if (grid_[idx] != CellState::UNVISITED || visited[idx])
+        continue;
 
       // BFS to find first cell of this region (topmost-leftmost)
       int best_r = r, best_c = c;
@@ -142,21 +162,26 @@ std::vector<std::pair<int, int>> CoverageGrid::get_unvisited_region_starts() con
       q.push({r, c});
       visited[idx] = true;
 
-      while (!q.empty()) {
+      while (!q.empty())
+      {
         auto [cr, cc] = q.front();
         q.pop();
-        if (cr < best_r || (cr == best_r && cc < best_c)) {
+        if (cr < best_r || (cr == best_r && cc < best_c))
+        {
           best_r = cr;
           best_c = cc;
         }
         static const int dr[] = {-1, 1, 0, 0};
         static const int dc[] = {0, 0, -1, 1};
-        for (int d = 0; d < 4; ++d) {
+        for (int d = 0; d < 4; ++d)
+        {
           int nr = cr + dr[d];
           int nc = cc + dc[d];
-          if (nr < 0 || nr >= rows_ || nc < 0 || nc >= cols_) continue;
+          if (nr < 0 || nr >= rows_ || nc < 0 || nc >= cols_)
+            continue;
           int ni = nr * cols_ + nc;
-          if (!visited[ni] && grid_[ni] == CellState::UNVISITED) {
+          if (!visited[ni] && grid_[ni] == CellState::UNVISITED)
+          {
             visited[ni] = true;
             q.push({nr, nc});
           }
@@ -182,15 +207,20 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
 
   // Determine initial row direction: sweep toward the side with more unvisited
   int up_count = 0, down_count = 0;
-  for (int r = 0; r < row; ++r) {
-    if (grid.cell(r, col) == CellState::UNVISITED) ++up_count;
+  for (int r = 0; r < row; ++r)
+  {
+    if (grid.cell(r, col) == CellState::UNVISITED)
+      ++up_count;
   }
-  for (int r = row; r < rows; ++r) {
-    if (grid.cell(r, col) == CellState::UNVISITED) ++down_count;
+  for (int r = row; r < rows; ++r)
+  {
+    if (grid.cell(r, col) == CellState::UNVISITED)
+      ++down_count;
   }
   row_dir = (down_count >= up_count) ? 1 : -1;
 
-  while (col >= 0 && col < cols) {
+  while (col >= 0 && col < cols)
+  {
     // Sweep current column fully — skip over obstacles, don't break.
     // Collect segments of unvisited cells separated by obstacles.
     bool swept_any = false;
@@ -201,13 +231,17 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
     int r_end = (row_dir == 1) ? rows : -1;
 
     // If we have a starting position in this column, use it
-    if (col == start_col && result.waypoints.empty()) {
+    if (col == start_col && result.waypoints.empty())
+    {
       r_start = start_row;
     }
 
-    for (int r = r_start; r != r_end; r += row_dir) {
-      if (grid.cell(r, col) == CellState::UNVISITED) {
-        if (!in_segment && swept_any) {
+    for (int r = r_start; r != r_end; r += row_dir)
+    {
+      if (grid.cell(r, col) == CellState::UNVISITED)
+      {
+        if (!in_segment && swept_any)
+        {
           // Starting a new segment after an obstacle gap — record swath break
           result.swath_breaks.push_back(static_cast<int>(result.waypoints.size()));
         }
@@ -216,30 +250,38 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
         swept_any = true;
         in_segment = true;
         row = r;
-      } else {
+      }
+      else
+      {
         in_segment = false;
       }
     }
 
-    if (!swept_any && result.waypoints.empty()) {
+    if (!swept_any && result.waypoints.empty())
+    {
       col += col_dir;
-      if (col < 0 || col >= cols) break;
+      if (col < 0 || col >= cols)
+        break;
       continue;
     }
 
     // Move to next column
     int next_col = col + col_dir;
-    if (next_col < 0 || next_col >= cols) break;
+    if (next_col < 0 || next_col >= cols)
+      break;
 
     // Check if next column has unvisited cells
     bool has_unvisited = false;
-    for (int r = 0; r < rows; ++r) {
-      if (grid.cell(r, next_col) == CellState::UNVISITED) {
+    for (int r = 0; r < rows; ++r)
+    {
+      if (grid.cell(r, next_col) == CellState::UNVISITED)
+      {
         has_unvisited = true;
         break;
       }
     }
-    if (!has_unvisited) break;
+    if (!has_unvisited)
+      break;
 
     col = next_col;
     row_dir = -row_dir;

@@ -2,7 +2,8 @@
 
 #include "mowgli_brv_planner/types.hpp"
 
-namespace brv {
+namespace brv
+{
 
 // Point-in-polygon test (ray casting).
 bool point_in_polygon(const Point2D& pt, const Polygon2D& poly);
@@ -30,11 +31,9 @@ Point2D unrotate_point(const Point2D& pt, double angle);
 double path_length(const Path2D& path);
 
 // Line segment intersection test.
-bool segments_intersect(const Point2D& a1, const Point2D& a2,
-                        const Point2D& b1, const Point2D& b2);
+bool segments_intersect(const Point2D& a1, const Point2D& a2, const Point2D& b1, const Point2D& b2);
 
 // Test if line segment is fully inside polygon (no crossings with edges).
-bool segment_inside_polygon(const Point2D& a, const Point2D& b,
-                            const Polygon2D& poly);
+bool segment_inside_polygon(const Point2D& a, const Point2D& b, const Polygon2D& poly);
 
 }  // namespace brv

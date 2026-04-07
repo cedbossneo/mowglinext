@@ -1,15 +1,19 @@
 #pragma once
 
-#include "mowgli_brv_planner/types.hpp"
 #include <vector>
 
-namespace brv {
+#include "mowgli_brv_planner/types.hpp"
 
-class CoverageGrid {
+namespace brv
+{
+
+class CoverageGrid
+{
 public:
   CoverageGrid(const Polygon2D& boundary,
                const std::vector<Polygon2D>& obstacles,
-               double resolution, double sweep_angle);
+               double resolution,
+               double sweep_angle);
 
   // Convert grid cell (row, col) to map frame (x, y).
   Point2D cell_to_map(int row, int col) const;
@@ -27,17 +31,34 @@ public:
   std::pair<int, int> find_nearest_unvisited(int row, int col) const;
 
   // Grid accessors.
-  int rows() const { return rows_; }
-  int cols() const { return cols_; }
-  CellState cell(int r, int c) const { return grid_[r * cols_ + c]; }
-  void set_cell(int r, int c, CellState s) { grid_[r * cols_ + c] = s; }
+  int rows() const
+  {
+    return rows_;
+  }
+  int cols() const
+  {
+    return cols_;
+  }
+  CellState cell(int r, int c) const
+  {
+    return grid_[r * cols_ + c];
+  }
+  void set_cell(int r, int c, CellState s)
+  {
+    grid_[r * cols_ + c] = s;
+  }
 
-  double resolution() const { return resolution_; }
-  double sweep_angle() const { return sweep_angle_; }
+  double resolution() const
+  {
+    return resolution_;
+  }
+  double sweep_angle() const
+  {
+    return sweep_angle_;
+  }
 
 private:
-  void init_grid(const Polygon2D& boundary,
-                 const std::vector<Polygon2D>& obstacles);
+  void init_grid(const Polygon2D& boundary, const std::vector<Polygon2D>& obstacles);
 
   // Rotate polygon into grid-aligned frame.
   Polygon2D rotate_polygon(const Polygon2D& poly) const;
@@ -50,7 +71,8 @@ private:
   std::vector<CellState> grid_;
 };
 
-struct SweepResult {
+struct SweepResult
+{
   Path2D waypoints;
   std::vector<int> swath_breaks;  // indices where new swaths start
   int end_row;

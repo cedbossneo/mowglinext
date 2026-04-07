@@ -1,5 +1,5 @@
-#include <gtest/gtest.h>
 #include "mowgli_brv_planner/grid_coverage.hpp"
+#include <gtest/gtest.h>
 
 TEST(Grid, BasicSquare)
 {

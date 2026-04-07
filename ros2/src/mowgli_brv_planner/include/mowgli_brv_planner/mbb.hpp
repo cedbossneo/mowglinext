@@ -2,7 +2,8 @@
 
 #include "mowgli_brv_planner/types.hpp"
 
-namespace brv {
+namespace brv
+{
 
 // Compute the optimal sweep angle using Minimum Bounding Box (rotating calipers).
 // Returns the angle (radians) of the longest MBB edge.

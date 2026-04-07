@@ -1,6 +1,7 @@
-#include <gtest/gtest.h>
-#include "mowgli_brv_planner/mbb.hpp"
 #include <cmath>
+
+#include "mowgli_brv_planner/mbb.hpp"
+#include <gtest/gtest.h>
 
 TEST(MBB, SquareBoundary)
 {

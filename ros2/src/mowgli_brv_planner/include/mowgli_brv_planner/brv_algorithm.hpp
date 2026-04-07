@@ -1,13 +1,16 @@
 #pragma once
 
-#include "mowgli_brv_planner/types.hpp"
 #include <functional>
 #include <string>
 #include <vector>
 
-namespace brv {
+#include "mowgli_brv_planner/types.hpp"
 
-struct PlannerParams {
+namespace brv
+{
+
+struct PlannerParams
+{
   double tool_width = 0.18;
   int headland_passes = 2;
   double headland_width = 0.18;
@@ -21,10 +24,9 @@ struct PlannerParams {
 using ProgressCallback = std::function<void(float, const std::string&)>;
 
 // Main B-RV planner entry point.
-CoverageResult plan_coverage(
-    const Polygon2D& boundary,
-    const std::vector<Polygon2D>& obstacles,
-    const PlannerParams& params,
-    ProgressCallback progress_cb = nullptr);
+CoverageResult plan_coverage(const Polygon2D& boundary,
+                             const std::vector<Polygon2D>& obstacles,
+                             const PlannerParams& params,
+                             ProgressCallback progress_cb = nullptr);
 
 }  // namespace brv
