@@ -18,8 +18,8 @@
 #include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav_msgs/msg/path.hpp"
-#include "opennav_docking_msgs/action/dock_robot.hpp"
-#include "opennav_docking_msgs/action/undock_robot.hpp"
+#include "nav2_msgs/action/dock_robot.hpp"
+#include "nav2_msgs/action/undock_robot.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "slam_toolbox/srv/serialize_pose_graph.hpp"
@@ -560,7 +560,7 @@ public:
 class DockRobot : public BT::StatefulActionNode
 {
 public:
-  using DockAction = opennav_docking_msgs::action::DockRobot;
+  using DockAction = nav2_msgs::action::DockRobot;
   using GoalHandle = rclcpp_action::ClientGoalHandle<DockAction>;
 
   DockRobot(const std::string& name, const BT::NodeConfig& config)
@@ -595,7 +595,7 @@ private:
 class UndockRobot : public BT::StatefulActionNode
 {
 public:
-  using UndockAction = opennav_docking_msgs::action::UndockRobot;
+  using UndockAction = nav2_msgs::action::UndockRobot;
   using GoalHandle = rclcpp_action::ClientGoalHandle<UndockAction>;
 
   UndockRobot(const std::string& name, const BT::NodeConfig& config)

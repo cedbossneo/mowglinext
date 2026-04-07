@@ -86,7 +86,7 @@ void LocalizationMonitorNode::create_subscribers()
                                                    });
 
   abs_pose_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
-      "/mowgli/gps/absolute_pose",
+      "/gps/absolute_pose",
       rclcpp::QoS(10),
       [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
       {

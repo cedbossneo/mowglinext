@@ -195,7 +195,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
 
   // ── Obstacle subscription ─────────────────────────────────────────────
   obstacle_sub_ = create_subscription<mowgli_interfaces::msg::ObstacleArray>(
-      "/mowgli/obstacles/tracked",
+      "/obstacle_tracker/obstacles",
       rclcpp::QoS(1),
       [this](mowgli_interfaces::msg::ObstacleArray::ConstSharedPtr msg)
       {

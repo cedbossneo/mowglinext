@@ -153,11 +153,11 @@ check_firmware() {
 
   local status_data
   status_data=$(docker exec mowgli-ros2 bash -c \
-    "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /mowgli/hardware/status --once 2>/dev/null" \
+    "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /hardware_bridge/status --once 2>/dev/null" \
     2>/dev/null || echo "")
 
   if [[ -z "$status_data" ]]; then
-    fail "No data on /status — hardware bridge cannot communicate with Mowgli board"
+    fail "No data on /hardware_bridge/status — hardware bridge cannot communicate with Mowgli board"
     add_issue "Mowgli firmware not responding. Ensure the STM32 is flashed with Mowgli firmware and /dev/mowgli is accessible."
     echo -e "       ${DIM}Flash firmware: https://github.com/cedbossneo/Mowgli${NC}"
     echo -e "       ${DIM}Check serial: docker logs mowgli-ros2 | grep hardware_bridge${NC}"

@@ -135,7 +135,7 @@ void DiagnosticsNode::create_subscriptions()
   const auto sensor_qos = rclcpp::SensorDataQoS();
 
   sub_status_ = create_subscription<mowgli_interfaces::msg::Status>(
-      "/status",
+      "/hardware_bridge/status",
       10,
       [this](mowgli_interfaces::msg::Status::ConstSharedPtr msg)
       {
@@ -143,7 +143,7 @@ void DiagnosticsNode::create_subscriptions()
       });
 
   sub_emergency_ = create_subscription<mowgli_interfaces::msg::Emergency>(
-      "/emergency",
+      "/hardware_bridge/emergency",
       10,
       [this](mowgli_interfaces::msg::Emergency::ConstSharedPtr msg)
       {
@@ -151,7 +151,7 @@ void DiagnosticsNode::create_subscriptions()
       });
 
   sub_power_ = create_subscription<mowgli_interfaces::msg::Power>(
-      "/power",
+      "/hardware_bridge/power",
       10,
       [this](mowgli_interfaces::msg::Power::ConstSharedPtr msg)
       {
@@ -184,7 +184,7 @@ void DiagnosticsNode::create_subscriptions()
                                                    });
 
   sub_gps_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-      "/mowgli/gps/fix",
+      "/gps/fix",
       sensor_qos,
       [this](sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
       {
@@ -195,7 +195,7 @@ void DiagnosticsNode::create_subscriptions()
 void DiagnosticsNode::create_publishers()
 {
   pub_diagnostics_ =
-      create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/mowgli/diagnostics", 10);
+      create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
 }
 
 void DiagnosticsNode::create_timer()

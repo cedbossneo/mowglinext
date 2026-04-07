@@ -35,7 +35,6 @@ find_package(mowgli_interfaces REQUIRED)
 find_package(slam_toolbox REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(robot_localization REQUIRED)
-find_package(opennav_docking_msgs REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Executable: behavior_tree_node
@@ -72,7 +71,6 @@ ament_target_dependencies(behavior_tree_node
   slam_toolbox
   rcl_interfaces
   robot_localization
-  opennav_docking_msgs
 )
 
 # ---------------------------------------------------------------------------

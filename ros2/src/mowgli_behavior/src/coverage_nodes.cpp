@@ -432,7 +432,6 @@ void ExecuteSwathBySwath::setBladeEnabled(bool enabled)
   // Fire-and-forget: firmware is the safety authority for the blade.
   auto future = blade_client_->async_send_request(req);
   (void)future;
-  return true;
 }
 
 bool ExecuteSwathBySwath::advanceToNextSwath()

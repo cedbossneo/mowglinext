@@ -302,7 +302,7 @@ void CoveragePlannerNode::execute(const std::shared_ptr<GoalHandlePlanCoverage> 
   //    Disabled by default — the collision_monitor handles real-time obstacle
   //    avoidance during navigation. Costmap obstacles from SLAM map walls
   //    fill the mowing area and collapse the coverage plan.
-  std::vector<std::vector<std::pair<double, double>>> costmap_obstacles;
+  std::vector<geometry_msgs::msg::Polygon> costmap_obstacles;
   if (use_costmap_obstacles_)
   {
     costmap_obstacles = extract_costmap_obstacles();

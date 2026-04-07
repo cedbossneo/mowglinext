@@ -30,7 +30,6 @@
   <depend>slam_toolbox</depend>
   <depend>rcl_interfaces</depend>
   <depend>robot_localization</depend>
-  <depend>opennav_docking_msgs</depend>
 
 
   <test_depend>ament_lint_auto</test_depend>
