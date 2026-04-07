@@ -12,6 +12,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(mowgli_interfaces REQUIRED)
 
 # ---------------------------------------------------------------------------
 # GPS degradation simulator node
@@ -51,9 +52,28 @@ ament_target_dependencies(navsat_to_pose_node
   sensor_msgs
 )
 
+# ---------------------------------------------------------------------------
+# Fake hardware bridge for simulation
+# ---------------------------------------------------------------------------
+add_executable(fake_hardware_bridge_node
+  src/fake_hardware_bridge_node.cpp
+)
+
+target_include_directories(fake_hardware_bridge_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(fake_hardware_bridge_node
+  rclcpp
+  mowgli_interfaces
+)
+
 install(TARGETS
   gps_degradation_sim_node
   navsat_to_pose_node
+  fake_hardware_bridge_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -22,6 +22,7 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -328,6 +329,17 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 10. Fake hardware bridge — stub services/topics for simulation
+    # ------------------------------------------------------------------
+    fake_hardware_bridge_node = Node(
+        package="mowgli_simulation",
+        executable="fake_hardware_bridge_node",
+        name="fake_hardware_bridge",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
+
+    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -348,6 +360,7 @@ def generate_launch_description() -> LaunchDescription:
             navigation_launch,
             static_map_odom_tf,
             # Individual nodes
+            fake_hardware_bridge_node,
             behavior_tree_node,
             map_server_node,
             coverage_planner_node,

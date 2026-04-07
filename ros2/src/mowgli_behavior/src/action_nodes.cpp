@@ -159,7 +159,6 @@ BT::NodeStatus ClearCostmap::tick()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  // Lazily create service clients once and reuse across ticks.
   if (!global_client_)
   {
     global_client_ = ctx->node->create_client<std_srvs::srv::Empty>(
@@ -171,14 +170,11 @@ BT::NodeStatus ClearCostmap::tick()
         "/local_costmap/clear_entirely_local_costmap");
   }
 
-  // Fire-and-forget: send both requests without blocking the BT tick.
-  // The main executor spins the node and will deliver the responses
-  // asynchronously.  We log a warning if a service is unavailable but
-  // still return SUCCESS so the recovery sequence can proceed — a missing
-  // costmap service should not permanently block mowing.
   auto request = std::make_shared<std_srvs::srv::Empty::Request>();
 
-  if (global_client_->service_is_ready())
+  // Wait up to 2s for service discovery. On first call after Nav2 lifecycle
+  // activation, DDS needs time to discover the costmap services.
+  if (global_client_->wait_for_service(std::chrono::seconds(2)))
   {
     global_client_->async_send_request(request);
     RCLCPP_INFO(ctx->node->get_logger(), "ClearCostmap: sent clear request to global costmap");
@@ -189,7 +185,7 @@ BT::NodeStatus ClearCostmap::tick()
                 "ClearCostmap: global costmap service not ready, skipping");
   }
 
-  if (local_client_->service_is_ready())
+  if (local_client_->wait_for_service(std::chrono::seconds(2)))
   {
     local_client_->async_send_request(request);
     RCLCPP_INFO(ctx->node->get_logger(), "ClearCostmap: sent clear request to local costmap");

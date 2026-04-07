@@ -95,6 +95,7 @@ sim: sim-stop
 	@echo ""
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	source install/setup.bash && \
+	export DISPLAY=:99 && \
 	ros2 launch mowgli_bringup sim_full_system.launch.py \
 	  headless:=true use_rviz:=false
 
@@ -103,6 +104,7 @@ e2e-test: sim-stop
 	@echo ""
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
 	source install/setup.bash && \
+	export DISPLAY=:99 && \
 	ros2 launch mowgli_bringup sim_full_system.launch.py \
 	  headless:=true use_rviz:=false &
 	SIM_PID=$$!; \

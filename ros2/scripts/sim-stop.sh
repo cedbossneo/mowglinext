@@ -37,6 +37,29 @@ if [ -n "$GZ_PIDS" ]; then
   sleep 1
 fi
 
+# Kill ALL remaining ROS2 nodes (not just launch) to prevent stale DDS participants
+ROS_PIDS=$(ps -eo pid,args | grep -E '[r]os2|[g]z_ros2|[p]arameter_bridge|[f]oxglove|[e]kf_node|[s]lam_toolbox|[b]ehavior_tree|[c]overage_planner|[m]ap_server|[n]avsat_to_pose|[d]iagnostics|[c]ontroller_server|[p]lanner_server|[b]t_navigator|[c]ollision_monitor|[v]elocity_smoother|[l]ifecycle_manager|[o]pennav_docking|[r]obot_state_publisher|[f]ake_hardware' | awk '{print $1}')
+if [ -n "$ROS_PIDS" ]; then
+  kill -9 $ROS_PIDS 2>/dev/null || true
+  sleep 1
+fi
+
 # Clean DDS shared memory and Gazebo transport state
 rm -rf /dev/shm/cyclone* /dev/shm/dds* /dev/shm/iox* /tmp/gz-* /tmp/ign-*
+
+# Remove stale SLAM posegraph to prevent TF time-jump errors on next sim launch.
+rm -f /ros2_ws/maps/garden_map.posegraph /ros2_ws/maps/garden_map.data
+
+# Ensure Xvfb is running on :99 for headless Gazebo rendering.
+# Start it here (not in the launch file) so it's ready before Gazebo starts,
+# allowing /clock to publish before other nodes — preventing TF time jumps.
+if command -v Xvfb >/dev/null 2>&1; then
+  if ! pgrep -f "Xvfb :99" >/dev/null 2>&1; then
+    rm -f /tmp/.X99-lock
+    Xvfb :99 -screen 0 1024x768x24 -ac &>/dev/null &
+    sleep 0.5
+  fi
+  export DISPLAY=:99
+fi
+
 echo "All clean."

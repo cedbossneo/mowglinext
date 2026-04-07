@@ -891,6 +891,7 @@ BT::NodeStatus ExecuteFullCoveragePath::onStart()
   last_progress_time_ = std::chrono::steady_clock::now();
   last_progress_x_ = 0.0;
   last_progress_y_ = 0.0;
+  inline_retries_ = 0;
 
   const auto &full_path = ctx->coverage_plan->full_path;
 
@@ -1086,8 +1087,18 @@ BT::NodeStatus ExecuteFullCoveragePath::onRunning()
     if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
         status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
     {
-      RCLCPP_WARN(ctx->node->get_logger(), "ExecuteFullCoveragePath: FollowPath aborted/canceled");
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "ExecuteFullCoveragePath: FollowPath aborted/canceled (retry %d/%d)",
+                  inline_retries_, max_inline_retries_);
       follow_handle_.reset();
+
+      // Inline recovery: skip ahead on path and resend immediately.
+      // This avoids the slow BT recovery (BackUp + ClearCostmap + 3s wait).
+      if (inline_retries_ < max_inline_retries_ && resendFromCurrentPose(ctx))
+      {
+        inline_retries_++;
+        return BT::NodeStatus::RUNNING;
+      }
       setBladeEnabled(false);
       return BT::NodeStatus::FAILURE;
     }
@@ -1095,9 +1106,16 @@ BT::NodeStatus ExecuteFullCoveragePath::onRunning()
     if (checkStuck(ctx))
     {
       RCLCPP_WARN(ctx->node->get_logger(),
-                  "ExecuteFullCoveragePath: stuck detected, canceling path");
+                  "ExecuteFullCoveragePath: stuck detected (retry %d/%d)",
+                  inline_retries_, max_inline_retries_);
       follow_client_->async_cancel_goal(follow_handle_);
       follow_handle_.reset();
+
+      if (inline_retries_ < max_inline_retries_ && resendFromCurrentPose(ctx))
+      {
+        inline_retries_++;
+        return BT::NodeStatus::RUNNING;
+      }
       setBladeEnabled(false);
       return BT::NodeStatus::FAILURE;
     }
@@ -1106,6 +1124,75 @@ BT::NodeStatus ExecuteFullCoveragePath::onRunning()
   }
 
   return BT::NodeStatus::RUNNING;
+}
+
+bool ExecuteFullCoveragePath::resendFromCurrentPose(const std::shared_ptr<BTContext> &ctx)
+{
+  if (!ctx->coverage_plan || ctx->coverage_plan->full_path.poses.empty())
+  {
+    return false;
+  }
+
+  double rx = 0.0, ry = 0.0;
+  try
+  {
+    auto tf = ctx->tf_buffer->lookupTransform("map", "base_link", tf2::TimePointZero);
+    rx = tf.transform.translation.x;
+    ry = tf.transform.translation.y;
+  }
+  catch (const tf2::TransformException &)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: resend failed — no TF");
+    return false;
+  }
+
+  const auto &full_path = ctx->coverage_plan->full_path;
+  size_t closest = findClosestPoseIndex(full_path, rx, ry);
+
+  // Skip ahead past the failure point to avoid hitting the same obstacle
+  size_t resume_index = std::min(closest + skip_poses_on_retry_, full_path.poses.size() - 1);
+
+  if (resume_index >= full_path.poses.size() - 10)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "ExecuteFullCoveragePath: near end of path, declaring complete");
+    return false;
+  }
+
+  nav_msgs::msg::Path sub_path;
+  sub_path.header = full_path.header;
+  sub_path.header.stamp = ctx->node->now();
+
+  // Prepend current position for smooth transition
+  geometry_msgs::msg::PoseStamped robot_pose;
+  robot_pose.header = sub_path.header;
+  robot_pose.pose.position.x = rx;
+  robot_pose.pose.position.y = ry;
+  robot_pose.pose.orientation = full_path.poses[resume_index].pose.orientation;
+  sub_path.poses.push_back(robot_pose);
+
+  sub_path.poses.insert(sub_path.poses.end(),
+                        full_path.poses.begin() + static_cast<long>(resume_index),
+                        full_path.poses.end());
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "ExecuteFullCoveragePath: inline resend from pose %zu/%zu "
+              "(skipped %zu poses, robot at %.2f,%.2f)",
+              resume_index, full_path.poses.size(),
+              resume_index - closest, rx, ry);
+
+  Nav2FollowPath::Goal goal;
+  goal.path = sub_path;
+  goal.controller_id = "FollowPath";
+  goal.goal_checker_id = "coverage_goal_checker";
+  follow_handle_.reset();
+  follow_future_ = follow_client_->async_send_goal(goal);
+  phase_ = Phase::FOLLOWING_PATH;
+  last_progress_time_ = std::chrono::steady_clock::now();
+  last_progress_x_ = rx;
+  last_progress_y_ = ry;
+  return true;
 }
 
 void ExecuteFullCoveragePath::onHalted()

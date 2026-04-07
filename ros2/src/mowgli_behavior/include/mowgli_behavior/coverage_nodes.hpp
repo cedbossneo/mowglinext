@@ -212,6 +212,13 @@ private:
   std::chrono::steady_clock::time_point last_progress_time_{};
   double last_progress_x_{0.0};
   double last_progress_y_{0.0};
+
+  // Inline recovery: on FollowPath abort, skip ahead and resend path
+  // instead of returning FAILURE to the BT (which triggers slow recovery).
+  bool resendFromCurrentPose(const std::shared_ptr<BTContext>& ctx);
+  int inline_retries_{0};
+  static constexpr int max_inline_retries_{3};
+  static constexpr size_t skip_poses_on_retry_{50};  // skip ~2.5m ahead
 };
 
 }  // namespace mowgli_behavior
