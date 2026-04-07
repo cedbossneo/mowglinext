@@ -83,6 +83,15 @@ export class MowerFeatureBase extends PointFeatureBase  {
     }
 }
 
+export class MowerFootprintFeature extends MowingFeature implements Feature<Polygon> {
+    declare geometry: Polygon;
+    constructor(ring: Position[]) {
+        super('mower-footprint');
+        this.geometry = { type: 'Polygon', coordinates: [ring] };
+        this.properties = { color: '#00a6ff', feature_type: 'mower-footprint' };
+    }
+}
+
 export class DockFeatureBase extends PointFeatureBase  {
     declare properties: {
         color: string;

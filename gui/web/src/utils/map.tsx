@@ -25,6 +25,33 @@ export function drawLine(offsetX: number, offsetY: number, datum: [number, numbe
 }
 
 /**
+ * Generate a rotated robot footprint polygon in [lon, lat] coordinates.
+ * The footprint is a rectangle defined by front/rear/halfWidth offsets from
+ * base_link (at wheel axis centre), rotated by the robot heading.
+ */
+export function drawRobotFootprint(
+    offsetX: number, offsetY: number, datum: [number, number, number],
+    posY: number, posX: number, heading: number,
+    chassisFront: number, chassisRear: number, halfWidth: number,
+): [number, number][] {
+    const cos = Math.cos(heading);
+    const sin = Math.sin(heading);
+    // Corners in local frame relative to base_link: [forward, left]
+    const corners = [
+        [chassisFront, halfWidth],
+        [chassisFront, -halfWidth],
+        [chassisRear, -halfWidth],
+        [chassisRear, halfWidth],
+        [chassisFront, halfWidth], // close the polygon
+    ];
+    return corners.map(([fx, fy]) => {
+        const rx = posX + fx * cos - fy * sin;
+        const ry = posY + fx * sin + fy * cos;
+        return transpose(offsetX, offsetY, datum, ry, rx);
+    });
+}
+
+/**
  * Convert local map coordinates (x=east, y=north in metres relative to datum)
  * to [longitude, latitude].
  *

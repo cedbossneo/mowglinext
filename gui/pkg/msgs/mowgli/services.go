@@ -2,7 +2,7 @@ package mowgli
 
 import "github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 
-// HighLevelControlReq for /mowgli/behavior/command
+// HighLevelControlReq for /behavior_tree_node/high_level_control
 type HighLevelControlReq struct {
 	Command uint8 `json:"command"`
 }
@@ -11,7 +11,7 @@ type HighLevelControlRes struct {
 	Success bool `json:"success"`
 }
 
-// EmergencyStopReq for /mowgli/hardware/emergency_stop
+// EmergencyStopReq for /hardware_bridge/emergency_stop
 type EmergencyStopReq struct {
 	Emergency uint8 `json:"emergency"`
 }
@@ -20,7 +20,7 @@ type EmergencyStopRes struct {
 	Success bool `json:"success"`
 }
 
-// MowerControlReq for /mowgli/hardware/mower_control
+// MowerControlReq for /hardware_bridge/mower_control
 type MowerControlReq struct {
 	MowEnabled   uint8 `json:"mow_enabled"`
 	MowDirection uint8 `json:"mow_direction"`
@@ -39,7 +39,7 @@ type StartInAreaRes struct {
 	Success bool `json:"success"`
 }
 
-// GetMowingAreaReq for /mowgli/map/get_area
+// GetMowingAreaReq for /map_server_node/get_mowing_area
 type GetMowingAreaReq struct {
 	Index uint32 `json:"index"`
 }
@@ -50,7 +50,7 @@ type GetMowingAreaRes struct {
 	Success          bool    `json:"success"`
 }
 
-// AddMowingAreaReq for /mowgli/map/add_area
+// AddMowingAreaReq for /map_server_node/add_area
 type AddMowingAreaReq struct {
 	Area             MapArea `json:"area"`
 	IsNavigationArea bool    `json:"is_navigation_area"`
@@ -69,7 +69,7 @@ type SetDockingPointRes struct {
 	Success bool `json:"success"`
 }
 
-// ClearMapReq for /mowgli/map/clear (std_srvs/Trigger)
+// ClearMapReq for /map_server_node/clear_map (std_srvs/Trigger)
 type ClearMapReq struct{}
 
 type ClearMapRes struct {

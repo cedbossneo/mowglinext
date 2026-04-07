@@ -27,8 +27,32 @@
         "wheel_x_offset": {
           "type": "number",
           "title": "Wheel X Offset",
-          "default": -0.18,
-          "description": "Wheel axle offset behind base_link centre in metres."
+          "default": 0.0,
+          "description": "Wheel axle offset from base_link in metres (0 = base_link at wheel axis)."
+        },
+        "chassis_center_x": {
+          "type": "number",
+          "title": "Chassis Center X",
+          "default": 0.18,
+          "description": "Distance from base_link (wheel axis) to chassis geometric centre in metres."
+        },
+        "chassis_length": {
+          "type": "number",
+          "title": "Chassis Length",
+          "default": 0.54,
+          "description": "Chassis length in metres."
+        },
+        "chassis_width": {
+          "type": "number",
+          "title": "Chassis Width",
+          "default": 0.40,
+          "description": "Chassis width in metres."
+        },
+        "chassis_height": {
+          "type": "number",
+          "title": "Chassis Height",
+          "default": 0.19,
+          "description": "Chassis height in metres."
         },
         "ticks_per_revolution": {
           "type": "integer",
@@ -63,8 +87,8 @@
         "lidar_x": {
           "type": "number",
           "title": "LiDAR X",
-          "default": 0.20,
-          "description": "LiDAR position X (forward from base_link) in metres."
+          "default": 0.38,
+          "description": "LiDAR position X (forward from base_link / wheel axis) in metres."
         },
         "lidar_y": {
           "type": "number",
@@ -87,8 +111,8 @@
         "gps_antenna_x": {
           "type": "number",
           "title": "GPS Antenna X",
-          "default": 0.0,
-          "description": "GPS antenna position X in metres."
+          "default": 0.3,
+          "description": "GPS antenna position X (forward from base_link / wheel axis) in metres."
         },
         "gps_antenna_y": {
           "type": "number",
@@ -105,8 +129,8 @@
         "imu_x": {
           "type": "number",
           "title": "IMU X",
-          "default": 0.0,
-          "description": "IMU position X in metres."
+          "default": 0.18,
+          "description": "IMU position X (forward from base_link / wheel axis) in metres."
         },
         "imu_y": {
           "type": "number",

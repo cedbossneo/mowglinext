@@ -35,7 +35,7 @@ func TestServiceRoute_HighLevelControl(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, mock.ServiceCalls, 1)
-	assert.Equal(t, "/mowgli/behavior/command", mock.ServiceCalls[0].Service)
+	assert.Equal(t, "/behavior_tree_node/high_level_control", mock.ServiceCalls[0].Service)
 }
 
 func TestServiceRoute_Emergency(t *testing.T) {
@@ -122,7 +122,7 @@ func TestServiceRoute_StartInArea(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, mock.ServiceCalls, 1)
-	assert.Equal(t, "/mowgli/behavior/start_in_area", mock.ServiceCalls[0].Service)
+	assert.Equal(t, "/behavior_tree_node/start_in_area", mock.ServiceCalls[0].Service)
 }
 
 func TestClearMapRoute(t *testing.T) {
@@ -135,7 +135,7 @@ func TestClearMapRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, mock.ServiceCalls, 1)
-	assert.Equal(t, "/mowgli/map/clear", mock.ServiceCalls[0].Service)
+	assert.Equal(t, "/map_server_node/clear_map", mock.ServiceCalls[0].Service)
 }
 
 func TestClearMapRoute_Error(t *testing.T) {
@@ -168,5 +168,5 @@ func TestSetDockingPointRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, mock.ServiceCalls, 1)
-	assert.Equal(t, "/mowgli/map/set_docking_point", mock.ServiceCalls[0].Service)
+	assert.Equal(t, "/map_server_node/set_docking_point", mock.ServiceCalls[0].Service)
 }

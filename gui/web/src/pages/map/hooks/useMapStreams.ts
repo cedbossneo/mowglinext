@@ -15,9 +15,10 @@ import {
     LineFeatureBase,
     MowingFeature,
     MowerFeatureBase,
+    MowerFootprintFeature,
     PathFeature,
 } from "../../../types/map.ts";
-import { drawLine, transpose } from "../../../utils/map.tsx";
+import { drawLine, drawRobotFootprint, transpose } from "../../../utils/map.tsx";
 
 interface UseMapStreamsOptions {
     editMap: boolean;
@@ -80,17 +81,21 @@ export function useMapStreams({
             };
             setFeatures((oldFeatures) => {
                 const orientation = pose.MotionHeading!!;
-                const line = drawLine(
-                    offsetX,
-                    offsetY,
-                    datum,
-                    pose.Pose?.Pose?.Position?.Y!!,
-                    pose.Pose?.Pose?.Position?.X!!,
-                    orientation
+                const posX = pose.Pose?.Pose?.Position?.X!!;
+                const posY = pose.Pose?.Pose?.Position?.Y!!;
+                const line = drawLine(offsetX, offsetY, datum, posY, posX, orientation);
+                // Robot footprint from config (chassis dimensions)
+                const ccx = parseFloat(settings["chassis_center_x"] ?? "0.18");
+                const cl = parseFloat(settings["chassis_length"] ?? "0.54");
+                const cw = parseFloat(settings["chassis_width"] ?? "0.40");
+                const footprintRing = drawRobotFootprint(
+                    offsetX, offsetY, datum, posY, posX, orientation,
+                    ccx + cl / 2, ccx - cl / 2, cw / 2
                 );
                 return {
                     ...oldFeatures,
                     mower: new MowerFeatureBase(mower_lonlat),
+                    ["mower-footprint"]: new MowerFootprintFeature(footprintRing),
                     ["mower-heading"]: new LineFeatureBase(
                         "mower-heading",
                         [mower_lonlat, line],

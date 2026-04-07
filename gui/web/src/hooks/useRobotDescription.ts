@@ -5,6 +5,7 @@ export type RobotGeometry = {
     baseLength: number;
     baseWidth: number;
     baseHeight: number;
+    chassisCenterX: number;
     wheelRadius: number;
     wheelWidth: number;
     wheelTrack: number;
@@ -19,56 +20,132 @@ const DEFAULTS: RobotGeometry = {
     baseLength: 0.54,
     baseWidth: 0.40,
     baseHeight: 0.19,
+    chassisCenterX: 0.18,
     wheelRadius: 0.04475,
     wheelWidth: 0.04,
-    wheelTrack: 0.40,
-    wheelXOffset: -0.18,
+    wheelTrack: 0.325,
+    wheelXOffset: 0.0,
     casterRadius: 0.03,
-    casterXOffset: 0.22,
+    casterXOffset: 0.40,
     casterTrack: 0.36,
     bladeRadius: 0.09,
 };
 
 /**
- * Extract a named xacro:property value from URDF XML.
- * Matches: <xacro:property name="foo" value="0.123"/>
- */
-const extractProperty = (xml: string, name: string): number | null => {
-    // Match both xacro:property and plain property elements
-    const re = new RegExp(
-        `<(?:xacro:)?property\\s+name=["']${name}["']\\s+value=["']([^"']+)["']`,
-        "i"
-    );
-    const m = xml.match(re);
-    if (!m) return null;
-    // Value may be a xacro expression like "${...}", skip those
-    const val = m[1];
-    if (val.includes("$")) return null;
-    const n = parseFloat(val);
-    return isNaN(n) ? null : n;
-};
-
-/**
- * Parse the URDF/xacro XML string into a RobotGeometry.
- * Falls back to DEFAULTS for any value not found.
+ * Parse the processed URDF XML to extract robot geometry.
+ *
+ * The URDF is the output of xacro processing — all property substitutions
+ * are resolved. We extract geometry from the actual XML elements:
+ *   - base_link visual <box size="L W H"/> for chassis dimensions
+ *   - base_link visual <origin xyz="cx 0 ..."/> for chassis center offset
+ *   - left_wheel_joint <origin xyz="xoff y 0"/> for wheel offset and track
+ *   - left_wheel_link <cylinder radius="R" length="W"/> for wheel size
+ *   - blade_link <cylinder radius="R"/> for blade radius
+ *   - front_left_caster_joint <origin xyz="x y z"/> for caster position
+ *   - front_left_caster_link <cylinder radius="R"/> for caster radius
  */
 const parseUrdf = (xml: string): RobotGeometry => {
-    const get = (name: string, fallback: number): number =>
-        extractProperty(xml, name) ?? fallback;
+    const result = { ...DEFAULTS };
 
-    return {
-        baseLength: get("base_length", DEFAULTS.baseLength),
-        baseWidth: get("base_width", DEFAULTS.baseWidth),
-        baseHeight: get("base_height", DEFAULTS.baseHeight),
-        wheelRadius: get("wheel_radius", DEFAULTS.wheelRadius),
-        wheelWidth: get("wheel_width", DEFAULTS.wheelWidth),
-        wheelTrack: get("wheel_track", DEFAULTS.wheelTrack),
-        wheelXOffset: get("wheel_x_offset", DEFAULTS.wheelXOffset),
-        casterRadius: get("caster_radius", DEFAULTS.casterRadius),
-        casterXOffset: get("caster_x_offset", DEFAULTS.casterXOffset),
-        casterTrack: get("caster_track", DEFAULTS.casterTrack),
-        bladeRadius: get("blade_radius", DEFAULTS.bladeRadius),
-    };
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xml, "text/xml");
+
+        // Helper: find a <joint name="..."> and get its <origin xyz="...">
+        const jointOrigin = (jointName: string): number[] | null => {
+            const joints = doc.getElementsByTagName("joint");
+            for (let i = 0; i < joints.length; i++) {
+                if (joints[i].getAttribute("name") === jointName) {
+                    const origin = joints[i].getElementsByTagName("origin")[0];
+                    if (origin) {
+                        const xyz = origin.getAttribute("xyz")?.split(/\s+/).map(Number);
+                        if (xyz && xyz.length >= 3) return xyz;
+                    }
+                }
+            }
+            return null;
+        };
+
+        // Helper: find first <cylinder> inside a <link name="..."> visual
+        const linkCylinder = (linkName: string): { radius: number; length: number } | null => {
+            const links = doc.getElementsByTagName("link");
+            for (let i = 0; i < links.length; i++) {
+                if (links[i].getAttribute("name") === linkName) {
+                    const cyl = links[i].getElementsByTagName("cylinder")[0];
+                    if (cyl) {
+                        return {
+                            radius: parseFloat(cyl.getAttribute("radius") || "0"),
+                            length: parseFloat(cyl.getAttribute("length") || "0"),
+                        };
+                    }
+                }
+            }
+            return null;
+        };
+
+        // base_link: first <box> gives chassis dimensions, first <origin> gives offset
+        const links = doc.getElementsByTagName("link");
+        for (let i = 0; i < links.length; i++) {
+            if (links[i].getAttribute("name") === "base_link") {
+                const box = links[i].getElementsByTagName("box")[0];
+                if (box) {
+                    const size = box.getAttribute("size")?.split(/\s+/).map(Number);
+                    if (size && size.length >= 3) {
+                        result.baseLength = size[0];
+                        result.baseWidth = size[1];
+                        result.baseHeight = size[2];
+                    }
+                }
+                // The visual origin x gives the chassis center offset from base_link
+                const visual = links[i].getElementsByTagName("visual")[0];
+                if (visual) {
+                    const origin = visual.getElementsByTagName("origin")[0];
+                    if (origin) {
+                        const xyz = origin.getAttribute("xyz")?.split(/\s+/).map(Number);
+                        if (xyz && xyz.length >= 1) {
+                            result.chassisCenterX = xyz[0];
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        // Wheels: left_wheel_joint origin gives wheelXOffset (x) and half wheelTrack (y)
+        const lwOrigin = jointOrigin("left_wheel_joint");
+        if (lwOrigin) {
+            result.wheelXOffset = lwOrigin[0];
+            result.wheelTrack = Math.abs(lwOrigin[1]) * 2;
+        }
+
+        // Wheel dimensions from link cylinder
+        const wheelCyl = linkCylinder("left_wheel_link");
+        if (wheelCyl) {
+            result.wheelRadius = wheelCyl.radius;
+            result.wheelWidth = wheelCyl.length;
+        }
+
+        // Blade radius
+        const bladeCyl = linkCylinder("blade_link");
+        if (bladeCyl) {
+            result.bladeRadius = bladeCyl.radius;
+        }
+
+        // Caster position and size
+        const casterOrigin = jointOrigin("front_left_caster_joint");
+        if (casterOrigin) {
+            result.casterXOffset = casterOrigin[0];
+            result.casterTrack = Math.abs(casterOrigin[1]) * 2;
+        }
+        const casterCyl = linkCylinder("front_left_caster_link");
+        if (casterCyl) {
+            result.casterRadius = casterCyl.radius;
+        }
+    } catch {
+        // Parse error — return defaults
+    }
+
+    return result;
 };
 
 /**

@@ -217,6 +217,7 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
 
     // Draw robot body from URDF geometry
     const robotBody = useMemo(() => {
+        const ccx = robot.chassisCenterX; // chassis centre offset from base_link
         const halfL = robot.baseLength / 2;
         const halfW = robot.baseWidth / 2;
         const bodyColor = mode === "dark" ? "#2d5a2d" : "#4CAF50";
@@ -225,7 +226,8 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
         const bladeColor = mode === "dark" ? "#888" : "#9E9E9E";
         const casterColor = mode === "dark" ? "#666" : "#555";
 
-        const [bx, by] = toSvg(-halfL, halfW, cx, cy);
+        // Chassis rect offset by chassisCenterX (base_link is at wheel axis, not chassis centre)
+        const [bx, by] = toSvg(ccx - halfL, halfW, cx, cy);
         const bw = robot.baseLength * SCALE;
         const bh = robot.baseWidth * SCALE;
 
@@ -238,16 +240,69 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
         const rightCaster = toSvg(robot.casterXOffset, -robot.casterTrack / 2, cx, cy);
         const cr = robot.casterRadius * SCALE;
 
-        const bladeCentre = toSvg(0, 0, cx, cy);
+        const bladeCentre = toSvg(ccx, 0, cx, cy);
         const br = robot.bladeRadius * SCALE;
 
-        const arrowTip = toSvg(halfL + 0.04, 0, cx, cy);
-        const arrowLeft = toSvg(halfL + 0.01, 0.02, cx, cy);
-        const arrowRight = toSvg(halfL + 0.01, -0.02, cx, cy);
+        const arrowTip = toSvg(ccx + halfL + 0.04, 0, cx, cy);
+        const arrowLeft = toSvg(ccx + halfL + 0.01, 0.02, cx, cy);
+        const arrowRight = toSvg(ccx + halfL + 0.01, -0.02, cx, cy);
         const arrowColor = mode === "dark" ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.3)";
+
+        // Dock charging station in front of the robot (robot drives forward to dock)
+        const dockFill = mode === "dark" ? "#333" : "#999";
+        const dockStroke = mode === "dark" ? "#555" : "#777";
+        const contactColor = mode === "dark" ? "#c90" : "#d4a017";
+        const dockLabelColor = mode === "dark" ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.35)";
+        // Base plate in front of chassis
+        const frontEdge = ccx + halfL;
+        const plateW = (robot.baseWidth + 0.08) * SCALE;
+        const plateH = 0.12 * SCALE;
+        const plateX = cx + (frontEdge + 0.02) * SCALE; // just in front of robot
+        const plateY = cy - plateW / 2;
+        // Back wall (the wall the robot pushes against)
+        const wallH = 0.02 * SCALE;
+        const wallTall = plateW * 0.6;
+        const wallX = plateX + plateH; // far edge of plate
+        // Charging contacts (two copper strips on the dock face)
+        const contactW = 0.015 * SCALE;
+        const contactH = 0.04 * SCALE;
+        const contactGap = robot.wheelTrack * 0.35 * SCALE;
+        const contactX = plateX + plateH * 0.1; // near the robot-facing edge
 
         return (
             <g>
+                {/* Dock base plate */}
+                <rect
+                    x={plateX} y={plateY} width={plateH} height={plateW}
+                    rx={4} ry={4}
+                    fill={dockFill} stroke={dockStroke} strokeWidth={1.5} opacity={0.55}
+                />
+                {/* Back wall (far edge the robot pushes against) */}
+                <rect
+                    x={wallX} y={cy - wallTall / 2}
+                    width={wallH} height={wallTall}
+                    rx={2} ry={2}
+                    fill={mode === "dark" ? "#555" : "#777"} opacity={0.7}
+                />
+                {/* Charging contacts (two copper strips facing the robot) */}
+                <rect
+                    x={contactX} y={cy - contactGap - contactH / 2}
+                    width={contactW} height={contactH}
+                    rx={1} fill={contactColor} opacity={0.85}
+                />
+                <rect
+                    x={contactX} y={cy + contactGap - contactH / 2}
+                    width={contactW} height={contactH}
+                    rx={1} fill={contactColor} opacity={0.85}
+                />
+                <text
+                    x={plateX + plateH / 2} y={plateY - 5}
+                    textAnchor="middle" fontSize={7}
+                    fill={dockLabelColor} fontFamily="monospace"
+                >
+                    dock
+                </text>
+                {/* Robot body */}
                 <rect
                     x={bx} y={by} width={bw} height={bh}
                     rx={8} ry={8}
@@ -273,7 +328,7 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                     fill={arrowColor}
                 />
                 <text
-                    x={bladeCentre[0]} y={bladeCentre[1] + 4}
+                    x={cx} y={cy + 4}
                     textAnchor="middle" fontSize={9}
                     fill={mode === "dark" ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.25)"}
                     fontFamily="monospace"
@@ -417,9 +472,9 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
     const resetSensor = useCallback(
         (meta: SensorMeta) => {
             const defaults: Record<string, number> = {
-                lidar_x: 0.2, lidar_y: 0, lidar_z: 0.22, lidar_yaw: 0,
-                imu_x: 0, imu_y: 0, imu_z: 0.095, imu_yaw: 0,
-                gps_antenna_x: 0, gps_antenna_y: 0, gps_antenna_z: 0.2,
+                lidar_x: 0.38, lidar_y: 0, lidar_z: 0.22, lidar_yaw: 0,
+                imu_x: 0.18, imu_y: 0, imu_z: 0.095, imu_yaw: 0,
+                gps_antenna_x: 0.3, gps_antenna_y: 0, gps_antenna_z: 0.2,
             };
             onChange(meta.xKey, defaults[meta.xKey] ?? 0);
             onChange(meta.yKey, defaults[meta.yKey] ?? 0);
@@ -545,8 +600,75 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                         );
                     })}
 
+                    {/* Dock heading card */}
+                    <Card
+                        size="small"
+                        title={
+                            <Space>
+                                <div style={{ width: 12, height: 12, borderRadius: 2, background: mode === "dark" ? "#666" : "#888" }} />
+                                <span>Dock Heading</span>
+                            </Space>
+                        }
+                        style={{ marginBottom: 8, borderLeft: `3px solid ${mode === "dark" ? "#666" : "#888"}` }}
+                    >
+                        <Row gutter={[8, 4]} align="middle">
+                            <Col span={12}>
+                                <Text type="secondary" style={{ fontSize: 11 }}>Heading (compass)</Text>
+                                <InputNumber
+                                    value={roundTo(radToDeg(values.dock_pose_yaw ?? 0), 1)}
+                                    onChange={(v) => onChange("dock_pose_yaw", roundTo(degToRad(v ?? 0), 4))}
+                                    step={1} precision={1} size="small" min={0} max={360}
+                                    style={{ width: "100%" }} addonAfter="°"
+                                />
+                            </Col>
+                            <Col span={12}>
+                                {/* Mini compass */}
+                                <div style={{ display: "flex", justifyContent: "center" }}>
+                                    <svg width={60} height={60} viewBox="0 0 60 60">
+                                        <circle cx={30} cy={30} r={28} fill="none"
+                                            stroke={mode === "dark" ? "#555" : "#ccc"} strokeWidth={1.5} />
+                                        {["N", "E", "S", "W"].map((d, i) => {
+                                            const a = (i * 90 - 90) * Math.PI / 180;
+                                            return (
+                                                <text key={d} x={30 + 22 * Math.cos(a)} y={30 + 22 * Math.sin(a) + 3}
+                                                    textAnchor="middle" fontSize={8} fontFamily="monospace"
+                                                    fill={d === "N" ? (mode === "dark" ? "#e55" : "#c00") : (mode === "dark" ? "#999" : "#666")}
+                                                >
+                                                    {d}
+                                                </text>
+                                            );
+                                        })}
+                                        {/* Robot heading arrow */}
+                                        {(() => {
+                                            const yawDeg = radToDeg(values.dock_pose_yaw ?? 0);
+                                            // Convert compass bearing to SVG angle (compass 0°=N=up, SVG 0°=right)
+                                            const svgAngle = yawDeg - 90;
+                                            const rad = svgAngle * Math.PI / 180;
+                                            const tipX = 30 + 16 * Math.cos(rad);
+                                            const tipY = 30 + 16 * Math.sin(rad);
+                                            const tailX = 30 - 8 * Math.cos(rad);
+                                            const tailY = 30 - 8 * Math.sin(rad);
+                                            return (
+                                                <g>
+                                                    <line x1={tailX} y1={tailY} x2={tipX} y2={tipY}
+                                                        stroke={mode === "dark" ? "#4CAF50" : "#2E7D32"}
+                                                        strokeWidth={2.5} strokeLinecap="round" />
+                                                    <circle cx={tipX} cy={tipY} r={3}
+                                                        fill={mode === "dark" ? "#4CAF50" : "#2E7D32"} />
+                                                </g>
+                                            );
+                                        })()}
+                                    </svg>
+                                </div>
+                            </Col>
+                        </Row>
+                        <Typography.Paragraph type="secondary" style={{ fontSize: 10, marginTop: 4, marginBottom: 0 }}>
+                            Direction the robot faces when docked. Measure with a phone compass app.
+                        </Typography.Paragraph>
+                    </Card>
+
                     <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 8 }}>
-                        Coordinates are relative to base_link (centre of robot chassis).
+                        Coordinates are relative to base_link (centre of rear wheel axis).
                         X+ = forward, Y+ = left, Z+ = up. Yaw is rotation around Z axis in degrees
                         (displayed) / radians (stored).
                     </Typography.Paragraph>

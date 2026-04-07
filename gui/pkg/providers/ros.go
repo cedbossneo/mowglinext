@@ -30,22 +30,23 @@ type topicDef struct {
 // Virtual topics (map, mowingPath) have an empty MsgType and are never sent to
 // rosbridge; they are populated by internal logic instead.
 var topicMap = map[string]topicDef{
-	"status":           {"/mowgli/hardware/status", "mowgli_interfaces/msg/Status"},
-	"highLevelStatus":  {"/mowgli/behavior/status", "mowgli_interfaces/msg/HighLevelStatus"},
-	"gps":              {"/mowgli/gps/absolute_pose", "mowgli_interfaces/msg/AbsolutePose"},
-	"pose":             {"/mowgli/localization/odom_map", "nav_msgs/msg/Odometry"},
-	"imu":              {"/mowgli/hardware/imu", "sensor_msgs/msg/Imu"},
-	"ticks":            {"/mowgli/hardware/wheel_odom", "nav_msgs/msg/Odometry"},
-	"map":              {"", ""},                                                        // virtual – populated via map_server services
-	"path":             {"/mowgli/coverage/path", "nav_msgs/msg/Path"},
-	"plan":             {"/plan", "nav_msgs/msg/Path"},                                  // Nav2 global plan (standard name)
-	"mowingPath":       {"", ""},                                                        // virtual – populated by initMowingPathTracking
-	"power":            {"/mowgli/hardware/power", "mowgli_interfaces/msg/Power"},
-	"emergency":        {"/mowgli/hardware/emergency", "mowgli_interfaces/msg/Emergency"},
-	"lidar":            {"/scan", "sensor_msgs/msg/LaserScan"},                          // Nav2 standard name
-	"diagnostics":      {"/mowgli/diagnostics", "diagnostic_msgs/msg/DiagnosticArray"},
-	"obstacles":        {"/mowgli/obstacles/tracked", "mowgli_interfaces/msg/ObstacleArray"},
-	"robotDescription": {"/robot_description", "std_msgs/msg/String"},                   // ROS2 standard name
+	"status":        {"/hardware_bridge/status", "mowgli_interfaces/msg/Status"},
+	"highLevelStatus": {"/behavior_tree_node/high_level_status", "mowgli_interfaces/msg/HighLevelStatus"},
+	"gps":           {"/gps/absolute_pose", "mowgli_interfaces/msg/AbsolutePose"},
+	"pose":          {"/odometry/filtered_map", "nav_msgs/msg/Odometry"},
+	"imu":           {"/imu/data", "sensor_msgs/msg/Imu"},
+	"ticks":         {"/wheel_odom", "nav_msgs/msg/Odometry"},
+	"map":           {"", ""},                                                      // virtual – populated via map_server services
+	"path":          {"/coverage_planner_node/coverage_path", "nav_msgs/msg/Path"},
+	"plan":          {"/plan", "nav_msgs/msg/Path"},                                // Nav2 global plan
+	"mowingPath":    {"", ""},                                                      // virtual – populated by initMowingPathTracking
+	"power":         {"/hardware_bridge/power", "mowgli_interfaces/msg/Power"},
+	"emergency":     {"/hardware_bridge/emergency", "mowgli_interfaces/msg/Emergency"},
+	// NOTE: DockingSensor.msg does not exist in mowgli_interfaces yet; omitted to avoid rosbridge errors.
+	"lidar":         {"/scan", "sensor_msgs/msg/LaserScan"},
+	"diagnostics":   {"/diagnostics", "diagnostic_msgs/msg/DiagnosticArray"},
+	"obstacles":     {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray"},
+	"robotDescription": {"/robot_description", "std_msgs/msg/String"},
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +269,7 @@ func (r *RosProvider) pollMap() {
 	for i := uint32(0); i < 100; i++ {
 		req := mowgli.GetMowingAreaReq{Index: i}
 		var res mowgli.GetMowingAreaRes
-		err := r.CallService(ctx, "/mowgli/map/get_area", &req, &res)
+		err := r.CallService(ctx, "/map_server_node/get_mowing_area", &req, &res)
 		if err != nil || !res.Success {
 			break
 		}

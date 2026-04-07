@@ -78,7 +78,7 @@ func (s *SchedulerProvider) checkSchedules() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err = s.rosProvider.CallService(
 			ctx,
-			"/mowgli/behavior/start_in_area",
+			"/behavior_tree_node/start_in_area",
 			&mowgli.StartInAreaReq{Area: uint8(sched.Area)},
 			&mowgli.StartInAreaRes{},
 		)

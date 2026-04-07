@@ -93,7 +93,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 properties: f.properties,
             }));
 
-        // Add dock heading direction line
+        // Add dock heading direction line (longer, with contrasting color)
         const dock = features["dock"];
         if (dock instanceof DockFeatureBase) {
             const coords = dock.getCoordinates();
@@ -103,7 +103,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 type: "Feature" as const,
                 id: "dock-heading",
                 geometry: {type: "LineString", coordinates: [coords, endPoint]},
-                properties: {color: "#ff00f2", width: 2, feature_type: "dock-heading"},
+                properties: {color: "#00e676", width: 3, feature_type: "dock-heading"},
             });
         }
 
@@ -449,13 +449,68 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                 'line-color': ['get', 'color'],
                                 'line-width': ['get', 'width'],
                             }}/>
-                        <Layer type={"circle"} id={"display-points-halo"} filter={['==', '$type', 'Point']}
+                        {/* Dock marker */}
+                        <Layer type={"circle"} id={"dock-halo"}
+                            filter={['==', ['get', 'feature_type'], 'dock']}
+                            paint={{
+                                'circle-radius': 12,
+                                'circle-color': '#ffffff',
+                                'circle-opacity': 0.9,
+                            }}/>
+                        <Layer type={"circle"} id={"dock-point"}
+                            filter={['==', ['get', 'feature_type'], 'dock']}
+                            paint={{
+                                'circle-radius': 9,
+                                'circle-color': '#ff00f2',
+                                'circle-stroke-color': '#ffffff',
+                                'circle-stroke-width': 2,
+                            }}/>
+                        <Layer type={"symbol"} id={"dock-label"}
+                            filter={['==', ['get', 'feature_type'], 'dock']}
+                            layout={{
+                                'text-field': 'DOCK',
+                                'text-size': 10,
+                                'text-font': ['Open Sans Bold'],
+                                'text-offset': [0, 1.8],
+                                'text-anchor': 'top',
+                            }}
+                            paint={{
+                                'text-color': '#ff00f2',
+                                'text-halo-color': '#ffffff',
+                                'text-halo-width': 1.5,
+                            }}/>
+                        {/* Mower footprint (robot shape from URDF) */}
+                        <Layer type={"fill"} id={"mower-footprint-fill"}
+                            filter={['==', ['get', 'feature_type'], 'mower-footprint']}
+                            paint={{
+                                'fill-color': '#00a6ff',
+                                'fill-opacity': 0.35,
+                            }}/>
+                        <Layer type={"line"} id={"mower-footprint-outline"}
+                            filter={['==', ['get', 'feature_type'], 'mower-footprint']}
+                            paint={{
+                                'line-color': '#003d66',
+                                'line-width': 2,
+                            }}/>
+                        {/* Mower center point */}
+                        <Layer type={"circle"} id={"mower-point"}
+                            filter={['all', ['==', '$type', 'Point'], ['==', ['get', 'feature_type'], 'mower']]}
+                            paint={{
+                                'circle-radius': 4,
+                                'circle-color': '#00a6ff',
+                                'circle-stroke-color': '#ffffff',
+                                'circle-stroke-width': 1.5,
+                            }}/>
+                        {/* Other display points */}
+                        <Layer type={"circle"} id={"display-points-halo"}
+                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
                             paint={{
                                 'circle-radius': 8,
                                 'circle-color': '#ffffff',
                                 'circle-opacity': 0.9,
                             }}/>
-                        <Layer type={"circle"} id={"display-points"} filter={['==', '$type', 'Point']}
+                        <Layer type={"circle"} id={"display-points"}
+                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
                             paint={{
                                 'circle-radius': 5,
                                 'circle-color': ['get', 'color'],
@@ -540,13 +595,68 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                 'line-color': ['get', 'color'],
                                 'line-width': ['get', 'width'],
                             }}/>
-                        <Layer type={"circle"} id={"display-points-halo"} filter={['==', '$type', 'Point']}
+                        {/* Dock marker */}
+                        <Layer type={"circle"} id={"dock-halo"}
+                            filter={['==', ['get', 'feature_type'], 'dock']}
+                            paint={{
+                                'circle-radius': 12,
+                                'circle-color': '#ffffff',
+                                'circle-opacity': 0.9,
+                            }}/>
+                        <Layer type={"circle"} id={"dock-point"}
+                            filter={['==', ['get', 'feature_type'], 'dock']}
+                            paint={{
+                                'circle-radius': 9,
+                                'circle-color': '#ff00f2',
+                                'circle-stroke-color': '#ffffff',
+                                'circle-stroke-width': 2,
+                            }}/>
+                        <Layer type={"symbol"} id={"dock-label"}
+                            filter={['==', ['get', 'feature_type'], 'dock']}
+                            layout={{
+                                'text-field': 'DOCK',
+                                'text-size': 10,
+                                'text-font': ['Open Sans Bold'],
+                                'text-offset': [0, 1.8],
+                                'text-anchor': 'top',
+                            }}
+                            paint={{
+                                'text-color': '#ff00f2',
+                                'text-halo-color': '#ffffff',
+                                'text-halo-width': 1.5,
+                            }}/>
+                        {/* Mower footprint (robot shape from URDF) */}
+                        <Layer type={"fill"} id={"mower-footprint-fill"}
+                            filter={['==', ['get', 'feature_type'], 'mower-footprint']}
+                            paint={{
+                                'fill-color': '#00a6ff',
+                                'fill-opacity': 0.35,
+                            }}/>
+                        <Layer type={"line"} id={"mower-footprint-outline"}
+                            filter={['==', ['get', 'feature_type'], 'mower-footprint']}
+                            paint={{
+                                'line-color': '#003d66',
+                                'line-width': 2,
+                            }}/>
+                        {/* Mower center point */}
+                        <Layer type={"circle"} id={"mower-point"}
+                            filter={['all', ['==', '$type', 'Point'], ['==', ['get', 'feature_type'], 'mower']]}
+                            paint={{
+                                'circle-radius': 4,
+                                'circle-color': '#00a6ff',
+                                'circle-stroke-color': '#ffffff',
+                                'circle-stroke-width': 1.5,
+                            }}/>
+                        {/* Other display points */}
+                        <Layer type={"circle"} id={"display-points-halo"}
+                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
                             paint={{
                                 'circle-radius': 8,
                                 'circle-color': '#ffffff',
                                 'circle-opacity': 0.9,
                             }}/>
-                        <Layer type={"circle"} id={"display-points"} filter={['==', '$type', 'Point']}
+                        <Layer type={"circle"} id={"display-points"}
+                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
                             paint={{
                                 'circle-radius': 5,
                                 'circle-color': ['get', 'color'],
