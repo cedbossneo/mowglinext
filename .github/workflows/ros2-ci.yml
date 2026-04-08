@@ -69,15 +69,15 @@ jobs:
             ros2/build
             ros2/install
             ros2/log
-          key: colcon-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/CMakeLists.txt', 'ros2/src/**/package.xml', 'ros2/src/**/*.cpp', 'ros2/src/**/*.hpp') }}
+          key: colcon-v2-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/CMakeLists.txt', 'ros2/src/**/package.xml', 'ros2/src/**/*.cpp', 'ros2/src/**/*.hpp') }}
           restore-keys: |
-            colcon-${{ matrix.ros_distro }}-
+            colcon-v2-${{ matrix.ros_distro }}-
 
       - name: Build workspace
         run: |
           source /opt/ros/${{ matrix.ros_distro }}/setup.bash
           colcon build \
-            --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/usr/local \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release \
             --parallel-workers $(nproc) \
             --event-handlers console_cohesion+
 
