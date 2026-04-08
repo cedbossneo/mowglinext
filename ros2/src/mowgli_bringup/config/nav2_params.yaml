@@ -391,6 +391,7 @@ docking_server:
       pose: [0.0, 0.0, 0.0]  # Overridden at launch from dock_pose_x/y/yaw params
     simple_charging_dock:
       plugin: "opennav_docking::SimpleChargingDock"
+      charging_threshold: 0.1
       docking_threshold: 0.05
       staging_x_offset: -1.0
       use_external_detection_pose: false

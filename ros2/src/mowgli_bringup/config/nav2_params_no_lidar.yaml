@@ -277,10 +277,12 @@ docking_server:
     dock_plugins: ["simple_charging_dock"]
     simple_charging_dock:
       plugin: "opennav_docking::SimpleChargingDock"
+      charging_threshold: 0.1
       docking_threshold: 0.05
       staging_x_offset: -0.7
       use_external_detection_pose: true
-      use_battery_status: false
+      use_battery_status: true
+      battery_topic: "/battery_state"
       use_stall_detection: false
       external_detection_timeout: 1.0
       external_detection_translation_x: -0.18
