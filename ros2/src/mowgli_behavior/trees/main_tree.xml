@@ -168,6 +168,12 @@
           <!-- Mowing with battery awareness -->
           <PublishHighLevelStatus state="2" state_name="MOWING"/>
 
+          <!-- Reactive guard: abort mowing immediately if the
+               high-level command changes away from START (1).
+               This lets STOP or HOME preempt the coverage loop. -->
+          <ReactiveSequence name="MowingCommandGuard">
+          <IsCommand command="1"/>
+
           <Fallback name="CoverageWithRecovery">
 
             <ReactiveSequence name="AdaptiveCoverage">
@@ -326,6 +332,7 @@
               <ClearCommand/>
             </Sequence>
           </Fallback>
+          </ReactiveSequence>
 
           <!-- Mowing complete — dock -->
           <SetMowerEnabled enabled="false"/>
@@ -377,6 +384,8 @@
              e. Idle default
              ============================================================ -->
         <Sequence name="IdleSequence">
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
           <PublishHighLevelStatus state="1" state_name="IDLE"/>
           <WaitForDuration duration_sec="0.5"/>
         </Sequence>
