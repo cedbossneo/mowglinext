@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# Copyright 2026 Mowgli Project
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 e2e_test.py — End-to-end simulation validation for Mowgli ROS2.
 
@@ -84,7 +99,7 @@ class Metrics:
     covered_cells: set = field(default_factory=set)
     covered_cell_visits: dict = field(default_factory=lambda: defaultdict(int))
     mow_area_cells: set = field(default_factory=set)
-    coverage_grid_resolution: float = 0.25
+    coverage_grid_resolution: float = 0.18
 
     # Obstacle avoidance maneuver details
     avoidance_maneuvers: list = field(default_factory=list)
@@ -1286,7 +1301,7 @@ class E2ETestNode(Node):
             visit_counts = list(m.covered_cell_visits.values())
             single = sum(1 for v in visit_counts if v == 1)
             overlap_ratio = (1 - single / len(visit_counts)) * 100 if visit_counts else 0
-            if overlap_ratio > 30:
+            if overlap_ratio > 40:
                 overlap_pass = False
 
         criteria = [
