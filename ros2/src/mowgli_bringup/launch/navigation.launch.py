@@ -154,7 +154,6 @@ def generate_launch_description() -> LaunchDescription:
         param_rewrites={
             "mode": "mapping",
             "map_file_name": map_file_name,
-            "map_start_at_dock": "false",
             "use_sim_time": use_sim_time,
         },
         convert_types=True,
@@ -222,11 +221,12 @@ def generate_launch_description() -> LaunchDescription:
                 ))
             )
 
-        # When creating a fresh map, initialize SLAM at the dock position
-        # (relative to GPS datum). This aligns the new SLAM map frame with
-        # GPS coordinates so mowing areas are at the correct location.
+        # Initialize SLAM at the dock position (relative to GPS datum) in
+        # ALL modes.  For a fresh map this aligns the new SLAM map frame
+        # with GPS coordinates; for lifelong/localization it provides a
+        # heading hint so scan-matching converges faster at the dock.
         dock_start_pose = None
-        if not map_exists:
+        if True:
             robot_config = "/ros2_ws/config/mowgli_robot.yaml"
             if os.path.isfile(robot_config):
                 with open(robot_config, "r") as f:
@@ -238,14 +238,16 @@ def generate_launch_description() -> LaunchDescription:
                 dock_start_pose = [dx, dy, dyaw]
                 actions.append(
                     LogInfo(msg=(
-                        f"[navigation.launch.py] Fresh map: SLAM start pose "
+                        f"[navigation.launch.py] SLAM start pose "
                         f"at dock [{dx:.2f}, {dy:.2f}, {dyaw:.3f}]"
                     ))
                 )
 
         # If we have a dock start pose, create a modified copy of the SLAM
         # config with the dock pose baked in. RewrittenYaml can't handle
-        # list-type params, so we modify the YAML directly.
+        # list-type params, so we modify the YAML directly.  We then
+        # create per-mode RewrittenYaml variants from this modified file
+        # so the dock heading hint is available in ALL modes.
         if dock_start_pose is not None:
             import tempfile
             with open(slam_toolbox_params_file, "r") as f:
@@ -262,35 +264,58 @@ def generate_launch_description() -> LaunchDescription:
             )
             dock_slam_file.write(slam_yaml_content)
             dock_slam_file.close()
-            mapping_slam_params_dock = RewrittenYaml(
-                source_file=dock_slam_file.name,
-                root_key="",
-                param_rewrites={
-                    "mode": "mapping",
-                    "map_file_name": map_file_name,
-                    "use_sim_time": use_sim_time,
-                },
-                convert_types=True,
-            )
+            dock_source = dock_slam_file.name
         else:
-            mapping_slam_params_dock = mapping_slam_params
+            dock_source = slam_toolbox_params_file
+
+        # Build per-mode params from the (possibly dock-patched) source
+        dock_mapping_params = RewrittenYaml(
+            source_file=dock_source,
+            root_key="",
+            param_rewrites={
+                "mode": "mapping",
+                "map_file_name": map_file_name,
+                "use_sim_time": use_sim_time,
+            },
+            convert_types=True,
+        )
+        dock_localization_params = RewrittenYaml(
+            source_file=dock_source,
+            root_key="",
+            param_rewrites={
+                "mode": "localization",
+                "map_file_name": map_file_name,
+                "use_sim_time": use_sim_time,
+            },
+            convert_types=True,
+        )
+        dock_lifelong_params = RewrittenYaml(
+            source_file=dock_source,
+            root_key="",
+            param_rewrites={
+                "mode": "lifelong",
+                "map_file_name": map_file_name,
+                "use_sim_time": use_sim_time,
+            },
+            convert_types=True,
+        )
 
         # Select the correct launch file and params
         if effective_mode == "localization":
             launch_file = os.path.join(
                 slam_toolbox_dir, "launch", "localization_launch.py"
             )
-            params = localization_slam_params
+            params = dock_localization_params
         elif effective_mode == "mapping":
             launch_file = os.path.join(
                 slam_toolbox_dir, "launch", "online_async_launch.py"
             )
-            params = mapping_slam_params_dock
+            params = dock_mapping_params
         else:  # lifelong
             launch_file = os.path.join(
                 slam_toolbox_dir, "launch", "online_async_launch.py"
             )
-            params = lifelong_slam_params
+            params = dock_lifelong_params
 
         actions.append(
             IncludeLaunchDescription(

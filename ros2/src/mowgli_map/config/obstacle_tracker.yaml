@@ -11,3 +11,4 @@ obstacle_tracker:
     map_frame: "map"
     publish_rate: 1.0
     boundary_margin: 0.3
+    map_obstacle_min_dist_from_boundary: 0.2

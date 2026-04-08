@@ -877,6 +877,73 @@ std::vector<std::pair<double, double>> ObstacleTrackerNode::convex_hull(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Boundary-preserving hull (angular sweep from centroid)
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::vector<std::pair<double, double>> ObstacleTrackerNode::boundary_hull(
+    const std::vector<std::pair<double, double>>& pts) const
+{
+  if (pts.size() < 4)
+  {
+    return convex_hull(pts);
+  }
+
+  // Compute centroid.
+  double cx = 0.0;
+  double cy = 0.0;
+  for (const auto& [x, y] : pts)
+  {
+    cx += x;
+    cy += y;
+  }
+  cx /= static_cast<double>(pts.size());
+  cy /= static_cast<double>(pts.size());
+
+  // Sort by angle from centroid.
+  auto sorted = pts;
+  std::sort(sorted.begin(),
+            sorted.end(),
+            [cx, cy](const auto& a, const auto& b)
+            {
+              return std::atan2(a.second - cy, a.first - cx) <
+                     std::atan2(b.second - cy, b.first - cx);
+            });
+
+  // Remove interior points: keep only the farthest point per angular bin.
+  std::vector<std::pair<double, double>> boundary;
+  constexpr double angular_resolution = 0.1;  // ~6 degrees
+  double last_angle = -999.0;
+
+  for (const auto& [x, y] : sorted)
+  {
+    double angle = std::atan2(y - cy, x - cx);
+    if (angle - last_angle < angular_resolution && !boundary.empty())
+    {
+      // Same angular bin — keep the one farther from centroid.
+      auto& prev = boundary.back();
+      double d_prev = std::hypot(prev.first - cx, prev.second - cy);
+      double d_curr = std::hypot(x - cx, y - cy);
+      if (d_curr > d_prev)
+      {
+        prev = {x, y};
+      }
+    }
+    else
+    {
+      boundary.push_back({x, y});
+      last_angle = angle;
+    }
+  }
+
+  if (boundary.size() < 3)
+  {
+    return convex_hull(pts);
+  }
+
+  return boundary;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Hull inflation (push each vertex outward from centroid)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -985,7 +1052,7 @@ void ObstacleTrackerNode::associate_clusters(
       nearest->cx = nearest->cx * (1.0 - alpha) + cx * alpha;
       nearest->cy = nearest->cy * (1.0 - alpha) + cy * alpha;
       nearest->radius = std::max(nearest->radius, max_r);
-      nearest->hull_points = convex_hull(cluster);
+      nearest->hull_points = boundary_hull(cluster);
       nearest->last_seen = stamp;
       nearest->observation_count++;
     }
@@ -997,7 +1064,7 @@ void ObstacleTrackerNode::associate_clusters(
       obs.cx = cx;
       obs.cy = cy;
       obs.radius = max_r;
-      obs.hull_points = convex_hull(cluster);
+      obs.hull_points = boundary_hull(cluster);
       obs.first_seen = stamp;
       obs.last_seen = stamp;
       obs.observation_count = 1;
@@ -1038,7 +1105,7 @@ void ObstacleTrackerNode::merge_overlapping()
 
           std::vector<std::pair<double, double>> combined = a.hull_points;
           combined.insert(combined.end(), b.hull_points.begin(), b.hull_points.end());
-          a.hull_points = convex_hull(combined);
+          a.hull_points = boundary_hull(combined);
 
           // Recompute centroid and radius from new hull.
           double cx = 0.0;

@@ -80,7 +80,7 @@ private:
   struct TrackedObstacle
   {
     uint32_t id;
-    std::vector<std::pair<double, double>> hull_points;  ///< Convex hull vertices (map frame)
+    std::vector<std::pair<double, double>> hull_points;  ///< Boundary hull vertices (map frame)
     double cx{0.0};  ///< Centroid X (map frame)
     double cy{0.0};  ///< Centroid Y (map frame)
     double radius{0.0};  ///< Bounding-circle radius
@@ -132,6 +132,13 @@ private:
   std::vector<std::pair<double, double>> convex_hull(
       const std::vector<std::pair<double, double>>& points) const;
 
+  /// Boundary-preserving hull via angular sweep from centroid.
+  /// Keeps the farthest point per angular bin so concave shapes (L, U)
+  /// are not inflated to their convex hull.  Falls back to convex_hull
+  /// for very small clusters (< 4 points).
+  std::vector<std::pair<double, double>> boundary_hull(
+      const std::vector<std::pair<double, double>>& pts) const;
+
   /// Match each new cluster to an existing obstacle or create a new entry.
   /// Caller must hold mutex_.
   void associate_clusters(const std::vector<std::vector<std::pair<double, double>>>& clusters,
@@ -177,7 +184,7 @@ private:
   std::string map_frame_{"map"};
   std::string map_topic_{"/map"};  ///< OccupancyGrid topic (slam_toolbox)
   int occupied_threshold_{65};  ///< Cells >= this value are treated as occupied
-  double map_obstacle_min_dist_from_boundary_{0.5};  ///< Min distance from boundary edge (m)
+  double map_obstacle_min_dist_from_boundary_{0.2};  ///< Min distance from boundary edge (m)
   double boundary_margin_{0.3};  ///< Reject clusters within this margin of boundary edge (m)
 
   // ── State ─────────────────────────────────────────────────────────────────
