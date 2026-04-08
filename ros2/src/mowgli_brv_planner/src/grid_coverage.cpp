@@ -292,9 +292,12 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
         break;
     }
 
-    // Sweep this column fully
+    // Sweep this column fully.
+    // When an obstacle gap is encountered within a column, insert a detour
+    // that routes around the obstacle instead of jumping straight through it.
     bool swept_any = false;
     bool in_segment = false;
+    int last_segment_end_row = -1;  // row where previous segment ended
     int r_start = (row_dir == 1) ? 0 : rows - 1;
     int r_end = (row_dir == 1) ? rows : -1;
 
@@ -311,6 +314,49 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
       {
         if (!in_segment && swept_any)
         {
+          // Resuming after obstacle gap — insert detour around obstacle.
+          // Find the nearest column outside the obstacle to route through.
+          // Step sideways past the obstacle, traverse the gap, step back.
+          if (last_segment_end_row >= 0)
+          {
+            // Find a clear column: step away from current column until we find
+            // one where the gap rows are NOT unvisitable (i.e., no obstacle).
+            int detour_col = col + col_dir;
+            bool found_clear = false;
+            for (int step = 0; step < 10; ++step)
+            {
+              if (detour_col < 0 || detour_col >= cols)
+                break;
+              // Check if this column is clear through the gap
+              bool clear = true;
+              int gap_start = std::min(last_segment_end_row, r);
+              int gap_end = std::max(last_segment_end_row, r);
+              for (int gr = gap_start; gr <= gap_end; ++gr)
+              {
+                if (grid.cell(gr, detour_col) == CellState::UNVISITABLE)
+                {
+                  clear = false;
+                  break;
+                }
+              }
+              if (clear)
+              {
+                found_clear = true;
+                break;
+              }
+              detour_col += col_dir;
+            }
+
+            if (found_clear)
+            {
+              // Step sideways to clear column
+              result.waypoints.push_back(grid.cell_to_map(last_segment_end_row, detour_col));
+              // Traverse past the obstacle gap
+              result.waypoints.push_back(grid.cell_to_map(r, detour_col));
+              // Step back to current column happens with next waypoint
+            }
+          }
+
           result.swath_breaks.push_back(static_cast<int>(result.waypoints.size()));
         }
         grid.set_cell(r, col, CellState::VISITED);
@@ -321,6 +367,8 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
       }
       else
       {
+        if (in_segment)
+          last_segment_end_row = row;  // remember where we stopped
         in_segment = false;
       }
     }

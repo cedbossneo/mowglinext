@@ -165,34 +165,31 @@ TEST_F(SimulationScenario, ZigzagPatternDetected)
 TEST_F(SimulationScenario, SwathsSplitAroundObstacle)
 {
   // obs_swath1 is at x~[-6.8, -6.2], y~[-0.3, 0.3]
-  // Columns passing through x=[-6.8, -6.2] should be split into two swaths:
-  // one above y=0.3 and one below y=-0.3
+  // The path should have more swaths than an obstacle-free plan because
+  // the obstacle creates splits and detours within columns.
   auto result = plan();
 
-  int split_swaths = 0;
-  for (size_t i = 0; i + 1 < result.swaths.size(); ++i)
-  {
-    const auto& s1 = result.swaths[i];
-    const auto& s2 = result.swaths[i + 1];
+  // Plan without obstacles for comparison
+  auto result_no_obs = plan_coverage(boundary, {}, params);
 
-    // Check if two consecutive swaths are in the same column (same x)
-    // but cover different y-ranges (split by obstacle)
-    bool same_col =
-        std::abs(s1.start.x - s2.start.x) < 0.05 || std::abs(s1.end.x - s2.start.x) < 0.05;
-    if (same_col)
+  EXPECT_GT(result.swaths.size(), result_no_obs.swaths.size())
+      << "Obstacles should create additional swath splits (" << result.swaths.size() << " vs "
+      << result_no_obs.swaths.size() << " without obstacles)";
+
+  // Also verify no path segment passes through the obstacle midpoint
+  int through_obs = 0;
+  for (size_t i = 1; i < result.full_path.size(); ++i)
+  {
+    double mid_x = (result.full_path[i - 1].x + result.full_path[i].x) / 2;
+    double mid_y = (result.full_path[i - 1].y + result.full_path[i].y) / 2;
+    if (mid_x >= -6.8 && mid_x <= -6.2 && mid_y >= -0.3 && mid_y <= 0.3)
     {
-      // One swath should end below obstacle, next should start above
-      double s1_max_y = std::max(s1.start.y, s1.end.y);
-      double s2_min_y = std::min(s2.start.y, s2.end.y);
-      if (s2_min_y - s1_max_y > 0.2)
-      {
-        // Gap between swaths > 0.2m = obstacle split
-        ++split_swaths;
-      }
+      double d = result.full_path[i].dist(result.full_path[i - 1]);
+      if (d > 0.3)
+        ++through_obs;
     }
   }
-
-  EXPECT_GT(split_swaths, 0) << "No swath splits detected around obstacles";
+  EXPECT_EQ(through_obs, 0) << "Path segments pass through obstacle";
 }
 
 TEST_F(SimulationScenario, FewJumpsInPath)
