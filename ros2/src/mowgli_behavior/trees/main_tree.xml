@@ -161,7 +161,13 @@
           <!-- Record if it was raining at start — user chose to mow in rain -->
           <WasRainingAtStart/>
 
-          <!-- Compute coverage path -->
+          <!-- Wait briefly for obstacle tracker to detect persistent obstacles
+               before planning. SLAM needs ~30s to build the map and the tracker
+               needs time to promote clusters. 5s is a compromise — most obstacles
+               near the dock are detected quickly from the initial scan. -->
+          <WaitForDuration duration_sec="5.0"/>
+
+          <!-- Compute coverage path (includes tracked obstacles via GetMowingArea) -->
           <PublishHighLevelStatus state="2" state_name="PLANNING"/>
           <ComputeCoverage area_index="0" first_swath_start="{first_wp}"/>
 
@@ -177,6 +183,16 @@
           <Fallback name="CoverageWithRecovery">
 
             <ReactiveSequence name="AdaptiveCoverage">
+
+              <!-- Reactive obstacle replan: when new persistent obstacles are
+                   detected, abort the current path execution. The recovery
+                   sequence will replan with updated obstacles.
+                   ReplanNeeded returns SUCCESS when map_server signals a change;
+                   Inverter makes it pass normally, ForceFailure aborts on change. -->
+              <Fallback name="ObstacleReplanGuard">
+                <Inverter><ReplanNeeded/></Inverter>
+                <ForceFailure><StopMoving/></ForceFailure>
+              </Fallback>
 
               <!-- Reactive rain check: only if rain started DURING mowing.
                    If user started mowing while already raining, ignore rain. -->
