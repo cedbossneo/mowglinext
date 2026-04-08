@@ -98,7 +98,7 @@ controller_server:
     # PRE_ROTATE -> FOLLOWING -> WAITING_FOR_GOAL_APPROACH -> POST_ROTATE
     FollowCoveragePath:
       plugin: "mowgli_nav2_plugins/FTCController"
-      speed_fast: 0.3              # carrot speed when far from path (m/s)
+      speed_fast: 0.4              # carrot speed when far from path (m/s)
       speed_fast_threshold: 0.5    # distance threshold for fast/slow (m)
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
       speed_slow: 0.15             # carrot speed when close/turning (m/s)
@@ -117,7 +117,7 @@ controller_server:
       ki_ang: 0.0
       kd_ang: 0.0
       # Limits
-      max_cmd_vel_speed: 0.3
+      max_cmd_vel_speed: 0.4
       max_cmd_vel_ang: 1.8
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
@@ -220,7 +220,7 @@ velocity_smoother:
     #             cmd_vel_smoothed → collision_monitor → cmd_vel → hardware
     input_topic: cmd_vel_nav
     output_topic: cmd_vel_smoothed
-    max_velocity: [0.3, 0.0, 1.0]
+    max_velocity: [0.4, 0.0, 1.0]
     min_velocity: [-0.3, 0.0, -1.0]
     max_accel: [0.3, 0.0, 1.5]
     max_decel: [-0.3, 0.0, -1.5]
