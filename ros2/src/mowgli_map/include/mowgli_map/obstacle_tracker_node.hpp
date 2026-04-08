@@ -35,6 +35,8 @@
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+class ObstacleTrackerAlgorithmTest;
+
 namespace mowgli_map
 {
 
@@ -60,6 +62,8 @@ namespace mowgli_map
 ///   - obstacle_tracker/load            (std_srvs/srv/Trigger)
 class ObstacleTrackerNode : public rclcpp::Node
 {
+  friend class ::ObstacleTrackerAlgorithmTest;
+
 public:
   /// @brief Construct the node, declare parameters, wire publishers/subscribers/services.
   explicit ObstacleTrackerNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions{});

@@ -51,11 +51,28 @@ install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+
   ament_add_gtest(test_mbb test/test_mbb.cpp src/mbb.cpp src/geometry_utils.cpp)
   target_include_directories(test_mbb PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
+
   ament_add_gtest(test_grid test/test_grid.cpp src/grid_coverage.cpp src/geometry_utils.cpp)
   target_include_directories(test_grid PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
+
+  ament_add_gtest(test_geometry test/test_geometry.cpp src/geometry_utils.cpp)
+  target_include_directories(test_geometry PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+  ament_add_gtest(test_voronoi test/test_voronoi.cpp
+    src/voronoi_roadmap.cpp src/geometry_utils.cpp)
+  target_include_directories(test_voronoi PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
+
+  ament_add_gtest(test_brv_algorithm test/test_brv_algorithm.cpp
+    src/brv_algorithm.cpp src/mbb.cpp src/grid_coverage.cpp
+    src/voronoi_roadmap.cpp src/geometry_utils.cpp)
+  target_include_directories(test_brv_algorithm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 endif()
 

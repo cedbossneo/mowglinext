@@ -179,6 +179,26 @@ if(BUILD_TESTING)
     geometry_msgs
     mowgli_interfaces
   )
+
+  ament_add_gtest(test_obstacle_tracker
+    test/test_obstacle_tracker.cpp
+  )
+
+  target_link_libraries(test_obstacle_tracker
+    mowgli_obstacle_tracker_lib
+  )
+
+  ament_target_dependencies(test_obstacle_tracker
+    rclcpp
+    std_srvs
+    nav_msgs
+    geometry_msgs
+    sensor_msgs
+    visualization_msgs
+    mowgli_interfaces
+    tf2_ros
+    tf2_geometry_msgs
+  )
 endif()
 
 # ---------------------------------------------------------------------------
