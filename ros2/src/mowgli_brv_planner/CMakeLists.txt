@@ -74,6 +74,12 @@ if(BUILD_TESTING)
     src/voronoi_roadmap.cpp src/geometry_utils.cpp)
   target_include_directories(test_brv_algorithm PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
+
+  ament_add_gtest(test_coverage_scenarios test/test_coverage_scenarios.cpp
+    src/brv_algorithm.cpp src/mbb.cpp src/grid_coverage.cpp
+    src/voronoi_roadmap.cpp src/geometry_utils.cpp)
+  target_include_directories(test_coverage_scenarios PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include ${Boost_INCLUDE_DIRS})
 endif()
 
 ament_package()
