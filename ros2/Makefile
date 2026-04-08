@@ -95,7 +95,7 @@ sim: sim-stop
 	ros2 launch mowgli_bringup sim_full_system.launch.py \
 	  headless:=true use_rviz:=false
 
-e2e-test: sim-stop
+e2e-test: sim-stop build
 	@echo "Starting simulation + E2E test..."
 	@echo ""
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \
@@ -115,7 +115,7 @@ e2e-test: sim-stop
 	$(MAKE) sim-stop; \
 	exit $$TEST_EXIT
 
-e2e-test-no-lidar: sim-stop
+e2e-test-no-lidar: sim-stop build
 	@echo "Starting no-LiDAR E2E test (GPS-only simulation)..."
 	@echo ""
 	source /opt/ros/$(ROS_DISTRO)/setup.bash && \

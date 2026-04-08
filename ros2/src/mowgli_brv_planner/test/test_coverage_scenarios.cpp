@@ -354,3 +354,143 @@ TEST(GridObstacle, MultipleColumnsObstacle)
   // Check swath breaks exist (obstacle creates splits)
   EXPECT_GT(sweep.swath_breaks.size(), 1u) << "Wide obstacle should create swath breaks";
 }
+
+// ── Edge case obstacle scenarios ──────────────────────────────────────────
+
+// Helper: count segments whose midpoint is inside any obstacle rect
+static int count_through_obstacles(
+    const Path2D& path, const std::vector<std::tuple<double, double, double, double>>& rects)
+{
+  int count = 0;
+  for (size_t i = 1; i < path.size(); ++i)
+  {
+    double d = path[i].dist(path[i - 1]);
+    if (d < 0.3)
+      continue;  // short step, not a crossing
+    for (auto& [rx1, ry1, rx2, ry2] : rects)
+    {
+      // Check midpoint and quarter-points
+      for (double t : {0.25, 0.5, 0.75})
+      {
+        double px = path[i - 1].x + t * (path[i].x - path[i - 1].x);
+        double py = path[i - 1].y + t * (path[i].y - path[i - 1].y);
+        if (px >= rx1 && px <= rx2 && py >= ry1 && py <= ry2)
+        {
+          count++;
+          goto next_segment;
+        }
+      }
+    }
+  next_segment:;
+  }
+  return count;
+}
+
+TEST(ObstacleEdgeCases, WideObstacleNoCrossing)
+{
+  // Wide obstacle spanning 3m — detour must go far enough around it
+  Polygon2D boundary = {{-7, -3}, {2, -3}, {2, 3}, {-7, 3}};
+  Polygon2D obs = {{-4, -0.5}, {-1, -0.5}, {-1, 0.5}, {-4, 0.5}};
+  PlannerParams params;
+  params.tool_width = 0.18;
+  params.headland_passes = 2;
+  params.headland_width = 0.18;
+  params.mow_angle_deg = -1.0;
+
+  auto result = plan_coverage(boundary, {obs}, params);
+  int through = count_through_obstacles(result.full_path, {{-4, -0.5, -1, 0.5}});
+  EXPECT_EQ(through, 0) << "Path crosses wide obstacle " << through << " times";
+}
+
+TEST(ObstacleEdgeCases, MultipleObstaclesNoCrossing)
+{
+  Polygon2D boundary = {{-7, -3}, {2, -3}, {2, 3}, {-7, 3}};
+  Polygon2D o1 = {{-6.8, -0.3}, {-6.2, -0.3}, {-6.2, 0.3}, {-6.8, 0.3}};
+  Polygon2D o2 = {{-3, -0.3}, {-2.4, -0.3}, {-2.4, 0.3}, {-3, 0.3}};
+  Polygon2D o3 = {{1, -1}, {1.6, -1}, {1.6, -0.4}, {1, -0.4}};
+  PlannerParams params;
+  params.tool_width = 0.18;
+  params.headland_passes = 2;
+  params.headland_width = 0.18;
+  params.mow_angle_deg = -1.0;
+
+  auto result = plan_coverage(boundary, {o1, o2, o3}, params);
+  int through =
+      count_through_obstacles(result.full_path,
+                              {{-6.8, -0.3, -6.2, 0.3}, {-3, -0.3, -2.4, 0.3}, {1, -1, 1.6, -0.4}});
+  EXPECT_EQ(through, 0) << "Path crosses obstacles " << through << " times";
+}
+
+TEST(ObstacleEdgeCases, CornerObstacleNoCrossing)
+{
+  // Obstacle near boundary corner
+  Polygon2D boundary = {{-7, -3}, {2, -3}, {2, 3}, {-7, 3}};
+  Polygon2D obs = {{-6.8, -2.8}, {-6.2, -2.8}, {-6.2, -2.2}, {-6.8, -2.2}};
+  PlannerParams params;
+  params.tool_width = 0.18;
+  params.headland_passes = 2;
+  params.headland_width = 0.18;
+  params.mow_angle_deg = -1.0;
+
+  auto result = plan_coverage(boundary, {obs}, params);
+  int through = count_through_obstacles(result.full_path, {{-6.8, -2.8, -6.2, -2.2}});
+  EXPECT_EQ(through, 0) << "Path crosses corner obstacle " << through << " times";
+}
+
+TEST(ObstacleEdgeCases, TwoObstaclesSameColumnNoCrossing)
+{
+  Polygon2D boundary = {{-7, -3}, {2, -3}, {2, 3}, {-7, 3}};
+  Polygon2D o1 = {{-3, 1}, {-2.4, 1}, {-2.4, 1.6}, {-3, 1.6}};
+  Polygon2D o2 = {{-3, -1.6}, {-2.4, -1.6}, {-2.4, -1}, {-3, -1}};
+  PlannerParams params;
+  params.tool_width = 0.18;
+  params.headland_passes = 2;
+  params.headland_width = 0.18;
+  params.mow_angle_deg = -1.0;
+
+  auto result = plan_coverage(boundary, {o1, o2}, params);
+  int through =
+      count_through_obstacles(result.full_path, {{-3, 1, -2.4, 1.6}, {-3, -1.6, -2.4, -1}});
+  EXPECT_EQ(through, 0) << "Path crosses stacked obstacles " << through << " times";
+}
+
+TEST(ObstacleEdgeCases, FullCoverageWithObstacles)
+{
+  // All scenarios should achieve 100% coverage of accessible cells
+  Polygon2D boundary = {{-7, -3}, {2, -3}, {2, 3}, {-7, 3}};
+  Polygon2D obs = {{-3, -0.3}, {-2.4, -0.3}, {-2.4, 0.3}, {-3, 0.3}};
+  PlannerParams params;
+  params.tool_width = 0.18;
+  params.headland_passes = 2;
+  params.headland_width = 0.18;
+  params.mow_angle_deg = -1.0;
+
+  auto result = plan_coverage(boundary, {obs}, params);
+
+  // Verify by creating grid and marking visited cells from path
+  Polygon2D inner = offset_polygon_inward(boundary, 0.36);
+  ASSERT_FALSE(inner.empty());
+  CoverageGrid grid(inner, {obs}, 0.18, 0.0);
+  int total_accessible = 0;
+  for (int r = 0; r < grid.rows(); ++r)
+    for (int c = 0; c < grid.cols(); ++c)
+      if (grid.cell(r, c) != CellState::UNVISITABLE)
+        total_accessible++;
+
+  int visited = 0;
+  for (auto& wp : result.full_path)
+  {
+    auto [row, col] = grid.map_to_cell(wp.x, wp.y);
+    if (row >= 0 && row < grid.rows() && col >= 0 && col < grid.cols())
+    {
+      if (grid.cell(row, col) == CellState::UNVISITED)
+      {
+        grid.set_cell(row, col, CellState::VISITED);
+        visited++;
+      }
+    }
+  }
+
+  double cov = total_accessible > 0 ? static_cast<double>(visited) / total_accessible * 100 : 0;
+  EXPECT_GT(cov, 95.0) << "Coverage " << cov << "% is too low (expected >95%)";
+}

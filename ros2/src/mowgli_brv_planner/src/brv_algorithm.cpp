@@ -184,9 +184,23 @@ CoverageResult plan_coverage(const Polygon2D& boundary,
     Point2D next_pos = grid.cell_to_map(next_row, next_col);
     double transit_dist = cur_pos.dist(next_pos);
 
-    // Short transits (<2m): go directly — no Voronoi overhead.
-    // Long transits (>=2m): use Voronoi roadmap for collision-free routing.
-    if (transit_dist >= 2.0)
+    // Check if direct transit crosses any obstacle.
+    // Use Voronoi for long transits or when direct line crosses obstacles.
+    bool crosses_obstacle = false;
+    if (transit_dist > params.tool_width * 1.5)
+    {
+      Point2D mid{(cur_pos.x + next_pos.x) / 2, (cur_pos.y + next_pos.y) / 2};
+      for (const auto& obs : filtered_obs)
+      {
+        if (point_in_polygon(mid, obs))
+        {
+          crosses_obstacle = true;
+          break;
+        }
+      }
+    }
+
+    if (transit_dist >= 2.0 || crosses_obstacle)
     {
       Path2D transit = roadmap.find_path(cur_pos, next_pos);
       if (transit.size() > 2)

@@ -317,45 +317,56 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
         if (!in_segment && swept_any)
         {
           // Resuming after obstacle gap — insert detour around obstacle.
-          // Find the nearest column outside the obstacle to route through.
-          // Step sideways past the obstacle, traverse the gap, step back.
+          // Find the nearest column (in either direction) that is clear
+          // through the gap, and also clear laterally from current column.
           if (last_segment_end_row >= 0)
           {
-            // Find a clear column: step away from current column until we find
-            // one where the gap rows are NOT unvisitable (i.e., no obstacle).
-            int detour_col = col + col_dir;
-            bool found_clear = false;
-            for (int step = 0; step < 10; ++step)
+            int gap_start = std::min(last_segment_end_row, r);
+            int gap_end = std::max(last_segment_end_row, r);
+
+            auto is_col_clear = [&](int dc) -> bool
             {
-              if (detour_col < 0 || detour_col >= cols)
-                break;
-              // Check if this column is clear through the gap
-              bool clear = true;
-              int gap_start = std::min(last_segment_end_row, r);
-              int gap_end = std::max(last_segment_end_row, r);
+              if (dc < 0 || dc >= cols)
+                return false;
+              // Check gap rows are clear in the detour column
               for (int gr = gap_start; gr <= gap_end; ++gr)
               {
-                if (grid.cell(gr, detour_col) == CellState::UNVISITABLE)
-                {
-                  clear = false;
-                  break;
-                }
+                if (grid.cell(gr, dc) == CellState::UNVISITABLE)
+                  return false;
               }
-              if (clear)
+              // Check lateral path from col to dc is clear at both gap ends
+              int c_min = std::min(col, dc);
+              int c_max = std::max(col, dc);
+              for (int cc = c_min; cc <= c_max; ++cc)
               {
-                found_clear = true;
+                if (grid.cell(last_segment_end_row, cc) == CellState::UNVISITABLE)
+                  return false;
+                if (grid.cell(r, cc) == CellState::UNVISITABLE)
+                  return false;
+              }
+              return true;
+            };
+
+            // Search both directions for a clear detour column
+            int detour_col = -1;
+            for (int step = 1; step <= 15; ++step)
+            {
+              if (is_col_clear(col + step))
+              {
+                detour_col = col + step;
                 break;
               }
-              detour_col += col_dir;
+              if (is_col_clear(col - step))
+              {
+                detour_col = col - step;
+                break;
+              }
             }
 
-            if (found_clear)
+            if (detour_col >= 0)
             {
-              // Step sideways to clear column
               result.waypoints.push_back(grid.cell_to_map(last_segment_end_row, detour_col));
-              // Traverse past the obstacle gap
               result.waypoints.push_back(grid.cell_to_map(r, detour_col));
-              // Step back to current column happens with next waypoint
             }
           }
 
