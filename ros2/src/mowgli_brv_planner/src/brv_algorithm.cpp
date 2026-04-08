@@ -176,21 +176,25 @@ CoverageResult plan_coverage(const Polygon2D& boundary,
     if (!grid.has_unvisited())
       break;
 
-    // Find nearest unvisited region and transit via Voronoi
+    // Find nearest unvisited cell and transit there.
     auto [next_row, next_col] = grid.find_nearest_unvisited(cur_row, cur_col);
     if (next_row < 0)
       break;
 
     Point2D next_pos = grid.cell_to_map(next_row, next_col);
+    double transit_dist = cur_pos.dist(next_pos);
 
-    // Use Voronoi roadmap for collision-free transit (Section 4.4)
-    Path2D transit = roadmap.find_path(cur_pos, next_pos);
-    if (transit.size() > 2)
+    // Short transits (<2m): go directly — no Voronoi overhead.
+    // Long transits (>=2m): use Voronoi roadmap for collision-free routing.
+    if (transit_dist >= 2.0)
     {
-      // Skip first (== cur_pos) and last (== next_pos) to avoid duplicates
-      for (size_t i = 1; i + 1 < transit.size(); ++i)
+      Path2D transit = roadmap.find_path(cur_pos, next_pos);
+      if (transit.size() > 2)
       {
-        result.full_path.push_back(transit[i]);
+        for (size_t i = 1; i + 1 < transit.size(); ++i)
+        {
+          result.full_path.push_back(transit[i]);
+        }
       }
     }
 

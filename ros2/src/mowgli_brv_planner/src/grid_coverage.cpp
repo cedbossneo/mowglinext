@@ -224,40 +224,85 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
 
   int rows = grid.rows();
   int cols = grid.cols();
-  int col = start_col;
   int row = start_row;
-  int row_dir = 1;  // sweep downward first
-  int col_dir = 1;  // sweep left-to-right
+  int row_dir = 1;
+  int col_dir = 1;
 
   // Determine initial row direction: sweep toward the side with more unvisited
   int up_count = 0, down_count = 0;
   for (int r = 0; r < row; ++r)
   {
-    if (grid.cell(r, col) == CellState::UNVISITED)
+    if (grid.cell(r, start_col) == CellState::UNVISITED)
       ++up_count;
   }
   for (int r = row; r < rows; ++r)
   {
-    if (grid.cell(r, col) == CellState::UNVISITED)
+    if (grid.cell(r, start_col) == CellState::UNVISITED)
       ++down_count;
   }
   row_dir = (down_count >= up_count) ? 1 : -1;
 
+  // Sweep ALL columns from start_col in col_dir direction.
+  // Each column is swept fully (top-to-bottom or bottom-to-top, alternating).
+  // Obstacles within a column create swath breaks but don't stop the sweep.
+  // Empty columns are skipped (up to 5 column gap).
+  constexpr int max_skip_cols = 5;
+  int col = start_col;
+  bool first_col = true;
+
   while (col >= 0 && col < cols)
   {
-    // Sweep current column fully — skip over obstacles, don't break.
-    // Collect segments of unvisited cells separated by obstacles.
+    // Check if this column has any unvisited cells
+    bool col_has_unvisited = false;
+    for (int r = 0; r < rows; ++r)
+    {
+      if (grid.cell(r, col) == CellState::UNVISITED)
+      {
+        col_has_unvisited = true;
+        break;
+      }
+    }
+
+    if (!col_has_unvisited)
+    {
+      // Skip empty column — try next ones
+      int skip_col = col + col_dir;
+      bool found = false;
+      for (int skip = 0; skip < max_skip_cols; ++skip)
+      {
+        if (skip_col < 0 || skip_col >= cols)
+          break;
+        for (int r = 0; r < rows; ++r)
+        {
+          if (grid.cell(r, skip_col) == CellState::UNVISITED)
+          {
+            found = true;
+            break;
+          }
+        }
+        if (found)
+        {
+          col = skip_col;
+          col_has_unvisited = true;
+          break;
+        }
+        skip_col += col_dir;
+      }
+      if (!found)
+        break;
+    }
+
+    // Sweep this column fully
     bool swept_any = false;
     bool in_segment = false;
-
-    // Determine sweep range
     int r_start = (row_dir == 1) ? 0 : rows - 1;
     int r_end = (row_dir == 1) ? rows : -1;
 
-    // If we have a starting position in this column, use it
-    if (col == start_col && result.waypoints.empty())
+    // First column: start from the given start_row
+    if (first_col)
     {
       r_start = start_row;
+      first_col = false;
     }
 
     for (int r = r_start; r != r_end; r += row_dir)
@@ -266,7 +311,6 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
       {
         if (!in_segment && swept_any)
         {
-          // Starting a new segment after an obstacle gap — record swath break
           result.swath_breaks.push_back(static_cast<int>(result.waypoints.size()));
         }
         grid.set_cell(r, col, CellState::VISITED);
@@ -281,40 +325,26 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
       }
     }
 
-    if (!swept_any && result.waypoints.empty())
+    if (swept_any)
     {
-      col += col_dir;
-      if (col < 0 || col >= cols)
-        break;
-      continue;
+      // Record swath break for next column
+      result.swath_breaks.push_back(static_cast<int>(result.waypoints.size()));
     }
 
-    // Move to next column
-    int next_col = col + col_dir;
-    if (next_col < 0 || next_col >= cols)
-      break;
-
-    // Check if next column has unvisited cells
-    bool has_unvisited = false;
-    for (int r = 0; r < rows; ++r)
-    {
-      if (grid.cell(r, next_col) == CellState::UNVISITED)
-      {
-        has_unvisited = true;
-        break;
-      }
-    }
-    if (!has_unvisited)
-      break;
-
-    col = next_col;
+    // Advance to next column and reverse row direction
+    col += col_dir;
     row_dir = -row_dir;
+  }
 
-    result.swath_breaks.push_back(static_cast<int>(result.waypoints.size()));
+  // Remove trailing empty swath break
+  if (!result.swath_breaks.empty() &&
+      result.swath_breaks.back() >= static_cast<int>(result.waypoints.size()))
+  {
+    result.swath_breaks.pop_back();
   }
 
   result.end_row = row;
-  result.end_col = col;
+  result.end_col = std::clamp(col - col_dir, 0, cols - 1);
   return result;
 }
 
