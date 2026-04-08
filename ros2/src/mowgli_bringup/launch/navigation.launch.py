@@ -226,28 +226,27 @@ def generate_launch_description() -> LaunchDescription:
         # with GPS coordinates; for lifelong/localization it provides a
         # heading hint so scan-matching converges faster at the dock.
         dock_start_pose = None
-        if True:
-            robot_config = "/ros2_ws/config/mowgli_robot.yaml"
-            if os.path.isfile(robot_config):
-                with open(robot_config, "r") as f:
-                    rcfg = yaml.safe_load(f) or {}
-                rp = rcfg.get("mowgli", {}).get("ros__parameters", {})
-                dx = float(rp.get("dock_pose_x", 0.0))
-                dy = float(rp.get("dock_pose_y", 0.0))
-                dyaw = float(rp.get("dock_pose_yaw", 0.0))
-                dock_start_pose = [dx, dy, dyaw]
-                actions.append(
-                    LogInfo(msg=(
-                        f"[navigation.launch.py] SLAM start pose "
-                        f"at dock [{dx:.2f}, {dy:.2f}, {dyaw:.3f}]"
-                    ))
-                )
+        robot_config = "/ros2_ws/config/mowgli_robot.yaml"
+        if os.path.isfile(robot_config):
+            with open(robot_config, "r") as f:
+                rcfg = yaml.safe_load(f) or {}
+            rp = rcfg.get("mowgli", {}).get("ros__parameters", {})
+            dx = float(rp.get("dock_pose_x", 0.0))
+            dy = float(rp.get("dock_pose_y", 0.0))
+            dyaw = float(rp.get("dock_pose_yaw", 0.0))
+            dock_start_pose = [dx, dy, dyaw]
+            actions.append(
+                LogInfo(msg=(
+                    f"[navigation.launch.py] SLAM start pose "
+                    f"at dock [{dx:.2f}, {dy:.2f}, {dyaw:.3f}]"
+                ))
+            )
 
         # If we have a dock start pose, create a modified copy of the SLAM
         # config with the dock pose baked in. RewrittenYaml can't handle
-        # list-type params, so we modify the YAML directly.  We then
-        # create per-mode RewrittenYaml variants from this modified file
-        # so the dock heading hint is available in ALL modes.
+        # list-type params, so we modify the YAML directly.  We create
+        # per-mode RewrittenYaml variants from this modified file so the
+        # dock heading hint is available in ALL modes.
         if dock_start_pose is not None:
             import tempfile
             with open(slam_toolbox_params_file, "r") as f:
