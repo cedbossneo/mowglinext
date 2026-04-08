@@ -301,11 +301,13 @@ SweepResult boustrophedon_sweep(CoverageGrid& grid, int start_row, int start_col
     int r_start = (row_dir == 1) ? 0 : rows - 1;
     int r_end = (row_dir == 1) ? rows : -1;
 
-    // First column: start from the given start_row
+    // First column: always sweep the full column (don't start mid-column).
+    // The robot will transit to the path start anyway, so we want complete
+    // coverage from the first column with no gaps to come back to later.
     if (first_col)
     {
-      r_start = start_row;
       first_col = false;
+      // r_start already set to 0 or rows-1 based on row_dir — keep it
     }
 
     for (int r = r_start; r != r_end; r += row_dir)

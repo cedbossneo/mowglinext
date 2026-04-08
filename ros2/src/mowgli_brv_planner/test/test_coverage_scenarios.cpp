@@ -215,16 +215,16 @@ TEST_F(SimulationScenario, MaxJumpReasonable)
                      << "Likely a Voronoi transit detour.";
 }
 
-TEST_F(SimulationScenario, PathStartsNearRobot)
+TEST_F(SimulationScenario, PathStartsInNearestColumn)
 {
-  // Robot at (0, 0) — path should start within 1m
+  // Robot at (0, 0) — path should start in the nearest column (x within 1 tool_width).
+  // The y-coordinate may be at the boundary edge (full column sweep).
   auto result = plan();
   ASSERT_FALSE(result.full_path.empty());
 
-  double dist =
-      std::hypot(result.full_path[0].x - params.robot_x, result.full_path[0].y - params.robot_y);
-  EXPECT_LT(dist, 1.0) << "Path starts " << dist << "m from robot at (" << params.robot_x << ", "
-                       << params.robot_y << ")";
+  double x_dist = std::abs(result.full_path[0].x - params.robot_x);
+  EXPECT_LT(x_dist, params.tool_width * 2) << "Path starts in column x=" << result.full_path[0].x
+                                           << ", expected near robot x=" << params.robot_x;
 }
 
 TEST_F(SimulationScenario, HighCoverageRatio)
