@@ -1,3 +1,17 @@
+// Copyright 2026 Mowgli Project
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "mowgli_brv_planner/grid_coverage.hpp"
 
 #include <algorithm>
@@ -97,6 +111,16 @@ Point2D CoverageGrid::cell_to_map(int row, int col) const
   double mx = cos_a_ * rx + sin_a_ * ry;
   double my = -sin_a_ * rx + cos_a_ * ry;
   return {mx, my};
+}
+
+std::pair<int, int> CoverageGrid::map_to_cell(double x, double y) const
+{
+  // Rotate map point into grid-aligned frame
+  double rx = cos_a_ * x - sin_a_ * y;
+  double ry = sin_a_ * x + cos_a_ * y;
+  int col = static_cast<int>((rx - grid_ox_) / resolution_);
+  int row = static_cast<int>((ry - grid_oy_) / resolution_);
+  return {row, col};
 }
 
 bool CoverageGrid::has_unvisited() const

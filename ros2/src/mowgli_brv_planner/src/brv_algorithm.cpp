@@ -1,5 +1,20 @@
+// Copyright 2026 Mowgli Project
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "mowgli_brv_planner/brv_algorithm.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
@@ -103,30 +118,14 @@ CoverageResult plan_coverage(const Polygon2D& boundary,
   int cur_row, cur_col;
   if (!std::isnan(params.robot_x) && !std::isnan(params.robot_y))
   {
-    // Find the grid cell nearest to the robot
-    auto nearest =
-        grid.find_nearest_unvisited(grid.rows() / 2, grid.cols() / 2);  // rough center as seed
-    // Better: convert robot pos to grid coords and search from there
-    // For now, just use find_nearest_unvisited from a rough grid position
-    // by trying all unvisited region starts and picking the closest
-    auto regions = grid.get_unvisited_region_starts();
-    if (regions.empty())
+    auto [approx_row, approx_col] = grid.map_to_cell(params.robot_x, params.robot_y);
+    approx_row = std::clamp(approx_row, 0, grid.rows() - 1);
+    approx_col = std::clamp(approx_col, 0, grid.cols() - 1);
+    auto [nr, nc] = grid.find_nearest_unvisited(approx_row, approx_col);
+    if (nr < 0)
       return result;
-
-    double best_dist = std::numeric_limits<double>::max();
-    cur_row = regions[0].first;
-    cur_col = regions[0].second;
-    for (const auto& [r, c] : regions)
-    {
-      Point2D cell_pos = grid.cell_to_map(r, c);
-      double d = std::hypot(cell_pos.x - params.robot_x, cell_pos.y - params.robot_y);
-      if (d < best_dist)
-      {
-        best_dist = d;
-        cur_row = r;
-        cur_col = c;
-      }
-    }
+    cur_row = nr;
+    cur_col = nc;
   }
   else
   {
