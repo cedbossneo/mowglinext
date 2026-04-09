@@ -24,10 +24,8 @@
 #include "behaviortree_cpp/bt_factory.h"
 #include "geometry_msgs/msg/twist.hpp"
 #include "mowgli_behavior/bt_context.hpp"
-#include "mowgli_interfaces/action/plan_coverage.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/obstacle_array.hpp"
-#include "mowgli_interfaces/srv/get_mowing_area.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "nav2_msgs/action/back_up.hpp"
 #include "nav2_msgs/action/dock_robot.hpp"
@@ -290,107 +288,6 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// PlanCoveragePath
-// ---------------------------------------------------------------------------
-
-/// Calls the coverage planner action server asynchronously and waits for the
-/// result.  Feedback progress is logged at DEBUG level.
-///
-/// Input ports:
-///   area_index (uint32_t, default "0") – index of the mowing area to plan.
-///   boundary   (string, default "")    – mowing boundary points (optional).
-/// Output ports:
-///   first_waypoint (string) – first waypoint as "x;y;yaw" for NavigateToPose.
-class PlanCoveragePath : public BT::StatefulActionNode
-{
-public:
-  using PlanCoverageAction = mowgli_interfaces::action::PlanCoverage;
-  using GoalHandle = rclcpp_action::ClientGoalHandle<PlanCoverageAction>;
-
-  PlanCoveragePath(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
-  {
-  }
-
-  static BT::PortsList providedPorts()
-  {
-    return {BT::InputPort<uint32_t>("area_index", 0u, "Mowing area index to plan"),
-            BT::OutputPort<std::string>("first_waypoint", "First waypoint as 'x;y;yaw'")};
-  }
-
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  rclcpp_action::Client<PlanCoverageAction>::SharedPtr action_client_;
-  std::shared_future<GoalHandle::SharedPtr> goal_handle_future_;
-  GoalHandle::SharedPtr goal_handle_;
-
-  /// Latest result received from the action server (set in result callback).
-  std::shared_ptr<const PlanCoverageAction::Result> latest_result_;
-  bool result_received_{false};
-
-  uint32_t area_index_{0};
-};
-
-// ---------------------------------------------------------------------------
-// FollowCoveragePath
-// ---------------------------------------------------------------------------
-
-/// Subscribes to the coverage path topic, sends it to Nav2 FollowPath action
-/// using the MPPI controller, and returns SUCCESS when the robot has traversed
-/// the entire path.  MPPI handles obstacle avoidance within the costmap
-/// (keepout boundary + LiDAR obstacles) — no detour logic needed.
-///
-/// Input ports:
-///   path_topic (string, default "/coverage_planner_node/coverage_path")
-class FollowCoveragePath : public BT::StatefulActionNode
-{
-public:
-  using FollowPathAction = nav2_msgs::action::FollowPath;
-  using FollowGoalHandle = rclcpp_action::ClientGoalHandle<FollowPathAction>;
-
-  FollowCoveragePath(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
-  {
-  }
-
-  static BT::PortsList providedPorts()
-  {
-    return {BT::InputPort<std::string>("path_topic",
-                                       "/coverage_planner_node/coverage_path",
-                                       "Topic with the coverage path to follow")};
-  }
-
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  enum class Phase
-  {
-    WAIT_PATH,
-    FOLLOWING
-  };
-
-  /// Send the full coverage path to the FollowPath action server.
-  void sendFollowGoal();
-
-  // FollowPath action (MPPI controller)
-  rclcpp_action::Client<FollowPathAction>::SharedPtr follow_client_;
-  std::shared_future<FollowGoalHandle::SharedPtr> follow_future_;
-  FollowGoalHandle::SharedPtr follow_handle_;
-
-  // Path and state
-  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
-  nav_msgs::msg::Path full_path_;
-  bool path_received_{false};
-  Phase phase_{Phase::WAIT_PATH};
-  size_t current_path_index_{0};
-};
-
-// ---------------------------------------------------------------------------
 // SaveSlamMap
 // ---------------------------------------------------------------------------
 
@@ -472,45 +369,6 @@ private:
   GoalHandle::SharedPtr goal_handle_;
   std::shared_future<WrappedResult> result_future_;
   bool result_requested_{false};
-};
-
-// ---------------------------------------------------------------------------
-// ReplanCoverage
-// ---------------------------------------------------------------------------
-
-/// Fetches the current mowing area + obstacles from the map server, then
-/// calls the coverage planner to generate a new path.  On success, the new
-/// path is published on the coverage_path topic (transient_local) and
-/// FollowCoveragePath will pick it up on its next tick.
-///
-/// Output ports:
-///   first_waypoint (string) – first waypoint as "x;y;yaw".
-class ReplanCoverage : public BT::StatefulActionNode
-{
-public:
-  using PlanCoverageAction = mowgli_interfaces::action::PlanCoverage;
-  using GoalHandle = rclcpp_action::ClientGoalHandle<PlanCoverageAction>;
-
-  ReplanCoverage(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
-  {
-  }
-
-  static BT::PortsList providedPorts()
-  {
-    return {BT::OutputPort<std::string>("first_waypoint", "First waypoint as 'x;y;yaw'")};
-  }
-
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  rclcpp_action::Client<PlanCoverageAction>::SharedPtr action_client_;
-  std::shared_future<GoalHandle::SharedPtr> goal_handle_future_;
-  GoalHandle::SharedPtr goal_handle_;
-  std::shared_ptr<const PlanCoverageAction::Result> latest_result_;
-  bool result_received_{false};
 };
 
 // ---------------------------------------------------------------------------

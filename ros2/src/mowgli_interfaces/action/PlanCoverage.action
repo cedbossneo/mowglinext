@@ -3,6 +3,7 @@ geometry_msgs/Polygon outer_boundary
 geometry_msgs/Polygon[] obstacles
 float64 mow_angle_deg  # -1 = auto-optimize
 bool skip_outline
+geometry_msgs/Point[] visited_points  # Already-mowed waypoints; planner marks their cells VISITED
 ---
 # Result
 bool success

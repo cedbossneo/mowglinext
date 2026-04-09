@@ -48,7 +48,6 @@ def generate_launch_description() -> LaunchDescription:
     simulation_dir = get_package_share_directory("mowgli_simulation")
     behavior_dir = get_package_share_directory("mowgli_behavior")
     map_dir = get_package_share_directory("mowgli_map")
-    coverage_dir = get_package_share_directory("mowgli_brv_planner")
     monitoring_dir = get_package_share_directory("mowgli_monitoring")
 
     # ------------------------------------------------------------------
@@ -102,8 +101,6 @@ def generate_launch_description() -> LaunchDescription:
     map_params = os.path.join(map_dir, "config", "map_server_small_garden.yaml")
     nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
-    coverage_params = os.path.join(coverage_dir, "config", "brv_planner.yaml")
-
     # ------------------------------------------------------------------
     # 1. Gazebo simulation — small_garden world
     # ------------------------------------------------------------------
@@ -182,21 +179,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Coverage planner (B-RV planner)
-    # ------------------------------------------------------------------
-    coverage_planner_node = Node(
-        package="mowgli_brv_planner",
-        executable="coverage_planner_node",
-        name="coverage_planner_node",
-        output="screen",
-        parameters=[
-            coverage_params,
-            {"use_sim_time": True},
-        ],
-    )
-
-    # ------------------------------------------------------------------
-    # 6. Diagnostics
+    # 5. Diagnostics
     # ------------------------------------------------------------------
     diagnostics_node = Node(
         package="mowgli_monitoring",
@@ -304,7 +287,6 @@ def generate_launch_description() -> LaunchDescription:
             # Individual nodes
             behavior_tree_node,
             map_server_node,
-            coverage_planner_node,
             obstacle_tracker_node,
             diagnostics_node,
             foxglove_bridge_node,

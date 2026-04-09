@@ -161,57 +161,37 @@
           <!-- Record if it was raining at start — user chose to mow in rain -->
           <WasRainingAtStart/>
 
-          <!-- Wait briefly for obstacle tracker to detect persistent obstacles
-               before planning. SLAM needs ~30s to build the map and the tracker
-               needs time to promote clusters. 5s is a compromise — most obstacles
-               near the dock are detected quickly from the initial scan. -->
-          <WaitForDuration duration_sec="5.0"/>
+          <!-- Wait for obstacle detection before starting -->
+          <WaitForDuration duration_sec="3.0"/>
 
-          <!-- Compute coverage path (includes tracked obstacles via GetMowingArea) -->
-          <PublishHighLevelStatus state="2" state_name="PLANNING"/>
-          <ComputeCoverage area_index="0" first_swath_start="{first_wp}"/>
-
-          <!-- Mowing with battery awareness -->
+          <!-- ════════════════════════════════════════════════════════
+               CELL-BASED STRIP COVERAGE
+               Each iteration: get next strip → transit → mow strip.
+               No full-path pre-planning. Obstacles handled dynamically
+               by Nav2 costmap. Progress tracked in mow_progress grid.
+               ════════════════════════════════════════════════════════ -->
           <PublishHighLevelStatus state="2" state_name="MOWING"/>
 
-          <!-- Reactive guard: abort mowing immediately if the
-               high-level command changes away from START (1).
-               This lets STOP or HOME preempt the coverage loop. -->
           <ReactiveSequence name="MowingCommandGuard">
           <IsCommand command="1"/>
 
-          <Fallback name="CoverageWithRecovery">
+          <Fallback name="StripCoverageWithRecovery">
 
-            <ReactiveSequence name="AdaptiveCoverage">
+            <ReactiveSequence name="StripGuards">
 
-              <!-- Reactive obstacle replan: when new persistent obstacles are
-                   detected, abort the current path execution. The recovery
-                   sequence will replan with updated obstacles.
-                   ReplanNeeded returns SUCCESS when map_server signals a change;
-                   Inverter makes it pass normally, ForceFailure aborts on change. -->
-              <Fallback name="ObstacleReplanGuard">
-                <Inverter><ReplanNeeded/></Inverter>
-                <ForceFailure><StopMoving/></ForceFailure>
-              </Fallback>
-
-              <!-- Reactive rain check: only if rain started DURING mowing.
-                   If user started mowing while already raining, ignore rain. -->
+              <!-- Reactive rain check -->
               <Fallback name="RainGuard">
                 <Inverter><IsNewRain/></Inverter>
                 <Sequence name="RainDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
                   <PublishHighLevelStatus state="1" state_name="RAIN_DETECTED_DOCKING"/>
-                  <SaveObstacles/>
                   <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <Fallback name="RainNavOrStay">
                     <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                     <AlwaysSuccess/>
                   </Fallback>
                   <PublishHighLevelStatus state="1" state_name="RAIN_WAITING"/>
-                  <!-- Wait for rain to stop, max ~12h.  If rain never clears,
-                       abort mowing cleanly instead of failing with a generic
-                       COVERAGE_FAILED status. -->
                   <Fallback name="RainWaitOrTimeout">
                     <RetryUntilSuccessful num_attempts="1440">
                       <Fallback>
@@ -222,16 +202,12 @@
                         </Sequence>
                       </Fallback>
                     </RetryUntilSuccessful>
-                    <!-- Rain didn't clear in 12h — abort mowing, stay docked -->
                     <Sequence name="RainTimeout">
                       <PublishHighLevelStatus state="1" state_name="RAIN_TIMEOUT"/>
                       <ClearCommand/>
                       <AlwaysFailure/>
                     </Sequence>
                   </Fallback>
-                  <PublishHighLevelStatus state="1" state_name="RAIN_DELAY"/>
-                  <WaitForDuration duration_sec="{rain_delay_sec}"/>
-                  <!-- Rain over — undock and resume mowing (if retries left) -->
                   <IsResumeUndockAllowed max_attempts="3"/>
                   <PublishHighLevelStatus state="2" state_name="RESUMING_AFTER_RAIN"/>
                   <WaitForDuration duration_sec="1.0"/>
@@ -239,8 +215,6 @@
                     <UndockRobot dock_type="simple_charging_dock"/>
                     <Sequence>
                       <RecordResumeUndockFailure/>
-                      <StopMoving/>
-                      <PublishHighLevelStatus state="1" state_name="UNDOCK_FAILED"/>
                       <ClearCommand/>
                       <AlwaysFailure/>
                     </Sequence>
@@ -256,15 +230,9 @@
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
                   <PublishHighLevelStatus state="1" state_name="LOW_BATTERY_DOCKING"/>
-                  <SaveObstacles/>
                   <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <PublishHighLevelStatus state="1" state_name="CHARGING"/>
-                  <!-- Wait for charge, max ~8 hours (960 × 30s).
-                       IsChargingProgressing fails if battery hasn't increased
-                       by 1% in 30 minutes.  Once a charger failure is detected,
-                       subsequent ticks fail immediately so the retry exhausts
-                       in seconds rather than hours. -->
                   <Fallback name="ChargeOrAbort">
                     <RetryUntilSuccessful num_attempts="960">
                       <Sequence>
@@ -278,24 +246,19 @@
                         </Fallback>
                       </Sequence>
                     </RetryUntilSuccessful>
-                    <!-- Charger broken: abort mowing, stay docked -->
                     <Sequence name="ChargerFailed">
                       <PublishHighLevelStatus state="1" state_name="CHARGER_FAILED"/>
                       <ClearCommand/>
                       <AlwaysFailure/>
                     </Sequence>
                   </Fallback>
-                  <!-- Charged — undock if retries still available -->
                   <IsResumeUndockAllowed max_attempts="3"/>
                   <PublishHighLevelStatus state="2" state_name="RESUMING_UNDOCKING"/>
                   <WaitForDuration duration_sec="1.0"/>
                   <Fallback name="ResumeUndockOrAbort">
                     <UndockRobot dock_type="simple_charging_dock"/>
-                    <!-- Resume undock failed — record failure, abort mowing -->
                     <Sequence>
                       <RecordResumeUndockFailure/>
-                      <StopMoving/>
-                      <PublishHighLevelStatus state="1" state_name="UNDOCK_FAILED"/>
                       <ClearCommand/>
                       <AlwaysFailure/>
                     </Sequence>
@@ -304,37 +267,42 @@
                 </Sequence>
               </Fallback>
 
-              <!-- Coverage path execution with recovery.
-                   On failure (stuck/abort), recovery always replans with latest
-                   obstacles — B-RV planner is fast (~5ms) so no cost to replan
-                   every recovery. ComputeCoverage clears replan_needed flag. -->
-              <RetryUntilSuccessful num_attempts="10" name="RetryCoverageExecution">
-                <Fallback name="ExecuteOrRecover">
-                  <ExecuteFullCoveragePath/>
-                  <Sequence name="RecoverAndRetry">
+              <!-- Strip-by-strip mowing loop.
+                   GetNextStrip returns FAILURE when coverage is complete → Repeat ends.
+                   Each strip: transit to start → mow strip with FTCController.
+                   On strip failure: retry with next strip (skip stuck strips). -->
+              <Repeat num_cycles="500" name="StripLoop">
+                <Fallback name="StripOrRecovery">
+                  <Sequence name="MowOneStrip">
+                    <GetNextStrip area_index="0"/>
+
+                    <PublishHighLevelStatus state="2" state_name="TRANSIT"/>
+                    <TransitToStrip/>
+
+                    <PublishHighLevelStatus state="2" state_name="MOWING"/>
+                    <FollowStrip/>
+                  </Sequence>
+                  <!-- Strip failed (transit or follow) — recover and try next -->
+                  <Sequence name="StripRecovery">
                     <PublishHighLevelStatus state="2" state_name="RECOVERING"/>
                     <SetMowerEnabled enabled="false"/>
                     <StopMoving/>
                     <Fallback>
-                      <BackUp backup_dist="0.5" backup_speed="0.1"/>
+                      <BackUp backup_dist="0.3" backup_speed="0.1"/>
                       <AlwaysSuccess/>
                     </Fallback>
                     <ClearCostmap/>
-                    <ComputeCoverage area_index="0" first_swath_start="{first_wp}"/>
-                    <SetMowerEnabled enabled="true"/>
+                    <WaitForDuration duration_sec="2.0"/>
                     <PublishHighLevelStatus state="2" state_name="MOWING"/>
-                    <WaitForDuration duration_sec="3.0"/>
-                    <AlwaysFailure/>
                   </Sequence>
                 </Fallback>
-              </RetryUntilSuccessful>
+              </Repeat>
 
             </ReactiveSequence>
 
-            <!-- All retries exhausted — dock gracefully -->
+            <!-- Coverage failed — dock gracefully -->
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
-              <SaveObstacles/>
               <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
               <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
               <Fallback name="FailedCoverageNavOrStop">

@@ -198,8 +198,6 @@ func SubscriberRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			def, err = subscribe(provider, c, conn, "path", -1)
 		case "plan":
 			def, err = subscribe(provider, c, conn, "plan", -1)
-		case "mowingPath":
-			def, err = subscribe(provider, c, conn, "mowingPath", -1)
 		case "power":
 			def, err = subscribe(provider, c, conn, "power", -1)
 		case "emergency":
@@ -210,6 +208,8 @@ func SubscriberRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			def, err = subscribe(provider, c, conn, "lidar", 100)
 		case "robotDescription":
 			def, err = subscribe(provider, c, conn, "robotDescription", -1)
+		case "coverageCells":
+			def, err = subscribe(provider, c, conn, "coverageCells", -1)
 		}
 		if err != nil {
 			log.Println(err.Error())

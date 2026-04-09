@@ -25,7 +25,6 @@ Nodes under test (no hardware required, use_sim_time=false):
   - gps_pose_converter_node   (mowgli_localization)
   - localization_monitor_node (mowgli_localization)
   - map_server_node           (mowgli_map)
-  - coverage_planner_node     (mowgli_brv_planner)
   - diagnostics_node          (mowgli_monitoring)
   - behavior_tree_node        (mowgli_behavior)
 
@@ -86,14 +85,6 @@ def generate_test_description():
         parameters=[{"use_sim_time": False}],
     )
 
-    coverage_planner = launch_ros.actions.Node(
-        package="mowgli_brv_planner",
-        executable="coverage_planner_node",
-        name="coverage_planner_node",
-        output="screen",
-        parameters=[{"use_sim_time": False}],
-    )
-
     diagnostics = launch_ros.actions.Node(
         package="mowgli_monitoring",
         executable="diagnostics_node",
@@ -117,7 +108,6 @@ def generate_test_description():
                 gps_pose_converter,
                 localization_monitor,
                 map_server,
-                coverage_planner,
                 diagnostics,
                 behavior_tree,
                 launch_testing.actions.ReadyToTest(),
@@ -128,7 +118,6 @@ def generate_test_description():
             "gps_pose_converter": gps_pose_converter,
             "localization_monitor": localization_monitor,
             "map_server": map_server,
-            "coverage_planner": coverage_planner,
             "diagnostics": diagnostics,
             "behavior_tree": behavior_tree,
         },
@@ -162,7 +151,6 @@ class TestNodesStartup(unittest.TestCase):
         gps_pose_converter,
         localization_monitor,
         map_server,
-        coverage_planner,
         diagnostics,
         behavior_tree,
         proc_info,
@@ -175,7 +163,6 @@ class TestNodesStartup(unittest.TestCase):
             ("gps_pose_converter_node", gps_pose_converter),
             ("localization_monitor_node", localization_monitor),
             ("map_server_node", map_server),
-            ("coverage_planner_node", coverage_planner),
             ("diagnostics_node", diagnostics),
             ("behavior_tree_node", behavior_tree),
         ]:
@@ -200,7 +187,6 @@ class TestNodesStartup(unittest.TestCase):
             "/wheel_odom",
             "/diagnostics",
             "/map_server/grid_map",
-            "/coverage_planner_node/coverage_path",
         }
 
         deadline = time.monotonic() + 10.0
@@ -227,7 +213,6 @@ class TestNodesStartup(unittest.TestCase):
         required_services = {
             "/map_server/save_map",
             "/map_server/clear_map",
-            "/coverage_planner_node/plan_coverage/_action/send_goal",
         }
 
         deadline = time.monotonic() + 10.0
@@ -261,7 +246,6 @@ class TestNodesShutdown(unittest.TestCase):
         gps_pose_converter,
         localization_monitor,
         map_server,
-        coverage_planner,
         diagnostics,
         behavior_tree,
     ) -> None:
@@ -270,7 +254,6 @@ class TestNodesShutdown(unittest.TestCase):
             ("gps_pose_converter_node", gps_pose_converter),
             ("localization_monitor_node", localization_monitor),
             ("map_server_node", map_server),
-            ("coverage_planner_node", coverage_planner),
             ("diagnostics_node", diagnostics),
             ("behavior_tree_node", behavior_tree),
         ]:

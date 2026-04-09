@@ -63,6 +63,10 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
               map_size_y_,
               map_frame_.c_str());
 
+  // ── TF buffer for map-frame robot position lookup ────────────────────────
+  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
   // ── Initialise map ───────────────────────────────────────────────────────
   init_map();
   last_decay_time_ = now();
@@ -72,6 +76,9 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
 
   mow_progress_pub_ =
       create_publisher<nav_msgs::msg::OccupancyGrid>("~/mow_progress", rclcpp::QoS(1));
+
+  coverage_cells_pub_ =
+      create_publisher<nav_msgs::msg::OccupancyGrid>("~/coverage_cells", rclcpp::QoS(1));
 
   // Costmap filter publishers: transient_local durability so that Nav2 costmap
   // filter nodes that start after this node still receive the latched message.
@@ -98,15 +105,16 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
       });
 
   status_sub_ = create_subscription<mowgli_interfaces::msg::Status>(
-      "/status",
+      "/hardware_bridge/status",
       rclcpp::QoS(1),
       [this](mowgli_interfaces::msg::Status::ConstSharedPtr msg)
       {
         on_mower_status(std::move(msg));
       });
 
+  auto odom_topic = declare_parameter<std::string>("odom_topic", "/odometry/filtered_map");
   odom_sub_ =
-      create_subscription<nav_msgs::msg::Odometry>("/odom",
+      create_subscription<nav_msgs::msg::Odometry>(odom_topic,
                                                    rclcpp::QoS(1),
                                                    [this](
                                                        nav_msgs::msg::Odometry::ConstSharedPtr msg)
@@ -177,6 +185,23 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
              std_srvs::srv::Trigger::Response::SharedPtr res)
       {
         on_load_areas(req, res);
+      });
+
+  // ── Strip planner services ──────────────────────────────────────────────
+  get_next_strip_srv_ = create_service<mowgli_interfaces::srv::GetNextStrip>(
+      "~/get_next_strip",
+      [this](const mowgli_interfaces::srv::GetNextStrip::Request::SharedPtr req,
+             mowgli_interfaces::srv::GetNextStrip::Response::SharedPtr res)
+      {
+        on_get_next_strip(req, res);
+      });
+
+  get_coverage_status_srv_ = create_service<mowgli_interfaces::srv::GetCoverageStatus>(
+      "~/get_coverage_status",
+      [this](const mowgli_interfaces::srv::GetCoverageStatus::Request::SharedPtr req,
+             mowgli_interfaces::srv::GetCoverageStatus::Response::SharedPtr res)
+      {
+        on_get_coverage_status(req, res);
       });
 
   // ── Replanning parameters ────────────────────────────────────────────────
@@ -487,10 +512,28 @@ void MapServerNode::on_mower_status(mowgli_interfaces::msg::Status::ConstSharedP
   mow_blade_enabled_ = msg->mow_enabled;
 }
 
-void MapServerNode::on_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg)
+void MapServerNode::on_odom(nav_msgs::msg::Odometry::ConstSharedPtr /*msg*/)
 {
-  const double x = msg->pose.pose.position.x;
-  const double y = msg->pose.pose.position.y;
+  // Use TF for the definitive map-frame robot position.
+  // The odom message position may be in odom frame, not map frame.
+  double x = 0.0, y = 0.0;
+  if (tf_buffer_)
+  {
+    try
+    {
+      auto tf = tf_buffer_->lookupTransform(map_frame_, "base_link", tf2::TimePointZero);
+      x = tf.transform.translation.x;
+      y = tf.transform.translation.y;
+    }
+    catch (const tf2::TransformException&)
+    {
+      return;  // No TF yet, skip
+    }
+  }
+  else
+  {
+    return;
+  }
 
   check_boundary_violation(x, y);
 
@@ -529,6 +572,7 @@ void MapServerNode::on_publish_timer()
     grid_map_pub_->publish(std::move(grid_map_msg));
 
     mow_progress_pub_->publish(mow_progress_to_occupancy_grid());
+    coverage_cells_pub_->publish(coverage_cells_to_occupancy_grid());
 
     // Only recompute masks when areas or obstacles changed.
     if (masks_dirty_)
@@ -904,8 +948,8 @@ nav_msgs::msg::OccupancyGrid MapServerNode::mow_progress_to_occupancy_grid() con
   grid.info.width = static_cast<uint32_t>(map_.getSize()(1));
   grid.info.height = static_cast<uint32_t>(map_.getSize()(0));
 
-  grid.info.origin.position.x = map_.getPosition().x() - map_size_x_ * 0.5;
-  grid.info.origin.position.y = map_.getPosition().y() - map_size_y_ * 0.5;
+  grid.info.origin.position.x = map_.getPosition().x() - map_.getLength().x() * 0.5;
+  grid.info.origin.position.y = map_.getPosition().y() - map_.getLength().y() * 0.5;
   grid.info.origin.position.z = 0.0;
   grid.info.origin.orientation.w = 1.0;
 
@@ -928,6 +972,76 @@ nav_msgs::msg::OccupancyGrid MapServerNode::mow_progress_to_occupancy_grid() con
   }
 
   return grid;
+}
+
+nav_msgs::msg::OccupancyGrid MapServerNode::coverage_cells_to_occupancy_grid() const
+{
+  // Strategy: write coverage values into a temporary grid_map layer,
+  // then use grid_map_ros converter for pixel-perfect coordinate mapping.
+  // This avoids manual index computation which causes offset bugs.
+
+  const std::string tmp_layer = "_coverage_tmp";
+  auto& mutable_map = const_cast<grid_map::GridMap&>(map_);
+
+  // Add temp layer (or reuse if exists)
+  if (!mutable_map.exists(tmp_layer))
+    mutable_map.add(tmp_layer, NAN);
+  else
+    mutable_map[tmp_layer].setConstant(NAN);
+
+  auto& cov = mutable_map[tmp_layer];
+  const auto& prog = map_[std::string(layers::MOW_PROGRESS)];
+  const auto& cls = map_[std::string(layers::CLASSIFICATION)];
+
+  for (grid_map::GridMapIterator it(map_); !it.isPastEnd(); ++it)
+  {
+    const auto idx = *it;
+
+    // Check if inside any mowing area
+    grid_map::Position pos;
+    map_.getPosition(idx, pos);
+    bool in_area = false;
+    for (const auto& area : areas_)
+    {
+      if (area.is_navigation_area)
+        continue;
+      geometry_msgs::msg::Point32 pt;
+      pt.x = static_cast<float>(pos.x());
+      pt.y = static_cast<float>(pos.y());
+      if (point_in_polygon(pt, area.polygon))
+      {
+        in_area = true;
+        break;
+      }
+    }
+
+    if (!in_area)
+    {
+      cov(idx(0), idx(1)) = NAN;  // Outside → unknown in OG
+      continue;
+    }
+
+    auto cell_type = static_cast<CellType>(static_cast<int>(cls(idx(0), idx(1))));
+    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY ||
+        cell_type == CellType::NO_GO_ZONE)
+    {
+      cov(idx(0), idx(1)) = 1.0f;  // Obstacle/no-go → maps to 100
+    }
+    else if (prog(idx(0), idx(1)) >= 0.3f)
+    {
+      cov(idx(0), idx(1)) = 0.0f;  // Mowed → maps to 0 (transparent)
+    }
+    else
+    {
+      cov(idx(0), idx(1)) = 0.6f;  // To mow → maps to 60
+    }
+  }
+
+  // Use grid_map_ros converter — handles all coordinate mapping correctly
+  nav_msgs::msg::OccupancyGrid og;
+  grid_map::GridMapRosConverter::toOccupancyGrid(mutable_map, tmp_layer, 0.0f, 1.0f, og);
+
+  return og;
 }
 
 void MapServerNode::apply_decay(double elapsed_seconds)
@@ -1281,6 +1395,36 @@ void MapServerNode::diff_and_update_obstacles(
     if (obs.polygon.points.size() >= 3)
     {
       obstacle_polygons_.push_back(obs.polygon);
+    }
+  }
+
+  // Update classification layer with obstacle cells.
+  // First clear previous obstacle marks (reset to UNKNOWN), then re-mark.
+  auto& cls = map_[std::string(layers::CLASSIFICATION)];
+  for (grid_map::GridMapIterator it(map_); !it.isPastEnd(); ++it)
+  {
+    auto val = static_cast<CellType>(static_cast<int>(cls((*it)(0), (*it)(1))));
+    if (val == CellType::OBSTACLE_PERMANENT || val == CellType::OBSTACLE_TEMPORARY)
+    {
+      cls((*it)(0), (*it)(1)) = static_cast<float>(CellType::UNKNOWN);
+    }
+  }
+  // Mark obstacle cells from tracked obstacles
+  for (const auto& obs : incoming)
+  {
+    if (obs.polygon.points.size() < 3)
+      continue;
+    auto cell_val = (obs.status == mowgli_interfaces::msg::TrackedObstacle::PERSISTENT)
+                        ? static_cast<float>(CellType::OBSTACLE_PERMANENT)
+                        : static_cast<float>(CellType::OBSTACLE_TEMPORARY);
+    grid_map::Polygon gm_poly;
+    for (const auto& pt : obs.polygon.points)
+    {
+      gm_poly.addVertex(grid_map::Position(static_cast<double>(pt.x), static_cast<double>(pt.y)));
+    }
+    for (grid_map::PolygonIterator pit(map_, gm_poly); !pit.isPastEnd(); ++pit)
+    {
+      cls((*pit)(0), (*pit)(1)) = cell_val;
     }
   }
 
@@ -1679,6 +1823,404 @@ void MapServerNode::mark_mowed(double x, double y)
 {
   std::lock_guard<std::mutex> lock(map_mutex_);
   mark_cells_mowed(x, y);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Strip planner
+// ─────────────────────────────────────────────────────────────────────────────
+
+void MapServerNode::ensure_strip_layout(size_t area_index)
+{
+  if (area_index >= areas_.size())
+    return;
+
+  // Grow cache if needed
+  if (strip_layouts_.size() <= area_index)
+    strip_layouts_.resize(area_index + 1);
+
+  auto& layout = strip_layouts_[area_index];
+  if (layout.valid)
+    return;
+
+  const auto& area = areas_[area_index];
+  const auto& poly = area.polygon;
+  if (poly.points.size() < 3)
+    return;
+
+  // Compute bounding box and optimal mow angle (MBB = longest edge direction)
+  double min_x = 1e9, max_x = -1e9, min_y = 1e9, max_y = -1e9;
+  for (const auto& p : poly.points)
+  {
+    min_x = std::min(min_x, static_cast<double>(p.x));
+    max_x = std::max(max_x, static_cast<double>(p.x));
+    min_y = std::min(min_y, static_cast<double>(p.y));
+    max_y = std::max(max_y, static_cast<double>(p.y));
+  }
+
+  layout.mow_angle = 0.0;
+
+  // Inset boundary by headland (1 pass of mower_width)
+  double inset = mower_width_;
+  double inner_min_x = min_x + inset;
+  double inner_max_x = max_x - inset;
+
+  if (inner_min_x >= inner_max_x)
+  {
+    layout.valid = true;
+    return;
+  }
+
+  // Generate strips clipped to the actual polygon boundary.
+  // For each vertical scan line at x=const, find Y intersections with polygon edges.
+  layout.strips.clear();
+  int col = 0;
+  int n_pts = static_cast<int>(poly.points.size());
+
+  for (double x = inner_min_x + mower_width_ / 2; x <= inner_max_x; x += mower_width_)
+  {
+    // Find Y intersections of vertical line x=const with polygon edges
+    std::vector<double> y_intersections;
+    for (int i = 0; i < n_pts; ++i)
+    {
+      int j = (i + 1) % n_pts;
+      double x1 = static_cast<double>(poly.points[i].x);
+      double y1 = static_cast<double>(poly.points[i].y);
+      double x2 = static_cast<double>(poly.points[j].x);
+      double y2 = static_cast<double>(poly.points[j].y);
+
+      if ((x1 < x && x2 >= x) || (x2 < x && x1 >= x))
+      {
+        double t = (x - x1) / (x2 - x1);
+        y_intersections.push_back(y1 + t * (y2 - y1));
+      }
+    }
+
+    if (y_intersections.size() < 2)
+      continue;
+
+    std::sort(y_intersections.begin(), y_intersections.end());
+
+    // Take the first pair as the interior interval (even-odd fill)
+    // Inset by mower_width/2 to stay inside boundary
+    double y_lo = y_intersections.front() + inset;
+    double y_hi = y_intersections.back() - inset;
+
+    if (y_hi - y_lo < mower_width_)
+      continue;
+
+    Strip strip;
+    strip.start.x = x;
+    strip.start.y = y_lo;
+    strip.start.z = 0.0;
+    strip.end.x = x;
+    strip.end.y = y_hi;
+    strip.end.z = 0.0;
+    strip.column_index = col++;
+    layout.strips.push_back(strip);
+  }
+
+  layout.valid = true;
+  RCLCPP_INFO(get_logger(),
+              "Strip layout for area '%s': %zu strips, mow_angle=%.1f°",
+              area.name.c_str(),
+              layout.strips.size(),
+              layout.mow_angle * 180.0 / M_PI);
+}
+
+bool MapServerNode::is_strip_mowed(const Strip& strip, double threshold_pct) const
+{
+  // Sample mow_progress along the strip centerline
+  double dx = strip.end.x - strip.start.x;
+  double dy = strip.end.y - strip.start.y;
+  double length = std::hypot(dx, dy);
+  if (length < resolution_)
+    return true;
+
+  int samples = std::max(3, static_cast<int>(length / resolution_));
+  int mowed_count = 0;
+  int total_count = 0;
+
+  const auto& progress_layer = map_[std::string(layers::MOW_PROGRESS)];
+  const auto& class_layer = map_[std::string(layers::CLASSIFICATION)];
+
+  for (int i = 0; i <= samples; ++i)
+  {
+    double t = static_cast<double>(i) / samples;
+    double px = strip.start.x + t * dx;
+    double py = strip.start.y + t * dy;
+
+    grid_map::Position pos(px, py);
+    if (!map_.isInside(pos))
+      continue;
+
+    grid_map::Index idx;
+    if (!map_.getIndex(pos, idx))
+      continue;
+
+    auto cell_type = static_cast<CellType>(static_cast<int>(class_layer(idx(0), idx(1))));
+    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY)
+      continue;  // Skip obstacle cells
+
+    // Check if inside the mowing area polygon
+    geometry_msgs::msg::Point32 pt32;
+    pt32.x = static_cast<float>(px);
+    pt32.y = static_cast<float>(py);
+
+    total_count++;
+    if (progress_layer(idx(0), idx(1)) >= 0.3f)
+      mowed_count++;
+  }
+
+  if (total_count == 0)
+    return true;  // No cells to mow
+
+  return static_cast<double>(mowed_count) / total_count >= threshold_pct;
+}
+
+bool MapServerNode::find_next_unmowed_strip(
+    size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool /*prefer_headland*/)
+{
+  ensure_strip_layout(area_index);
+
+  if (area_index >= strip_layouts_.size() || !strip_layouts_[area_index].valid)
+    return false;
+
+  const auto& layout = strip_layouts_[area_index];
+  int n = static_cast<int>(layout.strips.size());
+  if (n == 0)
+    return false;
+
+  // Grow tracking vector if needed
+  if (current_strip_idx_.size() <= area_index)
+    current_strip_idx_.resize(area_index + 1, -1);
+
+  int& cur_idx = current_strip_idx_[area_index];
+
+  // First call: start from the strip nearest to the robot
+  if (cur_idx < 0)
+  {
+    double nearest_dist = 1e9;
+    for (int i = 0; i < n; ++i)
+    {
+      double mid_x = (layout.strips[i].start.x + layout.strips[i].end.x) / 2;
+      double d = std::abs(mid_x - robot_x);
+      if (d < nearest_dist)
+      {
+        nearest_dist = d;
+        cur_idx = i;
+      }
+    }
+  }
+  else
+  {
+    // Advance to next strip (sequential boustrophedon)
+    cur_idx++;
+  }
+
+  // Search forward from current index for the next unmowed strip
+  for (int i = 0; i < n; ++i)
+  {
+    int idx = (cur_idx + i) % n;
+    const auto& strip = layout.strips[idx];
+    if (!is_strip_mowed(strip))
+    {
+      cur_idx = idx;
+      out_strip = strip;
+
+      // Boustrophedon: alternate Y direction per column
+      if (idx % 2 == 1)
+        std::swap(out_strip.start, out_strip.end);
+
+      return true;
+    }
+  }
+
+  return false;  // All strips mowed
+}
+
+nav_msgs::msg::Path MapServerNode::strip_to_path(const Strip& strip, size_t /*area_index*/) const
+{
+  nav_msgs::msg::Path path;
+  path.header.frame_id = map_frame_;
+  path.header.stamp = now();
+
+  double dx = strip.end.x - strip.start.x;
+  double dy = strip.end.y - strip.start.y;
+  double length = std::hypot(dx, dy);
+  double yaw = std::atan2(dy, dx);
+
+  // Quaternion from yaw
+  double cy = std::cos(yaw / 2);
+  double sy = std::sin(yaw / 2);
+
+  int n_poses = std::max(2, static_cast<int>(length / resolution_) + 1);
+
+  const auto& class_layer = map_[std::string(layers::CLASSIFICATION)];
+
+  for (int i = 0; i < n_poses; ++i)
+  {
+    double t = static_cast<double>(i) / (n_poses - 1);
+    double px = strip.start.x + t * dx;
+    double py = strip.start.y + t * dy;
+
+    // Skip cells inside obstacles
+    grid_map::Position pos(px, py);
+    if (map_.isInside(pos))
+    {
+      grid_map::Index idx;
+      if (map_.getIndex(pos, idx))
+      {
+        auto cell_type = static_cast<CellType>(static_cast<int>(class_layer(idx(0), idx(1))));
+        if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY)
+          continue;
+      }
+    }
+
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = path.header;
+    pose.pose.position.x = px;
+    pose.pose.position.y = py;
+    pose.pose.position.z = 0.0;
+    pose.pose.orientation.w = cy;
+    pose.pose.orientation.z = sy;
+    path.poses.push_back(pose);
+  }
+
+  return path;
+}
+
+void MapServerNode::compute_coverage_stats(size_t area_index,
+                                           uint32_t& total,
+                                           uint32_t& mowed,
+                                           uint32_t& obstacle_cells) const
+{
+  total = 0;
+  mowed = 0;
+  obstacle_cells = 0;
+
+  if (area_index >= areas_.size())
+    return;
+
+  const auto& area = areas_[area_index];
+  const auto& progress_layer = map_[std::string(layers::MOW_PROGRESS)];
+  const auto& class_layer = map_[std::string(layers::CLASSIFICATION)];
+
+  // Iterate all cells and check if inside the area polygon
+  for (grid_map::GridMapIterator it(map_); !it.isPastEnd(); ++it)
+  {
+    grid_map::Position pos;
+    map_.getPosition(*it, pos);
+
+    geometry_msgs::msg::Point32 pt;
+    pt.x = static_cast<float>(pos.x());
+    pt.y = static_cast<float>(pos.y());
+
+    if (!point_in_polygon(pt, area.polygon))
+      continue;
+
+    auto cell_type = static_cast<CellType>(static_cast<int>(class_layer((*it)(0), (*it)(1))));
+    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY)
+    {
+      obstacle_cells++;
+      continue;
+    }
+
+    total++;
+    if (progress_layer((*it)(0), (*it)(1)) >= 0.3f)
+      mowed++;
+  }
+}
+
+void MapServerNode::on_get_next_strip(
+    const mowgli_interfaces::srv::GetNextStrip::Request::SharedPtr req,
+    mowgli_interfaces::srv::GetNextStrip::Response::SharedPtr res)
+{
+  std::lock_guard<std::mutex> lock(map_mutex_);
+
+  if (req->area_index >= areas_.size())
+  {
+    res->success = false;
+    res->coverage_complete = false;
+    return;
+  }
+
+  Strip strip;
+  if (!find_next_unmowed_strip(
+          req->area_index, req->robot_x, req->robot_y, strip, req->prefer_headland))
+  {
+    // All strips mowed
+    res->success = true;
+    res->coverage_complete = true;
+    res->coverage_percent = 100.0f;
+    res->strips_remaining = 0;
+    res->phase = "complete";
+    return;
+  }
+
+  res->strip_path = strip_to_path(strip, req->area_index);
+  res->success = !res->strip_path.poses.empty();
+  res->coverage_complete = false;
+  res->phase = "interior";
+
+  // Transit goal = first pose of the strip
+  if (!res->strip_path.poses.empty())
+  {
+    res->transit_goal = res->strip_path.poses.front();
+  }
+
+  // Coverage stats
+  uint32_t total = 0, mowed_cells = 0, obs = 0;
+  compute_coverage_stats(req->area_index, total, mowed_cells, obs);
+  res->coverage_percent = total > 0 ? 100.0f * mowed_cells / total : 0.0f;
+
+  // Count remaining strips
+  uint32_t remaining = 0;
+  if (req->area_index < strip_layouts_.size())
+  {
+    for (const auto& s : strip_layouts_[req->area_index].strips)
+    {
+      if (!is_strip_mowed(s))
+        remaining++;
+    }
+  }
+  res->strips_remaining = remaining;
+
+  RCLCPP_INFO(get_logger(),
+              "GetNextStrip: col=%d, %.1f%% coverage, %u strips remaining",
+              strip.column_index,
+              res->coverage_percent,
+              remaining);
+}
+
+void MapServerNode::on_get_coverage_status(
+    const mowgli_interfaces::srv::GetCoverageStatus::Request::SharedPtr req,
+    mowgli_interfaces::srv::GetCoverageStatus::Response::SharedPtr res)
+{
+  std::lock_guard<std::mutex> lock(map_mutex_);
+
+  if (req->area_index >= areas_.size())
+  {
+    res->success = false;
+    return;
+  }
+
+  compute_coverage_stats(req->area_index, res->total_cells, res->mowed_cells, res->obstacle_cells);
+  res->coverage_percent =
+      res->total_cells > 0 ? 100.0f * res->mowed_cells / res->total_cells : 0.0f;
+
+  // Count remaining strips
+  ensure_strip_layout(req->area_index);
+  res->strips_remaining = 0;
+  if (req->area_index < strip_layouts_.size())
+  {
+    for (const auto& s : strip_layouts_[req->area_index].strips)
+    {
+      if (!is_strip_mowed(s))
+        res->strips_remaining++;
+    }
+  }
+
+  res->success = true;
 }
 
 }  // namespace mowgli_map

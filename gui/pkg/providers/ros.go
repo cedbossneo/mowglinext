@@ -6,14 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
-	"github.com/cedbossneo/mowglinext/pkg/msgs/nav"
 	"github.com/cedbossneo/mowglinext/pkg/rosbridge"
 	types2 "github.com/cedbossneo/mowglinext/pkg/types"
-	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/simplify"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
@@ -27,7 +22,7 @@ type topicDef struct {
 
 // topicMap maps logical keys (used by SubscriberRoute and internal code) to
 // their corresponding ROS2 topics and message types.
-// Virtual topics (map, mowingPath) have an empty MsgType and are never sent to
+// Virtual topics (map) have an empty MsgType and are never sent to
 // rosbridge; they are populated by internal logic instead.
 var topicMap = map[string]topicDef{
 	"status":        {"/hardware_bridge/status", "mowgli_interfaces/msg/Status"},
@@ -37,9 +32,9 @@ var topicMap = map[string]topicDef{
 	"imu":           {"/imu/data", "sensor_msgs/msg/Imu"},
 	"ticks":         {"/wheel_odom", "nav_msgs/msg/Odometry"},
 	"map":           {"", ""},                                                      // virtual – populated via map_server services
-	"path":          {"/coverage_planner_node/coverage_path", "nav_msgs/msg/Path"},
+	"path":          {"/FollowCoveragePath/global_plan", "nav_msgs/msg/Path"},       // active strip path
 	"plan":          {"/plan", "nav_msgs/msg/Path"},                                // Nav2 global plan
-	"mowingPath":    {"", ""},                                                      // virtual – populated by initMowingPathTracking
+	"coverageCells": {"/map_server_node/coverage_cells", "nav_msgs/msg/OccupancyGrid"},
 	"power":         {"/hardware_bridge/power", "mowgli_interfaces/msg/Power"},
 	"emergency":     {"/hardware_bridge/emergency", "mowgli_interfaces/msg/Emergency"},
 	// NOTE: DockingSensor.msg does not exist in mowgli_interfaces yet; omitted to avoid rosbridge errors.
@@ -129,9 +124,6 @@ type RosProvider struct {
 	lastMessage map[string][]byte                     // logicalKey -> last JSON bytes
 
 	// Mowing path state (guarded by mtx)
-	mowingPaths      []*nav.Path
-	mowingPath       *nav.Path
-	mowingPathOrigin orb.LineString
 
 	dbProvider types2.IDBProvider
 }
@@ -162,8 +154,7 @@ func NewRosProvider(dbProvider types2.IDBProvider) types2.IRosProvider {
 			// re-sent on reconnect.
 		}
 		r.initRosbridgeSubscriptions()
-		r.initMowingPathTracking()
-		r.initMapPolling()
+			r.initMapPolling()
 	}()
 
 	return r
@@ -238,10 +229,6 @@ func (r *RosProvider) fanOut(logicalKey string, msg []byte) {
 	}
 }
 
-// initMowingPathTracking registers an internal subscriber on the "pose"
-// logical key. It records the mower's position while the blade motor is
-// running (MOWING state) and publishes the accumulated path list to the
-// virtual "mowingPath" key.
 // initMapPolling periodically fetches mowing areas from the map_server_node
 // and publishes the result to the virtual "map" topic for the GUI.
 func (r *RosProvider) initMapPolling() {
@@ -310,102 +297,6 @@ func (r *RosProvider) pollMap() {
 	r.fanOut("map", converted)
 }
 
-func (r *RosProvider) initMowingPathTracking() {
-	err := r.Subscribe("pose", "gui-mowing-path-tracker", func(msg []byte) {
-		r.mtx.Lock()
-		defer r.mtx.Unlock()
-		r.processMowingPathUpdate(msg)
-	})
-	if err != nil {
-		logrus.Errorf("RosProvider: failed to init mowing path tracking: %v", err)
-	}
-}
-
-// processMowingPathUpdate is called for every odometry message while the
-// internal subscriber goroutine holds mtx. It updates mowingPaths and fans
-// out the result to "mowingPath" subscribers.
-//
-// Callers must hold r.mtx.
-func (r *RosProvider) processMowingPathUpdate(msg []byte) {
-	// Require high-level state to be MOWING.
-	hlsData, ok := r.lastMessage["highLevelStatus"]
-	if !ok {
-		return
-	}
-	var hls mowgli.HighLevelStatus
-	if err := json.Unmarshal(hlsData, &hls); err != nil {
-		logrus.Errorf("RosProvider: unmarshal HighLevelStatus: %v", err)
-		return
-	}
-
-	if hls.StateName != "MOWING" {
-		// Any non-MOWING state resets the accumulated path.
-		r.mowingPaths = []*nav.Path{}
-		r.mowingPath = nil
-		r.mowingPathOrigin = nil
-		return
-	}
-
-	// Require blade motor to be spinning.
-	statusData, ok := r.lastMessage["status"]
-	if !ok {
-		return
-	}
-	var status mowgli.Status
-	if err := json.Unmarshal(statusData, &status); err != nil {
-		logrus.Errorf("RosProvider: unmarshal Status: %v", err)
-		return
-	}
-
-	if status.MowerMotorRpm <= 0 {
-		// Motor stopped – end the current segment but keep previous segments.
-		r.mowingPath = nil
-		r.mowingPathOrigin = nil
-		return
-	}
-
-	// Parse the pose message for the current position. The "pose" key is now
-	// stored as AbsolutePose PascalCase JSON (produced by adaptPose).
-	var pose mowgli.AbsolutePose
-	if err := json.Unmarshal(msg, &pose); err != nil {
-		logrus.Errorf("RosProvider: unmarshal AbsolutePose: %v", err)
-		return
-	}
-
-	// Start a new path segment if needed.
-	if r.mowingPath == nil {
-		r.mowingPath = &nav.Path{}
-		r.mowingPathOrigin = orb.LineString{}
-		r.mowingPaths = append(r.mowingPaths, r.mowingPath)
-	}
-
-	r.mowingPathOrigin = append(r.mowingPathOrigin, orb.Point{
-		pose.Pose.Pose.Position.X,
-		pose.Pose.Pose.Position.Y,
-	})
-
-	// Simplify every 5 points to keep the payload compact.
-	if len(r.mowingPathOrigin)%5 == 0 {
-		reduced := simplify.DouglasPeucker(0.03).LineString(r.mowingPathOrigin.Clone())
-		r.mowingPath.Poses = lo.Map(reduced, func(p orb.Point, _ int) geometry.PoseStamped {
-			return geometry.PoseStamped{
-				Pose: geometry.Pose{
-					Position: geometry.Point{X: p[0], Y: p[1]},
-				},
-			}
-		})
-	}
-
-	pathJSON, err := json.Marshal(r.mowingPaths)
-	if err != nil {
-		logrus.Errorf("RosProvider: marshal mowingPaths: %v", err)
-		return
-	}
-	r.lastMessage["mowingPath"] = pathJSON
-	for _, sub := range r.subscribers["mowingPath"] {
-		sub.Publish(pathJSON)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // IRosProvider implementation

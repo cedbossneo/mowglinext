@@ -45,12 +45,9 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<PublishHighLevelStatus>("PublishHighLevelStatus");
   factory.registerNodeType<WaitForDuration>("WaitForDuration");
   factory.registerNodeType<NavigateToPose>("NavigateToPose");
-  factory.registerNodeType<PlanCoveragePath>("PlanCoveragePath");
-  factory.registerNodeType<FollowCoveragePath>("FollowCoveragePath");
   factory.registerNodeType<SaveSlamMap>("SaveSlamMap");
   factory.registerNodeType<BackUp>("BackUp");
   factory.registerNodeType<ClearCommand>("ClearCommand");
-  factory.registerNodeType<ReplanCoverage>("ReplanCoverage");
   factory.registerNodeType<SaveObstacles>("SaveObstacles");
   factory.registerNodeType<SetNavMode>("SetNavMode");
   factory.registerNodeType<WasRainingAtStart>("WasRainingAtStart");
@@ -60,10 +57,10 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<UndockRobot>("UndockRobot");
   factory.registerNodeType<RecordResumeUndockFailure>("RecordResumeUndockFailure");
 
-  // Coverage nodes (opennav_coverage integration)
-  factory.registerNodeType<ComputeCoverage>("ComputeCoverage");
-  factory.registerNodeType<ExecuteSwathBySwath>("ExecuteSwathBySwath");
-  factory.registerNodeType<ExecuteFullCoveragePath>("ExecuteFullCoveragePath");
+  // Cell-based coverage nodes (strip-by-strip dynamic coverage)
+  factory.registerNodeType<GetNextStrip>("GetNextStrip");
+  factory.registerNodeType<FollowStrip>("FollowStrip");
+  factory.registerNodeType<TransitToStrip>("TransitToStrip");
 }
 
 }  // namespace mowgli_behavior

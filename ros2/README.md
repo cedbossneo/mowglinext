@@ -1,8 +1,8 @@
 # Mowgli ROS2
 
-A complete ROS2 Jazzy robot mower stack built from scratch. Autonomous coverage mowing with RTK GPS, LiDAR SLAM, B-RV coverage path planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
+A complete ROS2 Jazzy robot mower stack built from scratch. Autonomous coverage mowing with RTK GPS, LiDAR SLAM, cell-based strip coverage planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
 
-Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Jazzy with Nav2, slam_toolbox lifelong mode, and B-RV coverage planning.
+Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Jazzy with Nav2, slam_toolbox lifelong mode, and cell-based strip coverage.
 
 [![CI](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml)
 [![Docker](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml)
@@ -41,17 +41,18 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
  |                     behavior_tree_node                              |
  |  BehaviorTree.CPP v4   main_tree.xml                                |
  |  Guards: Emergency -> Boundary -> GPS mode -> MainLogic             |
- |  Actions: Undock -> Plan -> Mow -> Dock  (+ rain/battery resume)    |
+ |  Actions: Undock -> GetStrip -> Transit -> Mow -> Dock (+ resume)   |
  +------+------------------+-------------------+-----------------------+
         |                  |                   |
  +------v------+  +--------v--------+   +------v---------------------+
- |  map_server |  |coverage_planner |   |          Nav2 Jazzy         |
- |  GridMap    |  | B-RV Planner    |   |  FollowPath (RPP+Rotation)  |
- |  keepout/   |  | Boustrophedon   |   |  FollowCoveragePath (RPP)   |
- |  speed masks|  | Dubins curves   |   |  SmacPlanner2D              |
- |  mow_progres|  | GeoJSON output  |   |  collision_monitor          |
- |  area CRUD  |  +-----------------+   |  docking_server             |
- +------+------+                        +-----------------------------+
+ |  map_server |                        |          Nav2 Jazzy         |
+ |  GridMap    |                        |  FollowPath (RPP+Rotation)  |
+ |  keepout/   |                        |  FollowCoveragePath (FTC)   |
+ |  speed masks|                        |  SmacPlanner2D              |
+ |  mow_progres|                        |  collision_monitor          |
+ |  strip plan |                        |  docking_server             |
+ |  area CRUD  |                        +-----------------------------+
+ +------+------+
         |
  +------v--------------------------------------------------------------+
  |                        Localization                                  |
@@ -84,14 +85,14 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 ## Features
 
 - **Full autonomous mowing** — plan, mow, dock, charge, resume. No manual intervention required.
-- **B-RV coverage planner** — grid-based boustrophedon sweep with MBB optimal direction (rotating calipers), obstacle-aware cell skipping, and Voronoi roadmap transit for inter-region connections. No external dependencies beyond Boost.
+- **Cell-based strip coverage** — strips are planned on demand by `map_server_node` and fetched one at a time by the BT via `GetNextStrip`. Nav2 handles transit between strips (`TransitToStrip`), FTCController follows each strip (`FollowStrip`). No pre-planned full path. Progress tracked in `mow_progress` grid layer and survives restarts. Coverage status published on `/map_server_node/coverage_cells` (OccupancyGrid).
 - **slam_toolbox lifelong mode** — LiDAR SLAM that accumulates across sessions. Pose graph persisted to disk before docking and reloaded on next session.
 - **RTK GPS localization** — UBX protocol. RTK fixed gives ~2 cm absolute accuracy. `ekf_map` fuses GPS + SLAM heading + wheel velocity with adaptive covariances.
 - **Dual EKF** — `ekf_odom` for wheel+IMU dead reckoning at 50 Hz, `ekf_map` for GPS+SLAM fusion at 20 Hz. SLAM is the sole map→odom TF authority.
 - **BehaviorTree.CPP v4 mission executor** — reactive guards for emergency, boundary, rain, and battery. Automatic rain-stop-dock-wait-resume cycle. Battery-aware dock-charge-undock-resume cycle.
-- **Persistent obstacle tracking** — `obstacle_tracker_node` promotes LiDAR detections to persistent after age and observation thresholds. Coverage path replanned when the obstacle map changes.
-- **Nav2 Jazzy** — SmacPlanner2D global planner, RegulatedPurePursuit controllers, RotationShimController for transit, `docking_server` (opennav_docking), `collision_monitor`.
-- **FTCController Nav2 plugin** — Follow-the-Carrot controller ported from ROS1 for coverage path following (built, pending Nav2 param wiring).
+- **Persistent obstacle tracking** — `obstacle_tracker_node` promotes LiDAR detections to persistent after age and observation thresholds. Obstacles are reflected in Nav2 costmaps for dynamic avoidance during strip transit and mowing.
+- **Nav2 Jazzy** — SmacPlanner2D global planner, RegulatedPurePursuit for transit, FTCController for coverage strips, RotationShimController, `docking_server` (opennav_docking), `collision_monitor`.
+- **FTCController Nav2 plugin** — Follow-the-Carrot controller with 3-axis PID for coverage strip following. Provides <10mm lateral accuracy on swaths.
 - **Mow progress tracking** — `map_server_node` GridMap layer marks cells as mowed with time-based decay. Visualised as OccupancyGrid.
 - **Keepout and speed zone masks** — `map_server_node` publishes Nav2 costmap filter masks for mowing boundaries and perimeter speed limits.
 - **Cyclone DDS middleware** — `rmw_cyclonedds_cpp` selected in the runtime Docker image for reliable service discovery on ARM without shared memory issues.
@@ -111,8 +112,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 | `mowgli_bringup` | — | Launch files, Nav2/EKF/SLAM config, URDF/xacro, `twist_mux` config |
 | `mowgli_localization` | `wheel_odometry_node` `navsat_to_absolute_pose_node` `gps_pose_converter_node` `slam_heading_node` `localization_monitor_node` | Wheel odometry, GPS conversion pipeline, SLAM heading extractor, dual EKF, localization mode monitor |
 | `mowgli_behavior` | `behavior_tree_node` | BehaviorTree.CPP v4 executor. Loads `main_tree.xml`. All BT action and condition nodes |
-| `mowgli_map` | `map_server_node` `obstacle_tracker_node` | GridMap with 4 layers, area CRUD services, keepout/speed filter masks, mow progress. Persistent LiDAR obstacle detection |
-| `mowgli_brv_planner` | `coverage_planner_node` | B-RV coverage planner: headland passes, MBB-optimal boustrophedon sweep, Voronoi roadmap transit. Exposes `PlanCoverage` action server |
+| `mowgli_map` | `map_server_node` `obstacle_tracker_node` | GridMap with 4 layers, area CRUD services, keepout/speed filter masks, mow progress, strip coverage planner (`~/get_next_strip`, `~/get_coverage_status`). Persistent LiDAR obstacle detection |
 | `mowgli_nav2_plugins` | — | `FTCController` Nav2 controller plugin library loaded by `controller_server` |
 | `mowgli_monitoring` | `diagnostics_node` `mqtt_bridge_node` | Diagnostics aggregator monitoring 8 subsystems at 1 Hz. Optional MQTT bridge |
 | `mowgli_simulation` | `gps_degradation_sim_node` `navsat_to_pose_node` | Gazebo Harmonic worlds, SDF mower model, GPS degradation simulator |
@@ -162,14 +162,11 @@ Frame conventions follow REP-103: x forward, y left, z up.
 | `/odometry/filtered_map` | `nav_msgs/msg/Odometry` | `ekf_map` | ~20 Hz |
 | `/scan` | `sensor_msgs/msg/LaserScan` | LiDAR driver or Gazebo bridge | ~10 Hz |
 | `/behavior_tree_node/high_level_status` | `mowgli_interfaces/msg/HighLevelStatus` | `behavior_tree_node` | on BT tick |
-| `/coverage_planner_node/coverage_path` | `nav_msgs/msg/Path` | `coverage_planner_node` | transient-local on plan |
-| `/coverage_planner_node/coverage_outline` | `nav_msgs/msg/Path` | `coverage_planner_node` | transient-local on plan |
-| `/coverage_planner_node/route_graph` | `std_msgs/msg/String` | `coverage_planner_node` | on plan (GeoJSON) |
+| `/map_server_node/coverage_cells` | `nav_msgs/msg/OccupancyGrid` | `map_server_node` | on change |
 | `/map_server_node/grid_map` | `grid_map_msgs/msg/GridMap` | `map_server_node` | configurable |
 | `/map_server_node/mow_progress` | `nav_msgs/msg/OccupancyGrid` | `map_server_node` | configurable |
 | `/map_server_node/docking_pose` | `geometry_msgs/msg/PoseStamped` | `map_server_node` | transient-local |
 | `/map_server_node/boundary_violation` | `std_msgs/msg/Bool` | `map_server_node` | on change |
-| `/map_server_node/replan_needed` | `std_msgs/msg/Bool` | `map_server_node` | on obstacle change |
 | `/obstacle_tracker/obstacles` | `mowgli_interfaces/msg/ObstacleArray` | `obstacle_tracker_node` | on change |
 | `/localization/mode` | `std_msgs/msg/String` | `localization_monitor_node` | 10 Hz |
 | `/localization/mode_id` | `std_msgs/msg/Int32` | `localization_monitor_node` | 10 Hz |
@@ -190,6 +187,8 @@ Frame conventions follow REP-103: x forward, y left, z up.
 | `/map_server_node/clear_map` | `std_srvs/srv/Trigger` | `map_server_node` |
 | `/map_server_node/save_areas` | `std_srvs/srv/Trigger` | `map_server_node` |
 | `/map_server_node/load_areas` | `std_srvs/srv/Trigger` | `map_server_node` |
+| `/map_server_node/get_next_strip` | `mowgli_interfaces/srv/GetNextStrip` | `map_server_node` |
+| `/map_server_node/get_coverage_status` | `mowgli_interfaces/srv/GetCoverageStatus` | `map_server_node` |
 | `/obstacle_tracker/save_obstacles` | `std_srvs/srv/Trigger` | `obstacle_tracker_node` |
 | `/slam_toolbox/serialize_map` | `slam_toolbox/srv/SerializePoseGraph` | `slam_toolbox` |
 
@@ -197,7 +196,6 @@ Frame conventions follow REP-103: x forward, y left, z up.
 
 | Action | Type | Server |
 |--------|------|--------|
-| `/coverage_planner_node/plan_coverage` | `mowgli_interfaces/action/PlanCoverage` | `coverage_planner_node` |
 | `/dock_robot` | `opennav_docking_msgs/action/DockRobot` | `docking_server` |
 | `/undock_robot` | `opennav_docking_msgs/action/UndockRobot` | `docking_server` |
 | `/navigate_to_pose` | `nav2_msgs/action/NavigateToPose` | Nav2 `bt_navigator` |
@@ -351,22 +349,9 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 | `map_save_path` | `"/ros2_ws/maps/garden_map"` | Pose graph file path (no extension) |
 | `map_save_on_dock` | `true` | Save SLAM pose graph to disk before docking |
 
-### Coverage Planner Parameters
+### Coverage Parameters
 
-`src/mowgli_brv_planner/config/coverage_planner.yaml`:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `tool_width` | `0.18` | Effective cut width |
-| `headland_passes` | `3` | Perimeter passes before fill swaths |
-| `headland_width` | `0.25` | Width of one headland pass |
-| `default_mow_angle` | `-1.0` | Swath angle in degrees; -1 = brute-force optimal |
-| `path_spacing` | `0.18` | Distance between swath centrelines |
-| `min_turning_radius` | `0.15` | Dubins curve turning radius |
-| `decompose_cells` | `true` | Cell decomposition for non-convex polygons |
-| `mowing_speed` | `0.15` | Speed limit for mowing edges in GeoJSON route (m/s) |
-| `transit_speed` | `0.3` | Speed limit for turn/transit edges (m/s) |
-| `route_graph_filepath` | `"/tmp/mowing_route.geojson"` | GeoJSON route graph output path |
+Coverage strip planning is handled by `map_server_node`. Mowing parameters are configured in `src/mowgli_bringup/config/mowgli_robot.yaml` (see Mowing section above). Key parameters: `tool_width`, `path_spacing`, `mowing_speed`, `transit_speed`.
 
 ### Key Config File Reference
 
@@ -377,7 +362,6 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 | `src/mowgli_bringup/config/localization.yaml` | Dual EKF tuning and GPS covariances |
 | `src/mowgli_bringup/config/slam_toolbox.yaml` | SLAM scan matching, loop closure, map update rate |
 | `src/mowgli_bringup/config/twist_mux.yaml` | `cmd_vel` multiplexer priorities and timeouts |
-| `src/mowgli_brv_planner/config/coverage_planner.yaml` | B-RV coverage planner parameters |
 | `src/mowgli_map/config/obstacle_tracker.yaml` | LiDAR obstacle detection thresholds |
 | `src/mowgli_behavior/config/behavior_tree.yaml` | BT node parameters |
 | `src/mowgli_behavior/trees/main_tree.xml` | Full BT structure: guards, sequences, recovery |
@@ -389,7 +373,6 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 ### Prerequisites
 
 - ROS2 Jazzy on Ubuntu 24.04
-- Boost (libboost-dev) for Voronoi roadmap transit in `mowgli_brv_planner`
 - `colcon`, `rosdep`, `xacro` (`python3-colcon-common-extensions`, `python3-rosdep`)
 
 ### Build the Workspace
@@ -521,7 +504,6 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 - `navigation.launch.py` — slam_toolbox, dual EKF (`ekf_odom` + `ekf_map`), Nav2 bringup
 - `behavior_tree_node` — BT mission executor
 - `map_server_node` + `obstacle_tracker_node` — area management and obstacle tracking
-- `coverage_planner_node` — B-RV coverage planner action server
 - `wheel_odometry_node`, `navsat_to_absolute_pose_node`, `gps_pose_converter_node`, `slam_heading_node`, `localization_monitor_node` — localization pipeline
 - `diagnostics_node` — robot health monitoring
 - `mqtt_bridge_node` — optional, `enable_mqtt:=true`
@@ -607,31 +589,39 @@ MowingSequence
       UndockRobot               opennav_docking undock action
       CalibrateHeadingFromUndock compute map heading from GPS displacement
   WasRainingAtStart             record rain state at session start
-  ComputeCoverage(area_index=0) PlanCoverage action -> B-RV planner pipeline
+  WaitForDuration(3s)           wait for obstacle detection
   PublishHighLevelStatus("MOWING")
 
-  AdaptiveCoverage (ReactiveSequence)
-    |
-    +-- RainGuard
-    |     IsNewRain? (rain started DURING mowing, not before)
-    |     -> disable blade, stop, dock, wait up to 12h for rain to clear,
-    |        wait rain_delay_minutes, undock, resume
-    |
-    +-- BatteryGuard
-    |     NeedsDocking(threshold=20%)?
-    |     -> disable blade, stop, dock, wait until battery > 95%
-    |        (IsChargingProgressing detects stalled charger after 30min),
-    |        undock, resume
-    |
-    +-- RetrySwathExecution (3 attempts)
-          ExecuteSwathBySwath
-            or RecoverAndRetry:
-              disable blade, stop, back up 0.5m, ClearCostmap, wait 3s
+  MowingCommandGuard (ReactiveSequence — aborts if command changes)
+    IsCommand(1)
 
-  Fallback if all retries exhausted:
-    SaveObstacles + SaveSlamMap + DockRobot + ClearCommand
+    StripCoverageWithRecovery (Fallback)
+      |
+      StripGuards (ReactiveSequence)
+        |
+        +-- RainGuard
+        |     IsNewRain? (rain started DURING mowing, not before)
+        |     -> disable blade, stop, dock, wait up to 12h for rain to clear,
+        |        wait rain_delay_minutes, undock, resume
+        |
+        +-- BatteryGuard
+        |     NeedsDocking(threshold=20%)?
+        |     -> disable blade, stop, dock, wait until battery > 95%
+        |        (IsChargingProgressing detects stalled charger after 30min),
+        |        undock, resume
+        |
+        +-- StripLoop (Repeat x500)
+              MowOneStrip:
+                GetNextStrip(area_index=0)  call ~/get_next_strip service
+                TransitToStrip              Nav2 navigate to strip start
+                FollowStrip                 FTCController follows the strip path
+              or StripRecovery:
+                disable blade, stop, back up 0.3m, ClearCostmap, wait 2s
 
-  On completion:
+      FailedCoverageDock:
+        SaveSlamMap + DockRobot + ClearCommand
+
+  On completion (GetNextStrip returns FAILURE = all strips mowed):
     SetMowerEnabled(false)
     SaveObstacles
     SaveSlamMap
@@ -655,7 +645,6 @@ MowingSequence
 | `IsNewRain` | Rain detected AND was not raining at mow session start |
 | `IsChargingProgressing` | Battery increased >= 1% in the last 30 minutes |
 | `IsCommand(command)` | `context.current_command` == input value |
-| `ReplanNeeded` | `/map_server_node/replan_needed` is true |
 
 ### BT Action Nodes
 
@@ -665,11 +654,11 @@ MowingSequence
 | `StopMoving` | Publishes zero Twist to `/cmd_vel` |
 | `BackUp(backup_dist, backup_speed)` | Nav2 `/backup` action |
 | `NavigateToPose(goal)` | Nav2 `/navigate_to_pose` action; goal as `"x;y;yaw"` string |
-| `ExecuteSwathBySwath` | Follows coverage path swath by swath via Nav2 `FollowPath` |
+| `GetNextStrip(area_index)` | Calls `~/get_next_strip` on `map_server_node`; returns FAILURE when coverage complete |
+| `TransitToStrip` | Nav2 `NavigateToPose` to the start of the current strip |
+| `FollowStrip` | Follows the current strip path via Nav2 `FollowPath` with FTCController |
 | `DockRobot(dock_id, dock_type)` | `opennav_docking` `/dock_robot` action |
 | `UndockRobot(dock_type)` | `opennav_docking` `/undock_robot` action |
-| `ComputeCoverage(area_index)` | `PlanCoverage` action to `coverage_planner_node` |
-| `ReplanCoverage` | Fetch updated areas and obstacles, replan, publish new path |
 | `SaveSlamMap(map_path)` | Calls `/slam_toolbox/serialize_map` service |
 | `SaveObstacles` | Calls `/obstacle_tracker/save_obstacles` service |
 | `ClearCostmap` | Clears global and local costmaps via Nav2 services |
@@ -703,7 +692,7 @@ Connect to `ws://localhost:8765`. Import the layout from `foxglove/mowgli_sim.js
 Useful topics to visualize:
 
 - `/scan` — LiDAR
-- `/coverage_planner_node/coverage_path` — planned swath path
+- `/map_server_node/coverage_cells` — strip coverage progress grid
 - `/local_costmap/costmap` and `/global_costmap/costmap` — obstacle and keepout maps
 - `/behavior_tree_node/high_level_status` — current BT state
 - `/map_server_node/mow_progress` — mowing coverage grid

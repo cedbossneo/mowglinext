@@ -35,12 +35,24 @@
         },
         "/map": {
           "visible": true,
-          "alpha": 0.7,
+          "alpha": 0.5,
           "unknownColor": "#1a1a2e"
         },
-        "/local_costmap/costmap": {
+        "/map_server_node/coverage_cells": {
           "visible": true,
-          "alpha": 0.4
+          "alpha": 0.7,
+          "unknownColor": "#00000000",
+          "minColor": "#22cc44",
+          "maxColor": "#cc2222"
+        },
+        "/map_server_node/mow_progress": {
+          "visible": false,
+          "alpha": 0.5,
+          "unknownColor": "#00000000"
+        },
+        "/local_costmap/costmap": {
+          "visible": false,
+          "alpha": 0.3
         },
         "/global_costmap/costmap": {
           "visible": false,
@@ -49,35 +61,39 @@
         "/robot_description": {
           "visible": true
         },
-        "/coverage_planner_node/coverage_path": {
-          "visible": true,
-          "type": "line",
-          "lineWidth": 0.02
-        },
-        "/coverage_planner_node/coverage_outline": {
-          "visible": true,
-          "type": "line",
-          "lineWidth": 0.03
-        },
         "/plan": {
           "visible": true,
           "type": "line",
-          "lineWidth": 0.03
+          "lineWidth": 0.03,
+          "color": "#ffaa00"
         },
         "/local_plan": {
           "visible": true,
           "type": "line",
-          "lineWidth": 0.04
+          "lineWidth": 0.04,
+          "color": "#00aaff"
         },
         "/keepout_mask": {
           "visible": true,
-          "alpha": 0.5,
+          "alpha": 0.4,
           "unknownColor": "#00000000"
         },
         "/speed_mask": {
           "visible": false,
           "alpha": 0.3,
           "unknownColor": "#00000000"
+        },
+        "/obstacle_tracker/markers": {
+          "visible": true
+        },
+        "/FollowCoveragePath/global_plan": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.02,
+          "color": "#44ff44"
+        },
+        "/FollowCoveragePath/global_point": {
+          "visible": true
         },
         "/wheel_odom": {
           "visible": false
@@ -145,7 +161,7 @@
     "Plot!battery": {
       "paths": [
         {
-          "value": "/power.v_battery",
+          "value": "/hardware_bridge/power.v_battery",
           "enabled": true,
           "timestampMethod": "receiveTime",
           "label": "Battery (V)",
@@ -153,19 +169,11 @@
           "showLine": true
         },
         {
-          "value": "/power.v_charge",
+          "value": "/hardware_bridge/power.v_charge",
           "enabled": true,
           "timestampMethod": "receiveTime",
           "label": "Charger (V)",
           "color": "#2ecc71",
-          "showLine": true
-        },
-        {
-          "value": "/power.charge_current",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "Charge Current (A)",
-          "color": "#f39c12",
           "showLine": true
         }
       ],
@@ -176,13 +184,12 @@
       "showPlotValuesInLegend": true,
       "isSynced": true,
       "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
       "title": "Power"
     },
     "StateTransitions!bt": {
       "paths": [
         {
-          "value": "/behavior_tree_node/high_level_status.state",
+          "value": "/behavior_tree_node/high_level_status.state_name",
           "label": "BT State",
           "timestampMethod": "receiveTime"
         }
@@ -207,15 +214,45 @@
         },
         {
           "operator": "=",
-          "rawValue": "AUTONOMOUS",
+          "rawValue": "IDLE_DOCKED",
+          "color": "#3498db",
+          "label": "DOCKED"
+        },
+        {
+          "operator": "=",
+          "rawValue": "MOWING",
           "color": "#2ecc71",
           "label": "MOWING"
         },
         {
           "operator": "=",
-          "rawValue": "RECORDING",
+          "rawValue": "TRANSIT",
           "color": "#f39c12",
-          "label": "RECORDING"
+          "label": "TRANSIT"
+        },
+        {
+          "operator": "=",
+          "rawValue": "UNDOCKING",
+          "color": "#f39c12",
+          "label": "UNDOCKING"
+        },
+        {
+          "operator": "=",
+          "rawValue": "RECOVERING",
+          "color": "#e67e22",
+          "label": "RECOVERING"
+        },
+        {
+          "operator": "=",
+          "rawValue": "PLANNING",
+          "color": "#9b59b6",
+          "label": "PLANNING"
+        },
+        {
+          "operator": "=",
+          "rawValue": "COVERAGE_FAILED_DOCKING",
+          "color": "#e74c3c",
+          "label": "FAILED"
         }
       ]
     },
@@ -233,6 +270,14 @@
         }
       ]
     },
+    "Gauge!coverage": {
+      "path": "/behavior_tree_node/high_level_status.battery_percent",
+      "minValue": 0,
+      "maxValue": 100,
+      "colorMode": "gradient",
+      "gradient": ["#e74c3c", "#f39c12", "#2ecc71"],
+      "reverse": false
+    },
     "RawMessages!diagnostics": {
       "topicPath": "/diagnostics",
       "diffEnabled": false,
@@ -243,10 +288,10 @@
     "Plot!gps_precision": {
       "paths": [
         {
-          "value": "/precision/gps_error_m.data",
+          "value": "/gps/fix.position_covariance[0]",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "GPS Error (m)",
+          "label": "GPS Covariance X",
           "color": "#e74c3c",
           "showLine": true
         }
@@ -264,7 +309,7 @@
     "Plot!wheel_odom": {
       "paths": [
         {
-          "value": "/precision/wheel_odom_speed.data",
+          "value": "/wheel_odom.twist.twist.linear.x",
           "enabled": true,
           "timestampMethod": "receiveTime",
           "label": "Wheel Speed (m/s)",
@@ -289,65 +334,6 @@
       "xAxisVal": "timestamp",
       "title": "Wheel Odometry vs Commanded",
       "yAxisMin": -0.1
-    },
-    "Plot!lidar_precision": {
-      "paths": [
-        {
-          "value": "/precision/lidar_min_range.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "Min Range (m)",
-          "color": "#e67e22",
-          "showLine": true
-        },
-        {
-          "value": "/precision/lidar_scan_count.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "Valid Points",
-          "color": "#9b59b6",
-          "showLine": true
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "title": "LiDAR Precision",
-      "yAxisMin": 0
-    },
-    "Plot!overall_quality": {
-      "paths": [
-        {
-          "value": "/precision/localization_quality.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "Quality Score (0-100)",
-          "color": "#1abc9c",
-          "showLine": true
-        },
-        {
-          "value": "/precision/slam_map_known_pct.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "SLAM Map Known %",
-          "color": "#f1c40f",
-          "showLine": true
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "title": "Overall Localization Quality",
-      "yAxisMin": 0,
-      "yAxisMax": 100
     }
   },
   "globalVariables": {},
@@ -395,25 +381,15 @@
     },
     "second": {
       "first": {
-        "first": {
-          "first": "Plot!velocity",
-          "second": "Plot!battery",
-          "direction": "row",
-          "splitPercentage": 50
-        },
-        "second": {
-          "first": "Plot!gps_precision",
-          "second": "Plot!wheel_odom",
-          "direction": "row",
-          "splitPercentage": 50
-        },
-        "direction": "column",
+        "first": "Plot!velocity",
+        "second": "Plot!battery",
+        "direction": "row",
         "splitPercentage": 50
       },
       "second": {
         "first": {
-          "first": "Plot!lidar_precision",
-          "second": "Plot!overall_quality",
+          "first": "Plot!gps_precision",
+          "second": "Plot!wheel_odom",
           "direction": "row",
           "splitPercentage": 50
         },
@@ -427,10 +403,10 @@
         "splitPercentage": 50
       },
       "direction": "column",
-      "splitPercentage": 50
+      "splitPercentage": 40
     },
     "direction": "column",
-    "splitPercentage": 55
+    "splitPercentage": 60
   },
   "playbackConfig": {
     "speed": 1

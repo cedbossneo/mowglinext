@@ -309,6 +309,18 @@ export type AbsolutePose = {
     MotionHeading?: number
 }
 
+export type OccupancyGridInfo = {
+    Resolution?: number
+    Width?: number
+    Height?: number
+    Origin?: Pose
+}
+
+export type OccupancyGrid = {
+    Info?: OccupancyGridInfo
+    Data?: number[]
+}
+
 export type LaserScan = {
     AngleMin?: number
     AngleMax?: number

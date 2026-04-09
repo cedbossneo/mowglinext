@@ -31,6 +31,9 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <tf2/exceptions.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include "mowgli_map/map_types.hpp"
 #include <grid_map_core/GridMap.hpp>
@@ -39,7 +42,9 @@
 #include <mowgli_interfaces/msg/obstacle_array.hpp>
 #include <mowgli_interfaces/msg/status.hpp>
 #include <mowgli_interfaces/srv/add_mowing_area.hpp>
+#include <mowgli_interfaces/srv/get_coverage_status.hpp>
 #include <mowgli_interfaces/srv/get_mowing_area.hpp>
+#include <mowgli_interfaces/srv/get_next_strip.hpp>
 #include <mowgli_interfaces/srv/set_docking_point.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
@@ -111,6 +116,9 @@ public:
   /// Clear all layers to their default values.
   void clear_map_layers();
 
+  /// Build coverage cells OccupancyGrid (test-only accessor).
+  nav_msgs::msg::OccupancyGrid coverage_cells_to_occupancy_grid() const;
+
 private:
   // ── ROS callbacks ────────────────────────────────────────────────────────
 
@@ -157,6 +165,15 @@ private:
 
   void on_load_areas(const std_srvs::srv::Trigger::Request::SharedPtr req,
                      std_srvs::srv::Trigger::Response::SharedPtr res);
+
+  // ── Strip planner services ───────────────────────────────────────────────
+
+  void on_get_next_strip(const mowgli_interfaces::srv::GetNextStrip::Request::SharedPtr req,
+                         mowgli_interfaces::srv::GetNextStrip::Response::SharedPtr res);
+
+  void on_get_coverage_status(
+      const mowgli_interfaces::srv::GetCoverageStatus::Request::SharedPtr req,
+      mowgli_interfaces::srv::GetCoverageStatus::Response::SharedPtr res);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -219,6 +236,43 @@ private:
   /// Reapply area classifications to the map grid (called after loading areas).
   void apply_area_classifications();
 
+  // ── Strip planner helpers ─────────────────────────────────────────────────
+
+  /// A single mowing strip (one column in boustrophedon order).
+  struct Strip
+  {
+    geometry_msgs::msg::Point start;  // Map frame
+    geometry_msgs::msg::Point end;  // Map frame
+    int column_index{0};
+  };
+
+  /// Cached strip layout for an area.
+  struct StripLayout
+  {
+    std::vector<Strip> strips;
+    double mow_angle{0.0};
+    bool valid{false};
+  };
+
+  /// Compute or retrieve cached strip layout for an area.
+  void ensure_strip_layout(size_t area_index);
+
+  /// Find next unmowed strip. Returns false if coverage is complete.
+  bool find_next_unmowed_strip(
+      size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool prefer_headland);
+
+  /// Convert a strip to a nav_msgs::Path, splitting at obstacle cells.
+  nav_msgs::msg::Path strip_to_path(const Strip& strip, size_t area_index) const;
+
+  /// Check if a strip is sufficiently mowed (>threshold of cells done).
+  bool is_strip_mowed(const Strip& strip, double threshold_pct = 0.2) const;
+
+  /// Compute coverage statistics for an area.
+  void compute_coverage_stats(size_t area_index,
+                              uint32_t& total,
+                              uint32_t& mowed,
+                              uint32_t& obstacle_cells) const;
+
   // ── Area entry ────────────────────────────────────────────────────────────
 
   /// A named area (mowing or navigation) with optional interior obstacles.
@@ -273,9 +327,16 @@ private:
   geometry_msgs::msg::Pose docking_pose_;
   bool docking_pose_set_{false};
 
+  /// Cached strip layouts per area (recomputed when area changes).
+  std::vector<StripLayout> strip_layouts_;
+
+  /// Track current strip index per area for boustrophedon ordering.
+  std::vector<int> current_strip_idx_;
+
   // ── Publishers ────────────────────────────────────────────────────────────
   rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr mow_progress_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr coverage_cells_pub_;
 
   // Costmap filter mask publishers (transient_local so late subscribers receive
   // the last message immediately — required by Nav2 costmap filter design).
@@ -313,6 +374,12 @@ private:
   rclcpp::Service<mowgli_interfaces::srv::SetDockingPoint>::SharedPtr set_docking_point_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_areas_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr load_areas_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::GetNextStrip>::SharedPtr get_next_strip_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::GetCoverageStatus>::SharedPtr get_coverage_status_srv_;
+
+  // ── TF ────────────────────────────────────────────────────────────────────
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
   // ── Timers ────────────────────────────────────────────────────────────────
   rclcpp::TimerBase::SharedPtr publish_timer_;
