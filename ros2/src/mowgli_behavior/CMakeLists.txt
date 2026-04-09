@@ -34,7 +34,7 @@ find_package(std_srvs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
 find_package(slam_toolbox REQUIRED)
 find_package(rcl_interfaces REQUIRED)
-find_package(robot_localization REQUIRED)
+
 
 # ---------------------------------------------------------------------------
 # Executable: behavior_tree_node
@@ -74,7 +74,6 @@ ament_target_dependencies(behavior_tree_node
   mowgli_interfaces
   slam_toolbox
   rcl_interfaces
-  robot_localization
 )
 
 # ---------------------------------------------------------------------------

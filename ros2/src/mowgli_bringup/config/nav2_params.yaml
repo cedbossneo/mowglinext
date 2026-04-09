@@ -75,7 +75,6 @@ controller_server:
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 3.0
       transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
@@ -89,7 +88,6 @@ controller_server:
       regulated_linear_scaling_min_speed: 0.1
       use_rotate_to_heading: false
       allow_reversing: false
-      max_angular_accel: 5.0
       max_angular_vel: 3.0
       max_robot_pose_search_dist: 2.0
 
@@ -240,9 +238,11 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      # Allow up to 60s for map→base_link TF to appear (SLAM needs time to
-      # initialize scan matching before publishing map→odom).
-      transform_tolerance: 60.0
+      # TF tolerance: how stale a transform can be before the costmap rejects it.
+      # Keep this short — stale TF after SLAM corrections projects scans into
+      # wrong cells, creating phantom obstacles.  SLAM init delay is handled by
+      # wait_for_tf.py, not this parameter.
+      transform_tolerance: 5.0
       # Footprint computed from mowgli_robot.yaml at launch time
       footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
       resolution: 0.05
@@ -254,8 +254,8 @@ global_costmap:
       # gardens: the costmap always centres on the robot, and obstacles are
       # detected in real time by the obstacle_layer.
       rolling_window: true
-      width: 100
-      height: 100
+      width: 200
+      height: 200
       # keepout_filter disabled in global costmap: it marks boundary zones
       # as LETHAL causing "Start occupied" when robot is near boundary edge.
       # Boundary enforcement uses local costmap keepout + coverage planner.
@@ -281,6 +281,7 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 7.5
           obstacle_min_range: 0.35
+          inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -341,6 +342,7 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 7.5
           obstacle_min_range: 0.35
+          inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -489,16 +491,6 @@ coverage_server:
     default_path_continuity_type: "CONTINUOUS"
     # Coordinate system
     coordinates_in_cartesian_frame: true
-
-route_server:
-  ros__parameters:
-    use_sim_time: false
-    # GeoJSON graph file for route requests (legacy).
-    # The route_server loads this file to serve route requests.
-    # Can also be loaded dynamically via the /route_server/load_graph service.
-    graph_filepath: "/tmp/mowing_route.geojson"
-    base_frame: base_link
-    global_frame: map
 
 lifecycle_manager_navigation:
   ros__parameters:

@@ -29,7 +29,7 @@
   <depend>mowgli_interfaces</depend>
   <depend>slam_toolbox</depend>
   <depend>rcl_interfaces</depend>
-  <depend>robot_localization</depend>
+
 
 
   <test_depend>ament_lint_auto</test_depend>

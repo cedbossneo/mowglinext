@@ -580,10 +580,15 @@ private:
     msg.header.frame_id = "odom";
     msg.child_frame_id = "base_link";
 
-    // When charging, the robot is mechanically fixed to the dock.
+    // When charging AND idle, the robot is mechanically fixed to the dock.
     // Force zero velocity with very tight covariance so the EKF
     // trusts this "not moving" signal over process noise drift.
-    if (is_charging_)
+    // During undocking (current_mode_ != 0), the charger bit may still be
+    // set while the robot is backing off the contacts — don't zero odom
+    // or SLAM will see zero motion while LiDAR scans shift, corrupting
+    // the map.
+    const bool force_zero = is_charging_ && (current_mode_ == 0u);
+    if (force_zero)
     {
       vx = 0.0;
       vyaw = 0.0;
@@ -592,15 +597,15 @@ private:
     msg.twist.twist.linear.x = vx;
     msg.twist.twist.angular.z = vyaw;
 
-    // Covariance: when charging, very tight (certain we're not moving).
+    // Covariance: when docked and idle, very tight (certain we're not moving).
     // When driving, loose (wheel slip on grass).
-    const double vel_var = is_charging_ ? 1e-6 : 0.01;
+    const double vel_var = force_zero ? 1e-6 : 0.01;
     msg.twist.covariance[0] = vel_var;  // vx variance
     msg.twist.covariance[7] = 1e6;  // vy (no lateral) - very high = unknown
     msg.twist.covariance[14] = 1e6;  // vz - unknown
     msg.twist.covariance[21] = 1e6;  // wx - unknown
     msg.twist.covariance[28] = 1e6;  // wy - unknown
-    msg.twist.covariance[35] = is_charging_ ? 1e-6 : 0.05;  // wz variance
+    msg.twist.covariance[35] = force_zero ? 1e-6 : 0.05;  // wz variance
 
     pub_wheel_odom_->publish(msg);
   }

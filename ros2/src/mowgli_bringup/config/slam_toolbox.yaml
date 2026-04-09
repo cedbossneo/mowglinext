@@ -61,7 +61,10 @@ slam_toolbox:
     scan_buffer_maximum_scan_distance: 8.0
 
     # Link matching thresholds
-    link_match_minimum_response_fine: 0.1
+    # Reject poor scan matches rather than accepting noise — in outdoor
+    # gardens with few LiDAR features, a low threshold lets SLAM lock onto
+    # spurious matches that corrupt the map.
+    link_match_minimum_response_fine: 0.2
     link_scan_maximum_distance: 1.5
 
     # Loop closure
