@@ -623,11 +623,24 @@ private:
                     sizeof(LlHeartbeat) - sizeof(uint16_t));  // CRC appended by encode_packet.
   }
 
+  // Translate ROS2 HighLevelStatus state values to firmware mode values.
+  // ROS2: 0=NULL, 1=IDLE, 2=AUTONOMOUS, 3=RECORDING
+  // FW:   0=IDLE, 1=AUTONOMOUS, 2=RECORDING
+  static uint8_t ros2_state_to_fw_mode(uint8_t ros2_state)
+  {
+    switch (ros2_state)
+    {
+      case 2: return 1;  // AUTONOMOUS
+      case 3: return 2;  // RECORDING
+      default: return 0; // NULL or IDLE → FW IDLE
+    }
+  }
+
   void send_high_level_state()
   {
     LlHighLevelState pkt{};
     pkt.type = PACKET_ID_LL_HIGH_LEVEL_STATE;
-    pkt.current_mode = current_mode_;
+    pkt.current_mode = ros2_state_to_fw_mode(current_mode_);
     pkt.gps_quality = gps_quality_;
 
     send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt),
@@ -669,9 +682,10 @@ private:
   {
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u && (msg->linear.x != 0.0 || msg->angular.z != 0.0))
+    // ROS2 states: 0=NULL, 1=IDLE, 2=AUTONOMOUS
+    if (current_mode_ <= 1u && (msg->linear.x != 0.0 || msg->angular.z != 0.0))
     {
-      current_mode_ = 1u;  // AUTONOMOUS
+      current_mode_ = 2u;  // ROS2 AUTONOMOUS (maps to FW mode 1)
       send_high_level_state();
     }
 
