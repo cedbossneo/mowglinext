@@ -102,22 +102,19 @@ void PacketHandler::dispatch_frame()
 std::vector<uint8_t> PacketHandler::encode_packet(const uint8_t* data, std::size_t len) const
 {
   // Reject invalid input.
-  if (len > 0 && data == nullptr)
-  {
+  if (len > 0 && data == nullptr) {
     throw std::invalid_argument("encode_packet: data is null while len > 0");
   }
 
   // Assemble payload + 2-byte CRC placeholder.
-  if (len > std::numeric_limits<std::size_t>::max() - 2u)
-  {
+  if (len > std::numeric_limits<std::size_t>::max() - 2u) {
     throw std::overflow_error("encode_packet: payload size overflow");
   }
 
   const std::size_t payload_len = len + 2u;
   std::vector<uint8_t> payload(payload_len);
 
-  if (len > 0)
-  {
+  if (len > 0) {
     std::memcpy(payload.data(), data, len);
   }
 
@@ -129,8 +126,7 @@ std::vector<uint8_t> PacketHandler::encode_packet(const uint8_t* data, std::size
   const std::size_t encoded_len = cobs_encode(payload.data(), payload_len, encoded.data());
 
   // Frame: 0x00 + COBS bytes + 0x00.
-  if (encoded_len > std::numeric_limits<std::size_t>::max() - 2u)
-  {
+  if (encoded_len > std::numeric_limits<std::size_t>::max() - 2u) {
     throw std::overflow_error("encode_packet: frame size overflow");
   }
 
