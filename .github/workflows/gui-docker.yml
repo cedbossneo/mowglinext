@@ -115,16 +115,15 @@ jobs:
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
+        with:
+          pattern: digests-gui-*
+          merge-multiple: true
+          path: /tmp/digests
 
       - name: Normalize image name (lowercase)
         id: repo
         shell: bash
         run: echo "image_repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-        with:
-          pattern: digests-gui-*
-          merge-multiple: true
-          path: /tmp/digests
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
