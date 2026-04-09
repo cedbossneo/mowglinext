@@ -406,10 +406,12 @@ def generate_launch_description() -> LaunchDescription:
     nav2_navigation_group = GroupAction(
         actions=[
             SetParameter("bond_timeout", 10.0),
+            # Use our vendored copy of Nav2's navigation_launch.py with
+            # route_server removed (not needed for cell-based coverage).
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(
-                        nav2_bringup_dir, "launch", "navigation_launch.py"
+                        bringup_dir, "launch", "nav2_navigation_launch.py"
                     )
                 ),
                 launch_arguments={
