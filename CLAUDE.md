@@ -35,6 +35,46 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
 6. **dock_pose_yaw from phone compass** — measured once at installation, not computed
 7. **Cell-based strip coverage** — `map_server_node` plans strips on demand via `~/get_next_strip` service; no pre-planned full path. BT nodes `GetNextStrip`, `TransitToStrip`, `FollowStrip` execute one strip at a time. Progress tracked in `mow_progress` grid layer (survives restarts). Coverage status via `~/get_coverage_status` service and `/map_server_node/coverage_cells` OccupancyGrid topic.
 8. **FTCController for coverage paths** — RPP for transit only, FTCController (PID on 3 axes) for coverage path following
+9. **Emergency auto-reset on dock** — When emergency is active and robot is on dock (charging detected), BT auto-sends `ResetEmergency` to firmware. Firmware is sole safety authority and only clears latch if physical trigger is no longer asserted.
+10. **CalibrateHeadingFromUndock reads EKF TF** — not GPS displacement. Costmaps are cleared after undock.
+11. **Zero-odom only when charging AND idle** — `hardware_bridge_node` does not reset odometry during undock sequence.
+
+## High-Level Commands and States
+
+### HighLevelControl.srv Commands
+| Value | Constant | Description |
+|-------|----------|-------------|
+| 1 | `COMMAND_START` | Begin autonomous mowing |
+| 2 | `COMMAND_HOME` | Return to dock |
+| 3 | `COMMAND_RECORD_AREA` | Start area boundary recording |
+| 4 | `COMMAND_S2` | Mow next area |
+| 5 | `COMMAND_RECORD_FINISH` | Finish recording, save polygon |
+| 6 | `COMMAND_RECORD_CANCEL` | Cancel recording, discard trajectory |
+| 7 | `COMMAND_MANUAL_MOW` | Enter manual mowing mode (teleop + blade) |
+| 254 | `COMMAND_RESET_EMERGENCY` | Reset latched emergency |
+| 255 | `COMMAND_DELETE_MAPS` | Delete all maps |
+
+### HighLevelStatus.msg States
+| Value | Constant | Description |
+|-------|----------|-------------|
+| 0 | `HIGH_LEVEL_STATE_NULL` | Emergency or transitional |
+| 1 | `HIGH_LEVEL_STATE_IDLE` | Idle, docked, charging, returning home |
+| 2 | `HIGH_LEVEL_STATE_AUTONOMOUS` | Autonomous mowing (undocking, transit, mowing, recovering) |
+| 3 | `HIGH_LEVEL_STATE_RECORDING` | Area recording in progress |
+| 4 | `HIGH_LEVEL_STATE_MANUAL_MOWING` | Manual mowing via teleop |
+
+### Area Recording Flow
+1. GUI sends `COMMAND_RECORD_AREA` (3) to start recording
+2. BT enters `RecordArea` node — records position at 2 Hz, publishes live preview on `~/recording_trajectory`
+3. User drives robot along boundary
+4. GUI sends `COMMAND_RECORD_FINISH` (5) — trajectory is simplified (Douglas-Peucker) and saved via `/map_server_node/add_area`
+5. Or GUI sends `COMMAND_RECORD_CANCEL` (6) — trajectory discarded
+
+### Manual Mowing
+- Dedicated BT state with `COMMAND_MANUAL_MOW` (7) — does not hijack recording mode
+- Teleop via `/cmd_vel_teleop` (twist_mux priority)
+- Blade managed by GUI (fire-and-forget to firmware)
+- Collision_monitor, GPS, SLAM all remain active
 
 ## Code Style
 
@@ -66,6 +106,9 @@ No Co-Authored-By lines. Keep messages concise and focused on "why".
 - **Dual EKF:** `ekf_odom` (50Hz, wheel+IMU) and `ekf_map` (20Hz, odom+GPS)
 - **Navigation:** RPP for transit, FTCController (Follow-the-Carrot with 3-axis PID) for coverage paths (NOT MPPI — it jumps between adjacent swaths)
 - **Coverage:** Cell-based strip planner in `map_server_node`. Strips fetched one at a time by BT (`GetNextStrip` -> `TransitToStrip` -> `FollowStrip`). No full-path pre-planning. Progress persisted in `mow_progress` grid layer.
+- **Area Recording:** `RecordArea` BT node records trajectory at 2 Hz, Douglas-Peucker simplification, saves polygon via `/map_server_node/add_area`. Live preview on `~/recording_trajectory`.
+- **Manual Mowing:** Dedicated BT state (COMMAND_MANUAL_MOW=7). Teleop via `/cmd_vel_teleop`, blade managed by GUI. Collision_monitor/GPS/SLAM remain active.
+- **Emergency Auto-Reset:** BT auto-resets emergency when robot placed on dock (charging detected). Firmware is safety authority.
 
 See sections below for detailed package descriptions, topics, and architecture.
 

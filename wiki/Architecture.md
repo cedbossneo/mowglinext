@@ -179,7 +179,22 @@ Application layer
   ```
 
 - **AbsolutePose.msg** – Robot position with GPS quality flags (FLAG_GPS_RTK=1, FLAG_GPS_RTK_FIXED=2, FLAG_GPS_RTK_FLOAT=4, FLAG_GPS_DEAD_RECKONING=8)
-- **HighLevelStatus.msg** – Behavior tree state (IDLE, UNDOCKING, MOWING, RECOVERING, DOCKING, RECORDING)
+- **HighLevelStatus.msg** – Behavior tree state with coverage progress
+  ```
+  uint8 HIGH_LEVEL_STATE_NULL=0
+  uint8 HIGH_LEVEL_STATE_IDLE=1
+  uint8 HIGH_LEVEL_STATE_AUTONOMOUS=2
+  uint8 HIGH_LEVEL_STATE_RECORDING=3
+  uint8 HIGH_LEVEL_STATE_MANUAL_MOWING=4
+
+  uint8 state
+  string state_name
+  string sub_state_name
+  int16 current_area / current_path / current_path_index
+  int16 total_swaths / completed_swaths / skipped_swaths
+  float32 gps_quality_percent / battery_percent
+  bool is_charging / emergency
+  ```
 - **ESCStatus.msg** – Motor ESC telemetry
 - **ImuRaw.msg** – Raw IMU data from STM32 firmware
 - **MapArea.msg** – Mowing area polygon definition for map_server_node
@@ -204,6 +219,49 @@ Application layer
     bool emergency                # true=assert, false=release
   Response:
     bool success
+  ```
+
+- **HighLevelControl.srv** – Behavior tree mode commands from GUI
+  ```
+  Constants:
+    COMMAND_START=1             # Begin autonomous mowing
+    COMMAND_HOME=2              # Return to dock
+    COMMAND_RECORD_AREA=3       # Start area recording (drive boundary)
+    COMMAND_S2=4                # Mow next area
+    COMMAND_RECORD_FINISH=5     # Finish recording, save polygon
+    COMMAND_RECORD_CANCEL=6     # Cancel recording, discard trajectory
+    COMMAND_MANUAL_MOW=7        # Enter manual mowing mode (teleop + blade)
+    COMMAND_RESET_EMERGENCY=254 # Reset latched emergency
+    COMMAND_DELETE_MAPS=255     # Delete all maps
+
+  Request:
+    uint8 command
+  Response:
+    bool success
+  ```
+
+- **AddMowingArea.srv** – Save a mowing area polygon to map_server_node
+  ```
+  Request:
+    MapArea area                  # Polygon defining the area
+    bool is_navigation_area       # true=navigation, false=mowing
+  Response:
+    bool success
+  ```
+
+- **AreaRecording.srv** – Area recording lifecycle control
+  ```
+  Constants:
+    COMMAND_START=1 / COMMAND_FINISH=2 / COMMAND_CANCEL=3
+
+  Request:
+    uint8 command
+    string area_name
+    bool is_exclusion_zone
+  Response:
+    bool success
+    string message
+    geometry_msgs/Polygon polygon
   ```
 
 #### Actions
@@ -883,40 +941,69 @@ BehaviorTreeNode (main ROS2 node, 10 Hz)
             │   └── Sequence: EmergencyHandler
             │       ├── SetMowerEnabled(false)
             │       ├── StopMoving()
-            │       └── PublishHighLevelStatus(EMERGENCY)
+            │       ├── PublishHighLevelStatus(EMERGENCY)
+            │       └── Fallback: AutoResetOrWait
+            │           ├── Sequence: DockAutoReset
+            │           │   ├── IsCharging() → on dock?
+            │           │   ├── ResetEmergency() → release firmware latch
+            │           │   └── WaitForDuration(1.0s)
+            │           └── WaitForDuration(1.0s)  (not on dock — retry)
+            │
+            ├── Fallback: BoundaryGuard
+            │   ├── Inverter(IsBoundaryViolation) → continue if inside
+            │   └── Sequence: BoundaryHandler
+            │       ├── SetMowerEnabled(false), StopMoving()
+            │       ├── RetryUntilSuccessful(5): BackUp + check boundary
+            │       └── Fallback: BoundaryEmergencyStop
+            │
+            ├── Fallback: GPSModeSelector
+            │   ├── IsGPSFixed → SetNavMode(precise)
+            │   └── SetNavMode(degraded)
             │
             └── Fallback: MainLogic
-                ├── Sequence: DockingSequence (battery critical < 20.0 V)
-                │   ├── NeedsDocking threshold="20.0"
-                │   ├── SetMowerEnabled(false)
-                │   ├── StopMoving()
-                │   └── NavigateToPose(dock_pose)
+                ├── Sequence: CriticalBatteryDock (battery < 10%)
+                │   ├── IsBatteryLow(10.0)
+                │   ├── SetMowerEnabled(false), StopMoving()
+                │   ├── SaveObstacles(), SaveSlamMap()
+                │   └── DockRobot() → IDLE_DOCKED, ClearCommand
                 │
                 ├── Sequence: MowingSequence (COMMAND_START = 1)
                 │   ├── IsCommand(1)
-                │   ├── PublishHighLevelStatus(UNDOCKING)
-                │   ├── SetMowerEnabled(true)
-                │   ├── PlanCoveragePath(area_index=0)
-                │   ├── NavigateToPose(first_waypoint)
-                │   ├── Fallback: CoverageWithRecovery
-                │   │   ├── RetryUntilSuccessful(3 attempts)
-                │   │   │   ├── FollowCoveragePath()
-                │   │   │   └── Recover: StopMoving + 2s wait
-                │   │   └── FailedCoverageDock: shutdown, navigate to dock
-                │   └── NavigateToPose(dock_pose) → IDLE_DOCKED
+                │   ├── Undock (with GPS wait, SLAM save, heading calibration)
+                │   ├── Cell-based strip coverage loop:
+                │   │   ├── ReactiveSequence: MowingCommandGuard
+                │   │   │   ├── IsCommand(1) — abort if user cancels
+                │   │   │   ├── RainGuard — dock, wait, resume
+                │   │   │   ├── BatteryGuard — dock, charge to 95%, resume
+                │   │   │   └── Repeat(500): StripLoop
+                │   │   │       ├── GetNextStrip(area=0)
+                │   │   │       ├── TransitToStrip (RPP)
+                │   │   │       └── FollowStrip (FTCController)
+                │   │   └── FailedCoverageDock
+                │   └── Mow complete → disable blade, save, dock → IDLE_DOCKED
                 │
                 ├── Sequence: HomeSequence (COMMAND_HOME = 2)
                 │   ├── IsCommand(2)
-                │   ├── SetMowerEnabled(false)
-                │   ├── StopMoving()
-                │   └── NavigateToPose(dock_pose)
+                │   ├── SetMowerEnabled(false), StopMoving()
+                │   ├── SaveObstacles(), SaveSlamMap()
+                │   └── DockRobot() → IDLE_DOCKED, ClearCommand
                 │
-                ├── Sequence: RecordingSequence (COMMAND_S1 = 3)
+                ├── Sequence: RecordingSequence (COMMAND_RECORD_AREA = 3)
                 │   ├── IsCommand(3)
                 │   ├── PublishHighLevelStatus(RECORDING)
-                │   └── WaitForDuration(0.5s)
+                │   ├── RecordArea (records trajectory at 2 Hz, Douglas-Peucker
+                │   │   simplification, saves polygon via /map_server_node/add_area)
+                │   │   Listens for COMMAND_RECORD_FINISH=5 or COMMAND_RECORD_CANCEL=6
+                │   ├── PublishHighLevelStatus(RECORDING_COMPLETE)
+                │   └── ClearCommand
+                │
+                ├── Sequence: ManualMowingSequence (COMMAND_MANUAL_MOW = 7)
+                │   ├── IsCommand(7)
+                │   ├── PublishHighLevelStatus(MANUAL_MOWING)
+                │   └── WaitForDuration(0.5s)  (teleop via /cmd_vel_teleop)
                 │
                 └── Sequence: IdleSequence (default)
+                    ├── SetMowerEnabled(false), StopMoving()
                     ├── PublishHighLevelStatus(IDLE)
                     └── WaitForDuration(0.5s)
 
@@ -926,15 +1013,18 @@ Execution pattern: ReactiveSequence re-evaluates all children each tick
 
 **Tree Structure (from main_tree.xml):**
 
-The tree implements a priority-based fallback selector:
-1. **Emergency Guard (highest priority):** If emergency active → disable, stop, halt
-2. **Docking (critical battery):** If battery < 20% → dock immediately (uninterruptible)
-3. **Mowing (user-commanded):** Coverage path planning and execution with recovery
-4. **Home (user-commanded):** Return to dock on user request
-5. **Recording (experimental):** Waypoint recording mode
-6. **Idle (default):** Standby, periodic status updates
+The tree implements a priority-based fallback selector with reactive guards:
+1. **Emergency Guard (highest priority):** If emergency active → disable, stop, halt. Auto-resets when robot is placed on dock (charging detected) by calling `ResetEmergency` — firmware decides whether to actually clear the latch based on physical trigger state.
+2. **Boundary Guard:** If outside mowing area → stop, back up (up to 5 attempts), emergency stop if still outside.
+3. **GPS Mode Selector:** Switch between precise (RTK) and degraded navigation modes.
+4. **Critical Battery Dock:** If battery < 10% → dock immediately (uninterruptible).
+5. **Mowing (COMMAND_START=1):** Cell-based strip coverage with GPS wait, heading calibration from undock, rain/battery reactive guards, strip-by-strip execution via GetNextStrip/TransitToStrip/FollowStrip.
+6. **Home (COMMAND_HOME=2):** Return to dock on user request.
+7. **Area Recording (COMMAND_RECORD_AREA=3):** Drive the boundary, record trajectory at 2 Hz, finish (cmd 5) saves Douglas-Peucker simplified polygon via map_server_node, cancel (cmd 6) discards.
+8. **Manual Mowing (COMMAND_MANUAL_MOW=7):** Teleop via `/cmd_vel_teleop` (twist_mux priority). Blade managed by GUI (fire-and-forget to firmware). Collision_monitor, GPS, SLAM all remain active.
+9. **Idle (default):** Standby, periodic status updates.
 
-Each sequence transitions through defined high-level states (IDLE, UNDOCKING, MOWING, RECOVERING, DOCKING, RECORDING) published to STM32 firmware for synchronization.
+Each sequence transitions through defined high-level states (NULL=0, IDLE=1, AUTONOMOUS=2, RECORDING=3, MANUAL_MOWING=4) published via HighLevelStatus.msg for GUI and firmware synchronization.
 
 #### Condition Nodes (condition_nodes.cpp)
 
@@ -942,38 +1032,51 @@ Each sequence transitions through defined high-level states (IDLE, UNDOCKING, MO
 class IsEmergency : public BT::ConditionNode
 // Returns SUCCESS if active_emergency bit set
 
+class IsCharging : public BT::ConditionNode
+// Returns SUCCESS if dock charging state is active
+
+class IsBatteryLow : public BT::ConditionNode
+// Checks battery below threshold
+
 class NeedsDocking : public BT::ConditionNode
 // Checks battery_voltage < threshold parameter (default 20.0 V)
+
+class IsBatteryAbove : public BT::ConditionNode
+// Checks battery_percent > threshold (used for charge-to-95% logic)
 
 class IsCommand : public BT::ConditionNode
 // Port In: command (uint8)
 // Returns SUCCESS if command matches current high-level command from GUI
 
-class IsGpsAvailable : public BT::ConditionNode
-// Checks RTK fix status (RTK Fixed = best)
+class IsGPSFixed : public BT::ConditionNode
+// Returns SUCCESS if GPS has RTK fix
 
-class IsLocalizationHealthy : public BT::ConditionNode
-// Queries /localization/status; returns SUCCESS if EKF healthy
+class IsBoundaryViolation : public BT::ConditionNode
+// Returns SUCCESS if robot is outside mowing area boundary
+
+class IsRainDetected : public BT::ConditionNode
+// Returns SUCCESS if rain sensor detects rain
+
+class IsNewRain : public BT::ConditionNode
+// Returns SUCCESS only on new rain onset (not if it was raining at start)
+
+class IsResumeUndockAllowed : public BT::ConditionNode
+// Tracks resume-undock attempts (max_attempts port), prevents infinite loops
+
+class IsChargingProgressing : public BT::ConditionNode
+// Returns SUCCESS if charger is active and battery level increasing
+
+class ReplanNeeded : public BT::ConditionNode
+// Returns SUCCESS if coverage replanning is required
 ```
 
-#### Action Nodes (action_nodes.cpp)
+#### Action Nodes (action_nodes.cpp, utility_nodes.cpp, recording_nodes.cpp)
 
 ```cpp
 class NavigateToPose : public BT::AsyncActionNode
 // Contacts Nav2 /navigate_to_pose action server
 // Port In: goal="x;y;yaw" (string format)
 // Returns RUNNING (in progress), SUCCESS (reached), FAILURE (abort/timeout)
-
-class PlanCoveragePath : public BT::AsyncActionNode
-// Sends PlanCoverage action to mowgli_brv_planner
-// Port In: area_index (0-based area number)
-// Publishes feedback during planning (progress_percent, phase)
-// Returns SUCCESS with path, FAILURE if planning failed
-
-class FollowCoveragePath : public BT::AsyncActionNode
-// Executes the coverage path from coverage_planner
-// No input ports; reads from shared result
-// Returns RUNNING (following), SUCCESS (completed), FAILURE (collision/stuck)
 
 class SetMowerEnabled : public BT::ActionNode
 // Calls /mower_control service
@@ -985,7 +1088,7 @@ class StopMoving : public BT::ActionNode
 // Returns SUCCESS
 
 class PublishHighLevelStatus : public BT::ActionNode
-// Publishes state enum to STM32 via firmware interface
+// Publishes HighLevelStatus.msg (state enum + state_name string + coverage progress)
 // Port In: state (uint8), state_name (string)
 // Returns SUCCESS
 
@@ -998,10 +1101,81 @@ class ClearCommand : public BT::ActionNode
 // Clears the pending high-level command (e.g., COMMAND_START)
 // Returns SUCCESS
 
-class RetryUntilSuccessful : public BT::ControlNode
-// Wraps a child node; retries up to N times
-// Port In: num_attempts (int)
-// Returns SUCCESS on any child success, FAILURE after all attempts fail
+class ClearCostmap : public BT::ActionNode
+// Clears Nav2 local costmap
+// Returns SUCCESS
+
+class SaveSlamMap : public BT::ActionNode
+// Persists SLAM map to disk
+// Port In: map_path (string)
+// Returns SUCCESS
+
+class SaveObstacles : public BT::ActionNode
+// Persists tracked obstacles to disk
+// Returns SUCCESS
+
+class SetNavMode : public BT::ActionNode
+// Switches between "precise" (RTK) and "degraded" navigation modes
+// Port In: mode (string)
+// Returns SUCCESS
+
+class BackUp : public BT::ActionNode
+// Drives robot backward
+// Port In: backup_dist (double), backup_speed (double)
+// Returns SUCCESS/FAILURE
+
+class ResetEmergency : public BT::ActionNode
+// Calls /hardware_bridge/emergency_stop with emergency=false to release firmware latch
+// Firmware is safety authority — only clears if physical trigger is no longer asserted
+// Returns SUCCESS/FAILURE
+
+class RecordUndockStart : public BT::ActionNode
+// Records robot position at start of undock for heading calibration
+// Returns SUCCESS
+
+class CalibrateHeadingFromUndock : public BT::ActionNode
+// Reads EKF TF to compute heading after undock, clears costmaps
+// Returns SUCCESS
+
+class WasRainingAtStart : public BT::ActionNode
+// Records rain state at mowing start (to distinguish new rain from ongoing)
+// Returns SUCCESS
+
+class RecordResumeUndockFailure : public BT::ActionNode
+// Increments resume-undock failure counter
+// Returns SUCCESS
+
+class DockRobot : public BT::AsyncActionNode
+// Uses opennav_docking to dock the robot
+// Port In: dock_id, dock_type
+// Returns RUNNING/SUCCESS/FAILURE
+
+class UndockRobot : public BT::AsyncActionNode
+// Uses opennav_docking to undock the robot
+// Port In: dock_type
+// Returns RUNNING/SUCCESS/FAILURE
+
+// Cell-based coverage nodes:
+class GetNextStrip : public BT::AsyncActionNode
+// Fetches next unvisited strip from map_server_node ~/get_next_strip
+// Port In: area_index
+// Returns SUCCESS with strip path, FAILURE when coverage complete
+
+class TransitToStrip : public BT::AsyncActionNode
+// Navigates to start of current strip using Nav2 (RPP controller)
+// Returns RUNNING/SUCCESS/FAILURE
+
+class FollowStrip : public BT::AsyncActionNode
+// Follows current strip using Nav2 (FTCController for <10mm accuracy)
+// Returns RUNNING/SUCCESS/FAILURE
+
+// Area recording node:
+class RecordArea : public BT::StatefulActionNode
+// Records robot trajectory at configurable rate while user drives boundary
+// Douglas-Peucker simplification, saves polygon via /map_server_node/add_area
+// Publishes live preview on ~/recording_trajectory
+// Port In: simplification_tolerance, min_vertices, min_area, record_rate_hz, is_exclusion_zone
+// Returns RUNNING (recording), SUCCESS (finish cmd 5), FAILURE (cancel cmd 6 or error)
 ```
 
 #### Tree Control (BehaviorTreeNode)
@@ -1010,7 +1184,7 @@ class RetryUntilSuccessful : public BT::ControlNode
 - `/status` – Mower state, rain sensor, blade status
 - `/emergency` – Latched emergency flag
 - `/power` – Battery voltage (v_battery)
-- `/high_level_control` (service) – Receive mode commands from GUI (START, HOME, S1, S2)
+- `/high_level_control` (service) – Receive mode commands from GUI (START, HOME, S1, S2, RECORD_AREA, RECORD_FINISH, RECORD_CANCEL, MANUAL_MOW)
 
 **Services Called:**
 - `/mower_control` – Enable/disable blade
@@ -1033,19 +1207,49 @@ class RetryUntilSuccessful : public BT::ControlNode
 BehaviorTree factory registration:
 
 ```cpp
-BT_REGISTER_NODES(factory) {
+void registerAllNodes(BT::BehaviorTreeFactory& factory) {
+  // Condition nodes
   factory.registerNodeType<IsEmergency>("IsEmergency");
+  factory.registerNodeType<IsCharging>("IsCharging");
+  factory.registerNodeType<IsBatteryLow>("IsBatteryLow");
+  factory.registerNodeType<IsRainDetected>("IsRainDetected");
   factory.registerNodeType<NeedsDocking>("NeedsDocking");
+  factory.registerNodeType<IsBatteryAbove>("IsBatteryAbove");
   factory.registerNodeType<IsCommand>("IsCommand");
-  factory.registerNodeType<NavigateToPose>("NavigateToPose");
-  factory.registerNodeType<PlanCoveragePath>("PlanCoveragePath");
-  factory.registerNodeType<FollowCoveragePath>("FollowCoveragePath");
+  factory.registerNodeType<IsGPSFixed>("IsGPSFixed");
+  factory.registerNodeType<ReplanNeeded>("ReplanNeeded");
+  factory.registerNodeType<IsBoundaryViolation>("IsBoundaryViolation");
+  factory.registerNodeType<IsNewRain>("IsNewRain");
+  factory.registerNodeType<IsResumeUndockAllowed>("IsResumeUndockAllowed");
+  factory.registerNodeType<IsChargingProgressing>("IsChargingProgressing");
+
+  // Action nodes
   factory.registerNodeType<SetMowerEnabled>("SetMowerEnabled");
   factory.registerNodeType<StopMoving>("StopMoving");
+  factory.registerNodeType<ClearCostmap>("ClearCostmap");
   factory.registerNodeType<PublishHighLevelStatus>("PublishHighLevelStatus");
   factory.registerNodeType<WaitForDuration>("WaitForDuration");
+  factory.registerNodeType<NavigateToPose>("NavigateToPose");
+  factory.registerNodeType<SaveSlamMap>("SaveSlamMap");
+  factory.registerNodeType<BackUp>("BackUp");
   factory.registerNodeType<ClearCommand>("ClearCommand");
-  // ... etc
+  factory.registerNodeType<SaveObstacles>("SaveObstacles");
+  factory.registerNodeType<SetNavMode>("SetNavMode");
+  factory.registerNodeType<WasRainingAtStart>("WasRainingAtStart");
+  factory.registerNodeType<RecordUndockStart>("RecordUndockStart");
+  factory.registerNodeType<CalibrateHeadingFromUndock>("CalibrateHeadingFromUndock");
+  factory.registerNodeType<DockRobot>("DockRobot");
+  factory.registerNodeType<UndockRobot>("UndockRobot");
+  factory.registerNodeType<RecordResumeUndockFailure>("RecordResumeUndockFailure");
+  factory.registerNodeType<ResetEmergency>("ResetEmergency");
+
+  // Cell-based coverage nodes
+  factory.registerNodeType<GetNextStrip>("GetNextStrip");
+  factory.registerNodeType<FollowStrip>("FollowStrip");
+  factory.registerNodeType<TransitToStrip>("TransitToStrip");
+
+  // Area recording node
+  factory.registerNodeType<RecordArea>("RecordArea");
 }
 ```
 
@@ -1596,7 +1800,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | `/path` | nav_msgs/Path | planner_server (Nav2) | 1 Hz | Global path from Nav2 planner |
 | `/cmd_vel` | geometry_msgs/Twist | twist_mux | 10–50 Hz | Final velocity command (to hardware/Gazebo) |
 | `/diagnostics` | diagnostic_msgs/DiagnosticArray | diagnostics_node (mowgli_monitoring) | 1 Hz | System health aggregation |
-| `/high_level_status` | std_msgs/UInt8 | behavior_tree_node | 10 Hz | Current high-level mode (IDLE, MOWING, DOCKING) |
+| `/high_level_status` | mowgli_interfaces/HighLevelStatus | behavior_tree_node | 10 Hz | Current high-level mode (IDLE=1, AUTONOMOUS=2, RECORDING=3, MANUAL_MOWING=4) with coverage progress |
 
 **Subscribers (Sinks):**
 
@@ -1619,7 +1823,9 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | Service | Type | Server | Client | Purpose |
 |---------|------|--------|--------|---------|
 | `/mower_control` | MowerControl | hardware_bridge_node | behavior_tree_node | Enable/disable blade motor |
-| `/emergency_stop` | EmergencyStop | hardware_bridge_node | behavior_tree_node, safety system | Assert/release latched emergency |
+| `/emergency_stop` | EmergencyStop | hardware_bridge_node | behavior_tree_node, ResetEmergency BT node | Assert/release latched emergency |
+| `/high_level_control` | HighLevelControl | behavior_tree_node | GUI | Mode commands (START=1, HOME=2, RECORD_AREA=3, S2=4, RECORD_FINISH=5, RECORD_CANCEL=6, MANUAL_MOW=7) |
+| `/map_server_node/add_area` | AddMowingArea | map_server_node | RecordArea BT node | Save recorded mowing area polygon |
 | `/navigate_to_pose` | nav2_msgs/NavigateToPose | nav2_behavior_tree_navigator | behavior_tree_node | Send goal to Nav2 |
 | `/robot_localization/set_pose` | robot_localization/SetPose | ekf_odom | startup/testing tools | Initialize odometry origin |
 

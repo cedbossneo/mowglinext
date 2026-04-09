@@ -26,44 +26,47 @@ MowgliNext has a fully functional autonomous mowing stack running on real hardwa
 ### Core Stack
 
 | Component | Status | Details |
-|-----------|--------|---------|
-| ROS2 Jazzy | Done | Full stack on differential-drive mower, Cyclone DDS, multi-arch Docker |
-| SLAM Toolbox | Done | Lifelong mode for mapping and localization |
-| Dual EKF Localization | Done | `ekf_odom` (50 Hz, wheel + IMU) and `ekf_map` (20 Hz, GPS + SLAM heading) |
-| RTK-GPS | Done | u-blox F9P support with GPS degradation handling and wait-for-fix logic |
-| Nav2 Navigation | Done | RPP controller for transit paths |
-| Collision Monitor | Done | LiDAR-based real-time obstacle detection |
-| Obstacle Tracker | Done | DBSCAN clustering, persistence promotion, overlapping merge |
+|-----------|:------:|---------|
+| ROS2 Jazzy | :white_check_mark: | Full stack on differential-drive mower, Cyclone DDS, multi-arch Docker |
+| SLAM Toolbox | :white_check_mark: | Lifelong mode for mapping and localization; zero-odom only when charging AND idle to prevent corruption during undock |
+| Dual EKF Localization | :white_check_mark: | `ekf_odom` (50 Hz, wheel + IMU) and `ekf_map` (20 Hz, GPS + SLAM heading); heading calibration from EKF TF on undock |
+| RTK-GPS | :white_check_mark: | u-blox F9P support with GPS degradation handling and wait-for-fix logic |
+| Nav2 Navigation | :white_check_mark: | RPP controller for transit paths |
+| Collision Monitor | :white_check_mark: | LiDAR-based real-time obstacle detection with 3-zone approach (stop, slow, approach) |
+| Obstacle Tracker | :white_check_mark: | DBSCAN clustering, persistence promotion, overlapping merge |
 
 ### Coverage Planning & Execution
 
 | Component | Status | Details |
-|-----------|--------|---------|
-| B-RV Coverage Planner | Done | Boustrophedon + Rapid Voronoi path planning with Minimum Bounding Box |
-| Grid-based coverage | Done | Obstacle-aware decomposition with dynamic replanning |
-| Voronoi roadmap | Done | Inter-region transit between mowing zones |
-| FTCController | Done | Follow-the-Carrot with PID — sub-10 mm lateral accuracy on coverage paths |
+|-----------|:------:|---------|
+| Cell-based Strip Planner | :white_check_mark: | `map_server_node` plans strips on demand — no pre-planned full path. Progress persisted in `mow_progress` grid layer (survives restarts) |
+| FTCController | :white_check_mark: | Follow-the-Carrot with 3-axis PID — sub-10 mm lateral accuracy on coverage paths |
+| Strip-by-strip BT | :white_check_mark: | `GetNextStrip` -> `TransitToStrip` -> `FollowStrip`, one strip at a time with dynamic replanning |
+| Obstacle-aware routing | :white_check_mark: | Skips blocked strips, reroutes around obstacles, recovers from stuck |
 
 ### Autonomy & Behavior
 
 | Component | Status | Details |
-|-----------|--------|---------|
-| Behavior Tree | Done | Full mowing cycle: undock, plan, mow, dock |
-| Rain detection | Done | Pause-and-wait behavior during rain |
-| Battery monitoring | Done | Low-battery dock with resume after charge |
-| Obstacle replanning | Done | Re-plan coverage when new obstacles detected |
-| Recovery sequences | Done | Stuck detection, reverse, re-attempt |
+|-----------|:------:|---------|
+| Behavior Tree | :white_check_mark: | Full mowing cycle: undock, plan, mow, dock — BehaviorTree.CPP v4 |
+| Area Recording | :white_check_mark: | Drive the boundary to define mowing areas; Douglas-Peucker simplification, live trajectory preview |
+| Manual Mowing | :white_check_mark: | Dedicated teleop + blade mode with collision monitor, GPS, and SLAM still active |
+| Emergency Auto-Reset | :white_check_mark: | Robot on dock auto-clears emergency. Firmware remains sole safety authority |
+| Rain detection | :white_check_mark: | Pause-and-wait behavior during rain, resume when clear |
+| Battery monitoring | :white_check_mark: | Low-battery dock with resume after charge (95% threshold) |
+| Obstacle replanning | :white_check_mark: | Re-plan coverage when new obstacles detected |
+| Recovery sequences | :white_check_mark: | Stuck detection, backup, costmap clear, re-attempt |
 
 ### Infrastructure
 
 | Component | Status | Details |
-|-----------|--------|---------|
-| Simulation | Done | Gazebo Harmonic with full sensor simulation (LiDAR, IMU, GPS, wheel odom) |
-| E2E Testing | Done | Automated simulation testing with live dashboard metrics |
-| Web GUI | Done | React + Go interface for monitoring and control |
-| Docker Deployment | Done | Multi-arch (amd64 / arm64), Cyclone DDS, Docker Compose |
-| Firmware | Done | STM32F103 for motor control, IMU, blade safety, battery |
-| Interactive Installer | Done | Shell-based with hardware presets, i18n, UART detection |
+|-----------|:------:|---------|
+| Simulation | :white_check_mark: | Gazebo Harmonic with full sensor simulation (LiDAR, IMU, GPS, wheel odom) |
+| E2E Testing | :white_check_mark: | Automated simulation testing with live dashboard metrics |
+| Web GUI | :white_check_mark: | React + Go interface for monitoring and control |
+| Docker Deployment | :white_check_mark: | Multi-arch (amd64 / arm64), Cyclone DDS, Docker Compose |
+| Firmware | :white_check_mark: | STM32F103 for motor control, IMU, blade safety, battery |
+| Interactive Installer | :white_check_mark: | Shell-based with hardware presets, i18n, UART detection |
 
 ### Planned
 

@@ -45,3 +45,7 @@ mowglinext/
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation
 5. **Firmware is blade safety authority** — ROS2 is fire-and-forget
 6. **Collision monitor for avoidance** — costmap obstacles disabled in planner
+7. **Cell-based strip coverage** — no full-path pre-planning, strips fetched one at a time
+8. **Emergency auto-reset on dock** — firmware decides whether to clear latch
+9. **Area recording via BT** — drive boundary, Douglas-Peucker simplification, save polygon
+10. **Dedicated manual mowing mode** — teleop with collision_monitor/GPS/SLAM active
