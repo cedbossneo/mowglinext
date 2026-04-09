@@ -13,7 +13,6 @@
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/srv/command_bool.hpp>
 #include <mavros_msgs/srv/set_mode.hpp>
-
 #include <mowgli_interfaces/msg/emergency.hpp>
 #include <mowgli_interfaces/msg/high_level_status.hpp>
 #include <mowgli_interfaces/msg/power.hpp>
@@ -27,8 +26,7 @@ namespace mowgli_mavros_bridge
 class MavrosHardwareBridgeNode : public rclcpp::Node
 {
 public:
-  explicit MavrosHardwareBridgeNode(
-    const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  explicit MavrosHardwareBridgeNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
 
 private:
   void create_publishers();
@@ -46,19 +44,19 @@ private:
   void on_mavros_odom(const nav_msgs::msg::Odometry::SharedPtr msg);
 
   void on_mower_control(
-    const std::shared_ptr<mowgli_interfaces::srv::MowerControl::Request> request,
-    std::shared_ptr<mowgli_interfaces::srv::MowerControl::Response> response);
+      const std::shared_ptr<mowgli_interfaces::srv::MowerControl::Request> request,
+      std::shared_ptr<mowgli_interfaces::srv::MowerControl::Response> response);
 
   void on_emergency_stop(
-    const std::shared_ptr<mowgli_interfaces::srv::EmergencyStop::Request> request,
-    std::shared_ptr<mowgli_interfaces::srv::EmergencyStop::Response> response);
+      const std::shared_ptr<mowgli_interfaces::srv::EmergencyStop::Request> request,
+      std::shared_ptr<mowgli_interfaces::srv::EmergencyStop::Response> response);
 
   void publish_status();
   void publish_emergency();
   void publish_power();
 
   bool send_arm_command(bool arm);
-  bool send_mode_command(const std::string & mode);
+  bool send_mode_command(const std::string& mode);
 
 private:
   std::mutex mutex_;
