@@ -24,7 +24,6 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ghcr.io/${{ github.repository }}/mowglinext-gui
 
 jobs:
   # ─── Build each arch on native runners ──────────────────────────────────────
@@ -50,6 +49,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Normalize image name (lowercase)
+        run: echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -64,7 +66,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/mowglinext-gui
 
       - name: Build and push by digest
         id: build
@@ -73,10 +75,10 @@ jobs:
           context: ./gui
           platforms: ${{ matrix.arch }}
           no-cache: ${{ inputs.no-cache == true }}
-          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}:buildcache-{1}', env.IMAGE_NAME, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
-          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
+          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}:buildcache-{1}', format('{0}/{1}/mowglinext-gui', env.REGISTRY, env.IMAGE_REPO), matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/mowglinext-gui:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/mowglinext-gui,push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
         run: |
@@ -130,7 +132,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/mowglinext-gui
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -142,8 +144,8 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/mowglinext-gui@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/mowglinext-gui:${{ steps.meta.outputs.version }}
