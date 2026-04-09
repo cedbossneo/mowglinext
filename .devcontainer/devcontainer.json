@@ -17,6 +17,16 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/ros2_ws/src/mowglinext,type=bind",
   "workspaceFolder": "/ros2_ws/src/mowglinext",
 
+  // Active serial port for testing mavros and other serial bridge
+  "runArgs": [
+    "--device=/dev/ttyACM0:/dev/ttyACM0",
+    "--device=/dev/ttyACM1:/dev/ttyACM1"
+  ],
+
+  "mounts": [
+    "source=/dev/serial,target=/dev/serial,type=bind"
+  ],
+  
   // Forward ports for visualization and debugging
   "forwardPorts": [
     8765,   // Foxglove Bridge WebSocket

@@ -62,6 +62,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ── Bridges ──
     ros-jazzy-foxglove-bridge \
     ros-jazzy-rosbridge-suite \
+    # ── MAVROS / Pixhawk ──
+    ros-jazzy-mavros \
+    ros-jazzy-mavros-msgs \
     # ── Message definitions ──
     ros-jazzy-ublox-msgs \
     ros-jazzy-nmea-msgs \
