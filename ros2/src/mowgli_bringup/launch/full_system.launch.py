@@ -348,31 +348,33 @@ def generate_launch_description() -> LaunchDescription:
     # This prevents rosbridge from serialising every high-frequency topic
     # on the bus (SLAM, costmaps, TF, etc.) which is the primary cause of
     # excessive CPU usage on ARM boards.
-    rosbridge_topics_glob = [
-        "/hardware_bridge/status",
-        "/hardware_bridge/power",
-        "/hardware_bridge/emergency",
-        "/behavior_tree_node/high_level_status",
-        "/gps/absolute_pose",
-        "/odometry/filtered_map",
-        "/imu/data",
-        "/wheel_odom",
-        "/FollowCoveragePath/global_plan",
-        "/plan",
-        "/map_server_node/coverage_cells",
-        "/scan",
-        "/diagnostics",
-        "/obstacle_tracker/obstacles",
-        "/robot_description",
-        "/cmd_vel",
-    ]
+    # rosbridge glob parameters are single strings (not arrays).
+    # Use comma-separated values for multiple patterns.
+    rosbridge_topics_glob = (
+        "/hardware_bridge/status,"
+        "/hardware_bridge/power,"
+        "/hardware_bridge/emergency,"
+        "/behavior_tree_node/high_level_status,"
+        "/gps/absolute_pose,"
+        "/odometry/filtered_map,"
+        "/imu/data,"
+        "/wheel_odom,"
+        "/FollowCoveragePath/global_plan,"
+        "/plan,"
+        "/map_server_node/coverage_cells,"
+        "/scan,"
+        "/diagnostics,"
+        "/obstacle_tracker/obstacles,"
+        "/robot_description,"
+        "/cmd_vel"
+    )
 
-    rosbridge_services_glob = [
-        "/map_server_node/*",
-        "/behavior_tree_node/*",
-        "/hardware_bridge/*",
-        "/rosapi/*",
-    ]
+    rosbridge_services_glob = (
+        "/map_server_node/*,"
+        "/behavior_tree_node/*,"
+        "/hardware_bridge/*,"
+        "/rosapi/*"
+    )
 
     rosbridge_node = Node(
         condition=IfCondition(enable_rosbridge),
@@ -389,7 +391,7 @@ def generate_launch_description() -> LaunchDescription:
                 "fragment_size": 65536,
                 "topics_glob": rosbridge_topics_glob,
                 "services_glob": rosbridge_services_glob,
-                "params_glob": ["/use_sim_time"],
+                "params_glob": "/use_sim_time",
             },
         ],
     )
@@ -405,7 +407,7 @@ def generate_launch_description() -> LaunchDescription:
                 "use_sim_time": use_sim_time,
                 "topics_glob": rosbridge_topics_glob,
                 "services_glob": rosbridge_services_glob,
-                "params_glob": ["/use_sim_time"],
+                "params_glob": "/use_sim_time",
             },
         ],
     )
