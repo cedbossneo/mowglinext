@@ -17,6 +17,8 @@
 #include "mowgli_hardware/packet_handler.hpp"
 
 #include <cstring>
+#include <limits>
+#include <stdexcept>
 
 #include "mowgli_hardware/cobs.hpp"
 #include "mowgli_hardware/crc16.hpp"
@@ -99,17 +101,39 @@ void PacketHandler::dispatch_frame()
 
 std::vector<uint8_t> PacketHandler::encode_packet(const uint8_t* data, std::size_t len) const
 {
+  // Reject invalid input.
+  if (len > 0 && data == nullptr)
+  {
+    throw std::invalid_argument("encode_packet: data is null while len > 0");
+  }
+
   // Assemble payload + 2-byte CRC placeholder.
+  if (len > std::numeric_limits<std::size_t>::max() - 2u)
+  {
+    throw std::overflow_error("encode_packet: payload size overflow");
+  }
+
   const std::size_t payload_len = len + 2u;
   std::vector<uint8_t> payload(payload_len);
-  std::memcpy(payload.data(), data, len);
+
+  if (len > 0)
+  {
+    std::memcpy(payload.data(), data, len);
+  }
+
   append_crc(payload.data(), payload_len);
 
   // COBS-encode.
-  std::vector<uint8_t> encoded(cobs_max_encoded_size(payload_len));
+  const std::size_t encoded_cap = cobs_max_encoded_size(payload_len);
+  std::vector<uint8_t> encoded(encoded_cap);
   const std::size_t encoded_len = cobs_encode(payload.data(), payload_len, encoded.data());
 
   // Frame: 0x00 + COBS bytes + 0x00.
+  if (encoded_len > std::numeric_limits<std::size_t>::max() - 2u)
+  {
+    throw std::overflow_error("encode_packet: frame size overflow");
+  }
+
   std::vector<uint8_t> frame;
   frame.reserve(encoded_len + 2u);
   frame.push_back(0x00);
