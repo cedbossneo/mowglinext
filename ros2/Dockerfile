@@ -118,6 +118,8 @@ COPY src/mowgli_simulation/package.xml    src/mowgli_simulation/package.xml
 COPY src/mowgli_simulation/CMakeLists.txt src/mowgli_simulation/CMakeLists.txt
 COPY src/mowgli_bringup/package.xml       src/mowgli_bringup/package.xml
 COPY src/mowgli_bringup/CMakeLists.txt    src/mowgli_bringup/CMakeLists.txt
+COPY src/mowgli_mavros_bridge/package.xml      src/mowgli_mavros_bridge/package.xml
+COPY src/mowgli_mavros_bridge/CMakeLists.txt   src/mowgli_mavros_bridge/CMakeLists.txt
 
 # Resolve rosdep dependencies (cached until package.xml changes)
 RUN rosdep update --rosdistro jazzy \
