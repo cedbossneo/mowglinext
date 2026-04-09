@@ -472,7 +472,7 @@ void FTCController::setSpeedLimit(const double& speed_limit, const bool& percent
 // ── computeVelocityCommands ───────────────────────────────────────────────────
 
 geometry_msgs::msg::TwistStamped FTCController::computeVelocityCommands(
-    const geometry_msgs::msg::PoseStamped& pose,
+    const geometry_msgs::msg::PoseStamped& /*pose*/,
     const geometry_msgs::msg::Twist& /*velocity*/,
     nav2_core::GoalChecker* goal_checker)
 {
@@ -512,7 +512,7 @@ geometry_msgs::msg::TwistStamped FTCController::computeVelocityCommands(
   RCLCPP_INFO_THROTTLE(logger_,
                        *clock_,
                        2000,
-                       "FTCController: state=%d idx=%zu/%zu dt=%.4f "
+                       "FTCController: state=%d idx=%u/%zu dt=%.4f "
                        "lat=%.3f lon=%.3f ang=%.3f(deg=%.1f) pos=(%.2f,%.2f)",
                        static_cast<int>(current_state_),
                        current_index_,
@@ -530,7 +530,7 @@ geometry_msgs::msg::TwistStamped FTCController::computeVelocityCommands(
   if (new_state != current_state_)
   {
     RCLCPP_INFO(logger_,
-                "FTCController: state transition %d -> %d (idx=%zu, angle_err=%.3f deg).",
+                "FTCController: state transition %d -> %d (idx=%u, angle_err=%.3f deg).",
                 static_cast<int>(current_state_),
                 static_cast<int>(new_state),
                 current_index_,
