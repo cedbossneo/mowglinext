@@ -1291,7 +1291,7 @@ void ObstacleTrackerNode::load_from_file()
         tracked_.push_back(current);
         max_id = std::max(max_id, current.id);
       }
-      current = TrackedObstacle{};
+      current = TrackedObstacle();
       in_obstacle = true;
       in_hull = false;
       current.id = static_cast<uint32_t>(std::stoul(trimmed.substr(5)));
