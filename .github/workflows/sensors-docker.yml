@@ -64,7 +64,9 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Normalize image name (lowercase)
-        run: echo "IMAGE_REPO=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+        id: repo
+        shell: bash
+        run: echo "image_repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -80,7 +82,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.image_repo }}/${{ matrix.image }}
 
       - name: Build and push by digest
         id: build
@@ -90,10 +92,10 @@ jobs:
           target: ${{ matrix.target != '' && matrix.target || '' }}
           platforms: ${{ matrix.arch }}
           no-cache: ${{ inputs.no-cache == true }}
-          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}/{1}:buildcache-{2}', format('{0}/{1}', env.REGISTRY, env.IMAGE_REPO), matrix.image, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ matrix.image }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
+          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}/{1}:buildcache-{2}', format('{0}/{1}', env.REGISTRY, steps.repo.outputs.image_repo), matrix.image, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ steps.repo.outputs.image_repo }}/${{ matrix.image }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ steps.repo.outputs.image_repo }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           provenance: true
           sbom: true
 
@@ -135,6 +137,12 @@ jobs:
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
+
+      - name: Normalize image name (lowercase)
+        id: repo
+        shell: bash
+        run: echo "image_repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
         with:
           pattern: digests-${{ matrix.image }}-*
           merge-multiple: true
@@ -154,7 +162,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.image_repo }}/${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -166,8 +174,8 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ matrix.image }}@sha256:%s ' *)
+            $(printf '${{ env.REGISTRY }}/${{ steps.repo.outputs.image_repo }}/${{ matrix.image }}@sha256:%s ' *)
 
       - name: Inspect image
         run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_REPO }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ steps.repo.outputs.image_repo }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
