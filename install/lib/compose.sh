@@ -8,8 +8,9 @@ build_compose_stack() {
   COMPOSE_FILES+=("compose/docker-compose.mqtt.yml")
   COMPOSE_FILES+=("compose/docker-compose.gps.yml")
 
-  [[ "${ENABLE_FOXGLOVE:-true}" == "true" ]] && \
-    COMPOSE_FILES+=("compose/docker-compose.foxglove.yml")
+  # Foxglove bridge is controlled via the ENABLE_FOXGLOVE env var passed
+  # to the ROS2 container (see docker-compose.base.yml).  No separate
+  # compose file is needed — the launch file starts/skips the node.
 
   if [[ "${LIDAR_ENABLED:-true}" == "true" && "${LIDAR_TYPE:-none}" != "none" ]]; then
     case "${LIDAR_TYPE:-}" in
