@@ -1,5 +1,27 @@
 #!/usr/bin/env bash
 
+# Ensure config files mounted as bind-mount *files* exist before compose runs.
+# Docker creates a directory when the host path is missing, which breaks the
+# container with "not a directory" errors.
+ensure_default_configs() {
+  local defaults="$REPO_DIR/docker/config"
+
+  mkdir -p "$INSTALL_DIR/config/mqtt"
+  mkdir -p "$INSTALL_DIR/config/mowgli"
+  mkdir -p "$INSTALL_DIR/config/om"
+  mkdir -p "$INSTALL_DIR/config/db"
+
+  if [ ! -f "$INSTALL_DIR/config/mqtt/mosquitto.conf" ]; then
+    cp "$defaults/mqtt/mosquitto.conf" "$INSTALL_DIR/config/mqtt/mosquitto.conf"
+    info "Created default mosquitto.conf"
+  fi
+
+  if [ ! -f "$INSTALL_DIR/config/cyclonedds.xml" ]; then
+    cp "$defaults/cyclonedds.xml" "$INSTALL_DIR/config/cyclonedds.xml"
+    info "Created default cyclonedds.xml"
+  fi
+}
+
 build_compose_stack() {
   COMPOSE_FILES=()
 
@@ -69,6 +91,8 @@ run_compose_stack() {
   local f
 
   cd "$INSTALL_DIR" || return 1
+
+  ensure_default_configs
 
   echo ""
   info "Selected compose files:"
