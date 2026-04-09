@@ -19,6 +19,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "behaviortree_cpp/behavior_tree.h"
@@ -31,7 +32,10 @@
 #include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/high_level_control.hpp"
+#include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "nav2_msgs/action/undock_robot.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "std_msgs/msg/bool.hpp"
 
 using namespace std::chrono_literals;
@@ -65,6 +69,7 @@ public:
     setupSubscribers();
     setupServiceServer();
     setupBehaviorTree();
+    waitForNav2();
     setupTimer();
 
     RCLCPP_INFO(get_logger(), "mowgli_behavior_node ready");
@@ -197,6 +202,53 @@ private:
         });
 
     RCLCPP_DEBUG(get_logger(), "~/high_level_control service server created");
+  }
+
+  // Block until the critical Nav2 action servers are reachable.
+  // Nav2 is launched with a 30 s delay (TimerAction) to let SLAM publish
+  // the map→odom TF first. Rather than scattering long timeouts across
+  // every BT action node, we gate startup here once.
+  void waitForNav2()
+  {
+    using nav2_msgs::action::NavigateToPose;
+    using nav2_msgs::action::UndockRobot;
+
+    auto nav_client = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
+    auto undock_client = rclcpp_action::create_client<UndockRobot>(this, "/undock_robot");
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+    const auto poll = std::chrono::seconds(2);
+
+    bool nav_ready = false;
+    bool undock_ready = false;
+
+    RCLCPP_INFO(get_logger(),
+                "Waiting for Nav2 action servers (/navigate_to_pose, /undock_robot)...");
+
+    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline)
+    {
+      if (!nav_ready)
+      {
+        nav_ready = nav_client->wait_for_action_server(poll);
+      }
+      if (!undock_ready)
+      {
+        undock_ready = undock_client->wait_for_action_server(poll);
+      }
+      if (nav_ready && undock_ready)
+      {
+        RCLCPP_INFO(get_logger(), "Nav2 action servers are available");
+        return;
+      }
+      RCLCPP_INFO_THROTTLE(get_logger(),
+                           *get_clock(),
+                           10000,
+                           "Still waiting for Nav2 (navigate=%s, undock=%s)...",
+                           nav_ready ? "ok" : "waiting",
+                           undock_ready ? "ok" : "waiting");
+    }
+
+    RCLCPP_WARN(get_logger(), "Timed out waiting for Nav2 action servers — starting BT anyway");
   }
 
   void setupBehaviorTree()

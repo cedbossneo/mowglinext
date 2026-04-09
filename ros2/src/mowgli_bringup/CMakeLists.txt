@@ -18,6 +18,11 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  PROGRAMS scripts/wait_for_tf.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # ---------------------------------------------------------------------------
 # Testing
 # ---------------------------------------------------------------------------

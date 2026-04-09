@@ -505,7 +505,7 @@ BT::NodeStatus NavigateToPose::onStart()
 
   ensureActionClient(ctx->node);
 
-  if (!action_client_->wait_for_action_server(std::chrono::seconds(3)))
+  if (!action_client_->wait_for_action_server(std::chrono::seconds(5)))
   {
     RCLCPP_WARN(ctx->node->get_logger(),
                 "NavigateToPose: action server '/navigate_to_pose' not available");
