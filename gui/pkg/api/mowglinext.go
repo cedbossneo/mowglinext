@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,9 @@ func MowgliNextRoutes(r *gin.RouterGroup, provider types.IRosProvider) {
 // @Router /mowglinext/map/area/add [post]
 func AddMapAreaRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 	group.POST("/map/area/add", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+
 		var CallReq mowgli.AddMowingAreaReq
 		err := unmarshalROSMessage[*mowgli.AddMowingAreaReq](c.Request.Body, &CallReq)
 		if err != nil {
@@ -54,7 +58,7 @@ func AddMapAreaRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		if CallReq.Area.Obstacles == nil {
 			CallReq.Area.Obstacles = []geometry.Polygon{}
 		}
-		err = provider.CallService(c.Request.Context(), "/map_server_node/add_area", &CallReq, &mowgli.AddMowingAreaRes{})
+		err = provider.CallService(ctx, "/map_server_node/add_area", &CallReq, &mowgli.AddMowingAreaRes{})
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {
@@ -75,7 +79,10 @@ func AddMapAreaRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 // @Router /mowglinext/map [delete]
 func ClearMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 	group.DELETE("/map", func(c *gin.Context) {
-		err := provider.CallService(c.Request.Context(), "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+
+		err := provider.CallService(ctx, "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {
@@ -86,49 +93,53 @@ func ClearMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 
 // ReplaceMapRoute clear the map and insert areas
 //
-// @Summary clear the map and insert areas
-// @Description clear the map and insert areas
+// @Summary Delete the current map and replace all areas
+// @Description clear the map and insert all provided areas in a single transaction
 // @Tags mowglinext
 // @Accept  json
 // @Produce  json
+// @Param CallReq body mowgli.ReplaceMapReq true "replace map request body"
 // @Success 200 {object} OkResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /mowglinext/map [put]
 func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 	group.PUT("/map", func(c *gin.Context) {
-		err := provider.CallService(c.Request.Context(), "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+
+		err := provider.CallService(ctx, "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 			return
-		} else {
-			var CallReq mowgli.ReplaceMapReq
-			err := unmarshalROSMessage[*mowgli.ReplaceMapReq](c.Request.Body, &CallReq)
+		}
+
+		var CallReq mowgli.ReplaceMapReq
+		err = unmarshalROSMessage[*mowgli.ReplaceMapReq](c.Request.Body, &CallReq)
+		if err != nil {
+			c.JSON(500, ErrorResponse{Error: err.Error()})
+			return
+		}
+		for _, element := range CallReq.Areas {
+			// Ensure Obstacles is an empty slice, not nil — rosbridge
+			// rejects null for repeated fields ("msg is not a list type").
+			if element.Area.Obstacles == nil {
+				element.Area.Obstacles = []geometry.Polygon{}
+			}
+			areaReq := mowgli.AddMowingAreaReq{
+				Area:             element.Area,
+				IsNavigationArea: element.IsNavigationArea,
+			}
+			err = provider.CallService(ctx, "/map_server_node/add_area", &areaReq, &mowgli.AddMowingAreaRes{})
 			if err != nil {
 				c.JSON(500, ErrorResponse{Error: err.Error()})
 				return
 			}
-			for _, element := range CallReq.Areas {
-				// Ensure Obstacles is an empty slice, not nil — rosbridge
-				// rejects null for repeated fields ("msg is not a list type").
-				if element.Area.Obstacles == nil {
-					element.Area.Obstacles = []geometry.Polygon{}
-				}
-				areaReq := mowgli.AddMowingAreaReq{
-					Area:             element.Area,
-					IsNavigationArea: element.IsNavigationArea,
-				}
-				err = provider.CallService(c.Request.Context(), "/map_server_node/add_area", &areaReq, &mowgli.AddMowingAreaRes{})
-				if err != nil {
-					c.JSON(500, ErrorResponse{Error: err.Error()})
-					return
-				}
-			}
-
-			// Persist areas to disk so they survive container restarts
-			_ = provider.CallService(c.Request.Context(), "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
-
-			c.JSON(200, OkResponse{})
 		}
+
+		// Persist areas to disk so they survive container restarts
+		_ = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
+
+		c.JSON(200, OkResponse{})
 	})
 }
 
@@ -145,12 +156,15 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 // @Router /mowglinext/map/docking [post]
 func SetDockingPointRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 	group.POST("/map/docking", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+
 		var CallReq mowgli.SetDockingPointReq
 		err := unmarshalROSMessage[*mowgli.SetDockingPointReq](c.Request.Body, &CallReq)
 		if err != nil {
 			return
 		}
-		err = provider.CallService(c.Request.Context(), "/map_server_node/set_docking_point", &CallReq, &mowgli.SetDockingPointRes{})
+		err = provider.CallService(ctx, "/map_server_node/set_docking_point", &CallReq, &mowgli.SetDockingPointRes{})
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {

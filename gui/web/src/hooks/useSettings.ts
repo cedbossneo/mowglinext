@@ -207,7 +207,7 @@ export const useSettings = () => {
                 })
                 // Load YAML config settings (new snake_case keys)
                 try {
-                    const yamlSettings = await guiApi.settings.settingsYamlList()
+                    const yamlSettings = await guiApi.settings.yamlList()
                     if (!yamlSettings.error && yamlSettings.data) {
                         Object.assign(newSettings, yamlSettings.data)
                     }

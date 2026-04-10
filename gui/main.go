@@ -1,3 +1,10 @@
+// MowgliNext GUI API
+//
+// @title MowgliNext GUI API
+// @version 1.0
+// @description API for the MowgliNext autonomous robot mower GUI
+// @host localhost:4200
+// @BasePath /api
 package main
 
 import (

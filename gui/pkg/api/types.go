@@ -7,6 +7,10 @@ type ErrorResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type SettingsStatusResponse struct {
+	OnboardingCompleted bool `json:"onboarding_completed"`
+}
+
 type GetSettingsResponse struct {
 	Settings map[string]any `json:"settings,omitempty"`
 }

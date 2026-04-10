@@ -455,7 +455,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                         onOpenDetails={() => {}}
                     />
                     <Source type={"geojson"} id={"display-features"} data={displayFeatures}>
-                        <Layer type={"line"} id={"display-lines"} filter={['==', '$type', 'LineString']}
+                        <Layer type={"line"} id={"display-lines"} filter={['==', ['geometry-type'], 'LineString']}
                             layout={{'line-cap': 'round', 'line-join': 'round'}}
                             paint={{
                                 'line-color': ['get', 'color'],
@@ -506,7 +506,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             }}/>
                         {/* Mower center point */}
                         <Layer type={"circle"} id={"mower-point"}
-                            filter={['all', ['==', '$type', 'Point'], ['==', ['get', 'feature_type'], 'mower']]}
+                            filter={['==', ['get', 'feature_type'], 'mower']}
                             paint={{
                                 'circle-radius': 4,
                                 'circle-color': '#00a6ff',
@@ -515,14 +515,14 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             }}/>
                         {/* Other display points */}
                         <Layer type={"circle"} id={"display-points-halo"}
-                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
+                            filter={['all', ['!=', ['get', 'feature_type'], 'dock'], ['!=', ['get', 'feature_type'], 'mower']]}
                             paint={{
                                 'circle-radius': 8,
                                 'circle-color': '#ffffff',
                                 'circle-opacity': 0.9,
                             }}/>
                         <Layer type={"circle"} id={"display-points"}
-                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
+                            filter={['all', ['!=', ['get', 'feature_type'], 'dock'], ['!=', ['get', 'feature_type'], 'mower']]}
                             paint={{
                                 'circle-radius': 5,
                                 'circle-color': ['get', 'color'],
@@ -609,7 +609,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     />
                     {/* Display-only features: mower, dock, heading, paths */}
                     <Source type={"geojson"} id={"display-features"} data={displayFeatures}>
-                        <Layer type={"line"} id={"display-lines"} filter={['==', '$type', 'LineString']}
+                        <Layer type={"line"} id={"display-lines"} filter={['==', ['geometry-type'], 'LineString']}
                             layout={{'line-cap': 'round', 'line-join': 'round'}}
                             paint={{
                                 'line-color': ['get', 'color'],
@@ -660,7 +660,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             }}/>
                         {/* Mower center point */}
                         <Layer type={"circle"} id={"mower-point"}
-                            filter={['all', ['==', '$type', 'Point'], ['==', ['get', 'feature_type'], 'mower']]}
+                            filter={['==', ['get', 'feature_type'], 'mower']}
                             paint={{
                                 'circle-radius': 4,
                                 'circle-color': '#00a6ff',
@@ -669,14 +669,14 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             }}/>
                         {/* Other display points */}
                         <Layer type={"circle"} id={"display-points-halo"}
-                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
+                            filter={['all', ['!=', ['get', 'feature_type'], 'dock'], ['!=', ['get', 'feature_type'], 'mower']]}
                             paint={{
                                 'circle-radius': 8,
                                 'circle-color': '#ffffff',
                                 'circle-opacity': 0.9,
                             }}/>
                         <Layer type={"circle"} id={"display-points"}
-                            filter={['all', ['==', '$type', 'Point'], ['!in', 'feature_type', 'dock', 'mower']]}
+                            filter={['all', ['!=', ['get', 'feature_type'], 'dock'], ['!=', ['get', 'feature_type'], 'mower']]}
                             paint={{
                                 'circle-radius': 5,
                                 'circle-color': ['get', 'color'],

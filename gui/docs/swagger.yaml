@@ -1,3 +1,4 @@
+basePath: /api
 definitions:
   api.Container:
     properties:
@@ -34,8 +35,7 @@ definitions:
   api.GetSettingsResponse:
     properties:
       settings:
-        additionalProperties:
-          type: string
+        additionalProperties: {}
         type: object
     type: object
   api.OkResponse:
@@ -43,50 +43,78 @@ definitions:
       ok:
         type: string
     type: object
-  geometry_msgs.Point:
+  api.Schedule:
     properties:
-      msg.Package:
+      area:
         type: integer
-      x:
-        type: number
-      "y":
-        type: number
-      z:
-        type: number
-    type: object
-  geometry_msgs.Point32:
-    properties:
-      msg.Package:
-        type: integer
-      x:
-        type: number
-      "y":
-        type: number
-      z:
-        type: number
-    type: object
-  geometry_msgs.Polygon:
-    properties:
-      msg.Package:
-        type: integer
-      points:
+      createdAt:
+        type: string
+      daysOfWeek:
+        description: 0=Sunday .. 6=Saturday
         items:
-          $ref: '#/definitions/geometry_msgs.Point32'
+          type: integer
+        type: array
+      enabled:
+        type: boolean
+      id:
+        type: string
+      lastRun:
+        type: string
+      time:
+        description: HH:mm format
+        type: string
+    type: object
+  api.ScheduleListResponse:
+    properties:
+      schedules:
+        items:
+          $ref: '#/definitions/api.Schedule'
         type: array
     type: object
-  geometry_msgs.Pose:
+  api.SettingsStatusResponse:
     properties:
-      msg.Package:
-        type: integer
-      orientation:
-        $ref: '#/definitions/geometry_msgs.Quaternion'
-      position:
-        $ref: '#/definitions/geometry_msgs.Point'
+      onboarding_completed:
+        type: boolean
     type: object
-  geometry_msgs.Quaternion:
+  api.SystemInfo:
     properties:
-      msg.Package:
-        type: integer
+      cpuTemperature:
+        type: number
+    type: object
+  geometry.Point:
+    properties:
+      x:
+        type: number
+      "y":
+        type: number
+      z:
+        type: number
+    type: object
+  geometry.Point32:
+    properties:
+      x:
+        type: number
+      "y":
+        type: number
+      z:
+        type: number
+    type: object
+  geometry.Polygon:
+    properties:
+      points:
+        items:
+          $ref: '#/definitions/geometry.Point32'
+        type: array
+    type: object
+  geometry.Pose:
+    properties:
+      orientation:
+        $ref: '#/definitions/geometry.Quaternion'
+      position:
+        $ref: '#/definitions/geometry.Point'
+    type: object
+  geometry.Quaternion:
+    properties:
       w:
         type: number
       x:
@@ -96,34 +124,44 @@ definitions:
       z:
         type: number
     type: object
-  mower_map.AddMowingAreaSrvReq:
+  mowgli.AddMowingAreaReq:
     properties:
       area:
-        $ref: '#/definitions/mower_map.MapArea'
-      isNavigationArea:
+        $ref: '#/definitions/mowgli.MapArea'
+      is_navigation_area:
         type: boolean
-      msg.Package:
-        type: integer
     type: object
-  mower_map.MapArea:
+  mowgli.MapArea:
     properties:
       area:
-        $ref: '#/definitions/geometry_msgs.Polygon'
-      msg.Package:
-        type: integer
+        $ref: '#/definitions/geometry.Polygon'
+      is_navigation_area:
+        type: boolean
       name:
         type: string
       obstacles:
         items:
-          $ref: '#/definitions/geometry_msgs.Polygon'
+          $ref: '#/definitions/geometry.Polygon'
         type: array
     type: object
-  mower_map.SetDockingPointSrvReq:
+  mowgli.ReplaceMapArea:
     properties:
-      dockingPose:
-        $ref: '#/definitions/geometry_msgs.Pose'
-      msg.Package:
-        type: integer
+      area:
+        $ref: '#/definitions/mowgli.MapArea'
+      is_navigation_area:
+        type: boolean
+    type: object
+  mowgli.ReplaceMapReq:
+    properties:
+      areas:
+        items:
+          $ref: '#/definitions/mowgli.ReplaceMapArea'
+        type: array
+    type: object
+  mowgli.SetDockingPointReq:
+    properties:
+      docking_pose:
+        $ref: '#/definitions/geometry.Pose'
     type: object
   types.FirmwareConfig:
     properties:
@@ -161,6 +199,8 @@ definitions:
         type: integer
       panelType:
         type: string
+      perimeterWire:
+        type: boolean
       playButtonClearEmergencyMillis:
         type: integer
       repository:
@@ -176,8 +216,12 @@ definitions:
       wheelBase:
         type: number
     type: object
+host: localhost:4200
 info:
   contact: {}
+  description: API for the MowgliNext autonomous robot mower GUI
+  title: MowgliNext GUI API
+  version: "1.0"
 paths:
   /config/envs:
     get:
@@ -319,8 +363,8 @@ paths:
       - application/json
       description: call a service
       parameters:
-      - description: 'command to call, could be: mower_start, mower_home, mower_s1,
-          mower_s2, emergency, mow'
+      - description: 'command to call, could be: high_level_control, emergency, mow_enabled,
+          start_in_area'
         in: path
         name: command
         required: true
@@ -368,7 +412,14 @@ paths:
     put:
       consumes:
       - application/json
-      description: clear the map and insert areas
+      description: clear the map and insert all provided areas in a single transaction
+      parameters:
+      - description: replace map request body
+        in: body
+        name: CallReq
+        required: true
+        schema:
+          $ref: '#/definitions/mowgli.ReplaceMapReq'
       produces:
       - application/json
       responses:
@@ -380,7 +431,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/api.ErrorResponse'
-      summary: clear the map and insert areas
+      summary: Delete the current map and replace all areas
       tags:
       - mowglinext
   /mowglinext/map/area/add:
@@ -394,7 +445,7 @@ paths:
         name: CallReq
         required: true
         schema:
-          $ref: '#/definitions/mower_map.AddMowingAreaSrvReq'
+          $ref: '#/definitions/mowgli.AddMowingAreaReq'
       produces:
       - application/json
       responses:
@@ -420,7 +471,7 @@ paths:
         name: CallReq
         required: true
         schema:
-          $ref: '#/definitions/mower_map.SetDockingPointSrvReq'
+          $ref: '#/definitions/mowgli.SetDockingPointReq'
       produces:
       - application/json
       responses:
@@ -452,8 +503,9 @@ paths:
     get:
       description: subscribe to a topic
       parameters:
-      - description: 'topic to subscribe to, could be: diagnostics, status, gps, imu,
-          ticks, highLevelStatus'
+      - description: 'logical topic key: diagnostics, status, highLevelStatus, gps,
+          pose, imu, ticks, map, path, plan, mowingPath, power, emergency, dockingSensor,
+          lidar'
         in: path
         name: topic
         required: true
@@ -462,6 +514,101 @@ paths:
       summary: subscribe to a topic
       tags:
       - mowglinext
+  /schedules:
+    get:
+      description: list all mowing schedules
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.ScheduleListResponse'
+      summary: list all schedules
+      tags:
+      - schedules
+    post:
+      consumes:
+      - application/json
+      description: create a new mowing schedule
+      parameters:
+      - description: schedule
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/api.Schedule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: create a schedule
+      tags:
+      - schedules
+  /schedules/{id}:
+    delete:
+      description: delete a mowing schedule
+      parameters:
+      - description: schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.OkResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: delete a schedule
+      tags:
+      - schedules
+    put:
+      consumes:
+      - application/json
+      description: update an existing mowing schedule
+      parameters:
+      - description: schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: schedule
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/api.Schedule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: update a schedule
+      tags:
+      - schedules
   /settings:
     get:
       description: returns a JSON object with the settings
@@ -484,7 +631,7 @@ paths:
       - application/json
       description: saves the settings to the mower_config.sh file
       parameters:
-      - description: settings
+      - description: settings key-value map
         in: body
         name: settings
         required: true
@@ -503,6 +650,102 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       summary: saves the settings to the mower_config.sh file
+      tags:
+      - settings
+  /settings/schema:
+    get:
+      description: returns the JSON Schema for mower configuration parameters
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: returns the mower config JSON Schema
+      tags:
+      - settings
+  /settings/status:
+    get:
+      description: returns whether onboarding has been completed
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SettingsStatusResponse'
+      summary: get settings onboarding status
+      tags:
+      - settings
+    post:
+      description: marks onboarding as completed so the wizard is not shown again
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.OkResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: mark onboarding as completed
+      tags:
+      - settings
+  /settings/yaml:
+    get:
+      description: returns the current YAML mower configuration values as a flat key-value
+        map
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: returns the current YAML mower configuration
+      tags:
+      - settings
+    post:
+      consumes:
+      - application/json
+      description: saves the mower configuration as YAML to mowgli_robot.yaml
+      parameters:
+      - description: flat key-value settings map
+        in: body
+        name: settings
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.OkResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: saves the mower configuration as YAML
       tags:
       - settings
   /setup/flashBoard:
@@ -531,13 +774,24 @@ paths:
       summary: flash the mower board with the given config
       tags:
       - setup
-  /setup/flashGPS:
-    post:
-      consumes:
-      - application/json
-      description: flash the gps configuration
+  /system/info:
+    get:
+      description: get system info such as CPU temperature
       produces:
-      - text/event-stream
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.SystemInfo'
+      summary: get system info
+      tags:
+      - system
+  /system/reboot:
+    post:
+      description: reboots the Raspberry Pi
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
@@ -547,7 +801,24 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/api.ErrorResponse'
-      summary: flash the gps configuration
+      summary: reboot the system
       tags:
-      - setup
+      - system
+  /system/shutdown:
+    post:
+      description: shuts down the Raspberry Pi
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.OkResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/api.ErrorResponse'
+      summary: shutdown the system
+      tags:
+      - system
 swagger: "2.0"

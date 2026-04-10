@@ -30,6 +30,13 @@ func SettingsRoutes(r *gin.RouterGroup, dbProvider types.IDBProvider) {
 
 // GetSettingsStatus returns whether onboarding has been completed.
 // Used by the frontend to decide whether to show the onboarding wizard.
+//
+// @Summary get settings onboarding status
+// @Description returns whether onboarding has been completed
+// @Tags settings
+// @Produce json
+// @Success 200 {object} SettingsStatusResponse
+// @Router /settings/status [get]
 func GetSettingsStatus(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.GET("/settings/status", func(c *gin.Context) {
 		val, err := dbProvider.Get("onboarding.completed")
@@ -39,6 +46,14 @@ func GetSettingsStatus(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRo
 }
 
 // PostSettingsStatus marks onboarding as completed.
+//
+// @Summary mark onboarding as completed
+// @Description marks onboarding as completed so the wizard is not shown again
+// @Tags settings
+// @Produce json
+// @Success 200 {object} OkResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /settings/status [post]
 func PostSettingsStatus(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.POST("/settings/status", func(c *gin.Context) {
 		if err := dbProvider.Set("onboarding.completed", []byte("true")); err != nil {
@@ -372,6 +387,17 @@ func getSchema(dbProvider types.IDBProvider) (map[string]any, error) {
 // Legacy shell-config endpoints (kept for backward compatibility)
 // ============================================================================
 
+// PostSettings saves settings to the mower_config.sh file.
+//
+// @Summary saves the settings to the mower_config.sh file
+// @Description saves the settings to the mower_config.sh file
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param settings body map[string]interface{} true "settings key-value map"
+// @Success 200 {object} OkResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /settings [post]
 func PostSettings(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.POST("/settings", func(c *gin.Context) {
 		var settingsPayload map[string]any
@@ -460,6 +486,15 @@ func PostSettings(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes 
 	})
 }
 
+// GetSettings returns a JSON object with the settings.
+//
+// @Summary returns a JSON object with the settings
+// @Description returns a JSON object with the settings
+// @Tags settings
+// @Produce json
+// @Success 200 {object} GetSettingsResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /settings [get]
 func GetSettings(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.GET("/settings", func(c *gin.Context) {
 		mowerConfigFilePath, err := dbProvider.Get("system.mower.configFile")
@@ -522,6 +557,15 @@ var (
 )
 
 
+// GetSettingsSchema returns the mower config JSON Schema.
+//
+// @Summary returns the mower config JSON Schema
+// @Description returns the JSON Schema for mower configuration parameters
+// @Tags settings
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} ErrorResponse
+// @Router /settings/schema [get]
 func GetSettingsSchema(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.GET("/settings/schema", func(c *gin.Context) {
 		schema, err := getSchema(dbProvider)
@@ -539,6 +583,14 @@ func GetSettingsSchema(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRo
 
 // GetSettingsYAML reads mowgli_robot.yaml, flattens the nested ROS2 YAML,
 // and returns a flat key-value JSON object for the settings form.
+//
+// @Summary returns the current YAML mower configuration
+// @Description returns the current YAML mower configuration values as a flat key-value map
+// @Tags settings
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} ErrorResponse
+// @Router /settings/yaml [get]
 func GetSettingsYAML(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.GET("/settings/yaml", func(c *gin.Context) {
 		configFilePath, err := dbProvider.Get("system.mower.yamlConfigFile")
@@ -590,6 +642,17 @@ func GetSettingsYAML(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRout
 
 // PostSettingsYAML receives flat key-value settings from the form,
 // nests them into proper ROS2 YAML structure, and writes mowgli_robot.yaml.
+//
+// @Summary saves the mower configuration as YAML
+// @Description saves the mower configuration as YAML to mowgli_robot.yaml
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param settings body map[string]interface{} true "flat key-value settings map"
+// @Success 200 {object} OkResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /settings/yaml [post]
 func PostSettingsYAML(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRoutes {
 	return r.POST("/settings/yaml", func(c *gin.Context) {
 		var payload map[string]any

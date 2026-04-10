@@ -53,8 +53,8 @@ export const useSettingsSchema = () => {
             try {
                 setLoading(true);
                 const [schemaRes, valuesRes] = await Promise.all([
-                    guiApi.settings.settingsSchemaList(),
-                    guiApi.settings.settingsYamlList(),
+                    guiApi.settings.schemaList(),
+                    guiApi.settings.yamlList(),
                 ]);
                 if (schemaRes.error) {
                     throw new Error((schemaRes.error as any).error);
@@ -78,7 +78,7 @@ export const useSettingsSchema = () => {
         async (newValues: Record<string, any>) => {
             try {
                 setLoading(true);
-                const res = await guiApi.settings.settingsYamlCreate(newValues);
+                const res = await guiApi.settings.yamlCreate(newValues);
                 if (res.error) {
                     throw new Error((res.error as any).error);
                 }

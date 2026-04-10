@@ -1,8 +1,13 @@
 {
     "swagger": "2.0",
     "info": {
-        "contact": {}
+        "description": "API for the MowgliNext autonomous robot mower GUI",
+        "title": "MowgliNext GUI API",
+        "contact": {},
+        "version": "1.0"
     },
+    "host": "localhost:4200",
+    "basePath": "/api",
     "paths": {
         "/config/envs": {
             "get": {
@@ -102,10 +107,10 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                          "type": "object",
-                          "additionalProperties": {
-                            "type": "string"
-                          }
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
@@ -223,7 +228,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "command to call, could be: mower_start, mower_home, mower_s1, mower_s2, emergency, mow",
+                        "description": "command to call, could be: high_level_control, emergency, mow_enabled, start_in_area",
                         "name": "command",
                         "in": "path",
                         "required": true
@@ -256,8 +261,8 @@
             }
         },
         "/mowglinext/map": {
-            "delete": {
-                "description": "clear the map",
+            "put": {
+                "description": "clear the map and insert all provided areas in a single transaction",
                 "consumes": [
                     "application/json"
                 ],
@@ -267,7 +272,18 @@
                 "tags": [
                     "mowglinext"
                 ],
-                "summary": "clear the map",
+                "summary": "Delete the current map and replace all areas",
+                "parameters": [
+                    {
+                        "description": "replace map request body",
+                        "name": "CallReq",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mowgli.ReplaceMapReq"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -283,8 +299,8 @@
                     }
                 }
             },
-            "put": {
-                "description": "clear the map and insert multiple areas",
+            "delete": {
+                "description": "clear the map",
                 "consumes": [
                     "application/json"
                 ],
@@ -294,7 +310,7 @@
                 "tags": [
                     "mowglinext"
                 ],
-                "summary": "clear the map and insert areas",
+                "summary": "clear the map",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -331,7 +347,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/mower_map.AddMowingAreaSrvReq"
+                            "$ref": "#/definitions/mowgli.AddMowingAreaReq"
                         }
                     }
                 ],
@@ -371,7 +387,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/mower_map.SetDockingPointSrvReq"
+                            "$ref": "#/definitions/mowgli.SetDockingPointReq"
                         }
                     }
                 ],
@@ -420,13 +436,157 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "topic to subscribe to, could be: diagnostics, status, gps, imu, ticks, highLevelStatus",
+                        "description": "logical topic key: diagnostics, status, highLevelStatus, gps, pose, imu, ticks, map, path, plan, mowingPath, power, emergency, dockingSensor, lidar",
                         "name": "topic",
                         "in": "path",
                         "required": true
                     }
                 ],
                 "responses": {}
+            }
+        },
+        "/schedules": {
+            "get": {
+                "description": "list all mowing schedules",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "list all schedules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.ScheduleListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "create a new mowing schedule",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "create a schedule",
+                "parameters": [
+                    {
+                        "description": "schedule",
+                        "name": "schedule",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.Schedule"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/schedules/{id}": {
+            "put": {
+                "description": "update an existing mowing schedule",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "update a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "schedule",
+                        "name": "schedule",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.Schedule"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "delete a mowing schedule",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "delete a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.OkResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
             }
         },
         "/settings": {
@@ -468,7 +628,7 @@
                 "summary": "saves the settings to the mower_config.sh file",
                 "parameters": [
                     {
-                        "description": "settings",
+                        "description": "settings key-value map",
                         "name": "settings",
                         "in": "body",
                         "required": true,
@@ -483,6 +643,149 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/api.OkResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/schema": {
+            "get": {
+                "description": "returns the JSON Schema for mower configuration parameters",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "returns the mower config JSON Schema",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/status": {
+            "get": {
+                "description": "returns whether onboarding has been completed",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "get settings onboarding status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SettingsStatusResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "marks onboarding as completed so the wizard is not shown again",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "mark onboarding as completed",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.OkResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/yaml": {
+            "get": {
+                "description": "returns the current YAML mower configuration values as a flat key-value map",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "returns the current YAML mower configuration",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "saves the mower configuration as YAML to mowgli_robot.yaml",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "saves the mower configuration as YAML",
+                "parameters": [
+                    {
+                        "description": "flat key-value settings map",
+                        "name": "settings",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.OkResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
                         }
                     },
                     "500": {
@@ -534,19 +837,62 @@
                 }
             }
         },
-        "/setup/flashGPS": {
-            "post": {
-                "description": "flash the gps configuration",
-                "consumes": [
+        "/system/info": {
+            "get": {
+                "description": "get system info such as CPU temperature",
+                "produces": [
                     "application/json"
                 ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "get system info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.SystemInfo"
+                        }
+                    }
+                }
+            }
+        },
+        "/system/reboot": {
+            "post": {
+                "description": "reboots the Raspberry Pi",
                 "produces": [
-                    "text/event-stream"
+                    "application/json"
                 ],
                 "tags": [
-                    "setup"
+                    "system"
                 ],
-                "summary": "flash the gps configuration",
+                "summary": "reboot the system",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.OkResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/system/shutdown": {
+            "post": {
+                "description": "shuts down the Raspberry Pi",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "shutdown the system",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -620,9 +966,7 @@
             "properties": {
                 "settings": {
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": {}
                 }
             }
         },
@@ -634,74 +978,117 @@
                 }
             }
         },
-        "geometry_msgs.Point": {
+        "api.Schedule": {
             "type": "object",
             "properties": {
-                "msg.Package": {
+                "area": {
                     "type": "integer"
                 },
-                "x": {
-                    "type": "number"
+                "createdAt": {
+                    "type": "string"
                 },
-                "y": {
-                    "type": "number"
-                },
-                "z": {
-                    "type": "number"
-                }
-            }
-        },
-        "geometry_msgs.Point32": {
-            "type": "object",
-            "properties": {
-                "msg.Package": {
-                    "type": "integer"
-                },
-                "x": {
-                    "type": "number"
-                },
-                "y": {
-                    "type": "number"
-                },
-                "z": {
-                    "type": "number"
-                }
-            }
-        },
-        "geometry_msgs.Polygon": {
-            "type": "object",
-            "properties": {
-                "msg.Package": {
-                    "type": "integer"
-                },
-                "points": {
+                "daysOfWeek": {
+                    "description": "0=Sunday .. 6=Saturday",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/geometry_msgs.Point32"
+                        "type": "integer"
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lastRun": {
+                    "type": "string"
+                },
+                "time": {
+                    "description": "HH:mm format",
+                    "type": "string"
+                }
+            }
+        },
+        "api.ScheduleListResponse": {
+            "type": "object",
+            "properties": {
+                "schedules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.Schedule"
                     }
                 }
             }
         },
-        "geometry_msgs.Pose": {
+        "api.SettingsStatusResponse": {
             "type": "object",
             "properties": {
-                "msg.Package": {
-                    "type": "integer"
-                },
-                "orientation": {
-                    "$ref": "#/definitions/geometry_msgs.Quaternion"
-                },
-                "position": {
-                    "$ref": "#/definitions/geometry_msgs.Point"
+                "onboarding_completed": {
+                    "type": "boolean"
                 }
             }
         },
-        "geometry_msgs.Quaternion": {
+        "api.SystemInfo": {
             "type": "object",
             "properties": {
-                "msg.Package": {
-                    "type": "integer"
+                "cpuTemperature": {
+                    "type": "number"
+                }
+            }
+        },
+        "geometry.Point": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number"
                 },
+                "y": {
+                    "type": "number"
+                },
+                "z": {
+                    "type": "number"
+                }
+            }
+        },
+        "geometry.Point32": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                },
+                "z": {
+                    "type": "number"
+                }
+            }
+        },
+        "geometry.Polygon": {
+            "type": "object",
+            "properties": {
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/geometry.Point32"
+                    }
+                }
+            }
+        },
+        "geometry.Pose": {
+            "type": "object",
+            "properties": {
+                "orientation": {
+                    "$ref": "#/definitions/geometry.Quaternion"
+                },
+                "position": {
+                    "$ref": "#/definitions/geometry.Point"
+                }
+            }
+        },
+        "geometry.Quaternion": {
+            "type": "object",
+            "properties": {
                 "w": {
                     "type": "number"
                 },
@@ -716,28 +1103,25 @@
                 }
             }
         },
-        "mower_map.AddMowingAreaSrvReq": {
+        "mowgli.AddMowingAreaReq": {
             "type": "object",
             "properties": {
                 "area": {
-                    "$ref": "#/definitions/mower_map.MapArea"
+                    "$ref": "#/definitions/mowgli.MapArea"
                 },
-                "isNavigationArea": {
+                "is_navigation_area": {
                     "type": "boolean"
-                },
-                "msg.Package": {
-                    "type": "integer"
                 }
             }
         },
-        "mower_map.MapArea": {
+        "mowgli.MapArea": {
             "type": "object",
             "properties": {
                 "area": {
-                    "$ref": "#/definitions/geometry_msgs.Polygon"
+                    "$ref": "#/definitions/geometry.Polygon"
                 },
-                "msg.Package": {
-                    "type": "integer"
+                "is_navigation_area": {
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"
@@ -745,19 +1129,38 @@
                 "obstacles": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/geometry_msgs.Polygon"
+                        "$ref": "#/definitions/geometry.Polygon"
                     }
                 }
             }
         },
-        "mower_map.SetDockingPointSrvReq": {
+        "mowgli.ReplaceMapArea": {
             "type": "object",
             "properties": {
-                "dockingPose": {
-                    "$ref": "#/definitions/geometry_msgs.Pose"
+                "area": {
+                    "$ref": "#/definitions/mowgli.MapArea"
                 },
-                "msg.Package": {
-                    "type": "integer"
+                "is_navigation_area": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "mowgli.ReplaceMapReq": {
+            "type": "object",
+            "properties": {
+                "areas": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mowgli.ReplaceMapArea"
+                    }
+                }
+            }
+        },
+        "mowgli.SetDockingPointReq": {
+            "type": "object",
+            "properties": {
+                "docking_pose": {
+                    "$ref": "#/definitions/geometry.Pose"
                 }
             }
         },
@@ -815,6 +1218,9 @@
                 "panelType": {
                     "type": "string"
                 },
+                "perimeterWire": {
+                    "type": "boolean"
+                },
                 "playButtonClearEmergencyMillis": {
                     "type": "integer"
                 },
@@ -824,17 +1230,17 @@
                 "stopButtonEmergencyMillis": {
                     "type": "integer"
                 },
-              "tickPerM": {
-                "type": "number"
-              },
+                "tickPerM": {
+                    "type": "number"
+                },
                 "tiltEmergencyMillis": {
                     "type": "integer"
                 },
                 "version": {
                     "type": "string"
                 },
-              "wheelBase": {
-                "type": "number"
+                "wheelBase": {
+                    "type": "number"
                 }
             }
         }

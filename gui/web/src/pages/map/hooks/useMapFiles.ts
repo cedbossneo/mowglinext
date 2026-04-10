@@ -10,7 +10,7 @@ import {
     DockFeatureBase,
     MowingFeatureBase,
 } from "../../../types/map.ts";
-import type {Api, MowerMapMapArea, MowerReplaceMapSrvReq} from "../../../api/Api.ts";
+import type {Api, MowgliMapArea, MowgliReplaceMapReq} from "../../../api/Api.ts";
 import {dedupePoints, getQuaternionFromHeading, itranspose} from "../../../utils/map.tsx";
 
 interface UseMapFilesOptions {
@@ -42,7 +42,7 @@ export function useMapFiles({
     guiApi,
 }: UseMapFilesOptions) {
     async function handleSaveMap() {
-        const areas: Record<string, MowerMapMapArea[]> = {
+        const areas: Record<string, MowgliMapArea[]> = {
             "area": [],
             "navigation": [],
         };
@@ -116,20 +116,20 @@ export function useMapFiles({
             target.obstacles = [...(target.obstacles ?? []), {points}];
         }
 
-        const updateMsg: MowerReplaceMapSrvReq = {
+        const updateMsg: MowgliReplaceMapReq = {
             areas: [],
         };
         for (const [type, areasOfType] of Object.entries(areas)) {
             for (const area of areasOfType) {
-                updateMsg.areas.push({
+                updateMsg.areas!.push({
                     area,
-                    isNavigationArea: type === "navigation",
+                    is_navigation_area: type === "navigation",
                 });
             }
         }
 
         try {
-            await guiApi.mowglinext.mapReplace(updateMsg);
+            await guiApi.mowglinext.putMowglinext(updateMsg);
             notification.success({
                 message: "Area saved",
             });
@@ -150,7 +150,7 @@ export function useMapFiles({
             const heading = dockFeature.getHeading();
             const quaternionFromHeading = getQuaternionFromHeading(heading);
             await guiApi.mowglinext.mapDockingCreate({
-                dockingPose: {
+                docking_pose: {
                     orientation: {
                         x: quaternionFromHeading.X!!,
                         y: quaternionFromHeading.Y!!,

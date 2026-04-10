@@ -360,7 +360,11 @@ func (c *Client) Publish(topic string, msg interface{}) error {
 // call_service message. The raw "values" payload from the service response is
 // returned on success; a non-nil result field set to false is treated as a
 // service-level error.
-func (c *Client) CallService(ctx context.Context, service string, args interface{}) (json.RawMessage, error) {
+//
+// An optional serviceType (e.g. "mowgli_interfaces/srv/GetMowingArea") can be
+// passed to include the "type" field in the rosbridge call_service message.
+// This helps rosbridge resolve the service without runtime type discovery.
+func (c *Client) CallService(ctx context.Context, service string, args interface{}, serviceType ...string) (json.RawMessage, error) {
 	if !c.connected.Load() {
 		return nil, fmt.Errorf("rosbridge: CallService %s: not connected", service)
 	}
@@ -384,6 +388,9 @@ func (c *Client) CallService(ctx context.Context, service string, args interface
 		"service": service,
 		"args":    args,
 	}
+	if len(serviceType) > 0 && serviceType[0] != "" {
+		callMsg["type"] = serviceType[0]
+	}
 	if err := c.writeJSON(callMsg); err != nil {
 		return nil, fmt.Errorf("rosbridge: CallService %s: send: %w", service, err)
 	}
@@ -393,7 +400,7 @@ func (c *Client) CallService(ctx context.Context, service string, args interface
 		return nil, fmt.Errorf("rosbridge: CallService %s: %w", service, ctx.Err())
 	case resp := <-respCh:
 		if !resp.Result {
-			return nil, fmt.Errorf("rosbridge: CallService %s: service returned failure", service)
+			return nil, fmt.Errorf("rosbridge: CallService %s: service returned failure: %s", service, string(resp.Values))
 		}
 		return resp.Values, nil
 	}
