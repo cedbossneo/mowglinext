@@ -208,8 +208,8 @@ velocity_smoother:
     scale_velocities: false
     feedback: "OPEN_LOOP"
     # Topic flow: controller_server → cmd_vel_nav → velocity_smoother →
-    #             cmd_vel_smoothed → twist_mux → cmd_vel_mux →
-    #             collision_monitor → cmd_vel → hardware
+    #             cmd_vel_smoothed → collision_monitor → cmd_vel_monitored →
+    #             twist_mux → cmd_vel → hardware
     input_topic: cmd_vel_nav
     output_topic: cmd_vel_smoothed
     max_velocity: [0.4, 0.0, 1.0]
@@ -333,8 +333,8 @@ collision_monitor:
     use_sim_time: false
     base_frame_id: base_link
     odom_frame_id: odom
-    cmd_vel_in_topic: cmd_vel_mux
-    cmd_vel_out_topic: cmd_vel
+    cmd_vel_in_topic: cmd_vel_smoothed
+    cmd_vel_out_topic: cmd_vel_monitored
     state_topic: collision_monitor_state
     transform_tolerance: 0.2
     source_timeout: 1.0

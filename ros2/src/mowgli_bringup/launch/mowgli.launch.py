@@ -218,8 +218,9 @@ def generate_launch_description() -> LaunchDescription:
             twist_mux_params,
             {"use_sim_time": use_sim_time},
         ],
-        # Remap the mux output to the topic consumed by collision_monitor
-        remappings=[("cmd_vel_out", "cmd_vel_mux")],
+        # Mux output goes directly to hardware_bridge's /cmd_vel.
+        # Collision_monitor sits upstream on the Nav2 path only.
+        remappings=[("cmd_vel_out", "/cmd_vel")],
     )
 
     # ------------------------------------------------------------------

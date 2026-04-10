@@ -7,9 +7,9 @@ twist_mux:
     # Higher priority overrides lower when active within timeout.
     topics:
       navigation:
-        topic: /cmd_vel_smoothed
+        topic: /cmd_vel_monitored
         timeout: 0.5      # seconds – source considered stale if no message arrives
-        priority: 10      # lowest priority – autonomous navigation (post velocity_smoother)
+        priority: 10      # lowest priority – autonomous navigation (post collision_monitor)
 
       teleop:
         topic: /cmd_vel_teleop
