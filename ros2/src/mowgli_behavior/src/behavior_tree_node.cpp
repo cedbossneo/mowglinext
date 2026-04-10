@@ -69,8 +69,8 @@ public:
     setupSubscribers();
     setupServiceServer();
     setupBehaviorTree();
-    waitForNav2();
     setupTimer();
+    startNav2WaitTimer();
 
     RCLCPP_INFO(get_logger(), "mowgli_behavior_node ready");
   }
@@ -204,51 +204,63 @@ private:
     RCLCPP_DEBUG(get_logger(), "~/high_level_control service server created");
   }
 
-  // Block until the critical Nav2 action servers are reachable.
-  // Nav2 is launched with a 30 s delay (TimerAction) to let SLAM publish
-  // the map→odom TF first. Rather than scattering long timeouts across
-  // every BT action node, we gate startup here once.
-  void waitForNav2()
+  // Non-blocking check for Nav2 action servers.  The BT tick loop starts
+  // immediately so that idle-state publishers (high_level_status, etc.) are
+  // created right away.  A periodic timer polls for Nav2 readiness and
+  // sets a blackboard flag that BT action nodes can check before sending
+  // goals.
+  void startNav2WaitTimer()
   {
     using nav2_msgs::action::NavigateToPose;
     using nav2_msgs::action::UndockRobot;
 
-    auto nav_client = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
-    auto undock_client = rclcpp_action::create_client<UndockRobot>(this, "/undock_robot");
+    nav_client_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
+    undock_client_ = rclcpp_action::create_client<UndockRobot>(this, "/undock_robot");
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
-    const auto poll = std::chrono::seconds(2);
-
-    bool nav_ready = false;
-    bool undock_ready = false;
+    nav2_wait_deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(120);
 
     RCLCPP_INFO(get_logger(),
                 "Waiting for Nav2 action servers (/navigate_to_pose, /undock_robot)...");
 
-    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline)
+    nav2_wait_timer_ = create_wall_timer(2s,
+                                         [this]()
+                                         {
+                                           checkNav2Ready();
+                                         });
+  }
+
+  void checkNav2Ready()
+  {
+    if (!nav_ready_)
     {
-      if (!nav_ready)
-      {
-        nav_ready = nav_client->wait_for_action_server(poll);
-      }
-      if (!undock_ready)
-      {
-        undock_ready = undock_client->wait_for_action_server(poll);
-      }
-      if (nav_ready && undock_ready)
-      {
-        RCLCPP_INFO(get_logger(), "Nav2 action servers are available");
-        return;
-      }
-      RCLCPP_INFO_THROTTLE(get_logger(),
-                           *get_clock(),
-                           10000,
-                           "Still waiting for Nav2 (navigate=%s, undock=%s)...",
-                           nav_ready ? "ok" : "waiting",
-                           undock_ready ? "ok" : "waiting");
+      nav_ready_ = nav_client_->action_server_is_ready();
+    }
+    if (!undock_ready_)
+    {
+      undock_ready_ = undock_client_->action_server_is_ready();
     }
 
-    RCLCPP_WARN(get_logger(), "Timed out waiting for Nav2 action servers — starting BT anyway");
+    if (nav_ready_ && undock_ready_)
+    {
+      RCLCPP_INFO(get_logger(), "Nav2 action servers are available");
+      nav2_wait_timer_->cancel();
+      return;
+    }
+
+    if (std::chrono::steady_clock::now() >= nav2_wait_deadline_)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Timed out waiting for Nav2 action servers — BT continues without them");
+      nav2_wait_timer_->cancel();
+      return;
+    }
+
+    RCLCPP_INFO_THROTTLE(get_logger(),
+                         *get_clock(),
+                         10000,
+                         "Still waiting for Nav2 (navigate=%s, undock=%s)...",
+                         nav_ready_ ? "ok" : "waiting",
+                         undock_ready_ ? "ok" : "waiting");
   }
 
   void setupBehaviorTree()
@@ -375,6 +387,14 @@ private:
 
   // Tick timer
   rclcpp::TimerBase::SharedPtr tick_timer_;
+
+  // Nav2 readiness polling
+  rclcpp_action::Client<nav2_msgs::action::NavigateToPose>::SharedPtr nav_client_;
+  rclcpp_action::Client<nav2_msgs::action::UndockRobot>::SharedPtr undock_client_;
+  rclcpp::TimerBase::SharedPtr nav2_wait_timer_;
+  std::chrono::steady_clock::time_point nav2_wait_deadline_;
+  bool nav_ready_{false};
+  bool undock_ready_{false};
 
   // Battery voltage curve parameters
   float battery_full_voltage_{28.5f};

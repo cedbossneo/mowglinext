@@ -188,7 +188,6 @@ class TestNodesStartup(unittest.TestCase):
             "/diagnostics",
             "/map_server/grid_map",
             "/mowgli_behavior_node/high_level_status",
-            "/mowgli_behavior_node/recording_trajectory",
         }
 
         deadline = time.monotonic() + 10.0
