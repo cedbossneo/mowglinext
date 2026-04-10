@@ -9,6 +9,11 @@ map_server_node:
     map_file_path: ""
     areas_file_path: "/ros2_ws/maps/areas.dat"
     publish_rate: 1.0
+    # Navigation margin around area boundaries for keepout mask.
+    # Cells outside the area but within this distance of the boundary
+    # edge are marked free (not lethal), preventing "Start occupied"
+    # when the robot is near the boundary.
+    keepout_nav_margin: 1.5
 
     # Pre-defined mowing / navigation areas (OpenMower-style).
     # Parallel arrays indexed by position.  Polygon format: "x1,y1;x2,y2;..."

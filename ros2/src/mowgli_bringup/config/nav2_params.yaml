@@ -77,7 +77,7 @@ controller_server:
       lookahead_time: 1.5
       transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
-      min_approach_linear_velocity: 0.05
+      min_approach_linear_velocity: 0.1
       approach_velocity_scaling_dist: 0.6
       use_collision_detection: false
       use_regulated_linear_velocity_scaling: true
@@ -85,7 +85,7 @@ controller_server:
       curvature_lookahead_dist: 0.6
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.1
+      regulated_linear_scaling_min_speed: 0.15
       use_rotate_to_heading: false
       allow_reversing: false
       max_angular_vel: 3.0
@@ -96,10 +96,10 @@ controller_server:
     # PRE_ROTATE -> FOLLOWING -> WAITING_FOR_GOAL_APPROACH -> POST_ROTATE
     FollowCoveragePath:
       plugin: "mowgli_nav2_plugins/FTCController"
-      speed_fast: 0.4              # carrot speed when far from path (m/s)
+      speed_fast: 0.5              # carrot speed when far from path (m/s)
       speed_fast_threshold: 0.5    # distance threshold for fast/slow (m)
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
-      speed_slow: 0.15             # carrot speed when close/turning (m/s)
+      speed_slow: 0.25             # carrot speed when close/turning (m/s)
       speed_angular: 60.0          # rotation speed for in-place turns (deg/s)
       acceleration: 0.5            # carrot acceleration (m/s²)
       # PID longitudinal
@@ -115,7 +115,7 @@ controller_server:
       ki_ang: 0.0
       kd_ang: 0.0
       # Limits
-      max_cmd_vel_speed: 0.4
+      max_cmd_vel_speed: 0.5
       max_cmd_vel_ang: 3.0
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
@@ -219,7 +219,7 @@ velocity_smoother:
     #             twist_mux → cmd_vel → hardware
     input_topic: cmd_vel_nav
     output_topic: cmd_vel_smoothed
-    max_velocity: [0.4, 0.0, 1.0]
+    max_velocity: [0.5, 0.0, 1.0]
     min_velocity: [-0.3, 0.0, -1.0]
     max_accel: [0.3, 0.0, 1.5]
     max_decel: [-0.3, 0.0, -1.5]
@@ -255,14 +255,13 @@ global_costmap:
       # gardens: the costmap always centres on the robot, and obstacles are
       # detected in real time by the obstacle_layer.
       rolling_window: true
-      width: 200
-      height: 200
-      # keepout_filter disabled in global costmap: it marks boundary zones
-      # as LETHAL causing "Start occupied" when robot is near boundary edge.
-      # Boundary enforcement uses local costmap keepout + coverage planner.
-      plugins: ["obstacle_layer", "inflation_layer"]
+      width: 600
+      height: 600
+      # keepout_filter re-enabled: the keepout mask now includes a navigation
+      # margin (keepout_nav_margin param) so the robot can operate near the
+      # boundary edge without triggering "Start occupied".
+      plugins: ["obstacle_layer", "inflation_layer", "keepout_filter"]
 
-      # Keepout filter config kept for reference but not in plugins list.
       keepout_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
         enabled: true

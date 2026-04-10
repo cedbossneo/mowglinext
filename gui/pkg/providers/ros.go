@@ -469,5 +469,5 @@ func (r *RosProvider) UnSubscribe(topic string, id string) {
 
 // Publish sends msg to the named ROS2 topic via foxglove_bridge.
 func (r *RosProvider) Publish(topic string, msgType string, msg interface{}) error {
-	return r.client.Publish(topic, msg)
+	return r.client.Publish(topic, msg, msgType)
 }

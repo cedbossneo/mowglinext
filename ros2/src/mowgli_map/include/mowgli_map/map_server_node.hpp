@@ -267,6 +267,10 @@ private:
   /// Check if a strip is sufficiently mowed (>threshold of cells done).
   bool is_strip_mowed(const Strip& strip, double threshold_pct = 0.2) const;
 
+  /// Check if a strip is blocked by obstacles (>threshold of obstacle cells).
+  /// Blocked strips are treated as "frontier" and skipped during planning.
+  bool is_strip_blocked(const Strip& strip, double blocked_threshold = 0.5) const;
+
   /// Compute coverage statistics for an area.
   void compute_coverage_stats(size_t area_index,
                               uint32_t& total,
@@ -294,6 +298,7 @@ private:
   std::string map_file_path_;
   std::string areas_file_path_;
   double publish_rate_;
+  double keepout_nav_margin_;
 
   // ── State ─────────────────────────────────────────────────────────────────
   grid_map::GridMap map_;

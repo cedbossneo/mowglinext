@@ -55,6 +55,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   map_file_path_ = declare_parameter<std::string>("map_file_path", "");
   areas_file_path_ = declare_parameter<std::string>("areas_file_path", "");
   publish_rate_ = declare_parameter<double>("publish_rate", 1.0);
+  keepout_nav_margin_ = declare_parameter<double>("keepout_nav_margin", 1.5);
 
   RCLCPP_INFO(get_logger(),
               "MapServerNode: resolution=%.3f m, size=%.1f×%.1f m, frame='%s'",
@@ -1101,6 +1102,41 @@ bool MapServerNode::point_in_polygon(const geometry_msgs::msg::Point32& pt,
 // Costmap filter mask helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Minimum distance from point (px, py) to the edges of a polygon.
+static double point_to_polygon_distance(double px, double py,
+                                        const geometry_msgs::msg::Polygon& polygon)
+{
+  const auto& pts = polygon.points;
+  const std::size_t n = pts.size();
+  if (n < 2)
+    return std::numeric_limits<double>::max();
+
+  double min_dist = std::numeric_limits<double>::max();
+  for (std::size_t i = 0, j = n - 1; i < n; j = i++)
+  {
+    const double ax = static_cast<double>(pts[j].x);
+    const double ay = static_cast<double>(pts[j].y);
+    const double bx = static_cast<double>(pts[i].x);
+    const double by = static_cast<double>(pts[i].y);
+
+    const double dx = bx - ax;
+    const double dy = by - ay;
+    const double len2 = dx * dx + dy * dy;
+
+    double t = 0.0;
+    if (len2 > 1e-12)
+    {
+      t = std::clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0.0, 1.0);
+    }
+
+    const double cx = ax + t * dx;
+    const double cy = ay + t * dy;
+    const double dist = std::hypot(px - cx, py - cy);
+    min_dist = std::min(min_dist, dist);
+  }
+  return min_dist;
+}
+
 void MapServerNode::publish_keepout_mask()
 {
   if (areas_.empty())
@@ -1124,7 +1160,11 @@ void MapServerNode::publish_keepout_mask()
   mask.info.origin.orientation.w = 1.0;
   mask.data.resize(static_cast<std::size_t>(rows * cols), 100);  // default: keepout
 
-  // A cell inside ANY area (mowing or navigation) is free.
+  // A cell inside ANY area (mowing or navigation) is free (0).
+  // A cell outside all areas but within keepout_nav_margin_ of any area
+  // polygon edge is also free (0) — this prevents "Start occupied" when
+  // the robot is near the boundary.
+  // Cells beyond the margin stay 100 (keepout/lethal).
   for (int r = 0; r < rows; ++r)
   {
     for (int c = 0; c < cols; ++c)
@@ -1145,6 +1185,7 @@ void MapServerNode::publish_keepout_mask()
       const auto flat_idx = static_cast<std::size_t>(og_row * cols + c);
 
       bool inside_any = false;
+      bool within_margin = false;
       for (const auto& area : areas_)
       {
         if (point_in_polygon(pt, area.polygon))
@@ -1152,9 +1193,18 @@ void MapServerNode::publish_keepout_mask()
           inside_any = true;
           break;
         }
+        if (!within_margin && keepout_nav_margin_ > 0.0)
+        {
+          double dist = point_to_polygon_distance(
+              static_cast<double>(pt.x), static_cast<double>(pt.y), area.polygon);
+          if (dist <= keepout_nav_margin_)
+          {
+            within_margin = true;
+          }
+        }
       }
 
-      if (inside_any)
+      if (inside_any || within_margin)
       {
         mask.data[flat_idx] = 0;
       }
@@ -1921,10 +1971,22 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
 
   layout.valid = true;
   RCLCPP_INFO(get_logger(),
-              "Strip layout for area '%s': %zu strips, mow_angle=%.1f°",
+              "Strip layout for area '%s': %zu strips, mow_angle=%.1f°, "
+              "bbox=(%.2f,%.2f)-(%.2f,%.2f), inner_x=[%.2f, %.2f]",
               area.name.c_str(),
               layout.strips.size(),
-              layout.mow_angle * 180.0 / M_PI);
+              layout.mow_angle * 180.0 / M_PI,
+              min_x, min_y, max_x, max_y,
+              inner_min_x, inner_max_x);
+  if (!layout.strips.empty())
+  {
+    const auto& first = layout.strips.front();
+    const auto& last = layout.strips.back();
+    RCLCPP_INFO(get_logger(),
+                "  First strip: x=%.2f y=[%.2f, %.2f], Last strip: x=%.2f y=[%.2f, %.2f]",
+                first.start.x, first.start.y, first.end.y,
+                last.start.x, last.start.y, last.end.y);
+  }
 }
 
 bool MapServerNode::is_strip_mowed(const Strip& strip, double threshold_pct) const
@@ -1977,6 +2039,48 @@ bool MapServerNode::is_strip_mowed(const Strip& strip, double threshold_pct) con
   return static_cast<double>(mowed_count) / total_count >= threshold_pct;
 }
 
+bool MapServerNode::is_strip_blocked(const Strip& strip, double blocked_threshold) const
+{
+  // Check if a strip is mostly blocked by obstacles, making it unreachable.
+  // A strip with >blocked_threshold fraction of obstacle cells is "frontier".
+  double dx = strip.end.x - strip.start.x;
+  double dy = strip.end.y - strip.start.y;
+  double length = std::hypot(dx, dy);
+  if (length < resolution_)
+    return false;
+
+  int samples = std::max(3, static_cast<int>(length / resolution_));
+  int obstacle_count = 0;
+  int total_count = 0;
+
+  const auto& class_layer = map_[std::string(layers::CLASSIFICATION)];
+
+  for (int i = 0; i <= samples; ++i)
+  {
+    double t = static_cast<double>(i) / samples;
+    double px = strip.start.x + t * dx;
+    double py = strip.start.y + t * dy;
+
+    grid_map::Position pos(px, py);
+    if (!map_.isInside(pos))
+      continue;
+
+    grid_map::Index idx;
+    if (!map_.getIndex(pos, idx))
+      continue;
+
+    total_count++;
+    auto cell_type = static_cast<CellType>(static_cast<int>(class_layer(idx(0), idx(1))));
+    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY)
+      obstacle_count++;
+  }
+
+  if (total_count == 0)
+    return false;
+
+  return static_cast<double>(obstacle_count) / total_count >= blocked_threshold;
+}
+
 bool MapServerNode::find_next_unmowed_strip(
     size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool /*prefer_headland*/)
 {
@@ -2017,12 +2121,14 @@ bool MapServerNode::find_next_unmowed_strip(
     cur_idx++;
   }
 
-  // Search forward from current index for the next unmowed strip
+  // Search forward from current index for the next unmowed strip.
+  // Skip strips that are blocked by obstacles (>50% obstacle cells) — these
+  // are treated as "frontier" strips that can't be mowed.
   for (int i = 0; i < n; ++i)
   {
     int idx = (cur_idx + i) % n;
     const auto& strip = layout.strips[idx];
-    if (!is_strip_mowed(strip))
+    if (!is_strip_mowed(strip) && !is_strip_blocked(strip))
     {
       cur_idx = idx;
       out_strip = strip;
@@ -2035,7 +2141,7 @@ bool MapServerNode::find_next_unmowed_strip(
     }
   }
 
-  return false;  // All strips mowed
+  return false;  // All strips mowed or blocked
 }
 
 nav_msgs::msg::Path MapServerNode::strip_to_path(const Strip& strip, size_t /*area_index*/) const

@@ -226,6 +226,11 @@ func SubscriberRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			def, err = subscribe(provider, c, conn, "coverageCells", -1)
 		case "recordingTrajectory":
 			def, err = subscribe(provider, c, conn, "recordingTrajectory", -1)
+		case "obstacles":
+			def, err = subscribe(provider, c, conn, "obstacles", -1)
+		default:
+			log.Printf("SubscriberRoute: unknown topic %q", topic)
+			return
 		}
 		if err != nil {
 			log.Println(err.Error())
