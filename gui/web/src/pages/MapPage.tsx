@@ -191,9 +191,9 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
             }).forEach((marker, index) => {
                 const line: Position[] = marker.points?.map(point => {
                     return transpose(offsetX, offsetY, datum, point.y!!, point.x!!)
-                })
+                }) ?? []
 
-                const feature = new PathFeature("path-" + index.toString(), line, `rgba(${marker.color.r * 255}, ${marker.color.g * 255}, ${marker.color.b * 255}, ${marker.color.a * 255})`);
+                const feature = new PathFeature("path-" + index.toString(), line, `rgba(${(marker.color?.r ?? 0) * 255}, ${(marker.color?.g ?? 0) * 255}, ${(marker.color?.b ?? 0) * 255}, ${(marker.color?.a ?? 1) * 255})`);
                 newFeatures[feature.id] = feature
 
             })

@@ -65,9 +65,9 @@ export const MowerStatus = () => {
             return Math.round(highLevelStatus.gps_quality_percent * 100);
         }
         if (gps.flags != null) {
-            if (gps.flags & AbsolutePoseConstants.FIXED) return 100;
-            if (gps.flags & AbsolutePoseConstants.FLOAT) return 50;
-            if (gps.flags & AbsolutePoseConstants.RTK) return 25;
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FIXED) return 100;
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FLOAT) return 50;
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK) return 25;
         }
         return 0;
     })();

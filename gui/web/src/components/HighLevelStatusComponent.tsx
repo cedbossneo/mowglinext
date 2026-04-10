@@ -46,9 +46,9 @@ export function HighLevelStatusComponent() {
         }
         // Estimate from GPS flags (RTK=1 means "has GPS", FIXED=2 means RTK fix, FLOAT=4 means RTK float)
         if (gps.flags != null) {
-            if (gps.flags & AbsolutePoseConstants.FIXED) return 100;   // RTK fixed
-            if (gps.flags & AbsolutePoseConstants.FLOAT) return 50;    // RTK float
-            if (gps.flags & AbsolutePoseConstants.RTK) return 25;      // GPS fix, no RTK
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FIXED) return 100;   // RTK fixed
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FLOAT) return 50;    // RTK float
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK) return 25;      // GPS fix, no RTK
         }
         return 0;
     })();
