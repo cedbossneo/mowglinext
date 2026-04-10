@@ -280,17 +280,20 @@ global_costmap:
           data_type: "LaserScan"
           raytrace_max_range: 8.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 7.5
-          obstacle_min_range: 0.35
+          obstacle_max_range: 5.0
+          # Garden-tuned: ignore returns closer than 0.5m to filter grass
+          # tufts and ground clutter near the LiDAR (mounted at ~0.38m fwd).
+          obstacle_min_range: 0.50
           inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Tight inflation: just enough for SmacPlanner2D safety margin.
-        # 0.30m ≈ robot half-width (0.27m) + small buffer. Keeps transit
-        # paths close to obstacles without losing too much mowing area.
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.40
+        # Garden-tuned: steep cost drop-off (10.0) means cost decays fast
+        # with distance, so only cells very close to obstacles are costly.
+        # Small inflation radius (0.25m) avoids detours around grass tufts
+        # while still keeping the robot from scraping real obstacles.
+        cost_scaling_factor: 10.0
+        inflation_radius: 0.25
 
 # ---------------------------------------------------------------------------
 # Local costmap
@@ -316,18 +319,6 @@ local_costmap:
       # on the same mask infrastructure.
       plugins: ["obstacle_layer", "inflation_layer"]
 
-      # Keepout filter config kept for reference but not in plugins list.
-      keepout_filter:
-        plugin: "nav2_costmap_2d::KeepoutFilter"
-        enabled: true
-        filter_info_topic: "/costmap_filter_info"
-
-      # Speed filter config kept for reference but not in plugins list.
-      speed_filter:
-        plugin: "nav2_costmap_2d::SpeedFilter"
-        enabled: true
-        filter_info_topic: "/speed_filter_info"
-
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -338,19 +329,16 @@ local_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          # 150 deg FOV centred forward, 8 m range
           raytrace_max_range: 8.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 7.5
-          obstacle_min_range: 0.35
+          obstacle_max_range: 5.0
+          obstacle_min_range: 0.50
           inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Tight inflation for local costmap: robot half-width + small margin.
-        # Minimizes unmowed area around obstacles during coverage.
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.40
+        cost_scaling_factor: 10.0
+        inflation_radius: 0.25
 
 # ---------------------------------------------------------------------------
 # Map server / AMCL (not used with slam_toolbox, kept for completeness)
@@ -420,42 +408,45 @@ collision_monitor:
     stop_pub_timeout: 2.0
     polygons: ["PolygonStop", "PolygonSlow", "FootprintApproach"]
     # Stop zone: tight safety box matching the robot footprint.
-    # front 0.45m, rear -0.09m, width +/-0.20m.
+    # Garden-tuned: min_points=4 prevents stray grass returns from triggering
+    # emergency stop — requires a cluster of 4+ points to confirm a real obstacle.
     PolygonStop:
       type: "polygon"
       points: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
       action_type: "stop"
-      min_points: 2
+      min_points: 4
       visualize: true
       polygon_pub_topic: "polygon_stop"
       enabled: true
-    # Slowdown zone: extends 0.30m beyond the robot front for early braking.
-    # front 0.75m (0.45 + 0.30), rear -0.09m, width +/-0.30m.
+    # Slowdown zone: extends 0.25m beyond the robot front for early braking.
+    # Garden-tuned: min_points=3 filters single grass returns.
     PolygonSlow:
       type: "polygon"
-      points: "[[0.75, 0.30], [0.75, -0.30], [-0.09, -0.30], [-0.09, 0.30]]"
+      points: "[[0.70, 0.25], [0.70, -0.25], [-0.09, -0.25], [-0.09, 0.25]]"
       action_type: "slowdown"
       slowdown_ratio: 0.5
-      min_points: 2
+      min_points: 3
       visualize: true
       polygon_pub_topic: "polygon_slow"
       enabled: true
     # Approach: uses dynamic robot footprint with velocity projection.
-    # Gradually slows when predicted collision is within time_before_collision.
     FootprintApproach:
       type: "polygon"
       action_type: "approach"
       footprint_topic: "/local_costmap/published_footprint"
       time_before_collision: 2.0
       simulation_time_step: 0.05
-      min_points: 1
+      min_points: 2
       visualize: true
       enabled: true
     observation_sources: ["scan"]
     scan:
       type: "scan"
       topic: /scan
-      min_height: 0.15
+      # Garden-tuned: 0.20m min_height filters grass and ground clutter.
+      # The LD19 LiDAR is mounted at 0.22m height, so returns below 0.20m
+      # are almost certainly ground or grass, not real obstacles.
+      min_height: 0.20
       max_height: 2.0
       enabled: true
 
