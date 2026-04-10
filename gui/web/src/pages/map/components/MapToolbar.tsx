@@ -65,7 +65,7 @@ export const MapToolbar = ({
     onStart, onHome, onEmergencyOn, onEmergencyOff,
     onAreaRecording, onMowNextArea, onContinueOrPause,
     onBladeForward, onBladeBackward, onBladeOff,
-    onRecordFinish, onRecordCancel,
+    onRecordFinish: _onRecordFinish, onRecordCancel: _onRecordCancel,
 }: MapToolbarProps) => {
     const {notification} = App.useApp();
     const isIdle = stateName === "IDLE";
