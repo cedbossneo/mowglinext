@@ -58,9 +58,9 @@ export const MowerActions: React.FC<React.PropsWithChildren<{bare?: boolean}>> =
             }]
         },
         {
-            key: highLevelStatus.StateName == "IDLE" ? "continue" : "pause",
-            label: highLevelStatus.StateName == "IDLE" ? "Continue" : "Pause",
-            actions: highLevelStatus.StateName == "IDLE" ? [{
+            key: highLevelStatus.state_name == "IDLE" ? "continue" : "pause",
+            label: highLevelStatus.state_name == "IDLE" ? "Continue" : "Pause",
+            actions: highLevelStatus.state_name == "IDLE" ? [{
                 command: "mower_logic", args: {
                     Config: {
                         Bools: [{
@@ -135,18 +135,18 @@ export const MowerActions: React.FC<React.PropsWithChildren<{bare?: boolean}>> =
             {children}
             {children ? <Col><Divider type={"vertical"}/></Col> : null}
             <Col>
-                {highLevelStatus.StateName == "IDLE" ? <AsyncButton icon={<PlayCircleOutlined/>} type="primary" key="btnHLC1"
+                {highLevelStatus.state_name == "IDLE" ? <AsyncButton icon={<PlayCircleOutlined/>} type="primary" key="btnHLC1"
                                                                           onAsyncClick={mowerAction("high_level_control", {Command: 1})}
                 >Start</AsyncButton> : null}
-                {highLevelStatus.StateName !== "IDLE" ? <AsyncButton icon={<HomeOutlined/>} type="primary" key="btnHLC2"
+                {highLevelStatus.state_name !== "IDLE" ? <AsyncButton icon={<HomeOutlined/>} type="primary" key="btnHLC2"
                                                                            onAsyncClick={mowerAction("high_level_control", {Command: 2})}
                 >Home</AsyncButton> : null}
             </Col>
             <Col>
-                {!highLevelStatus.Emergency ?
+                {!highLevelStatus.emergency ?
                     <AsyncButton danger icon={<WarningOutlined/>} key="btnEmergencyOn" onAsyncClick={mowerAction("emergency", {Emergency: 1})}
                     >Emergency On</AsyncButton> : null}
-                {highLevelStatus.Emergency ?
+                {highLevelStatus.emergency ?
                     <AsyncButton danger icon={<WarningOutlined/>} key="btnEmergencyOff" onAsyncClick={mowerAction("emergency", {Emergency: 0})}
                     >Emergency Off</AsyncButton> : null}
             </Col>

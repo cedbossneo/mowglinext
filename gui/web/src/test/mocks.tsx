@@ -4,11 +4,11 @@ import type {HighLevelStatus} from '../types/ros.ts';
 
 // Mock high level status
 export const defaultHighLevelStatus: HighLevelStatus = {
-    StateName: 'IDLE',
-    GpsQualityPercent: 0.95,
-    BatteryPercent: 0.75,
-    IsCharging: false,
-    Emergency: false,
+    state_name: 'IDLE',
+    gps_quality_percent: 0.95,
+    battery_percent: 0.75,
+    is_charging: false,
+    emergency: false,
 };
 
 // Mock useHighLevelStatus hook

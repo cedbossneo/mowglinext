@@ -5,19 +5,19 @@ export function ImuComponent() {
     const imu = useImu();
     return <Row gutter={[16, 16]}>
         <Col lg={8} xs={24}><Statistic precision={9} title="Angular Velocity X"
-                                       value={imu.AngularVelocity?.X}/></Col>
+                                       value={imu.angular_velocity?.x}/></Col>
         <Col lg={8} xs={24}><Statistic precision={9} title="Angular Velocity Y"
-                                       value={imu.AngularVelocity?.Y}/></Col>
+                                       value={imu.angular_velocity?.y}/></Col>
         <Col lg={8} xs={24}><Statistic precision={9} title="Angular Velocity Z"
-                                       value={imu.AngularVelocity?.Z}/></Col>
+                                       value={imu.angular_velocity?.z}/></Col>
         <Col lg={8} xs={24}><Statistic precision={9} title="Linear Acceleration X"
-                                       value={imu.LinearAcceleration?.X}/></Col>
+                                       value={imu.linear_acceleration?.x}/></Col>
         <Col lg={8} xs={24}><Statistic precision={9} title="Linear Acceleration Y"
-                                       value={imu.LinearAcceleration?.Y}/></Col>
+                                       value={imu.linear_acceleration?.y}/></Col>
         <Col lg={8} xs={24}><Statistic precision={9} title="Linear Acceleration Z"
-                                       value={imu.LinearAcceleration?.Z}/></Col>
-        <Col lg={8} xs={24}><Statistic precision={9} title="Orientation X" value={imu.Orientation?.X}/></Col>
-        <Col lg={8} xs={24}><Statistic precision={9} title="Orientation Y" value={imu.Orientation?.Y}/></Col>
-        <Col lg={8} xs={24}><Statistic precision={9} title="Orientation Z" value={imu.Orientation?.Z}/></Col>
+                                       value={imu.linear_acceleration?.z}/></Col>
+        <Col lg={8} xs={24}><Statistic precision={9} title="Orientation X" value={imu.orientation?.x}/></Col>
+        <Col lg={8} xs={24}><Statistic precision={9} title="Orientation Y" value={imu.orientation?.y}/></Col>
+        <Col lg={8} xs={24}><Statistic precision={9} title="Orientation Z" value={imu.orientation?.z}/></Col>
     </Row>;
 }

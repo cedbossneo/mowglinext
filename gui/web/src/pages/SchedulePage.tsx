@@ -40,7 +40,7 @@ export const SchedulePage = () => {
         () => { console.log("SchedulePage: map stream connected"); },
         (data) => {
             const parsed = JSON.parse(data) as MapType;
-            const names = (parsed.WorkingArea ?? []).map((a) => a.Name);
+            const names = (parsed.working_area ?? []).map((a) => a.name);
             setWorkingAreas(names);
         },
     );

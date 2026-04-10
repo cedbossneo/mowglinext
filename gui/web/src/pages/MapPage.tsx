@@ -130,11 +130,11 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         if (_datumLon == 0 || _datumLat == 0) {
             return [[0, 0], [0, 0]]
         }
-        const map_center = (map && map.MapCenterY && map.MapCenterX) ? transpose(offsetX, offsetY, datum, map.MapCenterY, map.MapCenterX) : [_datumLon, _datumLat]
+        const map_center = (map && map.map_center_y && map.map_center_x) ? transpose(offsetX, offsetY, datum, map.map_center_y, map.map_center_x) : [_datumLon, _datumLat]
         // Use map center as datum for bounds calculation
         const centerDatum: [number, number, number] = [map_center[1], map_center[0], 0]
-        const map_sw = transpose(0, 0, centerDatum, -((map?.MapHeight ?? 10) / 2), -((map?.MapWidth ?? 10) / 2))
-        const map_ne = transpose(0, 0, centerDatum, ((map?.MapHeight ?? 10) / 2), ((map?.MapWidth ?? 10) / 2))
+        const map_sw = transpose(0, 0, centerDatum, -((map?.map_height ?? 10) / 2), -((map?.map_width ?? 10) / 2))
+        const map_ne = transpose(0, 0, centerDatum, ((map?.map_height ?? 10) / 2), ((map?.map_width ?? 10) / 2))
         return [map_ne, map_sw]
     }, [_datumLat, _datumLon, map, offsetX, offsetY, datum])
 
@@ -178,29 +178,29 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
 
         let newFeatures: Record<string, MowingFeature> = {}
         if (map) {
-            const workingAreas = buildFeatures(map.WorkingArea??[], "area")
-            const navigationAreas = buildFeatures(map.NavigationAreas??[], "navigation")
+            const workingAreas = buildFeatures(map.working_area??[], "area")
+            const navigationAreas = buildFeatures(map.navigation_areas??[], "navigation")
             newFeatures = {...workingAreas, ...navigationAreas}
 
-            const dock_lonlat = transpose(offsetX, offsetY, datum, map?.DockY!!, map?.DockX!!)
-            newFeatures["dock"] = new DockFeatureBase(dock_lonlat, map?.DockHeading ?? 0);
+            const dock_lonlat = transpose(offsetX, offsetY, datum, map?.dock_y!!, map?.dock_x!!)
+            newFeatures["dock"] = new DockFeatureBase(dock_lonlat, map?.dock_heading ?? 0);
         }
-        if (path?.Markers) {
-            Object.values<Marker>(path.Markers).filter((f) => {
-                return f.Type == 4 && f.Action == 0
+        if (path?.markers) {
+            Object.values<Marker>(path.markers).filter((f) => {
+                return f.type == 4 && f.action == 0
             }).forEach((marker, index) => {
-                const line: Position[] = marker.Points?.map(point => {
-                    return transpose(offsetX, offsetY, datum, point.Y!!, point.X!!)
+                const line: Position[] = marker.points?.map(point => {
+                    return transpose(offsetX, offsetY, datum, point.y!!, point.x!!)
                 })
 
-                const feature = new PathFeature("path-" + index.toString(), line, `rgba(${marker.Color.R * 255}, ${marker.Color.G * 255}, ${marker.Color.B * 255}, ${marker.Color.A * 255})`);
+                const feature = new PathFeature("path-" + index.toString(), line, `rgba(${marker.color.r * 255}, ${marker.color.g * 255}, ${marker.color.b * 255}, ${marker.color.a * 255})`);
                 newFeatures[feature.id] = feature
 
             })
         }
-        if (plan?.Poses) {
-            const coordinates = plan.Poses.map((pose) => {
-                return transpose(offsetX, offsetY, datum, pose.Pose?.Position?.Y!, pose.Pose?.Position?.X!)
+        if (plan?.poses) {
+            const coordinates = plan.poses.map((pose) => {
+                return transpose(offsetX, offsetY, datum, pose.pose?.position?.y!, pose.pose?.position?.x!)
             });
             const feature = new ActivePathFeature("plan", coordinates);
             newFeatures[feature.id] = feature
@@ -285,7 +285,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
 
 
         return areas?.flatMap((area, index) : MowingFeatureBase[] => {
-            if (!area.Area?.Points?.length) {
+            if (!area.area?.points?.length) {
                 return []
             }
 
@@ -295,15 +295,15 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
 
             let obstacles:  ObstacleFeature[] = [];
 
-            if ((nfeat instanceof MowingAreaFeature) && (area.Obstacles))
-                obstacles = area.Obstacles.map((obstacle, oindex) => {
+            if ((nfeat instanceof MowingAreaFeature) && (area.obstacles))
+                obstacles = area.obstacles.map((obstacle, oindex) => {
                 const nobst =  new ObstacleFeature(
                     type + "-" + index.toString() + "-obstacle-" + oindex.toString(),
                     nfeat
                 );
                 
-                if (obstacle.Points)
-                    nobst.transpose(obstacle.Points, offsetX, offsetY, datum);
+                if (obstacle.points)
+                    nobst.transpose(obstacle.points, offsetX, offsetY, datum);
 
                 return nobst;
 
@@ -392,7 +392,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         onEmergencyOff: mowerAction("emergency", {Emergency: 0}),
         onAreaRecording: mowerAction("high_level_control", {Command: 3}),
         onMowNextArea: mowerAction("high_level_control", {Command: 4}),
-        onContinueOrPause: highLevelStatus.highLevelStatus.StateName === "IDLE"
+        onContinueOrPause: highLevelStatus.highLevelStatus.state_name === "IDLE"
             ? async () => {
                 await mowerAction("mower_logic", {Config: {Bools: [{Name: "manual_pause_mowing", Value: false}]}})();
                 await mowerAction("high_level_control", {Command: 1})();
@@ -403,7 +403,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         onBladeOff: mowerAction("mow_enabled", {MowEnabled: 0, MowDirection: 0}),
         onRecordFinish: mowerAction("high_level_control", {Command: 5}),
         onRecordCancel: mowerAction("high_level_control", {Command: 6}),
-    }), [mowerAction, highLevelStatus.highLevelStatus.StateName]);
+    }), [mowerAction, highLevelStatus.highLevelStatus.state_name]);
 
     if (_datumLon == 0 || _datumLat == 0) {
         return <Spinner/>
@@ -706,8 +706,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     </Source>
                 </Map> : <Spinner/>}
                 <JoystickOverlay
-                    visible={highLevelStatus.highLevelStatus.StateName === "AREA_RECORDING" || highLevelStatus.highLevelStatus.StateName === "MANUAL_MOWING" || manualMode != null}
-                    isRecording={highLevelStatus.highLevelStatus.StateName === "AREA_RECORDING"}
+                    visible={highLevelStatus.highLevelStatus.state_name === "AREA_RECORDING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING" || manualMode != null}
+                    isRecording={highLevelStatus.highLevelStatus.state_name === "AREA_RECORDING"}
                     onMove={handleJoyMove}
                     onStop={handleJoyStop}
                     onFinishRecording={mowerActions.onRecordFinish}
@@ -752,8 +752,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                 area: item?.feat?.properties?.index,
                             })()
                         }}
-                        stateName={highLevelStatus.highLevelStatus.StateName}
-                        emergency={highLevelStatus.highLevelStatus.Emergency}
+                        stateName={highLevelStatus.highLevelStatus.state_name}
+                        emergency={highLevelStatus.highLevelStatus.emergency}
                         {...mowerActions}
                     />
                 )}
@@ -790,8 +790,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             manualMode={manualMode}
                             useSatellite={useSatellite}
                             mowingAreas={mowingAreas}
-                            stateName={highLevelStatus.highLevelStatus.StateName}
-                            emergency={highLevelStatus.highLevelStatus.Emergency}
+                            stateName={highLevelStatus.highLevelStatus.state_name}
+                            emergency={highLevelStatus.highLevelStatus.emergency}
                             onEditMap={handleEditMap}
                             onToggleSatellite={() => setUseSatellite(!useSatellite)}
                             onManualMode={handleManualMode}
