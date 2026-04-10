@@ -4,4 +4,39 @@ set -e
 # Source ROS2
 source /opt/ros/kilted/setup.bash
 
-exec "$@"
+: "${ROS_DOMAIN_ID:=0}"
+: "${RMW_IMPLEMENTATION:=rmw_cyclonedds_cpp}"
+
+: "${MAVROS_ENABLED:=true}"
+: "${MAVROS_PORT:=/dev/mavros}"
+: "${MAVROS_BAUD:=921600}"
+: "${MAVROS_GCS_URL:=}"
+: "${MAVROS_TGT_SYSTEM:=1}"
+: "${MAVROS_TGT_COMPONENT:=1}"
+: "${MAVROS_LAUNCH_FILE:=px4.launch}"
+
+if [ "${MAVROS_ENABLED}" != "true" ]; then
+  echo "MAVROS is disabled. Exiting."
+  exit 0
+fi
+
+MAVROS_FCU_URL="serial://${MAVROS_PORT}:${MAVROS_BAUD}"
+
+echo "Starting MAVROS with:"
+echo "  MAVROS_FCU_URL=${MAVROS_FCU_URL}"
+echo "  MAVROS_GCS_URL=${MAVROS_GCS_URL}"
+echo "  MAVROS_TGT_SYSTEM=${MAVROS_TGT_SYSTEM}"
+echo "  MAVROS_TGT_COMPONENT=${MAVROS_TGT_COMPONENT}"
+echo "  MAVROS_LAUNCH_FILE=${MAVROS_LAUNCH_FILE}"
+
+launch_args=(
+  "fcu_url:=${MAVROS_FCU_URL}"
+  "tgt_system:=${MAVROS_TGT_SYSTEM}"
+  "tgt_component:=${MAVROS_TGT_COMPONENT}"
+)
+
+if [ -n "${MAVROS_GCS_URL}" ]; then
+  launch_args+=("gcs_url:=${MAVROS_GCS_URL}")
+fi
+
+exec ros2 launch mavros "${MAVROS_LAUNCH_FILE}" "${launch_args[@]}"

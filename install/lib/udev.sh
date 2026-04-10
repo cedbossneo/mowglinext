@@ -9,9 +9,6 @@ build_static_udev_rules() {
 # with other STM32 CDC devices (0483:5740 is generic STM32 VCP).
 SUBSYSTEM=="tty", ATTRS{product}=="Mowgli", SYMLINK+="mowgli", MODE="0666"
 
-# Holybro Pixhawk5X-BL
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1546", ATTRS{product}=="0051", SYMLINK+="ardupilot", MODE="0666"
-
 # Known GPS USB devices
 # NOTE: 0483:5740 (STM32 VCP) removed — it conflicts with the Mowgli board
 # which uses the same vendor/product ID. If your GPS uses an STM32-based
@@ -31,6 +28,13 @@ build_dynamic_udev_rules() {
   echo "# ========================================================="
   echo "# Mowgli II - dynamic rules from current hardware selection"
   echo "# ========================================================="
+
+  # MAVROS selected by /dev/serial/by-id
+  if [ "${MAVROS_ENABLED:-false}" = "true" ] && [ -n "${MAVROS_BY_ID:-}" ] && [ -e "${MAVROS_BY_ID}" ]; then
+    local mavros_kernel
+    mavros_kernel="$(basename "$(readlink -f "$MAVROS_BY_ID")")"
+    echo "KERNEL==\"${mavros_kernel}\", SYMLINK+=\"mavros\", MODE=\"0666\""
+  fi
 
   # GPS principal
   if [ "${GPS_CONNECTION:-usb}" = "uart" ] && [ -n "${GPS_UART_DEVICE:-}" ]; then

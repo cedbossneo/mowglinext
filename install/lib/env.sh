@@ -66,6 +66,16 @@ setup_env() {
     esac
   fi
 
+  # MAVROS
+  : "${HARDWARE_BACKEND:=mowgli}"
+  : "${MAVROS_BY_ID:=}"
+  : "${MAVROS_PORT:=/dev/mavros}"
+  : "${MAVROS_BAUD:=921600}"
+  : "${MAVROS_GCS_URL:=}"
+  : "${MAVROS_TGT_SYSTEM:=1}"
+  : "${MAVROS_TGT_COMPONENT:=1}"
+  : "${MAVROS_LAUNCH_FILE:=px4.launch}"
+
   touch "$env_file"
 
   upsert_env_key "$env_file" "ROS_DOMAIN_ID" "$ROS_DOMAIN_ID"
@@ -106,5 +116,13 @@ setup_env() {
   upsert_env_key "$env_file" "MAVROS_IMAGE" "$MAVROS_IMAGE"
   upsert_env_key "$env_file" "GUI_IMAGE" "$GUI_IMAGE"
 
+  upsert_env_key "$env_file" "HARDWARE_BACKEND" "$HARDWARE_BACKEND"
+  upsert_env_key "$env_file" "MAVROS_BY_ID" "$MAVROS_BY_ID"
+  upsert_env_key "$env_file" "MAVROS_PORT" "$MAVROS_PORT"
+  upsert_env_key "$env_file" "MAVROS_BAUD" "$MAVROS_BAUD"
+  upsert_env_key "$env_file" "MAVROS_GCS_URL" "$MAVROS_GCS_URL"
+  upsert_env_key "$env_file" "MAVROS_TGT_SYSTEM" "$MAVROS_TGT_SYSTEM"
+  upsert_env_key "$env_file" "MAVROS_TGT_COMPONENT" "$MAVROS_TGT_COMPONENT"
+  upsert_env_key "$env_file" "MAVROS_LAUNCH_FILE" "$MAVROS_LAUNCH_FILE"
   info "Updated $env_file"
 }
