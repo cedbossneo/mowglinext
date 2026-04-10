@@ -268,7 +268,9 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
       docking_pose_set_ = true;
       RCLCPP_INFO(get_logger(),
                   "Dock pose from parameters: (%.3f, %.3f) yaw=%.3f",
-                  dock_x, dock_y, dock_yaw);
+                  dock_x,
+                  dock_y,
+                  dock_yaw);
     }
   }
 
@@ -1128,7 +1130,8 @@ bool MapServerNode::point_in_polygon(const geometry_msgs::msg::Point32& pt,
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Minimum distance from point (px, py) to the edges of a polygon.
-static double point_to_polygon_distance(double px, double py,
+static double point_to_polygon_distance(double px,
+                                        double py,
                                         const geometry_msgs::msg::Polygon& polygon)
 {
   const auto& pts = polygon.points;
@@ -1220,8 +1223,9 @@ void MapServerNode::publish_keepout_mask()
         }
         if (!within_margin && keepout_nav_margin_ > 0.0)
         {
-          double dist = point_to_polygon_distance(
-              static_cast<double>(pt.x), static_cast<double>(pt.y), area.polygon);
+          double dist = point_to_polygon_distance(static_cast<double>(pt.x),
+                                                  static_cast<double>(pt.y),
+                                                  area.polygon);
           if (dist <= keepout_nav_margin_)
           {
             within_margin = true;
@@ -2001,16 +2005,24 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
               area.name.c_str(),
               layout.strips.size(),
               layout.mow_angle * 180.0 / M_PI,
-              min_x, min_y, max_x, max_y,
-              inner_min_x, inner_max_x);
+              min_x,
+              min_y,
+              max_x,
+              max_y,
+              inner_min_x,
+              inner_max_x);
   if (!layout.strips.empty())
   {
     const auto& first = layout.strips.front();
     const auto& last = layout.strips.back();
     RCLCPP_INFO(get_logger(),
                 "  First strip: x=%.2f y=[%.2f, %.2f], Last strip: x=%.2f y=[%.2f, %.2f]",
-                first.start.x, first.start.y, first.end.y,
-                last.start.x, last.start.y, last.end.y);
+                first.start.x,
+                first.start.y,
+                first.end.y,
+                last.start.x,
+                last.start.y,
+                last.end.y);
   }
 }
 
