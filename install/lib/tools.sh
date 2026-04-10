@@ -141,7 +141,7 @@ install_mowgli_helpers() {
   fi
 
   local project_dir="${INSTALL_DIR}"
-  local dc="docker compose --project-directory \"$project_dir\" --env-file \"$project_dir/.env\""
+  local dc="docker compose --env-file \"$project_dir/.env\""
 
   create_helper_script "/usr/local/bin/mowgli-up" "#!/usr/bin/env bash
 cd \"$project_dir\" || exit 1
@@ -162,6 +162,10 @@ exec $dc logs -f \"\$@\""
   create_helper_script "/usr/local/bin/mowgli-ps" "#!/usr/bin/env bash
 cd \"$project_dir\" || exit 1
 exec $dc ps"
+
+  create_helper_script "/usr/local/bin/mowgli-pull" "#!/usr/bin/env bash
+cd \"$project_dir\" || exit 1
+exec $dc pull"
 
   create_helper_script "/usr/local/bin/mowgli-check" "#!/usr/bin/env bash
 cd \"$project_dir\" || exit 1
