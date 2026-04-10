@@ -160,6 +160,27 @@ BT::NodeStatus RecordArea::onRunning()
 
       return BT::NodeStatus::FAILURE;
     }
+
+    // Check for home command (COMMAND_HOME=2) — treat as an implicit cancel.
+    // Do NOT clear current_command here so that HomeSequence can pick it up
+    // on the next tick and navigate back to the dock.
+    if (ctx->current_command == 2)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "RecordArea: Home command received during recording — "
+                  "discarding %zu recorded points and aborting",
+                  trajectory_.size());
+      trajectory_.clear();
+
+      // Publish empty trajectory to clear preview
+      nav_msgs::msg::Path empty_path;
+      empty_path.header.frame_id = "map";
+      empty_path.header.stamp = ctx->node->get_clock()->now();
+      trajectory_pub_->publish(empty_path);
+
+      // Return FAILURE so the Fallback in MainLogic falls through to HomeSequence.
+      return BT::NodeStatus::FAILURE;
+    }
   }
 
   // Record position at the configured rate

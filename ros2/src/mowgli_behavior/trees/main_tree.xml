@@ -395,12 +395,20 @@
              Teleop via /cmd_vel_teleop (twist_mux priority).
              Blade is managed by GUI (fire-and-forget to firmware).
              Collision_monitor remains active. GPS/SLAM continues.
+
+             ReactiveSequence is used deliberately: on every tick it
+             re-evaluates IsCommand from the first child, even while
+             WaitForDuration is running. When the user presses Home
+             (command changes from 7 to 2), IsCommand returns FAILURE,
+             the ReactiveSequence halts WaitForDuration and returns
+             FAILURE, allowing the Fallback to select HomeSequence on
+             the very next tick.
              ============================================================ -->
-        <Sequence name="ManualMowingSequence">
+        <ReactiveSequence name="ManualMowingSequence">
           <IsCommand command="7"/>
           <PublishHighLevelStatus state="4" state_name="MANUAL_MOWING"/>
           <WaitForDuration duration_sec="0.5"/>
-        </Sequence>
+        </ReactiveSequence>
 
         <!-- ============================================================
              f. Idle default
