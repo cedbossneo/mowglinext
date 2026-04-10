@@ -32,6 +32,7 @@ import {
     PauseOutlined,
     CaretRightOutlined,
     ThunderboltOutlined,
+    CheckOutlined,
 } from "@ant-design/icons";
 import type {MenuInfo} from "rc-menu/lib/interface";
 import AsyncButton from "../../../components/AsyncButton.tsx";
@@ -88,6 +89,8 @@ interface MapToolbarMobileProps {
     onBladeForward?: () => Promise<void>;
     onBladeBackward?: () => Promise<void>;
     onBladeOff?: () => Promise<void>;
+    onRecordFinish?: () => Promise<void>;
+    onRecordCancel?: () => Promise<void>;
 }
 
 export const MapToolbarMobile = ({
@@ -103,6 +106,7 @@ export const MapToolbarMobile = ({
     onStart, onHome, onEmergencyOn, onEmergencyOff,
     onAreaRecording, onMowNextArea, onContinueOrPause,
     onBladeForward, onBladeBackward, onBladeOff,
+    onRecordFinish, onRecordCancel,
 }: MapToolbarMobileProps) => {
     const {colors} = useThemeMode();
     const {notification} = App.useApp();
@@ -128,6 +132,7 @@ export const MapToolbarMobile = ({
     };
 
     const isIdle = stateName === "IDLE";
+    const isRecording = stateName === "AREA_RECORDING";
 
     const safeCall = (fn?: () => Promise<void>) => {
         fn?.().catch((e: Error) => {
@@ -307,7 +312,22 @@ export const MapToolbarMobile = ({
     // View mode
     return (
         <div style={toolbarStyle}>
-            {isIdle ? (
+            {isRecording ? (
+                <Space.Compact size="middle">
+                    <AsyncButton
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        onAsyncClick={onRecordFinish!}
+                        aria-label="Finish Recording"
+                    />
+                    <AsyncButton
+                        danger
+                        icon={<CloseOutlined />}
+                        onAsyncClick={onRecordCancel!}
+                        aria-label="Cancel Recording"
+                    />
+                </Space.Compact>
+            ) : isIdle ? (
                 <AsyncButton
                     type="primary"
                     icon={<PlayCircleOutlined />}
