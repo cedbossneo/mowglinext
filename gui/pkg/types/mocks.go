@@ -76,7 +76,7 @@ func NewMockRosProvider() *MockRosProvider {
 	}
 }
 
-func (m *MockRosProvider) CallService(_ context.Context, service string, req any, _ any) error {
+func (m *MockRosProvider) CallService(_ context.Context, service string, req any, _ any, _ ...string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ServiceCalls = append(m.ServiceCalls, ServiceCall{Service: service, Req: req})

@@ -10,7 +10,7 @@ type IRosProvider interface {
 	// service is the full service name (e.g. "/behavior_tree_node/high_level_control").
 	// req is marshalled as the JSON args payload.
 	// res, if non-nil, receives the unmarshalled service response values.
-	CallService(ctx context.Context, service string, req any, res any) error
+	CallService(ctx context.Context, service string, req any, res any, serviceType ...string) error
 
 	// Subscribe registers cb to receive JSON-encoded messages on a logical
 	// topic key (e.g. "status", "gps", "pose"). The cb is invoked from a

@@ -58,7 +58,7 @@ func AddMapAreaRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		if CallReq.Area.Obstacles == nil {
 			CallReq.Area.Obstacles = []geometry.Polygon{}
 		}
-		err = provider.CallService(ctx, "/map_server_node/add_area", &CallReq, &mowgli.AddMowingAreaRes{})
+		err = provider.CallService(ctx, "/map_server_node/add_area", &CallReq, &mowgli.AddMowingAreaRes{}, "mowgli_interfaces/srv/AddMowingArea")
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {
@@ -82,7 +82,7 @@ func ClearMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
-		err := provider.CallService(ctx, "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
+		err := provider.CallService(ctx, "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {
@@ -107,7 +107,7 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
-		err := provider.CallService(ctx, "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
+		err := provider.CallService(ctx, "/map_server_node/clear_map", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 			return
@@ -129,7 +129,7 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 				Area:             element.Area,
 				IsNavigationArea: element.IsNavigationArea,
 			}
-			err = provider.CallService(ctx, "/map_server_node/add_area", &areaReq, &mowgli.AddMowingAreaRes{})
+			err = provider.CallService(ctx, "/map_server_node/add_area", &areaReq, &mowgli.AddMowingAreaRes{}, "mowgli_interfaces/srv/AddMowingArea")
 			if err != nil {
 				c.JSON(500, ErrorResponse{Error: err.Error()})
 				return
@@ -137,7 +137,7 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		}
 
 		// Persist areas to disk so they survive container restarts
-		_ = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{})
+		_ = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
 
 		c.JSON(200, OkResponse{})
 	})
@@ -164,7 +164,7 @@ func SetDockingPointRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		if err != nil {
 			return
 		}
-		err = provider.CallService(ctx, "/map_server_node/set_docking_point", &CallReq, &mowgli.SetDockingPointRes{})
+		err = provider.CallService(ctx, "/map_server_node/set_docking_point", &CallReq, &mowgli.SetDockingPointRes{}, "mowgli_interfaces/srv/SetDockingPoint")
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})
 		} else {
@@ -333,28 +333,28 @@ func ServiceRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			if err != nil {
 				return
 			}
-			err = provider.CallService(c.Request.Context(), "/behavior_tree_node/high_level_control", &CallReq, &mowgli.HighLevelControlRes{})
+			err = provider.CallService(c.Request.Context(), "/behavior_tree_node/high_level_control", &CallReq, &mowgli.HighLevelControlRes{}, "mowgli_interfaces/srv/HighLevelControl")
 		case "emergency":
 			var CallReq mowgli.EmergencyStopReq
 			err = c.BindJSON(&CallReq)
 			if err != nil {
 				return
 			}
-			err = provider.CallService(c.Request.Context(), "/hardware_bridge/emergency_stop", &CallReq, &mowgli.EmergencyStopRes{})
+			err = provider.CallService(c.Request.Context(), "/hardware_bridge/emergency_stop", &CallReq, &mowgli.EmergencyStopRes{}, "mowgli_interfaces/srv/EmergencyStop")
 		case "mow_enabled":
 			var CallReq mowgli.MowerControlReq
 			err = c.BindJSON(&CallReq)
 			if err != nil {
 				return
 			}
-			err = provider.CallService(c.Request.Context(), "/hardware_bridge/mower_control", &CallReq, &mowgli.MowerControlRes{})
+			err = provider.CallService(c.Request.Context(), "/hardware_bridge/mower_control", &CallReq, &mowgli.MowerControlRes{}, "mowgli_interfaces/srv/MowerControl")
 		case "start_in_area":
 			var CallReq mowgli.StartInAreaReq
 			err = c.BindJSON(&CallReq)
 			if err != nil {
 				return
 			}
-			err = provider.CallService(c.Request.Context(), "/behavior_tree_node/start_in_area", &CallReq, &mowgli.StartInAreaRes{})
+			err = provider.CallService(c.Request.Context(), "/behavior_tree_node/start_in_area", &CallReq, &mowgli.StartInAreaRes{}, "mowgli_interfaces/srv/StartInArea")
 		default:
 			err = errors.New("unknown command")
 		}
