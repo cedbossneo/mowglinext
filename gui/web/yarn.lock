@@ -3602,10 +3602,10 @@ swagger-schema-official@2.0.0-bab6bed:
   resolved "https://registry.yarnpkg.com/swagger-schema-official/-/swagger-schema-official-2.0.0-bab6bed.tgz#70070468d6d2977ca5237b2e519ca7d06a2ea3fd"
   integrity sha512-rCC0NWGKr/IJhtRuPq/t37qvZHI/mH4I4sxflVM+qgVe5Z2uOCivzWaVbuioJaB61kvm5UvB7b49E+oBY0M8jA==
 
-swagger-typescript-api@^13.6.6:
-  version "13.6.6"
-  resolved "https://registry.yarnpkg.com/swagger-typescript-api/-/swagger-typescript-api-13.6.6.tgz#60ff81621117e06b5fb42031d8e42ca922d2890a"
-  integrity sha512-gWkZKeX546EVUyTtQqynI9QBB2u+A4jfWQ9LZaXsT0wseKNFBMAfxQqTMz7eC/vyDbP/oWVeoBG81EhxuNuxrA==
+swagger-typescript-api@^13.6.8:
+  version "13.6.8"
+  resolved "https://registry.yarnpkg.com/swagger-typescript-api/-/swagger-typescript-api-13.6.8.tgz#0dd5eae0939283a9aa4812af6e122fdf870d97fc"
+  integrity sha512-b11V1Mgv+CArWiVCnVmrvm8v45i2W6zbY8bHPL+eo7LpnudWd2Ov7dEltrcAoCTIkvTYP3DIrQE8IbriKdKRkg==
   dependencies:
     "@apidevtools/swagger-parser" "12.1.0"
     "@biomejs/js-api" "4.0.0"
@@ -3623,7 +3623,7 @@ swagger-typescript-api@^13.6.6:
     type-fest "^5.4.4"
     typescript "~6.0.2"
     yaml "^2.8.2"
-    yummies "7.12.0"
+    yummies "7.15.2"
 
 swagger2openapi@^7.0.8:
   version "7.0.8"
@@ -3979,10 +3979,10 @@ yocto-queue@^0.1.0:
   resolved "https://registry.yarnpkg.com/yocto-queue/-/yocto-queue-0.1.0.tgz#0294eb3dee05028d31ee1a5fa2c556a6aaf10a1b"
   integrity sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==
 
-yummies@7.12.0:
-  version "7.12.0"
-  resolved "https://registry.yarnpkg.com/yummies/-/yummies-7.12.0.tgz#a24dd400732cfbfcfca374fa4291be77fbc0d8e8"
-  integrity sha512-X0blIlCAeuQHUaDXzMkpp343R6Op79jzK6/kW98BW/qZpueAodBEkAU2ljNk1nO40KGGJXJZ1Ib8jE41sQENjA==
+yummies@7.15.2:
+  version "7.15.2"
+  resolved "https://registry.yarnpkg.com/yummies/-/yummies-7.15.2.tgz#6890476a0e38c9250026781fb42886447d880e23"
+  integrity sha512-zedceXMYcgetDbi3Rp28McCVzosUnq1o1jK9uf7vfPu9xq2a8YLK81vIqS4sff0VexfrtBckb2VKykM0Sz/zhw==
   dependencies:
     class-variance-authority "^0.7.1"
     clsx "^2.1.1"
