@@ -3,13 +3,16 @@ package providers
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"sync"
 	"time"
 
 	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
 	"github.com/cedbossneo/mowglinext/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
+// schedule mirrors api.Schedule exactly. It is redefined here to avoid an
+// import cycle (providers ← api). Keep fields in sync with api.Schedule.
 type schedule struct {
 	ID         string     `json:"id"`
 	Area       int        `json:"area"`
@@ -22,18 +25,79 @@ type schedule struct {
 
 const schedulerKeyPrefix = "schedule:"
 
+// SchedulerProvider polls the database every minute and triggers autonomous
+// mowing via the high_level_control ROS2 service when a schedule fires.
+// Before triggering it checks that no emergency is active and the robot is
+// not already in autonomous or recording state.
 type SchedulerProvider struct {
 	rosProvider types.IRosProvider
 	dbProvider  types.IDBProvider
+
+	mu                sync.RWMutex
+	lastHighLevelState uint8
+	lastEmergency      bool
 }
 
+// NewSchedulerProvider creates and starts the scheduler background goroutine.
 func NewSchedulerProvider(rosProvider types.IRosProvider, dbProvider types.IDBProvider) *SchedulerProvider {
 	s := &SchedulerProvider{
 		rosProvider: rosProvider,
 		dbProvider:  dbProvider,
 	}
+	s.subscribeToStatus()
 	go s.run()
 	return s
+}
+
+// subscribeToStatus subscribes to highLevelStatus and emergency so that the
+// scheduler can perform pre-flight safety checks without an extra service call.
+func (s *SchedulerProvider) subscribeToStatus() {
+	// highLevelStatus — tracks robot operational state (idle/autonomous/recording)
+	if err := s.rosProvider.Subscribe("highLevelStatus", "scheduler-hls", func(msg []byte) {
+		var hls mowgli.HighLevelStatus
+		if err := json.Unmarshal(msg, &hls); err != nil {
+			// Fan-out converts snake_case → PascalCase; try the PascalCase variant
+			// by trying to decode State from either representation.
+			var raw map[string]json.RawMessage
+			if jsonErr := json.Unmarshal(msg, &raw); jsonErr != nil {
+				return
+			}
+			// Accept "state" or "State"
+			for _, k := range []string{"state", "State"} {
+				if v, ok := raw[k]; ok {
+					_ = json.Unmarshal(v, &hls.State)
+					break
+				}
+			}
+		}
+		s.mu.Lock()
+		s.lastHighLevelState = hls.State
+		s.mu.Unlock()
+	}); err != nil {
+		logrus.Warnf("Scheduler: failed to subscribe to highLevelStatus: %v", err)
+	}
+
+	// emergency — safety-critical, no throttle on this topic
+	if err := s.rosProvider.Subscribe("emergency", "scheduler-emg", func(msg []byte) {
+		var emg mowgli.Emergency
+		if err := json.Unmarshal(msg, &emg); err != nil {
+			var raw map[string]json.RawMessage
+			if jsonErr := json.Unmarshal(msg, &raw); jsonErr != nil {
+				return
+			}
+			for _, k := range []string{"active_emergency", "ActiveEmergency"} {
+				if v, ok := raw[k]; ok {
+					_ = json.Unmarshal(v, &emg.ActiveEmergency)
+					break
+				}
+			}
+		}
+		s.mu.Lock()
+		s.lastEmergency = emg.ActiveEmergency
+		s.mu.Unlock()
+	}); err != nil {
+		logrus.Warnf("Scheduler: failed to subscribe to emergency: %v", err)
+	}
 }
 
 func (s *SchedulerProvider) run() {
@@ -47,6 +111,7 @@ func (s *SchedulerProvider) run() {
 func (s *SchedulerProvider) checkSchedules() {
 	keys, err := s.dbProvider.KeysWithSuffix(schedulerKeyPrefix)
 	if err != nil {
+		logrus.Warnf("Scheduler: failed to list schedules: %v", err)
 		return
 	}
 
@@ -57,11 +122,13 @@ func (s *SchedulerProvider) checkSchedules() {
 	for _, key := range keys {
 		data, err := s.dbProvider.Get(key)
 		if err != nil {
+			logrus.Warnf("Scheduler: failed to read schedule %s: %v", key, err)
 			continue
 		}
 
 		var sched schedule
 		if err := json.Unmarshal(data, &sched); err != nil {
+			logrus.Warnf("Scheduler: failed to parse schedule %s: %v", key, err)
 			continue
 		}
 
@@ -73,37 +140,72 @@ func (s *SchedulerProvider) checkSchedules() {
 			continue
 		}
 
-		log.Printf("Scheduler: triggering mowing in area %d (schedule %s)", sched.Area, sched.ID)
+		if !s.safeToStart() {
+			logrus.Infof("Scheduler: skipping schedule %s — safety check failed (emergency or already active)", sched.ID)
+			continue
+		}
+
+		logrus.Infof("Scheduler: triggering autonomous mowing for schedule %s (area %d)", sched.ID, sched.Area)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err = s.rosProvider.CallService(
 			ctx,
-			"/behavior_tree_node/start_in_area",
-			&mowgli.StartInAreaReq{Area: uint8(sched.Area)},
-			&mowgli.StartInAreaRes{},
+			"/behavior_tree_node/high_level_control",
+			&mowgli.HighLevelControlReq{Command: 1}, // 1 = COMMAND_START
+			&mowgli.HighLevelControlRes{},
 		)
 		cancel()
 
 		if err != nil {
-			log.Printf("Scheduler: failed to start mowing in area %d: %v", sched.Area, err)
+			logrus.Errorf("Scheduler: failed to call high_level_control for schedule %s: %v", sched.ID, err)
 			continue
 		}
 
-		// Update last run time
+		// Persist last-run time so double-execution within the same minute is prevented.
 		sched.LastRun = &now
-		if data, err := json.Marshal(&sched); err == nil {
-			_ = s.dbProvider.Set(schedulerKeyPrefix+sched.ID, data)
+		if updated, err := json.Marshal(&sched); err == nil {
+			if putErr := s.dbProvider.Set(schedulerKeyPrefix+sched.ID, updated); putErr != nil {
+				logrus.Warnf("Scheduler: failed to persist last-run for schedule %s: %v", sched.ID, putErr)
+			}
 		}
 	}
 }
 
+// safeToStart returns true when it is safe to send COMMAND_START.
+// It blocks mowing when:
+//   - an emergency is active (latched or active), or
+//   - the robot is already in autonomous (2) or recording (3) state.
+//
+// HIGH_LEVEL_STATE constants:
+//
+//	0 = NULL (emergency/transitional)
+//	1 = IDLE
+//	2 = AUTONOMOUS
+//	3 = RECORDING
+//	4 = MANUAL_MOWING
+func (s *SchedulerProvider) safeToStart() bool {
+	s.mu.RLock()
+	state := s.lastHighLevelState
+	emergency := s.lastEmergency
+	s.mu.RUnlock()
+
+	if emergency {
+		return false
+	}
+	// Do not interrupt an already-running autonomous session or an ongoing
+	// area recording. State 0 (NULL/emergency) is also blocked.
+	switch state {
+	case 0, 2, 3:
+		return false
+	}
+	return true
+}
+
 func (s *SchedulerProvider) shouldRun(sched *schedule, currentDay int, currentTime string, now time.Time) bool {
-	// Check if current time matches
 	if sched.Time != currentTime {
 		return false
 	}
 
-	// Check if current day is in schedule
 	dayMatch := false
 	for _, d := range sched.DaysOfWeek {
 		if d == currentDay {
@@ -115,11 +217,9 @@ func (s *SchedulerProvider) shouldRun(sched *schedule, currentDay int, currentTi
 		return false
 	}
 
-	// Prevent double execution within the same minute
-	if sched.LastRun != nil {
-		if now.Sub(*sched.LastRun) < 2*time.Minute {
-			return false
-		}
+	// Prevent double-execution within the same minute window.
+	if sched.LastRun != nil && now.Sub(*sched.LastRun) < 2*time.Minute {
+		return false
 	}
 
 	return true
