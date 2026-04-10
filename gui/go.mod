@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	git.mills.io/prologic/bitcask v1.0.2
 	github.com/brutella/hap v0.0.31
+	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v20.10.24+incompatible
 	github.com/gin-contrib/cors v1.4.0
 	github.com/gin-contrib/static v0.0.1
@@ -14,9 +15,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/mochi-mqtt/server/v2 v2.4.0
-	github.com/paulmach/orb v0.10.0
 	github.com/samber/lo v1.38.1
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.10.0
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.0
@@ -41,7 +41,6 @@ require (
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
-	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
