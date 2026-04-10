@@ -180,7 +180,7 @@ func NewRosProvider(dbProvider types2.IDBProvider) types2.IRosProvider {
 // initRosbridgeSubscriptions sends subscribe ops to rosbridge for every
 // real (non-virtual) topic in topicMap. Shape-changing topics are passed
 // through dedicated adapter functions (defined in transform.go); all other
-// topics receive a generic snake_case → PascalCase key rename.
+// topics are forwarded as-is (rosbridge snake_case JSON).
 func (r *RosProvider) initRosbridgeSubscriptions() {
 	adapters := map[string]func([]byte) ([]byte, error){
 		"pose":  adaptPose,
@@ -202,15 +202,7 @@ func (r *RosProvider) initRosbridgeSubscriptions() {
 					logrus.Errorf("RosProvider: adapt %s: %v", key, err)
 					return
 				}
-				// Adapter output uses Go structs with json:"snake_case" tags;
-				// the frontend expects PascalCase keys, so convert.
-				converted, err := snakeToPascalJSON(adapted)
-				if err != nil {
-					logrus.Errorf("RosProvider: transform adapted %s: %v", key, err)
-					r.fanOut(key, adapted) // fallback
-					return
-				}
-				r.fanOut(key, converted)
+				r.fanOut(key, adapted)
 			}, throttle)
 			if err != nil {
 				logrus.Errorf("RosProvider: subscribe %s (%s): %v", def.ROS2Topic, key, err)
@@ -219,13 +211,7 @@ func (r *RosProvider) initRosbridgeSubscriptions() {
 			}
 		} else {
 			err := r.client.Subscribe(def.ROS2Topic, def.MsgType, "gui-"+key, func(msg json.RawMessage) {
-				converted, err := snakeToPascalJSON([]byte(msg))
-				if err != nil {
-					logrus.Errorf("RosProvider: transform %s: %v", key, err)
-					r.fanOut(key, []byte(msg)) // fallback
-					return
-				}
-				r.fanOut(key, converted)
+				r.fanOut(key, []byte(msg))
 			}, throttle)
 			if err != nil {
 				logrus.Errorf("RosProvider: subscribe %s (%s): %v", def.ROS2Topic, key, err)
@@ -367,13 +353,7 @@ func (r *RosProvider) pollMap() {
 		return
 	}
 
-	// Convert to PascalCase for frontend
-	converted, err := snakeToPascalJSON(data)
-	if err != nil {
-		r.fanOut("map", data)
-		return
-	}
-	r.fanOut("map", converted)
+	r.fanOut("map", data)
 }
 
 

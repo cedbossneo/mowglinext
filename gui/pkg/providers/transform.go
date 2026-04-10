@@ -3,69 +3,10 @@ package providers
 import (
 	"encoding/json"
 	"math"
-	"strings"
 
 	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
 )
-
-// ---------------------------------------------------------------------------
-// Snake_case → PascalCase key conversion
-// ---------------------------------------------------------------------------
-
-// snakeToPascal converts a single snake_case identifier to PascalCase.
-// Each underscore-delimited segment has its first letter uppercased.
-// Examples:
-//
-//	"mower_status" → "MowerStatus"
-//	"frame_id"     → "FrameId"
-//	"x"            → "X"
-//	"v_charge"     → "VCharge"
-func snakeToPascal(s string) string {
-	parts := strings.Split(s, "_")
-	var b strings.Builder
-	for _, p := range parts {
-		if len(p) == 0 {
-			continue
-		}
-		b.WriteString(strings.ToUpper(p[:1]))
-		if len(p) > 1 {
-			b.WriteString(p[1:])
-		}
-	}
-	return b.String()
-}
-
-// convertKeys recursively walks a value produced by json.Unmarshal into an
-// interface{} and converts every map key from snake_case to PascalCase.
-// Non-map values are returned unchanged.
-func convertKeys(v interface{}) interface{} {
-	switch val := v.(type) {
-	case map[string]interface{}:
-		out := make(map[string]interface{}, len(val))
-		for k, child := range val {
-			out[snakeToPascal(k)] = convertKeys(child)
-		}
-		return out
-	case []interface{}:
-		for i, elem := range val {
-			val[i] = convertKeys(elem)
-		}
-		return val
-	default:
-		return v
-	}
-}
-
-// snakeToPascalJSON unmarshals data as generic JSON, converts all map keys
-// from snake_case to PascalCase, and re-marshals the result.
-func snakeToPascalJSON(data []byte) ([]byte, error) {
-	var v interface{}
-	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, err
-	}
-	return json.Marshal(convertKeys(v))
-}
 
 // ---------------------------------------------------------------------------
 // Raw input structs – used only for unmarshalling rosbridge snake_case JSON.
@@ -170,7 +111,7 @@ func navSatStatusToFlags(status int8) uint16 {
 // ---------------------------------------------------------------------------
 
 // adaptGPS converts a sensor_msgs/NavSatFix payload (rosbridge snake_case
-// JSON) into an mowgli.AbsolutePose JSON payload (PascalCase, suitable for
+// JSON) into an mowgli.AbsolutePose JSON payload (snake_case, suitable for
 // the frontend).
 func adaptGPS(raw []byte) ([]byte, error) {
 	var fix rawNavSatFix
@@ -200,7 +141,7 @@ func adaptGPS(raw []byte) ([]byte, error) {
 }
 
 // adaptPose converts a nav_msgs/Odometry payload (rosbridge snake_case JSON)
-// into an mowgli.AbsolutePose JSON payload (PascalCase).
+// into an mowgli.AbsolutePose JSON payload (snake_case via json tags).
 // The heading (yaw) is derived from the orientation quaternion.
 func adaptPose(raw []byte) ([]byte, error) {
 	var odom rawOdometry
@@ -241,7 +182,7 @@ func adaptPose(raw []byte) ([]byte, error) {
 }
 
 // adaptTicks converts a nav_msgs/Odometry payload (rosbridge snake_case JSON)
-// into an mowgli.WheelTick JSON payload (PascalCase).
+// into an mowgli.WheelTick JSON payload (snake_case via json tags).
 // nav_msgs/Odometry does not carry raw tick data, so all tick fields are
 // zero. This is an acceptable transitional state while a dedicated
 // wheel-tick topic is wired up.

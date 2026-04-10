@@ -56,8 +56,7 @@ func (s *SchedulerProvider) subscribeToStatus() {
 	if err := s.rosProvider.Subscribe("highLevelStatus", "scheduler-hls", func(msg []byte) {
 		var hls mowgli.HighLevelStatus
 		if err := json.Unmarshal(msg, &hls); err != nil {
-			// Fan-out converts snake_case → PascalCase; try the PascalCase variant
-			// by trying to decode State from either representation.
+			// Fallback: try to find the state field by either name variant.
 			var raw map[string]json.RawMessage
 			if jsonErr := json.Unmarshal(msg, &raw); jsonErr != nil {
 				return
