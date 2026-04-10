@@ -7,7 +7,7 @@ import {useEmergency} from "../hooks/useEmergency.ts";
 import {useGPS} from "../hooks/useGPS.ts";
 import {useSettings} from "../hooks/useSettings.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
-import {AbsolutePoseFlags} from "../types/ros.ts";
+import {AbsolutePoseConstants} from "../types/ros.ts";
 
 export function HighLevelStatusComponent() {
     const {colors} = useThemeMode();
@@ -19,21 +19,21 @@ export function HighLevelStatusComponent() {
     const {settings} = useSettings()
 
     // Derive charging state: prefer highLevelStatus, fall back to status topic
-    const isCharging = highLevelStatus.IsCharging ?? status.IsCharging ?? false;
+    const isCharging = highLevelStatus.is_charging ?? status.is_charging ?? false;
 
     // Derive emergency state: prefer highLevelStatus, fall back to emergency topic
-    const isEmergency = highLevelStatus.Emergency ?? emergency.ActiveEmergency ?? false;
+    const isEmergency = highLevelStatus.emergency ?? emergency.active_emergency ?? false;
 
     // Derive battery percentage: prefer highLevelStatus, fall back to voltage-based estimate
     const batteryPercent = (() => {
-        if (highLevelStatus.BatteryPercent != null && highLevelStatus.BatteryPercent > 0) {
-            return highLevelStatus.BatteryPercent * 100;
+        if (highLevelStatus.battery_percent != null && highLevelStatus.battery_percent > 0) {
+            return highLevelStatus.battery_percent * 100;
         }
         // Estimate from voltage if highLevelStatus is unavailable
-        if (power.VBattery) {
+        if (power.v_battery) {
             const full = parseFloat(settings["battery_full_voltage"] ?? "28.5");
             const empty = parseFloat(settings["battery_empty_voltage"] ?? "23.0");
-            const pct = ((power.VBattery - empty) / (full - empty)) * 100;
+            const pct = ((power.v_battery - empty) / (full - empty)) * 100;
             return Math.max(0, Math.min(100, pct));
         }
         return 0;
@@ -41,28 +41,28 @@ export function HighLevelStatusComponent() {
 
     // Derive GPS quality: prefer highLevelStatus, fall back to GPS topic flags
     const gpsQuality = (() => {
-        if (highLevelStatus.GpsQualityPercent != null && highLevelStatus.GpsQualityPercent > 0) {
-            return highLevelStatus.GpsQualityPercent * 100;
+        if (highLevelStatus.gps_quality_percent != null && highLevelStatus.gps_quality_percent > 0) {
+            return highLevelStatus.gps_quality_percent * 100;
         }
         // Estimate from GPS flags (RTK=1 means "has GPS", FIXED=2 means RTK fix, FLOAT=4 means RTK float)
-        if (gps.Flags != null) {
-            if (gps.Flags & AbsolutePoseFlags.FIXED) return 100;   // RTK fixed
-            if (gps.Flags & AbsolutePoseFlags.FLOAT) return 50;    // RTK float
-            if (gps.Flags & AbsolutePoseFlags.RTK) return 25;      // GPS fix, no RTK
+        if (gps.flags != null) {
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FIXED) return 100;   // RTK fixed
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FLOAT) return 50;    // RTK float
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK) return 25;      // GPS fix, no RTK
         }
         return 0;
     })();
 
     // Derive state name: prefer highLevelStatus, fall back to basic inference
-    const stateName = highLevelStatus.StateName ?? (
+    const stateName = highLevelStatus.state_name ?? (
         isEmergency ? "EMERGENCY" :
         isCharging ? "CHARGING" :
-        status.MowerStatus != null ? "IDLE" :
+        status.mower_status != null ? "IDLE" :
         undefined
     );
 
     const estimateRemainingChargingTime = () => {
-        if (!power.VBattery || !power.ChargeCurrent || power.ChargeCurrent == 0) {
+        if (!power.v_battery || !power.charge_current || power.charge_current == 0) {
             return "∞"
         }
         const capacity = (settings["battery_capacity_mah"] ?? "3000.0");
@@ -72,11 +72,11 @@ export function HighLevelStatusComponent() {
             return "∞"
         }
         const estimatedAmpsPerVolt = parseFloat(capacity) / (parseFloat(full) - parseFloat(empty))
-        const estimatedRemainingAmps = (parseFloat(full) - (power.VBattery ?? 0)) * estimatedAmpsPerVolt;
+        const estimatedRemainingAmps = (parseFloat(full) - (power.v_battery ?? 0)) * estimatedAmpsPerVolt;
         if (estimatedRemainingAmps < 10) {
             return "∞"
         }
-        const remaining = estimatedRemainingAmps / ((power.ChargeCurrent ?? 0) * 1000)
+        const remaining = estimatedRemainingAmps / ((power.charge_current ?? 0) * 1000)
         if (remaining < 0) {
             return "∞"
         }

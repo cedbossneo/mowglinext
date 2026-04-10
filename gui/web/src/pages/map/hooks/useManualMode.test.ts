@@ -64,8 +64,8 @@ describe('useManualMode', () => {
             result.current.handleJoyMove({x: 0.5, y: 0.8} as any);
         });
         expect(sendJsonMessage).toHaveBeenCalledWith({
-            Linear: {X: 0.8, Y: 0, Z: 0},
-            Angular: {Z: -0.5, X: 0, Y: 0},
+            linear: {x: 0.8, y: 0, z: 0},
+            angular: {z: -0.5, x: 0, y: 0},
         });
     });
 
@@ -75,8 +75,8 @@ describe('useManualMode', () => {
             result.current.handleJoyStop();
         });
         expect(sendJsonMessage).toHaveBeenCalledWith({
-            Linear: {X: 0, Y: 0, Z: 0},
-            Angular: {Z: 0, X: 0, Y: 0},
+            linear: {x: 0, y: 0, z: 0},
+            angular: {z: 0, x: 0, y: 0},
         });
     });
 
@@ -86,8 +86,8 @@ describe('useManualMode', () => {
             result.current.handleJoyMove({x: null, y: null} as any);
         });
         expect(sendJsonMessage).toHaveBeenCalledWith({
-            Linear: {X: 0, Y: 0, Z: 0},
-            Angular: {Z: -0, X: 0, Y: 0},
+            linear: {x: 0, y: 0, z: 0},
+            angular: {z: -0, x: 0, y: 0},
         });
     });
 });

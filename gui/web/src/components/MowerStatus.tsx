@@ -4,7 +4,7 @@ import {useEmergency} from "../hooks/useEmergency.ts";
 import {usePower} from "../hooks/usePower.ts";
 import {useGPS} from "../hooks/useGPS.ts";
 import {useSettings} from "../hooks/useSettings.ts";
-import {AbsolutePoseFlags} from "../types/ros.ts";
+import {AbsolutePoseConstants} from "../types/ros.ts";
 import {App, Badge, Dropdown, Modal, Space, Typography} from "antd";
 import {PoweroffOutlined, ReloadOutlined, DesktopOutlined, WifiOutlined} from "@ant-design/icons"
 import {stateRenderer} from "./utils.tsx";
@@ -49,38 +49,38 @@ export const MowerStatus = () => {
     const {notification} = App.useApp();
 
     // Derive state with fallbacks
-    const isEmergency = highLevelStatus.Emergency ?? emergencyData.ActiveEmergency ?? false;
-    const isCharging = highLevelStatus.IsCharging ?? hwStatus.IsCharging ?? false;
+    const isEmergency = highLevelStatus.emergency ?? emergencyData.active_emergency ?? false;
+    const isCharging = highLevelStatus.is_charging ?? hwStatus.is_charging ?? false;
 
-    const stateName = highLevelStatus.StateName ?? (
+    const stateName = highLevelStatus.state_name ?? (
         isEmergency ? "EMERGENCY" :
         isCharging ? "CHARGING" :
-        hwStatus.MowerStatus != null ? "IDLE" :
+        hwStatus.mower_status != null ? "IDLE" :
         undefined
     );
 
     // GPS quality with fallback
     const gpsPercent = (() => {
-        if (highLevelStatus.GpsQualityPercent != null && highLevelStatus.GpsQualityPercent > 0) {
-            return Math.round(highLevelStatus.GpsQualityPercent * 100);
+        if (highLevelStatus.gps_quality_percent != null && highLevelStatus.gps_quality_percent > 0) {
+            return Math.round(highLevelStatus.gps_quality_percent * 100);
         }
-        if (gps.Flags != null) {
-            if (gps.Flags & AbsolutePoseFlags.FIXED) return 100;
-            if (gps.Flags & AbsolutePoseFlags.FLOAT) return 50;
-            if (gps.Flags & AbsolutePoseFlags.RTK) return 25;
+        if (gps.flags != null) {
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FIXED) return 100;
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK_FLOAT) return 50;
+            if (gps.flags & AbsolutePoseConstants.FLAG_GPS_RTK) return 25;
         }
         return 0;
     })();
 
     // Battery percent with fallback
     const batteryPercent = (() => {
-        if (highLevelStatus.BatteryPercent != null && highLevelStatus.BatteryPercent > 0) {
-            return Math.round(highLevelStatus.BatteryPercent * 100);
+        if (highLevelStatus.battery_percent != null && highLevelStatus.battery_percent > 0) {
+            return Math.round(highLevelStatus.battery_percent * 100);
         }
-        if (power.VBattery) {
+        if (power.v_battery) {
             const full = parseFloat(settings["battery_full_voltage"] ?? "28.5");
             const empty = parseFloat(settings["battery_empty_voltage"] ?? "23.0");
-            const pct = ((power.VBattery - empty) / (full - empty)) * 100;
+            const pct = ((power.v_battery - empty) / (full - empty)) * 100;
             return Math.round(Math.max(0, Math.min(100, pct)));
         }
         return 0;
@@ -94,10 +94,10 @@ export const MowerStatus = () => {
             ? 'mowerPulseGreen 2s ease-in-out infinite'
             : 'none';
 
-    const hasArea = highLevelStatus.CurrentArea !== undefined && highLevelStatus.CurrentArea >= 0;
-    const hasProgress = isMowing && highLevelStatus.CurrentPathIndex !== undefined && highLevelStatus.CurrentPath !== undefined && highLevelStatus.CurrentPath > 0;
+    const hasArea = highLevelStatus.current_area !== undefined && highLevelStatus.current_area >= 0;
+    const hasProgress = isMowing && highLevelStatus.current_path_index !== undefined && highLevelStatus.current_path !== undefined && highLevelStatus.current_path > 0;
     const progressPercent = hasProgress
-        ? Math.round(((highLevelStatus.CurrentPathIndex ?? 0) / (highLevelStatus.CurrentPath ?? 1)) * 100)
+        ? Math.round(((highLevelStatus.current_path_index ?? 0) / (highLevelStatus.current_path ?? 1)) * 100)
         : null;
 
     const restartMowgli = async () => {
@@ -186,7 +186,7 @@ export const MowerStatus = () => {
                 </Space>
                 {isMowing && hasArea && (
                     <Typography.Text style={{fontSize: 11, color: colors.primary, whiteSpace: 'nowrap'}}>
-                        A{(highLevelStatus.CurrentArea ?? 0) + 1}
+                        A{(highLevelStatus.current_area ?? 0) + 1}
                         {progressPercent !== null ? ` ${progressPercent}%` : ''}
                     </Typography.Text>
                 )}

@@ -53,8 +53,8 @@ export function useManualMode({mowerAction, joyStream}: UseManualModeOptions) {
 
     const handleJoyMove = useCallback((event: IJoystickUpdateEvent) => {
         const msg: Twist = {
-            Linear: {X: event.y ?? 0, Y: 0, Z: 0},
-            Angular: {Z: (event.x ?? 0) * -1, X: 0, Y: 0},
+            linear: {x: event.y ?? 0, y: 0, z: 0},
+            angular: {z: (event.x ?? 0) * -1, x: 0, y: 0},
         };
         lastTwistRef.current = msg;
         joyStream.sendJsonMessage(msg);
@@ -66,8 +66,8 @@ export function useManualMode({mowerAction, joyStream}: UseManualModeOptions) {
 
     const handleJoyStop = useCallback(() => {
         const msg: Twist = {
-            Linear: {X: 0, Y: 0, Z: 0},
-            Angular: {Z: 0, X: 0, Y: 0},
+            linear: {x: 0, y: 0, z: 0},
+            angular: {z: 0, x: 0, y: 0},
         };
         lastTwistRef.current = null;
         stopJoyInterval();
