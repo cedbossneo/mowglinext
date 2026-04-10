@@ -249,10 +249,20 @@ extern "C"
    *
    * Wire size: 5 bytes (must match sizeof(LlHighLevelState) in ll_datatypes.hpp).
    */
+  /**
+   * High-level operating modes sent by the ROS 2 host.
+   * These MUST match the constants in mowgli_interfaces/msg/HighLevelStatus.msg.
+   */
+#define HL_MODE_NULL             0u   /**< Emergency or transitional */
+#define HL_MODE_IDLE             1u   /**< Idle, docked, charging */
+#define HL_MODE_AUTONOMOUS       2u   /**< Autonomous mowing */
+#define HL_MODE_RECORDING        3u   /**< Area boundary recording */
+#define HL_MODE_MANUAL_MOWING    4u   /**< Manual teleop with blade */
+
   typedef struct
   {
     uint8_t type; /**< PKT_ID_HL_STATE */
-    uint8_t current_mode; /**< High-level operating mode identifier */
+    uint8_t current_mode; /**< High-level operating mode (HL_MODE_*) */
     uint8_t gps_quality; /**< GPS fix quality [0-100] */
     uint16_t crc; /**< CRC-16 CCITT over preceding bytes */
   } pkt_hl_state_t;

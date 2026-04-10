@@ -191,26 +191,26 @@ static void on_hl_state(const uint8_t *data, size_t len)
         PANEL_Set_LED(PANEL_LED_LOCK, PANEL_LED_ON);
     }
 
-    // Map host mode to internal status for motor safety
-    // Mode 0 = IDLE, 1 = AUTONOMOUS, 2 = RECORDING
+    // Map host mode to internal status for motor safety.
+    // Constants defined in mowgli_protocol.h — keep in sync with HighLevelStatus.msg.
     switch (hl_current_mode) {
-    case 2:  // HIGH_LEVEL_STATE_AUTONOMOUS
+    case HL_MODE_AUTONOMOUS:
         PANEL_Set_LED(PANEL_LED_S1, PANEL_LED_ON);
         PANEL_Set_LED(PANEL_LED_S2, PANEL_LED_OFF);
         main_eOpenmowerStatus = OPENMOWER_STATUS_MOWING;
         break;
-    case 3:  // HIGH_LEVEL_STATE_RECORDING
+    case HL_MODE_RECORDING:
         PANEL_Set_LED(PANEL_LED_S1, PANEL_LED_OFF);
         PANEL_Set_LED(PANEL_LED_S2, PANEL_LED_ON);
         main_eOpenmowerStatus = OPENMOWER_STATUS_RECORD;
         break;
-    case 4:  // HIGH_LEVEL_STATE_MANUAL_MOWING — teleop with motors enabled, blade managed by GUI
+    case HL_MODE_MANUAL_MOWING:
         PANEL_Set_LED(PANEL_LED_S1, PANEL_LED_ON);
         PANEL_Set_LED(PANEL_LED_S2, PANEL_LED_ON);
         main_eOpenmowerStatus = OPENMOWER_STATUS_MOWING;
         break;
-    case 0:  // HIGH_LEVEL_STATE_NULL
-    case 1:  // HIGH_LEVEL_STATE_IDLE
+    case HL_MODE_NULL:
+    case HL_MODE_IDLE:
     default:
         PANEL_Set_LED(PANEL_LED_S1, PANEL_LED_OFF);
         PANEL_Set_LED(PANEL_LED_S2, PANEL_LED_OFF);
