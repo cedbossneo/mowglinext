@@ -68,8 +68,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-foxglove-bridge \
     # Rosbridge (WebSocket bridge for openmower-gui)
     ros-jazzy-rosbridge-suite \
-    # Boost (required by mowgli_brv_planner — Voronoi roadmap transit)
-    libboost-dev \
     # Gazebo Harmonic + ROS bridge
     ros-jazzy-ros-gz-sim \
     ros-jazzy-ros-gz-bridge \

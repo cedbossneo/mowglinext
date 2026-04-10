@@ -52,6 +52,8 @@ interface MapToolbarProps {
     onBladeForward?: () => Promise<void>;
     onBladeBackward?: () => Promise<void>;
     onBladeOff?: () => Promise<void>;
+    onRecordFinish?: () => Promise<void>;
+    onRecordCancel?: () => Promise<void>;
 }
 
 export const MapToolbar = ({
@@ -63,6 +65,7 @@ export const MapToolbar = ({
     onStart, onHome, onEmergencyOn, onEmergencyOff,
     onAreaRecording, onMowNextArea, onContinueOrPause,
     onBladeForward, onBladeBackward, onBladeOff,
+    onRecordFinish, onRecordCancel,
 }: MapToolbarProps) => {
     const {notification} = App.useApp();
     const isIdle = stateName === "IDLE";

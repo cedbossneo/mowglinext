@@ -72,7 +72,8 @@ struct BTContext
 
   /// Last command received via the ~/high_level_control service.
   /// Constants match HighLevelControl.srv (COMMAND_START=1, COMMAND_HOME=2,
-  /// COMMAND_S1=3, COMMAND_S2=4, COMMAND_RESET_EMERGENCY=254, …).
+  /// COMMAND_S1=3, COMMAND_S2=4, COMMAND_MANUAL_MOW=7,
+  /// COMMAND_RESET_EMERGENCY=254, …).
   uint8_t current_command{0};
 
   // -----------------------------------------------------------------------
@@ -138,9 +139,7 @@ struct BTContext
   double dock_yaw{0.0};
 
   // -----------------------------------------------------------------------
-  // Coverage path components (set by ComputeCoverage, consumed by
-  // ExecuteSwathBySwath).  Using simple structs to avoid depending on
-  // opennav_coverage_msgs in the context header.
+  // Legacy coverage path components (retained for potential future use).
   // -----------------------------------------------------------------------
 
   struct Swath
@@ -156,13 +155,28 @@ struct BTContext
     nav_msgs::msg::Path full_path;  // Full F2C discretized path (swaths + turns)
   };
 
-  /// Populated by ComputeCoverage, consumed by ExecuteSwathBySwath.
   std::optional<CoveragePlan> coverage_plan;
+
+  /// Already-traveled waypoints from the current plan (legacy).
+  std::vector<geometry_msgs::msg::Point> visited_waypoints;
+
+  // -----------------------------------------------------------------------
+  // Cell-based strip coverage state
+  // -----------------------------------------------------------------------
+
+  /// Current strip path to mow (set by GetNextStrip, consumed by FollowStrip).
+  nav_msgs::msg::Path current_strip_path;
+
+  /// Transit goal to reach strip start (set by GetNextStrip, consumed by TransitToStrip).
+  geometry_msgs::msg::PoseStamped current_transit_goal;
+
+  /// Latest coverage percentage.
+  float coverage_percent{0.0f};
 
   /// Progress tracking across charge cycles.
   size_t next_swath_index{0};
 
-  /// Coverage progress (updated by ExecuteSwathBySwath, read by PublishHighLevelStatus).
+  /// Coverage progress (read by PublishHighLevelStatus).
   int current_area{-1};
   int total_swaths{0};
   int completed_swaths{0};

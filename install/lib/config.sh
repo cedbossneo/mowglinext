@@ -168,6 +168,7 @@ interactive_config() {
   step "5/6  Mower configuration"
 
   local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+  local defaults="$REPO_DIR/docker/config"
   mkdir -p "$INSTALL_DIR/config/mowgli"
   mkdir -p "$INSTALL_DIR/config/om"
   mkdir -p "$INSTALL_DIR/config/mqtt"
@@ -175,36 +176,13 @@ interactive_config() {
 
   # CycloneDDS
   if [ ! -f "$INSTALL_DIR/config/cyclonedds.xml" ]; then
-    cat > "$INSTALL_DIR/config/cyclonedds.xml" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<CycloneDDS xmlns="https://cdds.io/config">
-  <Domain id="any">
-    <General>
-      <Interfaces>
-        <NetworkInterface autodetermine="true"/>
-      </Interfaces>
-    </General>
-    <Discovery>
-      <MaxAutoParticipantIndex>250</MaxAutoParticipantIndex>
-    </Discovery>
-  </Domain>
-</CycloneDDS>
-EOF
+    cp "$defaults/cyclonedds.xml" "$INSTALL_DIR/config/cyclonedds.xml"
     info "Created cyclonedds.xml"
   fi
 
   # Mosquitto
   if [ ! -f "$INSTALL_DIR/config/mqtt/mosquitto.conf" ]; then
-    cat > "$INSTALL_DIR/config/mqtt/mosquitto.conf" <<'EOF'
-log_type error
-log_type warning
-log_type information
-listener 1883
-allow_anonymous true
-listener 9001
-protocol websockets
-allow_anonymous true
-EOF
+    cp "$defaults/mqtt/mosquitto.conf" "$INSTALL_DIR/config/mqtt/mosquitto.conf"
     info "Created mosquitto.conf"
   fi
 

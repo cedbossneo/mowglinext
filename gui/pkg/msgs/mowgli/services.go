@@ -77,6 +77,10 @@ type ClearMapRes struct {
 	Message string `json:"message"`
 }
 
+// AreaRecordingReq for /behavior_tree_node/area_recording (convenience alias
+// for sending COMMAND_RECORD_FINISH / COMMAND_RECORD_CANCEL via high_level_control)
+// Not a separate service — reuses HighLevelControlReq with command 5 (finish) or 6 (cancel).
+
 // ReplaceMapReq - used by the frontend to clear+add all areas
 type ReplaceMapArea struct {
 	Area             MapArea `json:"area"`

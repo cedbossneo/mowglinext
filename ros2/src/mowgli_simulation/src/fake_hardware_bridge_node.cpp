@@ -37,6 +37,7 @@
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
+#include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -53,9 +54,28 @@ public:
         [this](const std::shared_ptr<mowgli_interfaces::srv::MowerControl::Request> req,
                std::shared_ptr<mowgli_interfaces::srv::MowerControl::Response> res)
         {
-          (void)req;
+          mow_enabled_ = (req->mow_enabled != 0);
           res->success = true;
-          RCLCPP_DEBUG(get_logger(), "Fake mower_control: mow_enabled=%u", req->mow_enabled);
+          RCLCPP_INFO(get_logger(), "Fake mower_control: mow_enabled=%u", req->mow_enabled);
+        });
+
+    // Service: emergency_stop
+    emergency_stop_srv_ = create_service<mowgli_interfaces::srv::EmergencyStop>(
+        "/hardware_bridge/emergency_stop",
+        [this](const std::shared_ptr<mowgli_interfaces::srv::EmergencyStop::Request> req,
+               std::shared_ptr<mowgli_interfaces::srv::EmergencyStop::Response> res)
+        {
+          if (req->emergency != 0u)
+          {
+            RCLCPP_INFO(get_logger(), "Fake emergency_stop: emergency activated");
+            sim_emergency_active_ = true;
+          }
+          else
+          {
+            RCLCPP_INFO(get_logger(), "Fake emergency_stop: emergency released");
+            sim_emergency_active_ = false;
+          }
+          res->success = true;
         });
 
     // Dock position (origin) and proximity threshold
@@ -122,6 +142,7 @@ private:
 
     mowgli_interfaces::msg::Status status;
     status.stamp = now;
+    status.mow_enabled = mow_enabled_;
     status_pub_->publish(status);
 
     mowgli_interfaces::msg::Power power;
@@ -147,12 +168,15 @@ private:
 
     mowgli_interfaces::msg::Emergency emergency;
     emergency.stamp = now;
-    emergency.active_emergency = false;
-    emergency.latched_emergency = false;
+    emergency.active_emergency = sim_emergency_active_;
+    emergency.latched_emergency = sim_emergency_active_;
     emergency_pub_->publish(emergency);
   }
 
+  bool mow_enabled_{false};
+  bool sim_emergency_active_{false};
   rclcpp::Service<mowgli_interfaces::srv::MowerControl>::SharedPtr mower_control_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::EmergencyStop>::SharedPtr emergency_stop_srv_;
   rclcpp::Publisher<mowgli_interfaces::msg::Status>::SharedPtr status_pub_;
   rclcpp::Publisher<mowgli_interfaces::msg::Power>::SharedPtr power_pub_;
   rclcpp::Publisher<mowgli_interfaces::msg::Emergency>::SharedPtr emergency_pub_;

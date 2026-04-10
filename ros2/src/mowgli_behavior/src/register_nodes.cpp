@@ -13,9 +13,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#include "mowgli_behavior/action_nodes.hpp"
+#include "mowgli_behavior/calibration_nodes.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
+#include "mowgli_behavior/docking_nodes.hpp"
+#include "mowgli_behavior/navigation_nodes.hpp"
+#include "mowgli_behavior/recording_nodes.hpp"
+#include "mowgli_behavior/status_nodes.hpp"
+#include "mowgli_behavior/utility_nodes.hpp"
 
 namespace mowgli_behavior
 {
@@ -45,12 +50,9 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<PublishHighLevelStatus>("PublishHighLevelStatus");
   factory.registerNodeType<WaitForDuration>("WaitForDuration");
   factory.registerNodeType<NavigateToPose>("NavigateToPose");
-  factory.registerNodeType<PlanCoveragePath>("PlanCoveragePath");
-  factory.registerNodeType<FollowCoveragePath>("FollowCoveragePath");
   factory.registerNodeType<SaveSlamMap>("SaveSlamMap");
   factory.registerNodeType<BackUp>("BackUp");
   factory.registerNodeType<ClearCommand>("ClearCommand");
-  factory.registerNodeType<ReplanCoverage>("ReplanCoverage");
   factory.registerNodeType<SaveObstacles>("SaveObstacles");
   factory.registerNodeType<SetNavMode>("SetNavMode");
   factory.registerNodeType<WasRainingAtStart>("WasRainingAtStart");
@@ -59,11 +61,15 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<DockRobot>("DockRobot");
   factory.registerNodeType<UndockRobot>("UndockRobot");
   factory.registerNodeType<RecordResumeUndockFailure>("RecordResumeUndockFailure");
+  factory.registerNodeType<ResetEmergency>("ResetEmergency");
 
-  // Coverage nodes (opennav_coverage integration)
-  factory.registerNodeType<ComputeCoverage>("ComputeCoverage");
-  factory.registerNodeType<ExecuteSwathBySwath>("ExecuteSwathBySwath");
-  factory.registerNodeType<ExecuteFullCoveragePath>("ExecuteFullCoveragePath");
+  // Cell-based coverage nodes (strip-by-strip dynamic coverage)
+  factory.registerNodeType<GetNextStrip>("GetNextStrip");
+  factory.registerNodeType<FollowStrip>("FollowStrip");
+  factory.registerNodeType<TransitToStrip>("TransitToStrip");
+
+  // Area recording node
+  factory.registerNodeType<RecordArea>("RecordArea");
 }
 
 }  // namespace mowgli_behavior

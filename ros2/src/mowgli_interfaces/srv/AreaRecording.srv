@@ -1,0 +1,12 @@
+# Commands for area recording lifecycle
+uint8 COMMAND_START=1
+uint8 COMMAND_FINISH=2
+uint8 COMMAND_CANCEL=3
+
+uint8 command
+string area_name
+bool is_exclusion_zone
+---
+bool success
+string message
+geometry_msgs/Polygon polygon

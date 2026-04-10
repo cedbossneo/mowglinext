@@ -33,7 +33,7 @@ ekf_odom:
     two_d_mode: true
     publish_tf: true
     odom_frame: odom
-    base_link_frame: base_footprint
+    base_link_frame: base_link
     world_frame: odom
 
     # Wheel odometry: fuse linear velocity (vx, vy) and yaw rate.

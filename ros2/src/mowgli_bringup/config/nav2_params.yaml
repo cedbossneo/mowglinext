@@ -67,15 +67,14 @@ controller_server:
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       angular_dist_threshold: 0.5    # rotate in place when heading error > ~30deg
       forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 1.8
-      max_angular_accel: 2.5
+      rotate_to_heading_angular_vel: 3.0
+      max_angular_accel: 5.0
       # RPP parameters (passed through to primary controller)
       desired_linear_vel: 0.3
       lookahead_dist: 0.4
       min_lookahead_dist: 0.2
       max_lookahead_dist: 0.6
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 1.5
       transform_tolerance: 2.0
       use_velocity_scaled_lookahead_dist: false
       min_approach_linear_velocity: 0.05
@@ -89,8 +88,7 @@ controller_server:
       regulated_linear_scaling_min_speed: 0.1
       use_rotate_to_heading: false
       allow_reversing: false
-      max_angular_accel: 2.5
-      max_angular_vel: 1.5
+      max_angular_vel: 3.0
       max_robot_pose_search_dist: 2.0
 
     # Follow-the-Carrot controller for coverage mowing.
@@ -102,7 +100,7 @@ controller_server:
       speed_fast_threshold: 0.5    # distance threshold for fast/slow (m)
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
       speed_slow: 0.15             # carrot speed when close/turning (m/s)
-      speed_angular: 30.0          # rotation speed for in-place turns (deg/s)
+      speed_angular: 60.0          # rotation speed for in-place turns (deg/s)
       acceleration: 0.5            # carrot acceleration (m/s²)
       # PID longitudinal
       kp_lon: 2.0
@@ -118,7 +116,7 @@ controller_server:
       kd_ang: 0.0
       # Limits
       max_cmd_vel_speed: 0.4
-      max_cmd_vel_ang: 1.8
+      max_cmd_vel_ang: 3.0
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
       goal_timeout: 10.0
@@ -189,9 +187,9 @@ behavior_server:
     robot_base_frame: base_link
     transform_tolerance: 0.5
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.5
+    max_rotational_vel: 3.0
     min_rotational_vel: 0.15
-    rotational_acc_lim: 2.5
+    rotational_acc_lim: 5.0
 
 # ---------------------------------------------------------------------------
 # Waypoint follower
@@ -240,9 +238,11 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      # Allow up to 60s for map→base_link TF to appear (SLAM needs time to
-      # initialize scan matching before publishing map→odom).
-      transform_tolerance: 60.0
+      # TF tolerance: how stale a transform can be before the costmap rejects it.
+      # Keep this short — stale TF after SLAM corrections projects scans into
+      # wrong cells, creating phantom obstacles.  SLAM init delay is handled by
+      # wait_for_tf.py, not this parameter.
+      transform_tolerance: 5.0
       # Footprint computed from mowgli_robot.yaml at launch time
       footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
       resolution: 0.05
@@ -254,8 +254,8 @@ global_costmap:
       # gardens: the costmap always centres on the robot, and obstacles are
       # detected in real time by the obstacle_layer.
       rolling_window: true
-      width: 100
-      height: 100
+      width: 200
+      height: 200
       # keepout_filter disabled in global costmap: it marks boundary zones
       # as LETHAL causing "Start occupied" when robot is near boundary edge.
       # Boundary enforcement uses local costmap keepout + coverage planner.
@@ -281,6 +281,7 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 7.5
           obstacle_min_range: 0.35
+          inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -341,6 +342,7 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 7.5
           obstacle_min_range: 0.35
+          inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -463,9 +465,8 @@ collision_monitor:
 # via RewrittenYaml.
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# Coverage server (legacy opennav_coverage config — kept for reference)
-# The B-RV planner (mowgli_brv_planner) now handles coverage planning.
-# Called by ComputeCoverage BT node via PlanCoverage action.
+# Coverage server (legacy opennav_coverage config — kept for reference).
+# Cell-based strip coverage now handles mowing; no external planner needed.
 # ---------------------------------------------------------------------------
 coverage_server:
   ros__parameters:
@@ -490,16 +491,6 @@ coverage_server:
     default_path_continuity_type: "CONTINUOUS"
     # Coordinate system
     coordinates_in_cartesian_frame: true
-
-route_server:
-  ros__parameters:
-    use_sim_time: false
-    # GeoJSON graph file generated by coverage_planner_node after each plan.
-    # The route_server loads this file to serve route requests.
-    # Can also be loaded dynamically via the /route_server/load_graph service.
-    graph_filepath: "/tmp/mowing_route.geojson"
-    base_frame: base_link
-    global_frame: map
 
 lifecycle_manager_navigation:
   ros__parameters:

@@ -65,8 +65,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-nav2-util \
     # Nav2 msgs (CostmapFilterInfo for costmap filters)
     ros-jazzy-nav2-msgs \
-    # Boost (required by mowgli_brv_planner — Voronoi roadmap transit)
-    libboost-dev \
     # Simulation bridge (needed at runtime for ros_gz_bridge topic bridging)
     ros-jazzy-ros-gz-sim \
     ros-jazzy-ros-gz-bridge \
@@ -110,8 +108,6 @@ COPY src/mowgli_localization/package.xml  src/mowgli_localization/package.xml
 COPY src/mowgli_localization/CMakeLists.txt src/mowgli_localization/CMakeLists.txt
 COPY src/mowgli_map/package.xml           src/mowgli_map/package.xml
 COPY src/mowgli_map/CMakeLists.txt        src/mowgli_map/CMakeLists.txt
-COPY src/mowgli_brv_planner/package.xml src/mowgli_brv_planner/package.xml
-COPY src/mowgli_brv_planner/CMakeLists.txt src/mowgli_brv_planner/CMakeLists.txt
 COPY src/mowgli_nav2_plugins/package.xml  src/mowgli_nav2_plugins/package.xml
 COPY src/mowgli_nav2_plugins/CMakeLists.txt src/mowgli_nav2_plugins/CMakeLists.txt
 COPY src/mowgli_behavior/package.xml      src/mowgli_behavior/package.xml

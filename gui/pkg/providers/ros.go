@@ -6,47 +6,53 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
-	"github.com/cedbossneo/mowglinext/pkg/msgs/nav"
 	"github.com/cedbossneo/mowglinext/pkg/rosbridge"
 	types2 "github.com/cedbossneo/mowglinext/pkg/types"
-	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/simplify"
-	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
 
 // topicDef maps a logical subscribe key to a ROS2 topic name and message type.
 // The frontend and internal routes always use logical keys; the ROS2 topic name
 // is only used when sending the rosbridge subscribe op.
+// ThrottleMs sets the minimum interval (ms) between messages that rosbridge
+// will forward for this subscription. High-frequency or large topics should
+// use a non-zero value to avoid saturating the CPU with JSON serialization.
 type topicDef struct {
-	ROS2Topic string
-	MsgType   string
+	ROS2Topic  string
+	MsgType    string
+	ThrottleMs int // 0 = no throttle
 }
 
 // topicMap maps logical keys (used by SubscriberRoute and internal code) to
 // their corresponding ROS2 topics and message types.
-// Virtual topics (map, mowingPath) have an empty MsgType and are never sent to
+// Virtual topics (map) have an empty MsgType and are never sent to
 // rosbridge; they are populated by internal logic instead.
+//
+// Throttle rates are chosen to balance GUI responsiveness against CPU:
+//   - Status/control topics: 200-500 ms (low bandwidth, GUI polls visually)
+//   - Sensor topics (IMU, odom): 200-500 ms (GUI only needs display rate)
+//   - Heavy topics (LaserScan, OccupancyGrid): 1000-2000 ms
+//   - Event topics (path, plan, emergency): 0 (infrequent, need prompt delivery)
 var topicMap = map[string]topicDef{
-	"status":        {"/hardware_bridge/status", "mowgli_interfaces/msg/Status"},
-	"highLevelStatus": {"/behavior_tree_node/high_level_status", "mowgli_interfaces/msg/HighLevelStatus"},
-	"gps":           {"/gps/absolute_pose", "mowgli_interfaces/msg/AbsolutePose"},
-	"pose":          {"/odometry/filtered_map", "nav_msgs/msg/Odometry"},
-	"imu":           {"/imu/data", "sensor_msgs/msg/Imu"},
-	"ticks":         {"/wheel_odom", "nav_msgs/msg/Odometry"},
-	"map":           {"", ""},                                                      // virtual – populated via map_server services
-	"path":          {"/coverage_planner_node/coverage_path", "nav_msgs/msg/Path"},
-	"plan":          {"/plan", "nav_msgs/msg/Path"},                                // Nav2 global plan
-	"mowingPath":    {"", ""},                                                      // virtual – populated by initMowingPathTracking
-	"power":         {"/hardware_bridge/power", "mowgli_interfaces/msg/Power"},
-	"emergency":     {"/hardware_bridge/emergency", "mowgli_interfaces/msg/Emergency"},
+	"status":          {"/hardware_bridge/status", "mowgli_interfaces/msg/Status", 200},
+	"highLevelStatus": {"/behavior_tree_node/high_level_status", "mowgli_interfaces/msg/HighLevelStatus", 500},
+	"gps":             {"/gps/absolute_pose", "mowgli_interfaces/msg/AbsolutePose", 500},
+	"pose":            {"/odometry/filtered_map", "nav_msgs/msg/Odometry", 200},
+	"imu":             {"/imu/data", "sensor_msgs/msg/Imu", 500},
+	"ticks":           {"/wheel_odom", "nav_msgs/msg/Odometry", 500},
+	"map":             {"", "", 0},                                                                       // virtual – populated via map_server services
+	"path":            {"/FollowCoveragePath/global_plan", "nav_msgs/msg/Path", 0},                       // infrequent event
+	"plan":            {"/plan", "nav_msgs/msg/Path", 0},                                                 // infrequent event
+	"coverageCells":   {"/map_server_node/coverage_cells", "nav_msgs/msg/OccupancyGrid", 2000},           // large message
+	"power":           {"/hardware_bridge/power", "mowgli_interfaces/msg/Power", 1000},
+	"emergency":       {"/hardware_bridge/emergency", "mowgli_interfaces/msg/Emergency", 0},              // safety-critical, no throttle
 	// NOTE: DockingSensor.msg does not exist in mowgli_interfaces yet; omitted to avoid rosbridge errors.
-	"lidar":         {"/scan", "sensor_msgs/msg/LaserScan"},
-	"diagnostics":   {"/diagnostics", "diagnostic_msgs/msg/DiagnosticArray"},
-	"obstacles":     {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray"},
-	"robotDescription": {"/robot_description", "std_msgs/msg/String"},
+	"lidar":            {"/scan", "sensor_msgs/msg/LaserScan", 1000},                                     // large message
+	"diagnostics":      {"/diagnostics", "diagnostic_msgs/msg/DiagnosticArray", 2000},
+	"obstacles":        {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray", 1000},
+	"robotDescription":     {"/robot_description", "std_msgs/msg/String", 0},                                // published once
+	"recordingTrajectory": {"/behavior_tree_node/recording_trajectory", "nav_msgs/msg/Path", 500},        // area recording preview
 }
 
 // ---------------------------------------------------------------------------
@@ -129,9 +135,6 @@ type RosProvider struct {
 	lastMessage map[string][]byte                     // logicalKey -> last JSON bytes
 
 	// Mowing path state (guarded by mtx)
-	mowingPaths      []*nav.Path
-	mowingPath       *nav.Path
-	mowingPathOrigin orb.LineString
 
 	dbProvider types2.IDBProvider
 }
@@ -162,8 +165,7 @@ func NewRosProvider(dbProvider types2.IDBProvider) types2.IRosProvider {
 			// re-sent on reconnect.
 		}
 		r.initRosbridgeSubscriptions()
-		r.initMowingPathTracking()
-		r.initMapPolling()
+			r.initMapPolling()
 	}()
 
 	return r
@@ -183,7 +185,8 @@ func (r *RosProvider) initRosbridgeSubscriptions() {
 		if def.MsgType == "" {
 			continue
 		}
-		key := logicalKey // capture for closure
+		key := logicalKey     // capture for closure
+		throttle := def.ThrottleMs // capture
 
 		if adapt, ok := adapters[key]; ok {
 			fn := adapt // capture
@@ -202,11 +205,11 @@ func (r *RosProvider) initRosbridgeSubscriptions() {
 					return
 				}
 				r.fanOut(key, converted)
-			})
+			}, throttle)
 			if err != nil {
 				logrus.Errorf("RosProvider: subscribe %s (%s): %v", def.ROS2Topic, key, err)
 			} else {
-				logrus.Infof("RosProvider: subscribed to %s as '%s'", def.ROS2Topic, key)
+				logrus.Infof("RosProvider: subscribed to %s as '%s' (throttle %dms)", def.ROS2Topic, key, throttle)
 			}
 		} else {
 			err := r.client.Subscribe(def.ROS2Topic, def.MsgType, "gui-"+key, func(msg json.RawMessage) {
@@ -217,11 +220,11 @@ func (r *RosProvider) initRosbridgeSubscriptions() {
 					return
 				}
 				r.fanOut(key, converted)
-			})
+			}, throttle)
 			if err != nil {
 				logrus.Errorf("RosProvider: subscribe %s (%s): %v", def.ROS2Topic, key, err)
 			} else {
-				logrus.Infof("RosProvider: subscribed to %s as '%s'", def.ROS2Topic, key)
+				logrus.Infof("RosProvider: subscribed to %s as '%s' (throttle %dms)", def.ROS2Topic, key, throttle)
 			}
 		}
 	}
@@ -238,10 +241,6 @@ func (r *RosProvider) fanOut(logicalKey string, msg []byte) {
 	}
 }
 
-// initMowingPathTracking registers an internal subscriber on the "pose"
-// logical key. It records the mower's position while the blade motor is
-// running (MOWING state) and publishes the accumulated path list to the
-// virtual "mowingPath" key.
 // initMapPolling periodically fetches mowing areas from the map_server_node
 // and publishes the result to the virtual "map" topic for the GUI.
 func (r *RosProvider) initMapPolling() {
@@ -310,102 +309,6 @@ func (r *RosProvider) pollMap() {
 	r.fanOut("map", converted)
 }
 
-func (r *RosProvider) initMowingPathTracking() {
-	err := r.Subscribe("pose", "gui-mowing-path-tracker", func(msg []byte) {
-		r.mtx.Lock()
-		defer r.mtx.Unlock()
-		r.processMowingPathUpdate(msg)
-	})
-	if err != nil {
-		logrus.Errorf("RosProvider: failed to init mowing path tracking: %v", err)
-	}
-}
-
-// processMowingPathUpdate is called for every odometry message while the
-// internal subscriber goroutine holds mtx. It updates mowingPaths and fans
-// out the result to "mowingPath" subscribers.
-//
-// Callers must hold r.mtx.
-func (r *RosProvider) processMowingPathUpdate(msg []byte) {
-	// Require high-level state to be MOWING.
-	hlsData, ok := r.lastMessage["highLevelStatus"]
-	if !ok {
-		return
-	}
-	var hls mowgli.HighLevelStatus
-	if err := json.Unmarshal(hlsData, &hls); err != nil {
-		logrus.Errorf("RosProvider: unmarshal HighLevelStatus: %v", err)
-		return
-	}
-
-	if hls.StateName != "MOWING" {
-		// Any non-MOWING state resets the accumulated path.
-		r.mowingPaths = []*nav.Path{}
-		r.mowingPath = nil
-		r.mowingPathOrigin = nil
-		return
-	}
-
-	// Require blade motor to be spinning.
-	statusData, ok := r.lastMessage["status"]
-	if !ok {
-		return
-	}
-	var status mowgli.Status
-	if err := json.Unmarshal(statusData, &status); err != nil {
-		logrus.Errorf("RosProvider: unmarshal Status: %v", err)
-		return
-	}
-
-	if status.MowerMotorRpm <= 0 {
-		// Motor stopped – end the current segment but keep previous segments.
-		r.mowingPath = nil
-		r.mowingPathOrigin = nil
-		return
-	}
-
-	// Parse the pose message for the current position. The "pose" key is now
-	// stored as AbsolutePose PascalCase JSON (produced by adaptPose).
-	var pose mowgli.AbsolutePose
-	if err := json.Unmarshal(msg, &pose); err != nil {
-		logrus.Errorf("RosProvider: unmarshal AbsolutePose: %v", err)
-		return
-	}
-
-	// Start a new path segment if needed.
-	if r.mowingPath == nil {
-		r.mowingPath = &nav.Path{}
-		r.mowingPathOrigin = orb.LineString{}
-		r.mowingPaths = append(r.mowingPaths, r.mowingPath)
-	}
-
-	r.mowingPathOrigin = append(r.mowingPathOrigin, orb.Point{
-		pose.Pose.Pose.Position.X,
-		pose.Pose.Pose.Position.Y,
-	})
-
-	// Simplify every 5 points to keep the payload compact.
-	if len(r.mowingPathOrigin)%5 == 0 {
-		reduced := simplify.DouglasPeucker(0.03).LineString(r.mowingPathOrigin.Clone())
-		r.mowingPath.Poses = lo.Map(reduced, func(p orb.Point, _ int) geometry.PoseStamped {
-			return geometry.PoseStamped{
-				Pose: geometry.Pose{
-					Position: geometry.Point{X: p[0], Y: p[1]},
-				},
-			}
-		})
-	}
-
-	pathJSON, err := json.Marshal(r.mowingPaths)
-	if err != nil {
-		logrus.Errorf("RosProvider: marshal mowingPaths: %v", err)
-		return
-	}
-	r.lastMessage["mowingPath"] = pathJSON
-	for _, sub := range r.subscribers["mowingPath"] {
-		sub.Publish(pathJSON)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // IRosProvider implementation

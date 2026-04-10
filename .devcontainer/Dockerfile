@@ -79,8 +79,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
-    # ── Boost (required by mowgli_brv_planner — Voronoi roadmap transit) ──
-    libboost-dev \
     # ── Runtime deps ──
     libtinyxml2-dev \
     python3-argcomplete \

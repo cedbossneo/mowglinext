@@ -39,6 +39,9 @@ set(srv_files
   "srv/MowerControl.srv"
   "srv/SetDockingPoint.srv"
   "srv/TriggerReplan.srv"
+  "srv/GetNextStrip.srv"
+  "srv/GetCoverageStatus.srv"
+  "srv/AreaRecording.srv"
 )
 
 # Declare action files

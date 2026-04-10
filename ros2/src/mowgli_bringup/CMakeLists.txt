@@ -18,6 +18,11 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(
+  PROGRAMS scripts/wait_for_tf.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # ---------------------------------------------------------------------------
 # Testing
 # ---------------------------------------------------------------------------
@@ -37,10 +42,6 @@ if(BUILD_TESTING)
     TIMEOUT 60
   )
 
-  # Integration test: coverage planner service with a simple polygon
-  add_launch_test(test/test_coverage_service.launch.py
-    TIMEOUT 30
-  )
 endif()
 
 ament_package()

@@ -110,16 +110,14 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         return {type: "FeatureCollection", features: feats};
     }, [features, offsetX, offsetY, datum]);
 
-    const mowingToolWidth = parseFloat(settings["tool_width"] ?? "0.18") * 100;
     const [mowingAreas, setMowingAreas] = useState<{ key: string, label: string, feat: Feature }[]>([])
 
-    const {map, setMap, path, plan, lidarCollection, highLevelStatus, joyStream} = useMapStreams({
+    const {map, setMap, path, plan, lidarCollection, coverageCellsImage, highLevelStatus, joyStream} = useMapStreams({
         editMap,
         settings,
         offsetX,
         offsetY,
         datum,
-        mowingToolWidth,
         setFeatures,
         setEditMap,
         setMapKey,
@@ -186,7 +184,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
 
 
         }
-        if (path) {
+        if (path?.Markers) {
             Object.values<Marker>(path.Markers).filter((f) => {
                 return f.Type == 4 && f.Action == 0
             }).forEach((marker, index) => {
@@ -516,6 +514,14 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                 'circle-color': ['get', 'color'],
                             }}/>
                     </Source>
+                    {coverageCellsImage && (
+                        <Source type={"image"} id={"coverage-cells"} url={coverageCellsImage.url} coordinates={coverageCellsImage.coordinates}>
+                            <Layer type={"raster"} id={"coverage-cells-layer"} paint={{
+                                "raster-opacity": 0.7,
+                                "raster-fade-duration": 0,
+                            }}/>
+                        </Source>
+                    )}
                 </Map> : <Spinner/>}
             </div>
         );
@@ -662,6 +668,14 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                 'circle-color': ['get', 'color'],
                             }}/>
                     </Source>
+                    {coverageCellsImage && (
+                        <Source type={"image"} id={"coverage-cells"} url={coverageCellsImage.url} coordinates={coverageCellsImage.coordinates}>
+                            <Layer type={"raster"} id={"coverage-cells-layer"} paint={{
+                                "raster-opacity": 0.7,
+                                "raster-fade-duration": 0,
+                            }}/>
+                        </Source>
+                    )}
                     <Source type={"geojson"} id={"lidar"} data={lidarCollection}>
                         <Layer type={"circle"} id={"lidar-points"} paint={{
                             "circle-radius": 3,
@@ -676,7 +690,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     </Source>
                 </Map> : <Spinner/>}
                 <JoystickOverlay
-                    visible={highLevelStatus.highLevelStatus.StateName === "AREA_RECORDING" || manualMode != null}
+                    visible={highLevelStatus.highLevelStatus.StateName === "AREA_RECORDING" || highLevelStatus.highLevelStatus.StateName === "MANUAL_MOWING" || manualMode != null}
                     isRecording={highLevelStatus.highLevelStatus.StateName === "AREA_RECORDING"}
                     onMove={handleJoyMove}
                     onStop={handleJoyStop}

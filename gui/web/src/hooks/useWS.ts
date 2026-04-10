@@ -18,6 +18,9 @@ export const useWS = <T>(onError: (e: Error) => void, onInfo: (msg: string) => v
 
     const ws = useWebSocket(uri, {
         share: true,
+        shouldReconnect: () => true,
+        reconnectAttempts: Infinity,
+        reconnectInterval: (attempt: number) => Math.min(1000 * Math.pow(2, attempt), 30000),
         onOpen: () => {
             console.log(`Opened stream ${uri}`)
             onInfoRef.current("Stream connected")

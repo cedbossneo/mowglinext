@@ -6,41 +6,123 @@ MowgliNext uses BehaviorTree.CPP v4 for reactive, composable robot control.
 
 - **Tick rate:** 10 Hz
 - **Root:** ReactiveSequence (restarts on child failure)
-- **Emergency guard:** `IsEmergency` checked first every tick
+- **Reactive guards:** Emergency, boundary violation, GPS mode — checked every tick before main logic
 - **Tree file:** `ros2/src/mowgli_behavior/trees/main_tree.xml`
+
+## High-Level States (HighLevelStatus.msg)
+
+| Value | Constant | Description |
+|-------|----------|-------------|
+| 0 | `HIGH_LEVEL_STATE_NULL` | Emergency or transitional |
+| 1 | `HIGH_LEVEL_STATE_IDLE` | Idle, docked, or returning home |
+| 2 | `HIGH_LEVEL_STATE_AUTONOMOUS` | Autonomous mowing (undocking, transit, mowing, recovering) |
+| 3 | `HIGH_LEVEL_STATE_RECORDING` | Area recording in progress |
+| 4 | `HIGH_LEVEL_STATE_MANUAL_MOWING` | Manual mowing via teleop |
+
+## Commands (HighLevelControl.srv)
+
+| Value | Constant | Description |
+|-------|----------|-------------|
+| 1 | `COMMAND_START` | Begin autonomous mowing |
+| 2 | `COMMAND_HOME` | Return to dock |
+| 3 | `COMMAND_RECORD_AREA` | Start area boundary recording |
+| 4 | `COMMAND_S2` | Mow next area |
+| 5 | `COMMAND_RECORD_FINISH` | Finish recording, simplify and save polygon |
+| 6 | `COMMAND_RECORD_CANCEL` | Cancel recording, discard trajectory |
+| 7 | `COMMAND_MANUAL_MOW` | Enter manual mowing mode |
+| 254 | `COMMAND_RESET_EMERGENCY` | Reset latched emergency |
+| 255 | `COMMAND_DELETE_MAPS` | Delete all maps |
 
 ## Tree Structure
 
 ```
-Root (ReactiveSequence)
-├── IsEmergency → EmergencyStop
-├── IsBatteryLow → NavigateToDock → DockRobot
-├── IsRaining → NavigateToDock → DockRobot
-└── MainSequence
-    ├── WaitForGPS
-    ├── UndockRobot
-    ├── NavigateToArea
-    ├── StartBlade
-    ├── ExecuteCoverage
-    ├── StopBlade
-    └── NavigateToDock → DockRobot
+Root (ReactiveSequence) — re-evaluates all children every tick
+│
+├── EmergencyGuard
+│   ├── Inverter(IsEmergency) → continue if safe
+│   └── EmergencyHandler
+│       ├── SetMowerEnabled(false), StopMoving()
+│       ├── PublishHighLevelStatus(EMERGENCY)
+│       └── AutoResetOrWait
+│           ├── IsCharging → ResetEmergency (auto-reset on dock)
+│           └── WaitForDuration(1s) (retry if not on dock)
+│
+├── BoundaryGuard
+│   ├── Inverter(IsBoundaryViolation) → continue if inside
+│   └── Stop, BackUp (5 attempts), emergency stop if still outside
+│
+├── GPSModeSelector
+│   ├── IsGPSFixed → SetNavMode(precise)
+│   └── SetNavMode(degraded)
+│
+└── MainLogic (Fallback — priority order)
+    ├── CriticalBatteryDock (< 10%) → save, dock, clear command
+    │
+    ├── MowingSequence (COMMAND_START = 1)
+    │   ├── Undock (GPS wait, SLAM save, heading calibration)
+    │   ├── Strip coverage loop (reactive rain/battery guards)
+    │   │   ├── GetNextStrip → TransitToStrip → FollowStrip
+    │   │   └── Recovery: backup, clear costmap, retry
+    │   └── Complete → disable blade, save, dock
+    │
+    ├── HomeSequence (COMMAND_HOME = 2) → save, dock
+    │
+    ├── RecordingSequence (COMMAND_RECORD_AREA = 3)
+    │   ├── RecordArea (trajectory at 2 Hz, live preview)
+    │   ├── Finish (cmd 5) → Douglas-Peucker simplify → save polygon
+    │   └── Cancel (cmd 6) → discard
+    │
+    ├── ManualMowingSequence (COMMAND_MANUAL_MOW = 7)
+    │   ├── Teleop via /cmd_vel_teleop (twist_mux priority)
+    │   ├── Blade managed by GUI (fire-and-forget to firmware)
+    │   └── Collision_monitor, GPS, SLAM all remain active
+    │
+    └── IdleSequence (default) → disable blade, stop, wait
 ```
 
 ## Node Types
 
 ### Condition Nodes
 - `IsEmergency` — checks emergency stop state (with staleness detection)
-- `IsBatteryLow` — configurable voltage threshold with hysteresis
-- `IsRaining` — rain sensor with configurable delay
 - `IsCharging` — dock charging state
-- `HasGPSFix` — GPS quality check (RTK fix required)
+- `IsBatteryLow` — configurable voltage threshold
+- `IsBatteryAbove` — checks battery percent above threshold (for charge-to-95%)
+- `NeedsDocking` — battery voltage below threshold (default 20.0 V)
+- `IsRainDetected` — rain sensor active
+- `IsNewRain` — new rain onset (not if raining at mow start)
+- `IsGPSFixed` — GPS RTK fix quality check
+- `IsCommand` — matches current high-level command from GUI
+- `IsBoundaryViolation` — robot outside mowing area boundary
+- `IsResumeUndockAllowed` — tracks resume-undock attempts (max_attempts)
+- `IsChargingProgressing` — charger active and battery increasing
+- `ReplanNeeded` — coverage replanning required
 
 ### Action Nodes
-- `NavigateToDock` / `NavigateToArea` — Nav2 navigate_to_pose
+- `NavigateToPose` — Nav2 navigate_to_pose async action
 - `DockRobot` / `UndockRobot` — opennav_docking actions
-- `StartBlade` / `StopBlade` — fire-and-forget blade commands
-- `ExecuteCoverage` — runs F2C coverage plan through Nav2
-- `SaveSLAMMap` — persists SLAM map before docking
+- `SetMowerEnabled` — fire-and-forget blade commands via `/mower_control`
+- `StopMoving` — publishes zero Twist to `/cmd_vel`
+- `BackUp` — drives robot backward (configurable distance/speed)
+- `ClearCostmap` — clears Nav2 local costmap
+- `PublishHighLevelStatus` — publishes state + state_name to HighLevelStatus topic
+- `SaveSlamMap` — persists SLAM map before docking
+- `SaveObstacles` — persists tracked obstacles to disk
+- `SetNavMode` — switches between precise/degraded navigation
+- `ClearCommand` — clears pending high-level command
+- `WaitForDuration` — timed wait
+- `RecordUndockStart` / `CalibrateHeadingFromUndock` — heading calibration from EKF TF after undock
+- `WasRainingAtStart` — records rain state at mow start
+- `RecordResumeUndockFailure` — tracks resume failures
+- `ResetEmergency` — calls `/emergency_stop` with emergency=false (firmware decides whether to clear)
+
+### Coverage Nodes (cell-based strip-by-strip)
+- `GetNextStrip` — fetches next unvisited strip from `map_server_node ~/get_next_strip`
+- `TransitToStrip` — navigates to strip start (RPP controller)
+- `FollowStrip` — follows strip path (FTCController, <10mm lateral accuracy)
+
+### Recording Nodes
+- `RecordArea` — records robot trajectory while user drives boundary, Douglas-Peucker simplification, saves polygon via `/map_server_node/add_area`. Publishes live trajectory preview on `~/recording_trajectory`. Listens for finish (cmd 5) or cancel (cmd 6).
+  - Ports: `simplification_tolerance` (0.2m), `min_vertices` (3), `min_area` (1.0 m^2), `record_rate_hz` (2.0), `is_exclusion_zone` (false)
 
 ## Adding a New BT Node
 

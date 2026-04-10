@@ -52,7 +52,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import Path, OccupancyGrid, Odometry
 from std_msgs.msg import Bool, String
 from sensor_msgs.msg import LaserScan
-from mowgli_interfaces.srv import HighLevelControl
+from mowgli_interfaces.srv import HighLevelControl, EmergencyStop
 from mowgli_interfaces.msg import HighLevelStatus
 
 
@@ -62,6 +62,9 @@ class TestPhase(Enum):
     PLANNING = "PLANNING"
     MOWING = "MOWING"
     DOCKING = "DOCKING"
+    MANUAL_MOWING = "MANUAL_MOWING"
+    AREA_RECORDING = "AREA_RECORDING"
+    EMERGENCY_RESET = "EMERGENCY_RESET"
     COMPLETE = "COMPLETE"
 
 
@@ -134,6 +137,7 @@ class E2ETestNode(Node):
         self.current_pose = None
         self.current_bt_state = ""
         self.test_complete = False
+        self.mowing_cycle_complete = False
         self.mowing_started = False
 
         # Phase tracking
@@ -205,10 +209,14 @@ class E2ETestNode(Node):
             Bool, "/map_server_node/boundary_violation", self._on_boundary_violation, reliable_qos
         )
 
-        # Service client
+        # Service clients
         self.hlc_client = self.create_client(
             HighLevelControl,
             "/behavior_tree_node/high_level_control",
+        )
+        self.emergency_client = self.create_client(
+            EmergencyStop,
+            "/hardware_bridge/emergency_stop",
         )
 
         # Periodic report timer
@@ -250,7 +258,7 @@ class E2ETestNode(Node):
         if state_name in ("MOWING_COMPLETE", "IDLE_DOCKED") and self.mowing_started:
             if self.current_phase == TestPhase.DOCKING or state_name == "IDLE_DOCKED":
                 self._complete_phase(TestPhase.DOCKING, True, "Robot docked successfully")
-            self.test_complete = True
+            self.mowing_cycle_complete = True
 
         # Detect reroute events from BT state
         if state_name == "RECOVERING":
@@ -284,6 +292,15 @@ class E2ETestNode(Node):
                 )
             self.current_phase = TestPhase.DOCKING
             self.phase_start_time = time.time() - self.metrics.start_time
+
+        elif curr == "MANUAL_MOWING" and self.current_phase == TestPhase.MANUAL_MOWING:
+            pass  # Already tracked by the test phase driver
+
+        elif curr == "RECORDING" and self.current_phase == TestPhase.AREA_RECORDING:
+            pass  # Already tracked by the test phase driver
+
+        elif curr == "EMERGENCY" and self.current_phase == TestPhase.EMERGENCY_RESET:
+            pass  # Already tracked by the test phase driver
 
     def _complete_phase(self, phase: TestPhase, passed: bool, details: str):
         t = time.time() - self.metrics.start_time
@@ -676,21 +693,61 @@ class E2ETestNode(Node):
 
         self.obstacle_test_done = True
 
-    def send_start_command(self):
+    def send_command(self, cmd_id: int, cmd_name: str = "") -> bool:
+        """Send a HighLevelControl command and return True on success."""
         if not self.hlc_client.wait_for_service(timeout_sec=10.0):
             self.get_logger().error("HighLevelControl service not available!")
             return False
 
         req = HighLevelControl.Request()
-        req.command = 1  # START
+        req.command = cmd_id
         future = self.hlc_client.call_async(req)
         rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
         if future.result() and future.result().success:
-            self.get_logger().info("START command sent successfully")
+            label = cmd_name or str(cmd_id)
+            self.get_logger().info(f"Command {label} (id={cmd_id}) sent successfully")
+            return True
+        label = cmd_name or str(cmd_id)
+        self.get_logger().error(f"Failed to send command {label} (id={cmd_id})")
+        return False
+
+    def send_start_command(self):
+        if self.send_command(1, "START"):
             self.mowing_started = True
             return True
-        self.get_logger().error("Failed to send START command")
         return False
+
+    def send_emergency_stop(self, emergency: int) -> bool:
+        """Send an EmergencyStop service call."""
+        if not self.emergency_client.wait_for_service(timeout_sec=10.0):
+            self.get_logger().error("EmergencyStop service not available!")
+            return False
+
+        req = EmergencyStop.Request()
+        req.emergency = emergency
+        future = self.emergency_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        if future.result() and future.result().success:
+            self.get_logger().info(
+                f"EmergencyStop (emergency={emergency}) sent successfully"
+            )
+            return True
+        self.get_logger().error(f"Failed to send EmergencyStop (emergency={emergency})")
+        return False
+
+    def wait_for_bt_state(self, target_state, timeout_sec: float = 15.0) -> bool:
+        """Spin until BT reaches a target state or timeout expires.
+
+        target_state can be a single string or a list of strings (any match).
+        """
+        if isinstance(target_state, str):
+            target_state = [target_state]
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline and rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.1)
+            if self.current_bt_state in target_state:
+                return True
+        return self.current_bt_state in target_state
 
     def _progress_bar(self, pct: float, width: int = 30) -> str:
         filled = int(pct / 100 * width)
@@ -1179,6 +1236,48 @@ class E2ETestNode(Node):
         else:
             report.append("  No avoidance maneuvers recorded")
 
+        # ── Manual Mowing Mode ──
+        report.append("\n=== Manual Mowing Mode (Command 7) ===")
+        manual_mow_result = [
+            pr for pr in m.phase_results if pr.name == "MANUAL_MOWING"
+        ]
+        manual_mow_pass = False
+        if manual_mow_result:
+            pr = manual_mow_result[0]
+            status = "PASS" if pr.passed else "FAIL"
+            report.append(f"  {status}: {pr.details} ({pr.duration_sec:.1f}s)")
+            manual_mow_pass = pr.passed
+        else:
+            report.append("  NOT RUN")
+
+        # ── Area Recording Mode ──
+        report.append("\n=== Area Recording Mode (Command 3) ===")
+        area_rec_result = [
+            pr for pr in m.phase_results if pr.name == "AREA_RECORDING"
+        ]
+        area_rec_pass = False
+        if area_rec_result:
+            pr = area_rec_result[0]
+            status = "PASS" if pr.passed else "FAIL"
+            report.append(f"  {status}: {pr.details} ({pr.duration_sec:.1f}s)")
+            area_rec_pass = pr.passed
+        else:
+            report.append("  NOT RUN")
+
+        # ── Emergency Auto-Reset on Dock ──
+        report.append("\n=== Emergency Auto-Reset on Dock ===")
+        emerg_result = [
+            pr for pr in m.phase_results if pr.name == "EMERGENCY_RESET"
+        ]
+        emergency_pass = False
+        if emerg_result:
+            pr = emerg_result[0]
+            status = "PASS" if pr.passed else "FAIL"
+            report.append(f"  {status}: {pr.details} ({pr.duration_sec:.1f}s)")
+            emergency_pass = pr.passed
+        else:
+            report.append("  NOT RUN")
+
         # ── Reroute / Dynamic Replanning ──
         report.append("\n=== Dynamic Replanning ===")
         report.append(f"  Total reroute events: {len(m.reroute_events)}")
@@ -1261,7 +1360,10 @@ class E2ETestNode(Node):
 
         # ── Per-Phase Time ──
         report.append("\n=== Per-Phase Time Breakdown ===")
-        for phase in ["UNDOCKING", "PLANNING", "MOWING", "DOCKING"]:
+        for phase in [
+            "UNDOCKING", "PLANNING", "MOWING", "DOCKING",
+            "MANUAL_MOWING", "AREA_RECORDING", "EMERGENCY_RESET",
+        ]:
             mv = m.phase_time_moving.get(phase, 0)
             st = m.phase_time_stopped.get(phase, 0)
             total_p = mv + st
@@ -1315,6 +1417,9 @@ class E2ETestNode(Node):
             ("Area coverage >= 80%", coverage_pass),
             ("Idle ratio < 20%", idle_ratio_pass),
             ("Path overlap < 30%", overlap_pass),
+            ("Manual mowing mode", manual_mow_pass),
+            ("Area recording mode", area_rec_pass),
+            ("Emergency auto-reset on dock", emergency_pass),
         ]
 
         overall_pass = True
@@ -1359,7 +1464,8 @@ def main():
     )
     obstacle_thread.start()
 
-    # Spin until test completes or timeout (20 min for full cycle)
+    # Spin until mowing cycle completes or timeout (20 min for full cycle).
+    # Feature tests run after timeout regardless.
     timeout = 1200.0
     start = time.time()
 
@@ -1373,11 +1479,159 @@ def main():
     signal.signal(signal.SIGTERM, _on_signal)
 
     try:
-        while rclpy.ok() and not node.test_complete:
+        while rclpy.ok() and not node.mowing_cycle_complete:
             rclpy.spin_once(node, timeout_sec=0.1)
             if time.time() - start > timeout:
-                node.get_logger().warn(f"Test timeout after {timeout}s")
+                node.get_logger().warn(f"Mowing cycle timeout after {timeout}s")
                 break
+
+        # ── New Feature Tests (run after mowing cycle or timeout) ────────
+        # These test BT command handling, not mowing — they work regardless
+        # of whether coverage completed.  If mowing timed out, send HOME
+        # first to get the robot to a known idle/docked state.
+
+        if rclpy.ok():
+            if not node.mowing_cycle_complete:
+                node.get_logger().info(
+                    "=== Mowing timed out. Sending HOME before feature tests... ==="
+                )
+                node.send_command(2, "COMMAND_HOME")
+                node.wait_for_bt_state("IDLE_DOCKED", timeout_sec=120.0)
+
+            node.get_logger().info(
+                "=== Running post-dock feature tests... ==="
+            )
+
+            # ── 1. Manual Mowing Mode (command 7) ──
+            node.get_logger().info("=== TEST: Manual Mowing Mode ===")
+            node.current_phase = TestPhase.MANUAL_MOWING
+            node.phase_start_time = time.time() - node.metrics.start_time
+            if node.send_command(7, "COMMAND_MANUAL_MOW"):
+                if node.wait_for_bt_state("MANUAL_MOWING", timeout_sec=15.0):
+                    node.get_logger().info("BT entered MANUAL_MOWING state")
+                    # Send HOME to exit manual mode — robot may need to
+                    # navigate back to dock, so allow up to 120s
+                    if node.send_command(2, "COMMAND_HOME"):
+                        if node.wait_for_bt_state(
+                            ["IDLE", "IDLE_DOCKED"], timeout_sec=120.0
+                        ):
+                            node._complete_phase(
+                                TestPhase.MANUAL_MOWING, True,
+                                "Entered MANUAL_MOWING and returned to IDLE via HOME"
+                            )
+                        else:
+                            node._complete_phase(
+                                TestPhase.MANUAL_MOWING, False,
+                                f"Failed to return to IDLE after HOME "
+                                f"(state={node.current_bt_state})"
+                            )
+                    else:
+                        node._complete_phase(
+                            TestPhase.MANUAL_MOWING, False,
+                            "Failed to send HOME command"
+                        )
+                else:
+                    node._complete_phase(
+                        TestPhase.MANUAL_MOWING, False,
+                        f"BT did not enter MANUAL_MOWING "
+                        f"(state={node.current_bt_state})"
+                    )
+            else:
+                node._complete_phase(
+                    TestPhase.MANUAL_MOWING, False,
+                    "Failed to send COMMAND_MANUAL_MOW"
+                )
+
+            # Allow system to settle
+            for _ in range(20):
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            # ── 2. Area Recording Mode (command 3) ──
+            node.get_logger().info("=== TEST: Area Recording Mode ===")
+            node.current_phase = TestPhase.AREA_RECORDING
+            node.phase_start_time = time.time() - node.metrics.start_time
+            if node.send_command(3, "COMMAND_RECORD_AREA"):
+                if node.wait_for_bt_state("RECORDING", timeout_sec=15.0):
+                    node.get_logger().info("BT entered RECORDING state")
+                    # Wait briefly (simulating teleop driving)
+                    for _ in range(30):
+                        rclpy.spin_once(node, timeout_sec=0.1)
+                    # Cancel recording
+                    if node.send_command(6, "COMMAND_RECORD_CANCEL"):
+                        if node.wait_for_bt_state(
+                            ["IDLE", "IDLE_DOCKED"], timeout_sec=30.0
+                        ):
+                            node._complete_phase(
+                                TestPhase.AREA_RECORDING, True,
+                                "Entered RECORDING and returned to IDLE via CANCEL"
+                            )
+                        else:
+                            node._complete_phase(
+                                TestPhase.AREA_RECORDING, False,
+                                f"Failed to return to IDLE after CANCEL "
+                                f"(state={node.current_bt_state})"
+                            )
+                    else:
+                        node._complete_phase(
+                            TestPhase.AREA_RECORDING, False,
+                            "Failed to send COMMAND_RECORD_CANCEL"
+                        )
+                else:
+                    node._complete_phase(
+                        TestPhase.AREA_RECORDING, False,
+                        f"BT did not enter RECORDING "
+                        f"(state={node.current_bt_state})"
+                    )
+            else:
+                node._complete_phase(
+                    TestPhase.AREA_RECORDING, False,
+                    "Failed to send COMMAND_RECORD_AREA"
+                )
+
+            # Allow system to settle
+            for _ in range(20):
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            # ── 3. Emergency Auto-Reset on Dock ──
+            node.get_logger().info("=== TEST: Emergency Auto-Reset on Dock ===")
+            node.current_phase = TestPhase.EMERGENCY_RESET
+            node.phase_start_time = time.time() - node.metrics.start_time
+            if node.send_emergency_stop(1):
+                if node.wait_for_bt_state("EMERGENCY", timeout_sec=10.0):
+                    node.get_logger().info("BT entered EMERGENCY state")
+                    # Wait for auto-reset (robot is on dock/charging)
+                    emergency_cleared = False
+                    deadline = time.time() + 10.0
+                    while time.time() < deadline and rclpy.ok():
+                        rclpy.spin_once(node, timeout_sec=0.1)
+                        if node.current_bt_state != "EMERGENCY":
+                            emergency_cleared = True
+                            break
+                    if emergency_cleared:
+                        node._complete_phase(
+                            TestPhase.EMERGENCY_RESET, True,
+                            f"Emergency auto-cleared on dock "
+                            f"(state={node.current_bt_state})"
+                        )
+                    else:
+                        node._complete_phase(
+                            TestPhase.EMERGENCY_RESET, False,
+                            "Emergency did not auto-reset within timeout"
+                        )
+                else:
+                    node._complete_phase(
+                        TestPhase.EMERGENCY_RESET, False,
+                        f"BT did not enter EMERGENCY state "
+                        f"(state={node.current_bt_state})"
+                    )
+            else:
+                node._complete_phase(
+                    TestPhase.EMERGENCY_RESET, False,
+                    "Failed to send EmergencyStop service call"
+                )
+
+        node.test_complete = True
+
     except KeyboardInterrupt:
         node.get_logger().info("Test interrupted by user")
 

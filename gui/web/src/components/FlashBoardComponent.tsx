@@ -330,14 +330,14 @@ export const FlashBoardComponent = (props: { onNext: () => void }) => {
                     <SchemaField><SchemaField.String
                         name={"repository"}
                         title={"Repository"}
-                        default={"https://github.com/cedbossneo/mowgli"}
+                        default={"https://github.com/cedbossneo/mowglinext"}
                         x-decorator-props={{tooltip: "Repository to use for firmware"}}
                         x-component="Input"
                         x-decorator="FormItem"/></SchemaField>
                     <SchemaField><SchemaField.String
                         name={"branch"}
                         title={"Branch"}
-                        default={"v2"}
+                        default={"main"}
                         x-decorator-props={{tooltip: "Branch to use for firmware"}}
                         x-component="Input"
                         x-decorator="FormItem"/></SchemaField>

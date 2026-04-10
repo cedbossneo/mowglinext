@@ -31,17 +31,19 @@ Brings up:
 import os
 
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
     LogInfo,
     OpaqueFunction,
-    TimerAction,
+    RegisterEventHandler,
 )
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetParameter
@@ -379,31 +381,54 @@ def generate_launch_description() -> LaunchDescription:
     # hardcoded params (ignoring params_file for the lifecycle manager node).
     # Wrap in a GroupAction with SetParameter so bond_timeout is available as
     # a global parameter override — lifecycle_manager will pick it up.
-    # Delay Nav2 startup by 10 s so slam_toolbox has time to activate and
-    # start publishing the map → odom TF.  Without this delay, the
-    # planner_server's global costmap times out waiting for the map frame
-    # and the lifecycle_manager aborts the entire bringup.
-    nav2_navigation = TimerAction(
-        period=30.0,
-        actions=[
-            GroupAction(
-                actions=[
-                    SetParameter("bond_timeout", 10.0),
-                    IncludeLaunchDescription(
-                        PythonLaunchDescriptionSource(
-                            os.path.join(
-                                nav2_bringup_dir, "launch", "navigation_launch.py"
-                            )
-                        ),
-                        launch_arguments={
-                            "use_sim_time": use_sim_time,
-                            "params_file": nav2_params,
-                            "use_composition": "False",
-                        }.items(),
-                    ),
-                ]
-            ),
+    #
+    # Instead of a fixed 30 s delay, we gate Nav2 startup on the map→odom
+    # TF being available. wait_for_tf.py polls every 0.5 s and exits as
+    # soon as slam_toolbox publishes the transform, so Nav2 starts as
+    # early as possible.
+    # Installed to lib/mowgli_bringup/ by CMakeLists.txt (install PROGRAMS)
+    wait_for_tf_script = os.path.join(
+        get_package_prefix("mowgli_bringup"),
+        "lib", "mowgli_bringup", "wait_for_tf.py"
+    )
+
+    wait_for_slam_tf = ExecuteProcess(
+        cmd=[
+            "python3", wait_for_tf_script,
+            "--parent", "map",
+            "--child", "odom",
+            "--timeout", "120",
         ],
+        name="wait_for_slam_tf",
+        output="screen",
+    )
+
+    nav2_navigation_group = GroupAction(
+        actions=[
+            SetParameter("bond_timeout", 10.0),
+            # Use our vendored copy of Nav2's navigation_launch.py with
+            # route_server removed (not needed for cell-based coverage).
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(
+                        bringup_dir, "launch", "nav2_navigation_launch.py"
+                    )
+                ),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "params_file": nav2_params,
+                    "use_composition": "False",
+                }.items(),
+            ),
+        ]
+    )
+
+    # Launch Nav2 only after the map→odom TF is available
+    nav2_after_tf = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_for_slam_tf,
+            on_exit=[nav2_navigation_group],
+        )
     )
 
     # ------------------------------------------------------------------
@@ -420,6 +445,7 @@ def generate_launch_description() -> LaunchDescription:
             slam_toolbox_launch,
             ekf_odom_node,
             ekf_map_node,
-            nav2_navigation,
+            wait_for_slam_tf,
+            nav2_after_tf,
         ]
     )

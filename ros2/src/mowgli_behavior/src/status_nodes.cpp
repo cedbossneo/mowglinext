@@ -1,0 +1,109 @@
+// Copyright 2026 Mowgli Project
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+#include "mowgli_behavior/status_nodes.hpp"
+
+namespace mowgli_behavior
+{
+
+// ---------------------------------------------------------------------------
+// PublishHighLevelStatus
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus PublishHighLevelStatus::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  auto state_res = getInput<uint8_t>("state");
+  if (!state_res)
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(),
+                 "PublishHighLevelStatus: missing required port 'state': %s",
+                 state_res.error().c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+
+  auto name_res = getInput<std::string>("state_name");
+  if (!name_res)
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(),
+                 "PublishHighLevelStatus: missing required port 'state_name': %s",
+                 name_res.error().c_str());
+    return BT::NodeStatus::FAILURE;
+  }
+
+  if (!pub_)
+  {
+    pub_ =
+        ctx->node->create_publisher<mowgli_interfaces::msg::HighLevelStatus>("~/high_level_status",
+                                                                             10);
+  }
+
+  mowgli_interfaces::msg::HighLevelStatus msg;
+  msg.state = state_res.value();
+  msg.state_name = name_res.value();
+  msg.sub_state_name = "";
+  msg.current_area = static_cast<int16_t>(ctx->current_area);
+  msg.current_path = -1;
+  msg.current_path_index = static_cast<int16_t>(ctx->coverage_percent);
+  msg.total_swaths = static_cast<int16_t>(ctx->total_swaths);
+  msg.completed_swaths = static_cast<int16_t>(ctx->completed_swaths);
+  msg.skipped_swaths = static_cast<int16_t>(ctx->skipped_swaths);
+  msg.gps_quality_percent = ctx->gps_quality;
+  msg.battery_percent = ctx->battery_percent;
+  msg.is_charging = ctx->latest_power.charger_enabled;
+  msg.emergency = ctx->latest_emergency.active_emergency;
+
+  pub_->publish(msg);
+
+  RCLCPP_DEBUG(ctx->node->get_logger(),
+               "PublishHighLevelStatus: state=%u name='%s'",
+               msg.state,
+               msg.state_name.c_str());
+
+  return BT::NodeStatus::SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// WasRainingAtStart
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus WasRainingAtStart::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  ctx->raining_at_mow_start = ctx->latest_status.rain_detected;
+  // Reset session-level counters at mowing start.
+  ctx->resume_undock_failures = 0;
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "WasRainingAtStart: rain_at_start=%s",
+              ctx->raining_at_mow_start ? "true" : "false");
+  return BT::NodeStatus::SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// ClearCommand
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus ClearCommand::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "ClearCommand: resetting current_command from %u to 0",
+              ctx->current_command);
+  ctx->current_command = 0;
+  return BT::NodeStatus::SUCCESS;
+}
+
+}  // namespace mowgli_behavior

@@ -11,9 +11,12 @@ Default: `http://<mower-ip>:4006`
 - Map editor — define mowing areas, navigation areas, dock position
 - Robot footprint visualization on map
 - Per-model chassis dimensions
-- Real-time status monitoring
+- Real-time status monitoring (HighLevelStatus with coverage progress)
 - Configuration editor (writes `mowgli_robot.yaml`)
 - Firmware flashing via web UI
+- **Area recording** — start recording (cmd 3), drive boundary, finish (cmd 5) or cancel (cmd 6). Live trajectory preview on map.
+- **Manual mowing** — dedicated mode (cmd 7) with joystick teleop via `/cmd_vel_teleop`. Blade control is fire-and-forget to firmware. Collision_monitor, GPS, SLAM remain active.
+- **Emergency management** — auto-reset when robot placed on dock (charging detected)
 
 ## Architecture
 

@@ -8,6 +8,7 @@ import {
     Map as MapType,
     MarkerArray,
     ObstacleArray,
+    OccupancyGrid,
     Path,
     TrackedObstacle,
 } from "../../../types/ros.ts";
@@ -26,7 +27,6 @@ interface UseMapStreamsOptions {
     offsetX: number;
     offsetY: number;
     datum: [number, number, number];
-    mowingToolWidth: number;
     setFeatures: React.Dispatch<React.SetStateAction<Record<string, MowingFeature>>>;
     setEditMap: React.Dispatch<React.SetStateAction<boolean>>;
     setMapKey: React.Dispatch<React.SetStateAction<string>>;
@@ -40,7 +40,6 @@ export function useMapStreams({
     offsetX,
     offsetY,
     datum,
-    mowingToolWidth,
     setFeatures,
     setEditMap,
     setMapKey,
@@ -55,6 +54,10 @@ export function useMapStreams({
         features: [],
     });
     const [dynamicObstacles, setDynamicObstacles] = useState<TrackedObstacle[]>([]);
+    const [coverageCellsImage, setCoverageCellsImage] = useState<{
+        url: string;
+        coordinates: [[number, number], [number, number], [number, number], [number, number]];
+    } | null>(null);
 
     const highLevelStatus = useHighLevelStatus();
 
@@ -145,41 +148,6 @@ export function useMapStreams({
         (e) => {
             const parse = JSON.parse(e) as Path;
             setPlan(parse);
-        }
-    );
-
-    const mowingPathStream = useWS<string>(
-        () => {
-            console.log({ message: "Mowing PATH Stream closed" });
-        },
-        () => {
-            console.log({ message: "Mowing PATH Stream connected" });
-        },
-        (e) => {
-            const mowingPaths = JSON.parse(e) as Path[];
-            setFeatures((oldFeatures) => {
-                const newFeatures = { ...oldFeatures };
-                mowingPaths.forEach((mowingPath, index) => {
-                    if (mowingPath?.Poses) {
-                        const line = mowingPath.Poses.map((pose) => {
-                            return transpose(
-                                offsetX,
-                                offsetY,
-                                datum,
-                                pose.Pose?.Position?.Y!,
-                                pose.Pose?.Position?.X!
-                            );
-                        });
-                        newFeatures["mowingPath-" + index.toString()] = new PathFeature(
-                            "mowingPath-" + index.toString(),
-                            line,
-                            `rgba(107, 255, 188, 0.68)`,
-                            mowingToolWidth
-                        );
-                    }
-                });
-                return newFeatures;
-            });
         }
     );
 
@@ -276,6 +244,114 @@ export function useMapStreams({
         }
     );
 
+    const recordingTrajectoryStream = useWS<string>(
+        () => {
+            console.log({ message: "RecordingTrajectory Stream closed" });
+        },
+        () => {
+            console.log({ message: "RecordingTrajectory Stream connected" });
+        },
+        (e) => {
+            const path = JSON.parse(e) as Path;
+            if (!path.Poses || path.Poses.length === 0) {
+                // Recording cleared — remove trajectory feature
+                setFeatures((oldFeatures) => {
+                    const newFeatures = { ...oldFeatures };
+                    delete newFeatures["recording-trajectory"];
+                    return newFeatures;
+                });
+                return;
+            }
+            // Draw the recording trajectory as a line on the map
+            const coords = path.Poses.map(p =>
+                transpose(offsetX, offsetY, datum, p.Pose?.Position?.Y ?? 0, p.Pose?.Position?.X ?? 0)
+            );
+            setFeatures((oldFeatures) => ({
+                ...oldFeatures,
+                ["recording-trajectory"]: new PathFeature(
+                    "recording-trajectory",
+                    coords,
+                    "#ff6600",
+                    0.3,
+                ),
+            }));
+        }
+    );
+
+    const coverageCellsStream = useWS<string>(
+        () => {
+            console.log({ message: "CoverageCells Stream closed" });
+        },
+        () => {
+            console.log({ message: "CoverageCells Stream connected" });
+        },
+        (e) => {
+            const grid = JSON.parse(e) as OccupancyGrid;
+            if (!grid.Info || !grid.Data) return;
+
+            const width = grid.Info.Width ?? 0;
+            const height = grid.Info.Height ?? 0;
+            const resolution = grid.Info.Resolution ?? 0.1;
+            const originX = grid.Info.Origin?.Position?.X ?? 0;
+            const originY = grid.Info.Origin?.Position?.Y ?? 0;
+
+            if (width === 0 || height === 0) return;
+
+            // Render OccupancyGrid to a canvas image
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+
+            const imageData = ctx.createImageData(width, height);
+            for (let row = 0; row < height; row++) {
+                for (let col = 0; col < width; col++) {
+                    // OccupancyGrid row 0 = bottom, canvas row 0 = top -> flip vertically
+                    const gridIdx = row * width + col;
+                    const canvasIdx = ((height - 1 - row) * width + col) * 4;
+                    const val = grid.Data[gridIdx];
+
+                    if (val === 60) {
+                        // To-mow: light green
+                        imageData.data[canvasIdx] = 100;
+                        imageData.data[canvasIdx + 1] = 220;
+                        imageData.data[canvasIdx + 2] = 100;
+                        imageData.data[canvasIdx + 3] = 140;
+                    } else if (val === 100) {
+                        // Obstacle: red
+                        imageData.data[canvasIdx] = 255;
+                        imageData.data[canvasIdx + 1] = 60;
+                        imageData.data[canvasIdx + 2] = 60;
+                        imageData.data[canvasIdx + 3] = 160;
+                    } else {
+                        // 0 (mowed), -1 (unknown), anything else: transparent
+                        imageData.data[canvasIdx] = 0;
+                        imageData.data[canvasIdx + 1] = 0;
+                        imageData.data[canvasIdx + 2] = 0;
+                        imageData.data[canvasIdx + 3] = 0;
+                    }
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+
+            // Compute geographic bounds: origin is bottom-left corner of the grid
+            const gridWidth = width * resolution;
+            const gridHeight = height * resolution;
+
+            // Mapbox image source coordinates: [top-left, top-right, bottom-right, bottom-left]
+            const topLeft = transpose(offsetX, offsetY, datum, originY + gridHeight, originX) as [number, number];
+            const topRight = transpose(offsetX, offsetY, datum, originY + gridHeight, originX + gridWidth) as [number, number];
+            const bottomRight = transpose(offsetX, offsetY, datum, originY, originX + gridWidth) as [number, number];
+            const bottomLeft = transpose(offsetX, offsetY, datum, originY, originX) as [number, number];
+
+            setCoverageCellsImage({
+                url: canvas.toDataURL(),
+                coordinates: [topLeft, topRight, bottomRight, bottomLeft],
+            });
+        }
+    );
+
     // Keep lidar layer on top of draw layers
     useEffect(() => {
         const m = mapInstanceRef.current;
@@ -294,13 +370,15 @@ export function useMapStreams({
             poseStream.stop();
             pathStream.stop();
             planStream.stop();
-            mowingPathStream.stop();
             lidarStream.stop();
             obstaclesStream.stop();
+            coverageCellsStream.stop();
+            recordingTrajectoryStream.stop();
             highLevelStatus.stop();
             setPath(undefined);
             setPlan(undefined);
             setLidarCollection({ type: "FeatureCollection", features: [] });
+            setCoverageCellsImage(null);
         } else {
             if (
                 settings["datum_lon"] == undefined ||
@@ -313,20 +391,29 @@ export function useMapStreams({
             mapStream.start("/api/openmower/subscribe/map");
             pathStream.start("/api/openmower/subscribe/path");
             planStream.start("/api/openmower/subscribe/plan");
-            mowingPathStream.start("/api/openmower/subscribe/mowingPath");
             lidarStream.start("/api/openmower/subscribe/lidar");
             obstaclesStream.start("/api/openmower/subscribe/obstacles");
+            coverageCellsStream.start("/api/openmower/subscribe/coverageCells");
         }
     }, [editMap]);
 
-    // Start joy stream on AREA_RECORDING state
+    // Start joy + recording trajectory streams on RECORDING state
     useEffect(() => {
-        if (highLevelStatus.highLevelStatus.StateName == "AREA_RECORDING") {
+        const stateName = highLevelStatus.highLevelStatus.StateName;
+        if (stateName === "RECORDING" || stateName === "AREA_RECORDING") {
             joyStream.start("/api/openmower/publish/joy");
+            recordingTrajectoryStream.start("/api/openmower/subscribe/recordingTrajectory");
             setEditMap(false);
             return;
         }
         joyStream.stop();
+        recordingTrajectoryStream.stop();
+        // Clear trajectory feature when leaving recording mode
+        setFeatures((oldFeatures) => {
+            const newFeatures = { ...oldFeatures };
+            delete newFeatures["recording-trajectory"];
+            return newFeatures;
+        });
     }, [highLevelStatus.highLevelStatus.StateName]);
 
     // Restart all streams on settings change
@@ -342,9 +429,9 @@ export function useMapStreams({
         mapStream.start("/api/openmower/subscribe/map");
         pathStream.start("/api/openmower/subscribe/path");
         planStream.start("/api/openmower/subscribe/plan");
-        mowingPathStream.start("/api/openmower/subscribe/mowingPath");
         lidarStream.start("/api/openmower/subscribe/lidar");
         obstaclesStream.start("/api/openmower/subscribe/obstacles");
+        coverageCellsStream.start("/api/openmower/subscribe/coverageCells");
     }, [settings]);
 
     // Cleanup all streams on unmount
@@ -355,9 +442,10 @@ export function useMapStreams({
             pathStream.stop();
             joyStream.stop();
             planStream.stop();
-            mowingPathStream.stop();
             lidarStream.stop();
             obstaclesStream.stop();
+            coverageCellsStream.stop();
+            recordingTrajectoryStream.stop();
             highLevelStatus.stop();
         };
     }, []);
@@ -365,6 +453,7 @@ export function useMapStreams({
     return {
         map,
         dynamicObstacles,
+        coverageCellsImage,
         setMap,
         path,
         plan,
