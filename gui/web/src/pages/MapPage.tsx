@@ -401,6 +401,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         onBladeForward: mowerAction("mow_enabled", {MowEnabled: 1, MowDirection: 0}),
         onBladeBackward: mowerAction("mow_enabled", {MowEnabled: 1, MowDirection: 1}),
         onBladeOff: mowerAction("mow_enabled", {MowEnabled: 0, MowDirection: 0}),
+        onRecordFinish: mowerAction("high_level_control", {Command: 5}),
+        onRecordCancel: mowerAction("high_level_control", {Command: 6}),
     }), [mowerAction, highLevelStatus.highLevelStatus.StateName]);
 
     if (_datumLon == 0 || _datumLat == 0) {
@@ -708,8 +710,9 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     isRecording={highLevelStatus.highLevelStatus.StateName === "AREA_RECORDING"}
                     onMove={handleJoyMove}
                     onStop={handleJoyStop}
-                    onFinishRecording={mowerAction("high_level_control", {Command: 2})}
-                    onHome={mowerAction("high_level_control", {Command: 2})}
+                    onFinishRecording={mowerActions.onRecordFinish}
+                    onCancelRecording={mowerActions.onRecordCancel}
+                    onHome={mowerActions.onHome}
                 />
                 {isMobile && (
                     <MapToolbarMobile

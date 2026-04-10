@@ -1,6 +1,6 @@
 import {Joystick} from "react-joystick-component";
 import {IJoystickUpdateEvent} from "react-joystick-component/build/lib/Joystick";
-import {CheckOutlined, HomeOutlined} from "@ant-design/icons";
+import {CheckOutlined, CloseOutlined, HomeOutlined} from "@ant-design/icons";
 import AsyncButton from "../../../components/AsyncButton.tsx";
 
 interface JoystickOverlayProps {
@@ -9,10 +9,11 @@ interface JoystickOverlayProps {
     onMove: (event: IJoystickUpdateEvent) => void;
     onStop: () => void;
     onFinishRecording?: () => Promise<void>;
+    onCancelRecording?: () => Promise<void>;
     onHome?: () => Promise<void>;
 }
 
-export const JoystickOverlay = ({visible, isRecording, onMove, onStop, onFinishRecording, onHome}: JoystickOverlayProps) => {
+export const JoystickOverlay = ({visible, isRecording, onMove, onStop, onFinishRecording, onCancelRecording, onHome}: JoystickOverlayProps) => {
     if (!visible) return null;
     return (
         <div style={{position: "absolute", bottom: 30, right: 30, zIndex: 100, display: 'flex', alignItems: 'flex-end', gap: 12}}>
@@ -30,6 +31,14 @@ export const JoystickOverlay = ({visible, isRecording, onMove, onStop, onFinishR
                         style={{height: 44, borderRadius: 10, fontWeight: 600}}
                     >
                         Finish
+                    </AsyncButton>
+                    <AsyncButton
+                        danger
+                        icon={<CloseOutlined />}
+                        onAsyncClick={onCancelRecording!}
+                        style={{height: 44, borderRadius: 10}}
+                    >
+                        Cancel
                     </AsyncButton>
                     <AsyncButton
                         icon={<HomeOutlined />}

@@ -18,6 +18,8 @@ import {
     PauseOutlined,
     CaretRightOutlined,
     ThunderboltOutlined,
+    CheckOutlined,
+    CloseOutlined,
 } from "@ant-design/icons";
 import type {MenuInfo} from "rc-menu/lib/interface";
 import AsyncButton from "../../../components/AsyncButton.tsx";
@@ -65,10 +67,11 @@ export const MapToolbar = ({
     onStart, onHome, onEmergencyOn, onEmergencyOff,
     onAreaRecording, onMowNextArea, onContinueOrPause,
     onBladeForward, onBladeBackward, onBladeOff,
-    onRecordFinish: _onRecordFinish, onRecordCancel: _onRecordCancel,
+    onRecordFinish, onRecordCancel,
 }: MapToolbarProps) => {
     const {notification} = App.useApp();
     const isIdle = stateName === "IDLE";
+    const isRecording = stateName === "AREA_RECORDING";
 
     const safeCall = (fn?: () => Promise<void>) => {
         fn?.().catch((e: Error) => {
@@ -129,7 +132,24 @@ export const MapToolbar = ({
                 Edit Map
             </Button>
 
-            {isIdle ? (
+            {isRecording ? (
+                <>
+                    <AsyncButton
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        onAsyncClick={onRecordFinish!}
+                    >
+                        Finish Recording
+                    </AsyncButton>
+                    <AsyncButton
+                        danger
+                        icon={<CloseOutlined />}
+                        onAsyncClick={onRecordCancel!}
+                    >
+                        Cancel Recording
+                    </AsyncButton>
+                </>
+            ) : isIdle ? (
                 <AsyncButton
                     type="primary"
                     icon={<PlayCircleOutlined />}
