@@ -154,7 +154,7 @@ export class MowingFeatureBase extends MowingFeature implements Feature<Polygon>
 
     transpose( points: Point32[], offsetX: number, offsetY: number, datum: [number,number,number]) {
         this.geometry.coordinates = [points.map((point) => {
-            return transpose(offsetX, offsetY, datum, point.y||0, point.x||0)
+            return transpose(offsetX, offsetY, datum, point.Y||0, point.X||0)
         })];
     }
 
@@ -191,7 +191,7 @@ export class MapAreaFeature extends MowingFeatureBase {
 
     setArea( area: MapArea, offsetX: number, offsetY: number, datum: [number,number,number]) {
         this.area = area;
-        this.transpose(area.area?.points??[], offsetX, offsetY, datum);
+        this.transpose(area.Area?.Points??[], offsetX, offsetY, datum);
     }
 
 
@@ -224,14 +224,14 @@ export class MowingAreaFeature extends MapAreaFeature {
     
     setArea( area: MapArea, offsetX: number , offsetY: number, datum: [number,number,number]  ) {
         super.setArea(area, offsetX, offsetY, datum);
-        this.setName(area.name ?? '')
+        this.setName(area.Name ?? '')
     }
 
 
     setName(name: string) : MowingAreaFeature {
         this.properties['name'] = name;
         if (this.area)
-            this.area.name = name;
+            this.area.Name = name;
         return this;
     }
 

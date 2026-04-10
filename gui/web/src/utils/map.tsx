@@ -8,13 +8,13 @@ const METERS_PER_DEG = 6378137.0 * Math.PI / 180.0;
 
 export function getQuaternionFromHeading(heading: number): Quaternion {
     const q = {
-        x: 0,
-        y: 0,
-        z: 0,
-        w: 0,
+        X: 0,
+        Y: 0,
+        Z: 0,
+        W: 0,
     } as Quaternion
-    q.w = Math.cos(heading / 2)
-    q.z = Math.sin(heading / 2)
+    q.W = Math.cos(heading / 2)
+    q.Z = Math.sin(heading / 2)
     return q
 }
 

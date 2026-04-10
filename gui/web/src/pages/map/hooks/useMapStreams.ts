@@ -74,18 +74,18 @@ export function useMapStreams({
                 offsetX,
                 offsetY,
                 datum,
-                pose.pose?.pose?.position?.y!!,
-                pose.pose?.pose?.position?.x!!
+                pose.Pose?.Pose?.Position?.Y!!,
+                pose.Pose?.Pose?.Position?.X!!
             );
             robotPoseRef.current = {
-                x: pose.pose?.pose?.position?.x ?? 0,
-                y: pose.pose?.pose?.position?.y ?? 0,
-                heading: pose.motion_heading ?? 0,
+                x: pose.Pose?.Pose?.Position?.X ?? 0,
+                y: pose.Pose?.Pose?.Position?.Y ?? 0,
+                heading: pose.MotionHeading ?? 0,
             };
             setFeatures((oldFeatures) => {
-                const orientation = pose.motion_heading!!;
-                const posX = pose.pose?.pose?.position?.x!!;
-                const posY = pose.pose?.pose?.position?.y!!;
+                const orientation = pose.MotionHeading!!;
+                const posX = pose.Pose?.Pose?.Position?.X!!;
+                const posY = pose.Pose?.Pose?.Position?.Y!!;
                 const line = drawLine(offsetX, offsetY, datum, posY, posX, orientation);
                 // Robot footprint from config (chassis dimensions)
                 const ccx = parseFloat(settings["chassis_center_x"] ?? "0.18");
@@ -171,18 +171,18 @@ export function useMapStreams({
         (e) => {
             const scan = JSON.parse(e) as LaserScan;
             const pose = robotPoseRef.current;
-            if (!pose || !scan.ranges) return;
+            if (!pose || !scan.Ranges) return;
 
             const rays: GeoJSON.Feature[] = [];
-            const angleMin = scan.angle_min ?? 0;
-            const angleInc = scan.angle_increment ?? 0;
-            const rangeMin = scan.range_min ?? 0;
-            const rangeMax = scan.range_max ?? 12;
+            const angleMin = scan.AngleMin ?? 0;
+            const angleInc = scan.AngleIncrement ?? 0;
+            const rangeMin = scan.RangeMin ?? 0;
+            const rangeMax = scan.RangeMax ?? 12;
 
             // Downsample: take every Nth point for performance
-            const step = Math.max(1, Math.floor(scan.ranges.length / 90));
-            for (let i = 0; i < scan.ranges.length; i += step) {
-                const range = scan.ranges[i];
+            const step = Math.max(1, Math.floor(scan.Ranges.length / 90));
+            for (let i = 0; i < scan.Ranges.length; i += step) {
+                const range = scan.Ranges[i];
                 if (range < rangeMin || range > rangeMax) continue;
 
                 const angle = angleMin + i * angleInc + pose.heading;
@@ -211,9 +211,9 @@ export function useMapStreams({
         () => { console.log({ message: "Obstacles Stream connected" }); },
         (e) => {
             const parsed = JSON.parse(e) as ObstacleArray;
-            if (parsed.obstacles) {
+            if (parsed.Obstacles) {
                 // Only show persistent obstacles (status=1)
-                setDynamicObstacles(parsed.obstacles.filter(o => o.status === 1));
+                setDynamicObstacles(parsed.Obstacles.filter(o => o.Status === 1));
 
                 // Render obstacle polygons on the map
                 setFeatures((oldFeatures) => {
@@ -223,15 +223,15 @@ export function useMapStreams({
                         if (k.startsWith("dyn-obs-")) delete newFeatures[k];
                     });
                     // Add current obstacles as semi-transparent polygons
-                    (parsed.obstacles ?? []).filter(o => o.status === 1).forEach((obs) => {
-                        if (obs.polygon?.points && obs.polygon.points.length >= 3) {
-                            const coords = obs.polygon.points.map(p =>
-                                transpose(offsetX, offsetY, datum, p.y ?? 0, p.x ?? 0)
+                    (parsed.Obstacles ?? []).filter(o => o.Status === 1).forEach((obs) => {
+                        if (obs.Polygon?.Points && obs.Polygon.Points.length >= 3) {
+                            const coords = obs.Polygon.Points.map(p =>
+                                transpose(offsetX, offsetY, datum, p.Y ?? 0, p.X ?? 0)
                             );
                             // Close the polygon
                             coords.push(coords[0]);
-                            newFeatures["dyn-obs-" + obs.id] = new PathFeature(
-                                "dyn-obs-" + obs.id,
+                            newFeatures["dyn-obs-" + obs.Id] = new PathFeature(
+                                "dyn-obs-" + obs.Id,
                                 coords,
                                 "rgba(255, 100, 100, 0.4)",
                                 0.1
@@ -253,7 +253,7 @@ export function useMapStreams({
         },
         (e) => {
             const path = JSON.parse(e) as Path;
-            if (!path.poses || path.poses.length === 0) {
+            if (!path.Poses || path.Poses.length === 0) {
                 // Recording cleared — remove trajectory feature
                 setFeatures((oldFeatures) => {
                     const newFeatures = { ...oldFeatures };
@@ -263,8 +263,8 @@ export function useMapStreams({
                 return;
             }
             // Draw the recording trajectory as a line on the map
-            const coords = path.poses.map(p =>
-                transpose(offsetX, offsetY, datum, p.pose?.position?.y ?? 0, p.pose?.position?.x ?? 0)
+            const coords = path.Poses.map(p =>
+                transpose(offsetX, offsetY, datum, p.Pose?.Position?.Y ?? 0, p.Pose?.Position?.X ?? 0)
             );
             setFeatures((oldFeatures) => ({
                 ...oldFeatures,
@@ -287,13 +287,13 @@ export function useMapStreams({
         },
         (e) => {
             const grid = JSON.parse(e) as OccupancyGrid;
-            if (!grid.info || !grid.data) return;
+            if (!grid.Info || !grid.Data) return;
 
-            const width = grid.info.width ?? 0;
-            const height = grid.info.height ?? 0;
-            const resolution = grid.info.resolution ?? 0.1;
-            const originX = grid.info.origin?.position?.x ?? 0;
-            const originY = grid.info.origin?.position?.y ?? 0;
+            const width = grid.Info.Width ?? 0;
+            const height = grid.Info.Height ?? 0;
+            const resolution = grid.Info.Resolution ?? 0.1;
+            const originX = grid.Info.Origin?.Position?.X ?? 0;
+            const originY = grid.Info.Origin?.Position?.Y ?? 0;
 
             if (width === 0 || height === 0) return;
 
@@ -310,7 +310,7 @@ export function useMapStreams({
                     // OccupancyGrid row 0 = bottom, canvas row 0 = top -> flip vertically
                     const gridIdx = row * width + col;
                     const canvasIdx = ((height - 1 - row) * width + col) * 4;
-                    const val = grid.data[gridIdx];
+                    const val = grid.Data[gridIdx];
 
                     if (val === 60) {
                         // To-mow: light green
@@ -399,7 +399,7 @@ export function useMapStreams({
 
     // Start joy + recording trajectory streams on RECORDING state
     useEffect(() => {
-        const stateName = highLevelStatus.highLevelStatus.state_name;
+        const stateName = highLevelStatus.highLevelStatus.StateName;
         if (stateName === "RECORDING" || stateName === "AREA_RECORDING") {
             joyStream.start("/api/mowglinext/publish/joy");
             recordingTrajectoryStream.start("/api/mowglinext/subscribe/recordingTrajectory");
@@ -414,7 +414,7 @@ export function useMapStreams({
             delete newFeatures["recording-trajectory"];
             return newFeatures;
         });
-    }, [highLevelStatus.highLevelStatus.state_name]);
+    }, [highLevelStatus.highLevelStatus.StateName]);
 
     // Restart all streams on settings change
     useEffect(() => {

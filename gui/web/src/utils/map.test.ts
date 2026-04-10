@@ -80,28 +80,28 @@ describe('dedupePoints', () => {
 describe('getQuaternionFromHeading', () => {
     it('returns identity quaternion for heading 0', () => {
         const q = getQuaternionFromHeading(0);
-        expect(q.w).toBeCloseTo(1);
-        expect(q.x).toBe(0);
-        expect(q.y).toBe(0);
-        expect(q.z).toBeCloseTo(0);
+        expect(q.W).toBeCloseTo(1);
+        expect(q.X).toBe(0);
+        expect(q.Y).toBe(0);
+        expect(q.Z).toBeCloseTo(0);
     });
 
     it('returns correct quaternion for PI/2', () => {
         const q = getQuaternionFromHeading(Math.PI / 2);
-        expect(q.w).toBeCloseTo(Math.cos(Math.PI / 4));
-        expect(q.z).toBeCloseTo(Math.sin(Math.PI / 4));
+        expect(q.W).toBeCloseTo(Math.cos(Math.PI / 4));
+        expect(q.Z).toBeCloseTo(Math.sin(Math.PI / 4));
     });
 
     it('returns correct quaternion for PI', () => {
         const q = getQuaternionFromHeading(Math.PI);
-        expect(q.w).toBeCloseTo(0, 5);
-        expect(q.z).toBeCloseTo(1);
+        expect(q.W).toBeCloseTo(0, 5);
+        expect(q.Z).toBeCloseTo(1);
     });
 
     it('handles negative heading', () => {
         const q = getQuaternionFromHeading(-Math.PI / 2);
-        expect(q.w).toBeCloseTo(Math.cos(-Math.PI / 4));
-        expect(q.z).toBeCloseTo(Math.sin(-Math.PI / 4));
+        expect(q.W).toBeCloseTo(Math.cos(-Math.PI / 4));
+        expect(q.Z).toBeCloseTo(Math.sin(-Math.PI / 4));
     });
 });
 
