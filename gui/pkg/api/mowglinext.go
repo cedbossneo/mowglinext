@@ -265,13 +265,14 @@ func PublisherRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			var msgObj geometry.Twist
 			err = json.Unmarshal(msg, &msgObj)
 			if err != nil {
-				c.Error(err)
-				break
+				log.Printf("PublisherRoute: unmarshal error: %v", err)
+				continue
 			}
 			err = provider.Publish("/cmd_vel_teleop", "geometry_msgs/msg/Twist", &msgObj)
 			if err != nil {
-				c.Error(err)
-				break
+				log.Printf("PublisherRoute: publish error: %v", err)
+				// Don't break — rosbridge may reconnect; keep the browser WebSocket alive
+				continue
 			}
 		}
 	})
