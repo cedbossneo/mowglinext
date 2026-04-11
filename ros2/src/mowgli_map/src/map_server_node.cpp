@@ -1004,71 +1004,77 @@ nav_msgs::msg::OccupancyGrid MapServerNode::mow_progress_to_occupancy_grid() con
 
 nav_msgs::msg::OccupancyGrid MapServerNode::coverage_cells_to_occupancy_grid() const
 {
-  // Use GridMapRosConverter for correct coordinate mapping.
-  // The converter applies nCells-index-1 reversal which matches the
-  // OccupancyGrid convention (row 0 = bottom of map).
+  // Same manual layout as mow_progress_to_occupancy_grid().
+  // GridMapRosConverter::toOccupancyGrid() swaps width/height relative
+  // to the manual approach, causing the grid to appear rotated ~90°.
 
-  const std::string tmp_layer = "_coverage_tmp";
-  auto& mutable_map = const_cast<grid_map::GridMap&>(map_);
-
-  // Add temp layer (or reuse if exists)
-  if (!mutable_map.exists(tmp_layer))
-    mutable_map.add(tmp_layer, NAN);
-  else
-    mutable_map[tmp_layer].setConstant(NAN);
-
-  auto& cov = mutable_map[tmp_layer];
   const auto& prog = map_[std::string(layers::MOW_PROGRESS)];
   const auto& cls = map_[std::string(layers::CLASSIFICATION)];
+  const int rows = map_.getSize()(0);
+  const int cols = map_.getSize()(1);
 
-  for (grid_map::GridMapIterator it(map_); !it.isPastEnd(); ++it)
+  nav_msgs::msg::OccupancyGrid grid;
+  grid.header.stamp = now();
+  grid.header.frame_id = map_frame_;
+  grid.info.resolution = static_cast<float>(resolution_);
+  grid.info.width = static_cast<uint32_t>(cols);
+  grid.info.height = static_cast<uint32_t>(rows);
+  grid.info.origin.position.x = map_.getPosition().x() - map_.getLength().x() * 0.5;
+  grid.info.origin.position.y = map_.getPosition().y() - map_.getLength().y() * 0.5;
+  grid.info.origin.position.z = 0.0;
+  grid.info.origin.orientation.w = 1.0;
+  grid.data.resize(static_cast<std::size_t>(rows * cols), -1);  // default: unknown
+
+  for (int r = 0; r < rows; ++r)
   {
-    const auto idx = *it;
-
-    // Check if inside any mowing area
-    grid_map::Position pos;
-    map_.getPosition(idx, pos);
-    bool in_area = false;
-    for (const auto& area : areas_)
+    for (int c = 0; c < cols; ++c)
     {
-      if (area.is_navigation_area)
+      const int og_row = rows - 1 - r;
+      const auto flat_idx = static_cast<std::size_t>(og_row * cols + c);
+
+      // Get world position for area containment check
+      grid_map::Position pos;
+      const grid_map::Index idx(r, c);
+      if (!map_.getPosition(idx, pos))
         continue;
+
+      // Check if inside any mowing area
+      bool in_area = false;
       geometry_msgs::msg::Point32 pt;
       pt.x = static_cast<float>(pos.x());
       pt.y = static_cast<float>(pos.y());
-      if (point_in_polygon(pt, area.polygon))
+      for (const auto& area : areas_)
       {
-        in_area = true;
-        break;
+        if (area.is_navigation_area)
+          continue;
+        if (point_in_polygon(pt, area.polygon))
+        {
+          in_area = true;
+          break;
+        }
       }
-    }
 
-    if (!in_area)
-    {
-      cov(idx(0), idx(1)) = NAN;  // Outside → unknown in OG
-      continue;
-    }
+      if (!in_area)
+        continue;  // stays -1 (unknown)
 
-    auto cell_type = static_cast<CellType>(static_cast<int>(cls(idx(0), idx(1))));
-    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY ||
-        cell_type == CellType::NO_GO_ZONE)
-    {
-      cov(idx(0), idx(1)) = 1.0f;  // Obstacle/no-go → maps to 100
-    }
-    else if (prog(idx(0), idx(1)) >= 0.3f)
-    {
-      cov(idx(0), idx(1)) = 0.0f;  // Mowed → maps to 0 (transparent)
-    }
-    else
-    {
-      cov(idx(0), idx(1)) = 0.6f;  // To mow → maps to 60
+      auto cell_type = static_cast<CellType>(static_cast<int>(cls(r, c)));
+      if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY ||
+          cell_type == CellType::NO_GO_ZONE)
+      {
+        grid.data[flat_idx] = 100;
+      }
+      else if (prog(r, c) >= 0.3f)
+      {
+        grid.data[flat_idx] = 0;  // Mowed
+      }
+      else
+      {
+        grid.data[flat_idx] = 60;  // To mow
+      }
     }
   }
 
-  nav_msgs::msg::OccupancyGrid og;
-  grid_map::GridMapRosConverter::toOccupancyGrid(mutable_map, tmp_layer, 0.0f, 1.0f, og);
-
-  return og;
+  return grid;
 }
 
 void MapServerNode::apply_decay(double elapsed_seconds)
