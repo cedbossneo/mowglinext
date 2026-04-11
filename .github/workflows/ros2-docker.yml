@@ -168,7 +168,7 @@ jobs:
 
     steps:
       - name: Create GitHub issue on repeated failure
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = `ROS2 Docker build failed — ${new Date().toISOString().split('T')[0]}`;
