@@ -95,7 +95,7 @@ jobs:
           echo "ARTIFACT_NAME=${clean}" >> "$GITHUB_ENV"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-ros2-${{ matrix.target }}-${{ env.ARTIFACT_NAME }}
           path: /tmp/digests/*
