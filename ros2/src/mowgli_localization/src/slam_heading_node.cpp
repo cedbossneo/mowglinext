@@ -48,8 +48,8 @@ SlamHeadingNode::SlamHeadingNode(const rclcpp::NodeOptions &options) : Node("sla
   stale_timeout_ = declare_parameter<double>("stale_timeout", 5.0);
   stale_yaw_variance_ = declare_parameter<double>("stale_yaw_variance", 1e6);
 
-  heading_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      "/slam/heading", rclcpp::QoS(10));
+  heading_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/slam/heading",
+                                                                                 rclcpp::QoS(10));
 
   // Subscribe to SLAM's internal pose (avoids TF circular dependency)
   slam_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -98,8 +98,8 @@ void SlamHeadingNode::on_slam_pose(
   out.pose.pose.orientation.x = 0.0;
   out.pose.pose.orientation.y = 0.0;
 
-  out.pose.covariance[0] = 1e6;   // x
-  out.pose.covariance[7] = 1e6;   // y
+  out.pose.covariance[0] = 1e6;  // x
+  out.pose.covariance[7] = 1e6;  // y
   out.pose.covariance[14] = 1e6;  // z
   out.pose.covariance[21] = 1e6;  // roll
   out.pose.covariance[28] = 1e6;  // pitch
