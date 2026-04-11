@@ -1,25 +1,23 @@
-#interactive_config
-#write_config
-#gps_port: "${GPS_PORT:-/dev/gps}"
-#gps_baudrate: ${GPS_BAUD:-460800}
 #!/usr/bin/env bash
+#interactive_config
 
 # ── Global configuration ────────────────────────────────────────────────────
 
-REPO_URL="https://github.com/Mowglifrenchtouch/mowglinext.git"
-REPO_BRANCH="main"
+REPO_URL="https://github.com/mowglifrenchtouch/mowglinext.git"
+REPO_BRANCH="feat/mavros"
+IMAGE_TAG="feat-mavros"
 REPO_DIR="${MOWGLI_HOME:-$HOME/mowglinext}"
 DOCKER_SUBDIR="install"
 INSTALL_DIR="${REPO_DIR}/${DOCKER_SUBDIR}"
 UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
 
-MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mowgli-ros2:main"
-GPS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/gps:main"
-LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-ldlidar:main"
-LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-rplidar:main"
-LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-stl27l:main"
-MAVROS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mavros:main"
-GUI_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mowglinext-gui:main"
+MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/mowgli-ros2:${IMAGE_TAG}"
+GPS_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/gps:${IMAGE_TAG}"
+LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/lidar-ldlidar:${IMAGE_TAG}"
+LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/lidar-rplidar:${IMAGE_TAG}"
+LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/lidar-stl27l:${IMAGE_TAG}"
+MAVROS_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/mavros:${IMAGE_TAG}"
+GUI_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/mowglinext-gui:${IMAGE_TAG}"
 
 CHECK_ONLY=false
 CLI_PRESET=false

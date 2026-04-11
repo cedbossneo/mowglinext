@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 select_hardware_backend() {
   echo ""
   echo "Select hardware backend:"
@@ -11,15 +12,28 @@ select_hardware_backend() {
   case "$choice" in
     1)
       export HARDWARE_BACKEND="mowgli"
-      export MAVROS_ENABLED="false"
       export MAVROS_BY_ID=""
       info "Selected backend: Mowgli STM32 board"
       ;;
     2)
       export HARDWARE_BACKEND="mavros"
-      export MAVROS_ENABLED="true"
       info "Selected backend: Pixhawk via MAVROS"
-      detect_mavros_by_id
+
+      echo ""
+      warn "Please connect the Pixhawk to a USB port before continuing."
+      warn "The installer will wait a few seconds for the serial device to appear."
+      warn "If the device appears/disappears repeatedly, check the USB cable and power supply."
+      echo ""
+
+      if ! wait_for_mavros_device 15 3; then
+        error "No stable Pixhawk serial device detected. Please connect it by USB and try again."
+        return 1
+      fi
+
+      if ! detect_mavros_by_id; then
+        error "Unable to detect a valid MAVROS serial device."
+        return 1
+      fi
       ;;
     *)
       error "Invalid choice"
@@ -27,33 +41,89 @@ select_hardware_backend() {
       ;;
   esac
 }
+
+wait_for_mavros_device() {
+  local timeout="${1:-15}"
+  local stable_required="${2:-3}"
+  local elapsed=0
+  local stable_count=0
+  local found=""
+
+  info "Waiting for Pixhawk serial device to become stable..."
+
+  while [ "$elapsed" -lt "$timeout" ]; do
+    found=""
+
+    # Prefer stable by-id link
+    if [ -d /dev/serial/by-id ]; then
+      found="$(find /dev/serial/by-id -maxdepth 1 -type l \
+        \( -iname '*Pixhawk*' -o -iname '*Holybro*' \) | sort | head -n1)"
+    fi
+
+    # Fallback to ttyACM / ttyUSB
+    if [ -z "$found" ]; then
+      for dev in /dev/ttyACM* /dev/ttyUSB*; do
+        if [ -e "$dev" ]; then
+          found="$dev"
+          break
+        fi
+      done
+    fi
+
+    if [ -n "$found" ]; then
+      stable_count=$((stable_count + 1))
+      info "Detected candidate: $found (${stable_count}/${stable_required})"
+      if [ "$stable_count" -ge "$stable_required" ]; then
+        info "Pixhawk serial device is stable"
+        return 0
+      fi
+    else
+      stable_count=0
+    fi
+
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  return 1
+}
+
 detect_mavros_by_id() {
   local byid_dir="/dev/serial/by-id"
   local candidates=()
-
-  if [ ! -d "$byid_dir" ]; then
-    warn "Directory $byid_dir not found"
-    return 1
-  fi
-
-  while IFS= read -r path; do
-    candidates+=("$path")
-  done < <(find "$byid_dir" -maxdepth 1 -type l \( -iname '*Pixhawk*' -o -iname '*Holybro*' \) | sort)
-
-  if [ ${#candidates[@]} -eq 0 ]; then
-    warn "No Pixhawk device found in /dev/serial/by-id"
-    return 1
-  fi
-
-  info "Detected Pixhawk candidate device(s):"
+  local choice=""
   local i=1
+
+  if [ -d "$byid_dir" ]; then
+    while IFS= read -r path; do
+      candidates+=("$path")
+    done < <(find "$byid_dir" -maxdepth 1 -type l \
+      \( -iname '*Pixhawk*' -o -iname '*Holybro*' \) | sort)
+  fi
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    warn "No Pixhawk entry found in /dev/serial/by-id, falling back to /dev/ttyACM* and /dev/ttyUSB*"
+    for dev in /dev/ttyACM* /dev/ttyUSB*; do
+      [ -e "$dev" ] && candidates+=("$dev")
+    done
+  fi
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    warn "No serial device found for Pixhawk"
+    return 1
+  fi
+
+  info "Detected MAVROS candidate device(s):"
   for c in "${candidates[@]}"; do
-    echo "  [$i] $c -> $(readlink -f "$c")"
+    if [ -L "$c" ]; then
+      echo "  [$i] $c -> $(readlink -f "$c")"
+    else
+      echo "  [$i] $c"
+    fi
     i=$((i + 1))
   done
 
-  local choice=""
-  if [ ${#candidates[@]} -eq 1 ]; then
+  if [ "${#candidates[@]}" -eq 1 ]; then
     choice="1"
   else
     printf "Select MAVROS port [1-%d]: " "${#candidates[@]}"
@@ -66,5 +136,5 @@ detect_mavros_by_id() {
   fi
 
   export MAVROS_BY_ID="${candidates[$((choice - 1))]}"
-  info "Selected MAVROS by-id: ${MAVROS_BY_ID}"
+  info "Selected MAVROS device: ${MAVROS_BY_ID}"
 }

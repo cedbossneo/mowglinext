@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-
 # Ensure config files mounted as bind-mount *files* exist before compose runs.
 # Docker creates a directory when the host path is missing, which breaks the
 # container with "not a directory" errors.
+
 ensure_default_configs() {
   local defaults="$REPO_DIR/docker/config"
 
@@ -57,7 +57,7 @@ build_compose_stack() {
   [[ "${TFLUNA_EDGE_ENABLED:-false}" == "true" ]] && \
     COMPOSE_FILES+=("compose/docker-compose.tfluna-edge.yml")
 
-  [[ "${ENABLE_MAVROS:-false}" == "true" ]] && \
+  [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]] && \
     COMPOSE_FILES+=("compose/docker-compose.mavros.yml")
 
   [[ "${ENABLE_VESC:-false}" == "true" ]] && \
@@ -78,9 +78,11 @@ _extract_services() {
 }
 
 write_compose_merged() {
+
   # Generate a single self-contained docker-compose.yaml by merging all
   # selected compose templates. Users get one readable file instead of
   # needing to understand Docker Compose include/project mechanics.
+
   local output="$INSTALL_DIR/docker-compose.yaml"
 
   {
@@ -97,6 +99,7 @@ x-ros2-env: &ros2-env
   RCUTILS_LOGGING_USE_STDOUT: "1"
   LIDAR_ENABLED: ${LIDAR_ENABLED:-true}
   ENABLE_FOXGLOVE: ${ENABLE_FOXGLOVE:-true}
+  HARDWARE_BACKEND: ${HARDWARE_BACKEND:-mowgli}
 
 services:
 HEADER
