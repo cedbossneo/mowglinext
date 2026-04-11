@@ -33,7 +33,7 @@ ekf_odom:
     two_d_mode: true
     publish_tf: true
     odom_frame: odom
-    base_link_frame: base_link
+    base_link_frame: base_footprint
     world_frame: odom
 
     # Wheel odometry: fuse linear velocity (vx, vy) and yaw rate.
@@ -95,7 +95,7 @@ ekf_map:
     # the costmap and LiDAR frame transforms.
     publish_tf: false
     odom_frame: odom
-    base_link_frame: base_link
+    base_link_frame: base_footprint
     world_frame: map
 
     # Filtered odometry from the odom EKF: velocity only (not position).

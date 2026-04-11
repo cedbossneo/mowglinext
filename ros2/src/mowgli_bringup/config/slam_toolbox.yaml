@@ -20,7 +20,7 @@ slam_toolbox:
     # Frame IDs
     odom_frame: odom
     map_frame: map
-    base_frame: base_link
+    base_frame: base_footprint
     scan_topic: /scan
 
     # Logging
