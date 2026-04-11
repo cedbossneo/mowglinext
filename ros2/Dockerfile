@@ -172,10 +172,25 @@ RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
  && ln -sf fusioncore/fusioncore_ros  src/fusioncore_ros \
  && ln -sf fusioncore/compass_msgs    src/compass_msgs
 
+ # Check MAVROS installation
+RUN /bin/bash -c "\
+    source /opt/ros/kilted/setup.bash && \
+    echo '=== ROS env ===' && \
+    echo \$AMENT_PREFIX_PATH && \
+    echo \$CMAKE_PREFIX_PATH && \
+    echo '=== MAVROS packages ===' && \
+    ros2 pkg list | grep mavros || true && \
+    echo '=== Filesystem check ===' && \
+    ls -la /opt/ros/kilted/share | grep mavros || true && \
+    ls -la /opt/ros/kilted/share/mavros_msgs/cmake || true && \
+    test -f /opt/ros/kilted/share/mavros_msgs/cmake/mavros_msgsConfig.cmake || true \
+    "
+
 # Build all packages (mowgli_interfaces is already built and cached)
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
     source install/setup.bash && \
+    if [ -f install/setup.bash ]; then source install/setup.bash; fi && \
     colcon build \
       --packages-ignore fusioncore fusioncore_gazebo \
       --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF \
