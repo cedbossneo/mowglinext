@@ -14,22 +14,22 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 /**
  * @file slam_heading_node.cpp
- * @brief Extracts heading from SLAM's map→odom TF for EKF fusion.
+ * @brief Extracts heading from SLAM's pose for EKF fusion.
  *
- * slam_toolbox computes a map→odom transform via LiDAR scan matching.
- * This node periodically looks up that transform, extracts the yaw
- * component, and publishes it as a PoseWithCovarianceStamped on
- * /slam/heading for the EKF to fuse.
+ * slam_toolbox computes a pose via LiDAR scan matching and publishes
+ * it on /slam_toolbox/pose. This node subscribes to that topic,
+ * extracts the yaw component, and republishes it as a
+ * PoseWithCovarianceStamped on /slam/heading for the EKF to fuse.
+ *
+ * This avoids a circular dependency: ekf_map publishes map→odom TF
+ * (GPS-anchored), so we cannot read map→odom to get SLAM heading.
+ * Instead we read SLAM's internal pose directly.
  *
  * This provides an absolute heading reference from LiDAR features
  * (walls, trees, fences) that works:
  *   - Without a magnetometer
  *   - While stationary (unlike GPS velocity heading)
- *   - Indoors or under canopy (unlike GPS)
- *
- * The position in the published message is set to (0,0,0) with huge
- * covariance — only the yaw is meaningful. The EKF fuses yaw only
- * via the pose_config setting.
+ *   - Under canopy (unlike GPS)
  */
 
 #include "mowgli_localization/slam_heading_node.hpp"
@@ -44,88 +44,68 @@ namespace mowgli_localization
 
 SlamHeadingNode::SlamHeadingNode(const rclcpp::NodeOptions &options) : Node("slam_heading", options)
 {
-  publish_rate_ = declare_parameter<double>("publish_rate", 5.0);
   yaw_variance_ = declare_parameter<double>("yaw_variance", 0.05);
   stale_timeout_ = declare_parameter<double>("stale_timeout", 5.0);
   stale_yaw_variance_ = declare_parameter<double>("stale_yaw_variance", 1e6);
 
-  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+  heading_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "/slam/heading", rclcpp::QoS(10));
 
-  heading_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/slam/heading",
-                                                                                 rclcpp::QoS(10));
-
-  timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
-                             std::bind(&SlamHeadingNode::timer_callback, this));
+  // Subscribe to SLAM's internal pose (avoids TF circular dependency)
+  slam_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "/slam_toolbox/pose",
+      rclcpp::QoS(10),
+      std::bind(&SlamHeadingNode::on_slam_pose, this, std::placeholders::_1));
 
   RCLCPP_INFO(get_logger(),
-              "SlamHeadingNode started (rate=%.1f Hz, yaw_var=%.3f)",
-              publish_rate_,
+              "SlamHeadingNode started (subscribing to /slam_toolbox/pose, yaw_var=%.3f)",
               yaw_variance_);
 }
 
-void SlamHeadingNode::timer_callback()
+void SlamHeadingNode::on_slam_pose(
+    geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg)
 {
-  geometry_msgs::msg::TransformStamped tf;
-  try
-  {
-    // Look up SLAM's map→odom transform.
-    // SLAM is the authority for this transform (ekf_map has publish_tf=false).
-    tf = tf_buffer_->lookupTransform("map", "odom", tf2::TimePointZero);
-  }
-  catch (const tf2::TransformException &)
-  {
-    // SLAM TF not available — don't publish anything.
-    // The EKF will rely on GPS heading and IMU.
-    return;
-  }
+  const rclcpp::Time msg_stamp(msg->header.stamp);
+  const double age = (now() - msg_stamp).seconds();
 
-  const rclcpp::Time tf_stamp(tf.header.stamp);
-  const double age = (now() - tf_stamp).seconds();
+  // Extract yaw from SLAM's pose
+  const double yaw = tf2::getYaw(msg->pose.pose.orientation);
 
-  // Extract yaw from the map→odom quaternion
-  const double yaw = tf2::getYaw(tf.transform.rotation);
-
-  // Determine yaw variance based on TF freshness
+  // Determine yaw variance based on message freshness
   double variance = yaw_variance_;
   if (age > stale_timeout_)
   {
-    // SLAM hasn't updated recently — increase variance so other sources dominate
     variance = stale_yaw_variance_;
   }
   else if (age > stale_timeout_ * 0.5)
   {
-    // Ramp up variance as TF ages
     const double alpha = (age - stale_timeout_ * 0.5) / (stale_timeout_ * 0.5);
     variance = yaw_variance_ + alpha * (stale_yaw_variance_ - yaw_variance_);
   }
 
   // Publish heading as PoseWithCovarianceStamped
   // Position is zeroed with huge covariance — only yaw matters.
-  geometry_msgs::msg::PoseWithCovarianceStamped msg;
-  msg.header.stamp = now();
-  msg.header.frame_id = "map";
+  geometry_msgs::msg::PoseWithCovarianceStamped out;
+  out.header.stamp = now();
+  out.header.frame_id = "map";
 
-  // Position: don't care (huge covariance)
-  msg.pose.pose.position.x = 0.0;
-  msg.pose.pose.position.y = 0.0;
-  msg.pose.pose.position.z = 0.0;
+  out.pose.pose.position.x = 0.0;
+  out.pose.pose.position.y = 0.0;
+  out.pose.pose.position.z = 0.0;
 
-  // Orientation: SLAM-derived yaw
-  msg.pose.pose.orientation.w = std::cos(yaw / 2.0);
-  msg.pose.pose.orientation.z = std::sin(yaw / 2.0);
-  msg.pose.pose.orientation.x = 0.0;
-  msg.pose.pose.orientation.y = 0.0;
+  out.pose.pose.orientation.w = std::cos(yaw / 2.0);
+  out.pose.pose.orientation.z = std::sin(yaw / 2.0);
+  out.pose.pose.orientation.x = 0.0;
+  out.pose.pose.orientation.y = 0.0;
 
-  // Covariance: huge for position, meaningful for yaw
-  msg.pose.covariance[0] = 1e6;  // x
-  msg.pose.covariance[7] = 1e6;  // y
-  msg.pose.covariance[14] = 1e6;  // z
-  msg.pose.covariance[21] = 1e6;  // roll
-  msg.pose.covariance[28] = 1e6;  // pitch
-  msg.pose.covariance[35] = variance;  // yaw
+  out.pose.covariance[0] = 1e6;   // x
+  out.pose.covariance[7] = 1e6;   // y
+  out.pose.covariance[14] = 1e6;  // z
+  out.pose.covariance[21] = 1e6;  // roll
+  out.pose.covariance[28] = 1e6;  // pitch
+  out.pose.covariance[35] = variance;  // yaw
 
-  heading_pub_->publish(msg);
+  heading_pub_->publish(out);
 }
 
 }  // namespace mowgli_localization

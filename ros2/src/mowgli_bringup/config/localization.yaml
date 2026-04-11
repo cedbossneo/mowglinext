@@ -138,18 +138,21 @@ ekf_map:
     # its output. SLAM is the sole TF authority. Re-add if ekf_map becomes
     # the map→odom TF publisher.
 
-    # SLAM heading disabled: with ekf_map as TF authority, reading SLAM's
-    # map→odom TF for heading would create a circular dependency (ekf_map
-    # publishes map→odom, slam_heading reads it back). GPS velocity heading
-    # + IMU yaw rate provide sufficient heading for outdoor operation.
-    # Re-enable if slam_heading_node is modified to read SLAM's internal
-    # pose topic instead of the map→odom TF.
-    # pose2: /slam/heading
-    # pose2_config: [false, false, false,
-    #                false, false, true,
-    #                false, false, false,
-    #                false, false, false,
-    #                false, false, false]
+    # SLAM heading: slam_heading_node subscribes to /slam_toolbox/pose
+    # (SLAM's internal scan-matched pose) and extracts yaw. No circular
+    # dependency because it reads the pose topic, not the map→odom TF.
+    # Provides absolute heading from LiDAR features — works without
+    # magnetometer, when stationary, and under tree canopy.
+    pose2: /slam/heading
+    pose2_config: [false, false, false,
+                   false, false, true,
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    pose2_queue_size: 5
+    pose2_nodelay: false
+    pose2_differential: false
+    pose2_relative: false
 
     # Process noise — elevated for position (x=0, y=1) because without GPS
     # the filter relies on wheel-derived velocity which drifts.  This makes
