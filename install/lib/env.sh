@@ -58,6 +58,7 @@ setup_env() {
   : "${GPS_IMAGE:=${GPS_IMAGE_DEFAULT}}"
   : "${GUI_IMAGE:=${GUI_IMAGE_DEFAULT}}"
   : "${MAVROS_IMAGE:=${MAVROS_IMAGE_DEFAULT}}"
+
   if [[ -z "${LIDAR_IMAGE:-}" ]]; then
     case "${LIDAR_TYPE:-ldlidar}" in
       rplidar) LIDAR_IMAGE="${LIDAR_RPLIDAR_IMAGE_DEFAULT}" ;;
@@ -66,7 +67,7 @@ setup_env() {
     esac
   fi
 
-  # MAVROS
+  # MAVROS / backend
   : "${HARDWARE_BACKEND:=mowgli}"
   : "${MAVROS_BY_ID:=}"
   : "${MAVROS_PORT:=/dev/mavros}"
@@ -75,6 +76,11 @@ setup_env() {
   : "${MAVROS_TGT_SYSTEM:=1}"
   : "${MAVROS_TGT_COMPONENT:=1}"
   : "${MAVROS_LAUNCH_FILE:=px4.launch}"
+
+  local enable_mavros="false"
+  if [[ "$HARDWARE_BACKEND" == "mavros" ]]; then
+    enable_mavros="true"
+  fi
 
   touch "$env_file"
 
@@ -117,6 +123,7 @@ setup_env() {
   upsert_env_key "$env_file" "GUI_IMAGE" "$GUI_IMAGE"
 
   upsert_env_key "$env_file" "HARDWARE_BACKEND" "$HARDWARE_BACKEND"
+  upsert_env_key "$env_file" "ENABLE_MAVROS" "$enable_mavros"
   upsert_env_key "$env_file" "MAVROS_BY_ID" "$MAVROS_BY_ID"
   upsert_env_key "$env_file" "MAVROS_PORT" "$MAVROS_PORT"
   upsert_env_key "$env_file" "MAVROS_BAUD" "$MAVROS_BAUD"
@@ -124,5 +131,6 @@ setup_env() {
   upsert_env_key "$env_file" "MAVROS_TGT_SYSTEM" "$MAVROS_TGT_SYSTEM"
   upsert_env_key "$env_file" "MAVROS_TGT_COMPONENT" "$MAVROS_TGT_COMPONENT"
   upsert_env_key "$env_file" "MAVROS_LAUNCH_FILE" "$MAVROS_LAUNCH_FILE"
+
   info "Updated $env_file"
 }
