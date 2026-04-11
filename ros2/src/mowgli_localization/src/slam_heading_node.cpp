@@ -51,14 +51,15 @@ SlamHeadingNode::SlamHeadingNode(const rclcpp::NodeOptions &options) : Node("sla
   heading_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/slam/heading",
                                                                                  rclcpp::QoS(10));
 
-  // Subscribe to SLAM's internal pose (avoids TF circular dependency)
+  // Subscribe to SLAM's internal pose (avoids TF circular dependency).
+  // slam_toolbox publishes to /pose (relative topic name).
   slam_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      "/slam_toolbox/pose",
+      "/pose",
       rclcpp::QoS(10),
       std::bind(&SlamHeadingNode::on_slam_pose, this, std::placeholders::_1));
 
   RCLCPP_INFO(get_logger(),
-              "SlamHeadingNode started (subscribing to /slam_toolbox/pose, yaw_var=%.3f)",
+              "SlamHeadingNode started (subscribing to /pose, yaw_var=%.3f)",
               yaw_variance_);
 }
 
