@@ -411,10 +411,13 @@ private:
       msg.header.stamp = stamp;
       msg.header.frame_id = "base_link";
       msg.voltage = pkt.v_system;
-      // SimpleChargingDock::isDocked() checks current > charging_threshold.
-      // Firmware reports negative current when charging (into battery),
-      // so publish the absolute value for correct dock detection.
-      msg.current = std::abs(pkt.charging_current);
+      // SimpleChargingDock checks current > charging_threshold for both
+      // isDocked() and hasStoppedCharging().  Firmware reports negative
+      // current when charging and positive when discharging.  Publish
+      // abs(current) when charging so the threshold is exceeded, and
+      // 0.0 when not charging so hasStoppedCharging() detects the
+      // transition after undocking.
+      msg.current = is_charging_ ? std::abs(pkt.charging_current) : 0.0f;
       msg.percentage = static_cast<float>(pkt.batt_percentage) / 100.0f;
       msg.power_supply_status =
           is_charging_ ? sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
