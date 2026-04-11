@@ -1,0 +1,95 @@
+# Mowgli Robot Configuration — managed by mowglinext-gui
+# This file is the single source of truth for robot parameters.
+# Changes made here are picked up on container restart.
+
+mowgli:
+    ros__parameters:
+        automatic_mode: 0
+        battery_critical_percent: 10
+        battery_critical_voltage: 23
+        battery_empty_voltage: 24
+        battery_full_percent: 95
+        battery_full_voltage: 28.5
+        battery_low_percent: 20
+        blade_radius: 0.09
+        caster_radius: 0.03
+        caster_track: 0.36
+        chassis_center_x: 0.18
+        chassis_height: 0.19
+        chassis_length: 0.54
+        chassis_mass_kg: 8.76
+        chassis_width: 0.4
+        coverage_xy_tolerance: 0.5
+        datum_lat: 48.8796508
+        datum_lon: 2.1728133
+        dock_approach_distance: 1
+        dock_max_retries: 3
+        dock_pose_x: 0
+        dock_pose_y: 0
+        dock_pose_yaw: 3.9794
+        dock_use_charger_detection: true
+        emergency_stop_on_lift: true
+        emergency_stop_on_tilt: true
+        # Lift recovery mode: blade off on lift, no emergency, auto-resume.
+        # Use when garden has bumps/holes but no cliffs. Stop button still works.
+        lift_recovery_mode: false
+        lift_blade_resume_delay_sec: 1.0
+        gps_antenna_x: 0.3
+        gps_antenna_y: 0
+        gps_antenna_z: 0.2
+        gps_baudrate: 460800
+        gps_port: /dev/gps
+        gps_protocol: UBX
+        gps_timeout_sec: 5
+        gps_wait_after_undock_sec: 10
+        headland_width: 0.18
+        imu_x: 0.191
+        imu_y: -0.176
+        imu_yaw: -2.8848
+        imu_z: 0.095
+        lidar_enabled: true
+        lidar_x: 0
+        lidar_y: 0.024
+        lidar_yaw: 3.1408
+        lidar_z: 0.22
+        map_save_on_dock: true
+        map_save_path: /ros2_ws/maps/garden_map
+        max_obstacle_avoidance_distance: 2
+        min_turning_radius: 0.3
+        motor_temp_high_c: 80
+        motor_temp_low_c: 40
+        mow_angle_increment_deg: 0
+        mow_angle_offset_deg: -1
+        mower_model: YardForce500
+        mowing_enabled: true
+        mowing_speed: 0.3
+        ntrip_enabled: true
+        ntrip_host: crtk.net
+        ntrip_mountpoint: OUIL
+        ntrip_password: centipede
+        ntrip_port: 2101
+        ntrip_user: centipede
+        outline_offset: 0.05
+        outline_overlap: 0
+        outline_passes: 1
+        path_spacing: 0.13
+        progress_timeout_sec: 60
+        rain_debounce_sec: 10
+        rain_delay_minutes: 30
+        rain_mode: 2
+        slam_mode: lifelong
+        ticks_per_revolution: 1050
+        tool_width: 0.18
+        transit_speed: 0.4
+        undock_distance: 1.5
+        undock_speed: 0.15
+        wheel_radius: 0.04475
+        wheel_track: 0.325
+        wheel_width: 0.04
+        wheel_x_offset: 0
+        xy_goal_tolerance: 0.75
+        yaw_goal_tolerance: 1
+navsat_to_absolute_pose:
+    ros__parameters:
+        datum_lat: 48.8796508
+        datum_lon: 2.1728133

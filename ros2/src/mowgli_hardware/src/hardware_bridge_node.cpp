@@ -106,6 +106,8 @@ private:
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
+    lift_recovery_mode_ = declare_parameter<bool>("lift_recovery_mode", false);
+    lift_blade_resume_delay_sec_ = declare_parameter<double>("lift_blade_resume_delay_sec", 1.0);
     // imu_yaw parameter is used by URDF for mounting rotation, not needed here
 
     RCLCPP_INFO(get_logger(),
@@ -372,24 +374,81 @@ private:
     {
       auto msg = mowgli_interfaces::msg::Emergency{};
       msg.stamp = stamp;
-      msg.latched_emergency = (pkt.emergency_bitmask & EMERGENCY_BIT_LATCH) != 0u;
-      // Active emergency = a trigger (STOP or LIFT) is currently asserted,
-      // not just a latched state from a previous event.
       const bool stop_active = (pkt.emergency_bitmask & EMERGENCY_BIT_STOP) != 0u;
       const bool lift_active = (pkt.emergency_bitmask & EMERGENCY_BIT_LIFT) != 0u;
-      msg.active_emergency = stop_active || lift_active;
-      if (stop_active)
+      const bool latch_active = (pkt.emergency_bitmask & EMERGENCY_BIT_LATCH) != 0u;
+
+      if (lift_recovery_mode_ && lift_active && !stop_active)
       {
-        msg.reason = "STOP button";
+        // Lift recovery mode: blade off, wheels keep running, no emergency.
+        // Firmware may set its own emergency latch — auto-release it.
+        msg.active_emergency = false;
+        msg.latched_emergency = false;
+        msg.lift_warning = true;
+
+        // Track lift duration
+        if (!lift_detected_)
+        {
+          lift_detected_ = true;
+          lift_start_time_ = now();
+          blade_was_enabled_before_lift_ = mow_enabled_;
+          if (mow_enabled_)
+          {
+            send_blade_command(0, 0);
+            RCLCPP_WARN(get_logger(), "LIFT detected — blade disabled (recovery mode)");
+          }
+        }
+        msg.lift_duration_sec =
+            static_cast<float>((now() - lift_start_time_).seconds());
+        msg.reason = "Lift (blade off, recovery mode)";
+
+        // Auto-release firmware latch caused by lift
+        if (latch_active)
+        {
+          emergency_release_pending_ = true;
+        }
       }
-      else if (lift_active)
+      else
       {
-        msg.reason = "Lift detected";
+        // Normal mode or stop button: full emergency
+        msg.active_emergency = stop_active || lift_active;
+        msg.latched_emergency = latch_active;
+        msg.lift_warning = false;
+        msg.lift_duration_sec = 0.0f;
+
+        if (stop_active)
+          msg.reason = "STOP button";
+        else if (lift_active)
+          msg.reason = "Lift detected";
+        else if (latch_active)
+          msg.reason = "Latched (press play button to release)";
       }
-      else if (msg.latched_emergency)
+
+      // Lift cleared — resume blade after delay
+      if (lift_detected_ && !lift_active)
       {
-        msg.reason = "Latched (press play button to release)";
+        lift_detected_ = false;
+        if (blade_was_enabled_before_lift_)
+        {
+          lift_cleared_time_ = now();
+          waiting_blade_resume_ = true;
+          RCLCPP_INFO(get_logger(), "LIFT cleared — blade will resume after %.1f s",
+                      lift_blade_resume_delay_sec_);
+        }
       }
+
+      if (waiting_blade_resume_)
+      {
+        const double since_clear = (now() - lift_cleared_time_).seconds();
+        if (since_clear >= lift_blade_resume_delay_sec_)
+        {
+          send_blade_command(1, 0);
+          blade_was_enabled_before_lift_ = false;
+          waiting_blade_resume_ = false;
+          RCLCPP_INFO(get_logger(), "LIFT recovery — blade re-enabled");
+        }
+      }
+
       pub_emergency_->publish(msg);
     }
 
@@ -775,6 +834,15 @@ private:
   bool emergency_active_{false};
   bool emergency_release_pending_{false};
   int startup_release_count_{5};  // Send release for first 5 heartbeats
+
+  // Lift recovery mode: blade off on lift, no emergency, auto-resume
+  bool lift_recovery_mode_{false};
+  double lift_blade_resume_delay_sec_{1.0};
+  bool lift_detected_{false};
+  rclcpp::Time lift_start_time_;
+  bool blade_was_enabled_before_lift_{false};
+  rclcpp::Time lift_cleared_time_;
+  bool waiting_blade_resume_{false};
   double dock_x_{0.0};
   double dock_y_{0.0};
   double dock_yaw_{0.0};
