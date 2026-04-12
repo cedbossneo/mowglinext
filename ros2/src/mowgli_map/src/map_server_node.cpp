@@ -868,6 +868,7 @@ void MapServerNode::on_add_area(const mowgli_interfaces::srv::AddMowingArea::Req
   // Store obstacle polygons from the MapArea message.
   // Only store in the area entry (static), NOT in obstacle_polygons_
   // (which is for dynamic LiDAR-detected obstacles).
+  const float no_go_val = static_cast<float>(CellType::NO_GO_ZONE);
   for (const auto& obstacle : req->area.obstacles)
   {
     if (obstacle.points.size() >= 3)
