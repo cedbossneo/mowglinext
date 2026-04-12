@@ -133,21 +133,15 @@ ekf_map:
     pose1_relative: false
     pose1_rejection_threshold: 3.0
 
-    # SLAM full pose: slam_heading_node reads map→base_footprint TF and
-    # publishes x, y, yaw with covariance. When GPS is good it's outweighed
-    # by GPS (lower covariance). When GPS degrades, SLAM dominates.
-    # position_variance: 0.1 m² (~30cm std dev, moderate trust)
-    # yaw_variance: 0.05 rad² (~13° std dev, moderate trust)
-    pose0: /slam/pose
-    pose0_config: [true,  true,  false,
-                   false, false, true,
-                   false, false, false,
-                   false, false, false,
-                   false, false, false]
-    pose0_queue_size: 5
-    pose0_nodelay: false
-    pose0_differential: false
-    pose0_relative: false
+    # SLAM pose disabled: reading map→base_footprint TF and feeding it
+    # back to ekf_map creates a feedback loop (SLAM TF + ekf_map TF
+    # oscillate). Need rf2o_laser_odometry or non-TF SLAM heading.
+    # pose0: /slam/pose
+    # pose0_config: [true,  true,  false,
+    #                false, false, true,
+    #                false, false, false,
+    #                false, false, false,
+    #                false, false, false]
 
     # IMU: yaw rate for inter-GPS heading dynamics.
     # differential=true so absolute yaw doesn't fight GPS/SLAM heading.
