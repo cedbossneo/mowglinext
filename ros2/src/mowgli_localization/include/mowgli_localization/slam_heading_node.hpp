@@ -6,7 +6,7 @@
 // (at your option) any later version.
 /**
  * @file slam_heading_node.hpp
- * @brief Extracts heading from SLAM's map→odom TF for EKF fusion.
+ * @brief Extracts full pose from SLAM's TF for EKF fusion.
  */
 
 #pragma once
@@ -32,8 +32,9 @@ private:
 
   double publish_rate_{5.0};
   double yaw_variance_{0.05};
+  double position_variance_{0.1};
   double stale_timeout_{5.0};
-  double stale_yaw_variance_{1e6};
+  double stale_variance_{1e6};
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;

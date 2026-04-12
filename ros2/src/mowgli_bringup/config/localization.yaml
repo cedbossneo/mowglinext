@@ -133,12 +133,13 @@ ekf_map:
     pose1_relative: false
     pose1_rejection_threshold: 3.0
 
-    # SLAM heading: slam_heading_node subscribes to /slam_toolbox/pose
-    # (SLAM's internal scan-matched pose) and extracts yaw. Provides
-    # absolute heading from LiDAR features — works without magnetometer,
-    # when stationary, and under tree canopy.
-    pose0: /slam/heading
-    pose0_config: [false, false, false,
+    # SLAM full pose: slam_heading_node reads map→base_footprint TF and
+    # publishes x, y, yaw with covariance. When GPS is good it's outweighed
+    # by GPS (lower covariance). When GPS degrades, SLAM dominates.
+    # position_variance: 0.1 m² (~30cm std dev, moderate trust)
+    # yaw_variance: 0.05 rad² (~13° std dev, moderate trust)
+    pose0: /slam/pose
+    pose0_config: [true,  true,  false,
                    false, false, true,
                    false, false, false,
                    false, false, false,
