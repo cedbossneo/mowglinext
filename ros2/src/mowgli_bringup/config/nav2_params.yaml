@@ -136,7 +136,7 @@ planner_server:
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
       tolerance: 0.50
-      downsample_costmap: true
+      downsample_costmap: false
       downsampling_factor: 2
       allow_unknown: false
       max_iterations: 100000

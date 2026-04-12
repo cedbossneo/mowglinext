@@ -15,7 +15,9 @@ navsat_transform:
     # Our IMU uses differential yaw in ekf_odom, so the absolute yaw
     # reference comes from the EKF state which starts at 0. Set to 0
     # and let navsat_transform figure out the rotation from GPS movement.
-    yaw_offset: 0.0
+    # yaw_offset: dock heading in ENU (pi/2 - compass_heading).
+    # dock_pose_yaw=3.9794 (compass 228°) → ENU = -2.4086 rad.
+    yaw_offset: -2.4086
     zero_altitude: true
     # GPS antenna frame in URDF (base_footprint → gps_link static TF)
     gps_frame_id: gps_link
