@@ -22,8 +22,6 @@
 
 #include <cmath>
 
-#include "tf2/utils.h"
-
 namespace mowgli_localization
 {
 
@@ -54,7 +52,9 @@ void SlamHeadingNode::on_slam_pose(
 {
   const rclcpp::Time msg_stamp(msg->header.stamp);
   const double age = (now() - msg_stamp).seconds();
-  const double yaw = tf2::getYaw(msg->pose.pose.orientation);
+  const auto& q = msg->pose.pose.orientation;
+  const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 
   double variance = yaw_variance_;
   if (age > stale_timeout_)
