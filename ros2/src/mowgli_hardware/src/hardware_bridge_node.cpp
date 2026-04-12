@@ -54,7 +54,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
-#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_hardware/ll_datatypes.hpp"
 #include "mowgli_hardware/packet_handler.hpp"
 #include "mowgli_hardware/serial_port.hpp"
@@ -134,10 +134,10 @@ private:
 
   void create_subscribers()
   {
-    sub_cmd_vel_ = create_subscription<geometry_msgs::msg::Twist>(
+    sub_cmd_vel_ = create_subscription<geometry_msgs::msg::TwistStamped>(
         "~/cmd_vel",
         10,
-        [this](geometry_msgs::msg::Twist::ConstSharedPtr msg)
+        [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg)
         {
           on_cmd_vel(msg);
         });
@@ -735,11 +735,12 @@ private:
   // cmd_vel subscriber
   // ---------------------------------------------------------------------------
 
-  void on_cmd_vel(geometry_msgs::msg::Twist::ConstSharedPtr msg)
+  void on_cmd_vel(geometry_msgs::msg::TwistStamped::ConstSharedPtr msg)
   {
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u && (msg->linear.x != 0.0 || msg->angular.z != 0.0))
+    if (current_mode_ == 0u &&
+        (msg->twist.linear.x != 0.0 || msg->twist.angular.z != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();
@@ -747,8 +748,8 @@ private:
 
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
-    pkt.linear_x = static_cast<float>(msg->linear.x);
-    pkt.angular_z = static_cast<float>(msg->angular.z);
+    pkt.linear_x = static_cast<float>(msg->twist.linear.x);
+    pkt.angular_z = static_cast<float>(msg->twist.angular.z);
 
     send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdVel) - sizeof(uint16_t));
   }
@@ -804,7 +805,7 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_state_;
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr sub_cmd_vel_;
   rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr sub_hl_status_;
 
   rclcpp::Service<mowgli_interfaces::srv::MowerControl>::SharedPtr srv_mower_control_;

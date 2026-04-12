@@ -3,6 +3,16 @@
 //
 // Field names are snake_case to match the JSON from rosbridge.
 
+export type Stamp = {
+  sec?: number;
+  nanosec?: number;
+};
+
+export type Header = {
+  stamp?: Stamp;
+  frame_id?: string;
+};
+
 export type Point = {
   x?: number;
   y?: number;
@@ -43,6 +53,11 @@ export type Quaternion = {
 export type Twist = {
   linear?: Vector3;
   angular?: Vector3;
+};
+
+export type TwistStamped = {
+  header?: Header;
+  twist?: Twist;
 };
 
 export type TwistWithCovariance = {

@@ -1,5 +1,5 @@
 import {useCallback, useRef, useState} from "react";
-import type {Twist} from "../../../types/ros.ts";
+import type {TwistStamped} from "../../../types/ros.ts";
 import type {IJoystickUpdateEvent} from "react-joystick-component/build/lib/Joystick";
 
 const JOY_SEND_INTERVAL_MS = 100;
@@ -11,7 +11,7 @@ interface UseManualModeOptions {
 
 export function useManualMode({mowerAction, joyStream}: UseManualModeOptions) {
     const [manualMode, setManualMode] = useState<number | undefined>();
-    const lastTwistRef = useRef<Twist | null>(null);
+    const lastTwistRef = useRef<TwistStamped | null>(null);
     const joyIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
     const startJoyInterval = useCallback(() => {
@@ -52,9 +52,9 @@ export function useManualMode({mowerAction, joyStream}: UseManualModeOptions) {
     };
 
     const handleJoyMove = useCallback((event: IJoystickUpdateEvent) => {
-        const msg: Twist = {
-            linear: {x: event.y ?? 0, y: 0, z: 0},
-            angular: {z: (event.x ?? 0) * -1, x: 0, y: 0},
+        const msg: TwistStamped = {
+            header: {stamp: {sec: 0, nanosec: 0}, frame_id: ""},
+            twist: {linear: {x: event.y ?? 0, y: 0, z: 0}, angular: {z: (event.x ?? 0) * -1, x: 0, y: 0}},
         };
         lastTwistRef.current = msg;
         joyStream.sendJsonMessage(msg);
@@ -65,9 +65,9 @@ export function useManualMode({mowerAction, joyStream}: UseManualModeOptions) {
     }, [joyStream, startJoyInterval]);
 
     const handleJoyStop = useCallback(() => {
-        const msg: Twist = {
-            linear: {x: 0, y: 0, z: 0},
-            angular: {z: 0, x: 0, y: 0},
+        const msg: TwistStamped = {
+            header: {stamp: {sec: 0, nanosec: 0}, frame_id: ""},
+            twist: {linear: {x: 0, y: 0, z: 0}, angular: {z: 0, x: 0, y: 0}},
         };
         lastTwistRef.current = null;
         stopJoyInterval();

@@ -64,6 +64,12 @@ type Twist struct {
 	Angular                   Vector3                        `json:"angular"`
 }
 
+// TwistStamped matches geometry_msgs/msg/TwistStamped.
+type TwistStamped struct {
+	Header                    Header                         `json:"header"`
+	Twist                     Twist                          `json:"twist"`
+}
+
 // TwistWithCovariance matches geometry_msgs/msg/TwistWithCovariance.
 type TwistWithCovariance struct {
 	Twist                     Twist                          `json:"twist"`

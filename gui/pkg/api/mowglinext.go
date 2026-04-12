@@ -267,13 +267,13 @@ func PublisherRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 				c.Error(err)
 				break
 			}
-			var msgObj geometry.Twist
+			var msgObj geometry.TwistStamped
 			err = json.Unmarshal(msg, &msgObj)
 			if err != nil {
 				log.Printf("PublisherRoute: unmarshal error: %v", err)
 				continue
 			}
-			err = provider.Publish("/cmd_vel_teleop", "geometry_msgs/msg/Twist", &msgObj)
+			err = provider.Publish("/cmd_vel_teleop", "geometry_msgs/msg/TwistStamped", &msgObj)
 			if err != nil {
 				log.Printf("PublisherRoute: publish error: %v", err)
 				// Don't break — foxglove may reconnect; keep the browser WebSocket alive

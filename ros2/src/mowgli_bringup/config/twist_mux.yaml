@@ -1,7 +1,7 @@
 twist_mux:
   ros__parameters:
-    # Use geometry_msgs/msg/Twist (unstamped) for compatibility with Nav2
-    use_stamped: false
+    # Kilted Kaiju: all Nav2 nodes use TwistStamped
+    use_stamped: true
 
     # Topics are evaluated in ascending priority order.
     # Higher priority overrides lower when active within timeout.
