@@ -406,6 +406,10 @@ export function useMapStreams({
             setEditMap(false);
             return;
         }
+        if (stateName === "MANUAL_MOWING") {
+            joyStream.start("/api/mowglinext/publish/joy");
+            return;
+        }
         joyStream.stop();
         recordingTrajectoryStream.stop();
         // Clear trajectory feature when leaving recording mode
