@@ -31,7 +31,10 @@ slam_toolbox:
     # ekf_map is the TF authority for map→odom (GPS-anchored).
     # SLAM provides heading via /slam/heading but does NOT publish TF.
     # Set to 0 to disable SLAM's map→odom TF broadcast.
-    transform_publish_period: 0.0     # disabled — ekf_map publishes map→odom
+    # Must be > 0 for SLAM to publish /pose topic (used by slam_heading_node).
+    # SLAM also publishes map→odom TF at this rate, competing with ekf_map
+    # (20Hz). ekf_map dominates since it publishes much faster.
+    transform_publish_period: 0.5     # 2Hz — just enough for heading corrections
     map_update_interval: 2.0          # seconds
     resolution: 0.05                  # metres/cell
 
