@@ -123,8 +123,6 @@ target_include_directories(slam_heading_node PUBLIC ${INCLUDE_DIR})
 ament_target_dependencies(slam_heading_node
   rclcpp
   geometry_msgs
-  tf2
-  tf2_geometry_msgs
 )
 
 # ---------------------------------------------------------------------------
