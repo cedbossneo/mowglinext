@@ -307,9 +307,7 @@ double GpsPoseConverterNode::compute_xy_variance(
   // Use receiver-reported accuracy, but enforce realistic minimums.
   // The F9P reports very tight accuracy even without RTK corrections,
   // but actual non-RTK accuracy is typically 1-3m.
-  double sigma = (msg.position_accuracy > 0.0f)
-                     ? static_cast<double>(msg.position_accuracy)
-                     : 5.0;
+  double sigma = (msg.position_accuracy > 0.0f) ? static_cast<double>(msg.position_accuracy) : 5.0;
 
   // Enforce minimum sigma based on fix quality
   if ((msg.flags & Flags::FLAG_GPS_RTK_FIXED) != 0u)

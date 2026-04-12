@@ -398,8 +398,7 @@ private:
             RCLCPP_WARN(get_logger(), "LIFT detected — blade disabled (recovery mode)");
           }
         }
-        msg.lift_duration_sec =
-            static_cast<float>((now() - lift_start_time_).seconds());
+        msg.lift_duration_sec = static_cast<float>((now() - lift_start_time_).seconds());
         msg.reason = "Lift (blade off, recovery mode)";
 
         // Auto-release firmware latch caused by lift
@@ -432,7 +431,8 @@ private:
         {
           lift_cleared_time_ = now();
           waiting_blade_resume_ = true;
-          RCLCPP_INFO(get_logger(), "LIFT cleared — blade will resume after %.1f s",
+          RCLCPP_INFO(get_logger(),
+                      "LIFT cleared — blade will resume after %.1f s",
                       lift_blade_resume_delay_sec_);
         }
       }

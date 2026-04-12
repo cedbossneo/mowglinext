@@ -101,7 +101,7 @@ controller_server:
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
       speed_slow: 0.3             # carrot speed when close/turning (m/s)
       speed_angular: 60.0          # rotation speed for in-place turns (deg/s)
-      acceleration: 0.5            # carrot acceleration (m/s²)
+      acceleration: 1.0            # carrot acceleration (m/s²) — higher to overcome grass
       # PID longitudinal
       kp_lon: 2.0
       ki_lon: 0.0
@@ -221,8 +221,10 @@ velocity_smoother:
     output_topic: cmd_vel_smoothed
     max_velocity: [0.5, 0.0, 1.0]
     min_velocity: [-0.3, 0.0, -1.0]
-    max_accel: [0.3, 0.0, 1.5]
-    max_decel: [-0.3, 0.0, -1.5]
+    # Higher acceleration to overcome grass resistance and static friction.
+    # The robot needs a burst of power to start moving on thick terrain.
+    max_accel: [0.8, 0.0, 2.0]
+    max_decel: [-0.5, 0.0, -2.0]
     odom_topic: /wheel_odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
