@@ -760,16 +760,6 @@ export const DiagnosticsPage = () => {
 
     // ── Section 4: Sensors ───────────────────────────────────────────────────
 
-    const escStatusLabel = (v?: number) => {
-        if (v == null) return "--";
-        if (v === 99) return "Disconnected";
-        if (v === 100) return "Error";
-        if (v === 150) return "Stalled";
-        if (v === 200) return "OK";
-        if (v === 201) return "Running";
-        return String(v);
-    };
-
     const sectionSensors = (
         <Row gutter={[12, 12]}>
             <Col xs={24} lg={12}>
