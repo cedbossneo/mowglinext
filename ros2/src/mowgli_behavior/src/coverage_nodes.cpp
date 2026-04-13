@@ -354,17 +354,19 @@ BT::NodeStatus GetNextUnmowedArea::tick()
 
       RCLCPP_INFO(ctx->node->get_logger(),
                   "GetNextUnmowedArea: area %u has %u strips remaining (%.1f%% done)",
-                  i, response->strips_remaining, response->coverage_percent);
+                  i,
+                  response->strips_remaining,
+                  response->coverage_percent);
       return BT::NodeStatus::SUCCESS;
     }
 
     RCLCPP_INFO(ctx->node->get_logger(),
                 "GetNextUnmowedArea: area %u complete (%.1f%%)",
-                i, response->coverage_percent);
+                i,
+                response->coverage_percent);
   }
 
-  RCLCPP_INFO(ctx->node->get_logger(),
-              "GetNextUnmowedArea: all areas complete");
+  RCLCPP_INFO(ctx->node->get_logger(), "GetNextUnmowedArea: all areas complete");
   return BT::NodeStatus::FAILURE;
 }
 
