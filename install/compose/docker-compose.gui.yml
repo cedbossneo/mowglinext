@@ -24,6 +24,7 @@ services:
       - ./config/mowgli:/mowgli_config
       - /var/run/docker.sock:/var/run/docker.sock
       - /dev/bus/usb:/dev/bus/usb
+      - mowgli_maps:/ros2_ws/maps
     depends_on:
       - mowgli
     restart: unless-stopped
