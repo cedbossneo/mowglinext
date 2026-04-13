@@ -35,7 +35,7 @@ fusioncore_node:
     gnss.base_noise_z: 2.0
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
-    gnss.min_satellites: 6
+    gnss.min_satellites: 4
 
     # GPS antenna is approximately above base_footprint origin
     gnss.lever_arm_x: 0.0
@@ -47,9 +47,12 @@ fusioncore_node:
     # No compass_msgs heading source
     gnss.azimuth_topic: ""
 
-    # Mahalanobis outlier rejection — catches GPS jumps and encoder spikes
+    # Mahalanobis outlier rejection — catches GPS jumps and encoder spikes.
+    # GNSS threshold raised from chi2(3,0.999)=16.27 to 100 because the
+    # stationary UKF drifts on IMU alone between 5 Hz GPS fixes, causing
+    # every fix to be rejected once the first one fails the gate.
     outlier_rejection: true
-    outlier_threshold_gnss: 16.27   # chi2(3, 0.999)
+    outlier_threshold_gnss: 100.0
     outlier_threshold_imu: 15.09    # chi2(6, 0.999)
     outlier_threshold_enc: 11.34    # chi2(3, 0.999)
     outlier_threshold_hdg: 10.83    # chi2(1, 0.999)
@@ -61,8 +64,9 @@ fusioncore_node:
     adaptive.window: 50       # ~1s at 50 Hz publish rate
     adaptive.alpha: 0.01
 
-    # UKF process noise
-    ukf.q_position: 0.01
+    # UKF process noise — q_position elevated so position uncertainty grows
+    # fast without GPS, making the filter snap back when GPS is available.
+    ukf.q_position: 0.5
     ukf.q_orientation: 0.01
     ukf.q_velocity: 0.1
     ukf.q_angular_vel: 0.1
