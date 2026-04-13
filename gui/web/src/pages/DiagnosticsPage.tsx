@@ -1,10 +1,12 @@
 import {
     Alert,
+    App,
     Button,
     Card,
     Col,
     Collapse,
     Flex,
+    Popconfirm,
     Progress,
     Row,
     Space,
@@ -18,7 +20,9 @@ import {
     CloudServerOutlined,
     CompassOutlined,
     DashboardOutlined,
+    DeleteOutlined,
     ReloadOutlined,
+    SaveOutlined,
     SoundOutlined,
     ThunderboltOutlined,
     WarningOutlined,
@@ -33,11 +37,12 @@ import {usePose} from "../hooks/usePose.ts";
 import {useImu} from "../hooks/useImu.ts";
 import {useWheelTicks} from "../hooks/useWheelTicks.ts";
 import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
+import {useApi} from "../hooks/useApi.ts";
 import {useDiagnostics} from "../hooks/useDiagnostics.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useIsMobile} from "../hooks/useIsMobile";
 import {AbsolutePoseConstants} from "../types/ros.ts";
-import {useMemo} from "react";
+import {useMemo, useState} from "react";
 import {useSettings} from "../hooks/useSettings.ts";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -62,6 +67,26 @@ function secondsAgo(timestamp: string): number {
 const DIAG_LEVEL_COLORS: Record<number, string> = {0: "success", 1: "warning", 2: "error", 3: "default"};
 const DIAG_LEVEL_LABELS: Record<number, string> = {0: "OK", 1: "WARN", 2: "ERROR", 3: "STALE"};
 
+function formatBytes(bytes: number): string {
+    if (bytes <= 0) return "0 B";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function relativeTime(timestamp: string): string {
+    if (!timestamp) return "--";
+    const diffMs = Date.now() - new Date(timestamp).getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return `${diffSec} seconds ago`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? "s" : ""} ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr} hour${diffHr !== 1 ? "s" : ""} ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay} day${diffDay !== 1 ? "s" : ""} ago`;
+}
+
 // ── sub-components ───────────────────────────────────────────────────────────
 
 function HealthBadge({label, color}: {label: string; color: string}) {
@@ -85,6 +110,10 @@ export const DiagnosticsPage = () => {
     const {snapshot, loading, refresh} = useDiagnosticsSnapshot();
     const {diagnostics} = useDiagnostics();
     const {settings} = useSettings();
+    const guiApi = useApi();
+    const {notification} = App.useApp();
+    const [slamSaving, setSlamSaving] = useState(false);
+    const [slamDeleting, setSlamDeleting] = useState(false);
 
     // ── derived values ───────────────────────────────────────────────────────
 
@@ -486,6 +515,219 @@ export const DiagnosticsPage = () => {
         </Row>
     );
 
+    // ── SLAM helpers ─────────────────────────────────────────────────────────
+
+    const handleSlamSave = async () => {
+        setSlamSaving(true);
+        try {
+            await guiApi.request({ path: "/diagnostics/slam/save", method: "POST", format: "json" });
+            notification.success({ message: "SLAM map saved successfully" });
+            refresh();
+        } catch (e: any) {
+            notification.error({ message: "Failed to save SLAM map", description: e.message });
+        } finally {
+            setSlamSaving(false);
+        }
+    };
+
+    const handleSlamDelete = async () => {
+        setSlamDeleting(true);
+        try {
+            await guiApi.request({ path: "/diagnostics/slam/delete", method: "POST", format: "json" });
+            notification.success({
+                message: "SLAM map deleted",
+                description: "Restart the ROS2 container to begin fresh mapping.",
+                duration: 0,
+                btn: (
+                    <Button size="small" type="primary" onClick={restartRos2}>
+                        Restart ROS2 Now
+                    </Button>
+                ),
+            });
+            refresh();
+        } catch (e: any) {
+            notification.error({ message: "Failed to delete SLAM map", description: e.message });
+        } finally {
+            setSlamDeleting(false);
+        }
+    };
+
+    const restartRos2 = async () => {
+        try {
+            const res = await guiApi.containers.containersList();
+            if (res.error) throw new Error(res.error.error);
+            const container = res.data.containers?.find((c: any) =>
+                c.names?.some((n: string) => n.includes("ros2"))
+            );
+            if (!container?.id) throw new Error("ROS2 container not found");
+            const restart = await guiApi.containers.containersCreate(container.id, "restart");
+            if (restart.error) throw new Error(restart.error.error);
+            notification.success({ message: "ROS2 container restarted" });
+        } catch (e: any) {
+            notification.error({ message: "Failed to restart ROS2", description: e.message });
+        }
+    };
+
+    // ── Section 3b: SLAM Map Management ─────────────────────────────────────
+
+    const slamInfo = snapshot?.slam_info;
+    const crossChecks = snapshot?.cross_checks;
+    const crossCheckStatus = crossChecks?.overall_status ?? "ok";
+
+    const sectionSlam = (
+        <Row gutter={[12, 12]}>
+            <Col xs={24} lg={12}>
+                <Card title="SLAM Map File" size="small">
+                    <Row gutter={[12, 8]}>
+                        <Col span={24}>
+                            <Space>
+                                <Typography.Text type="secondary" style={{fontSize: 12}}>Map file</Typography.Text>
+                                <Tag color={slamInfo?.map_file_exists ? "success" : "error"}>
+                                    {slamInfo?.map_file_exists ? "Present" : "Missing"}
+                                </Tag>
+                            </Space>
+                        </Col>
+                        {slamInfo?.map_file_exists && (
+                            <>
+                                <Col span={12}>
+                                    <Statistic
+                                        title="Posegraph"
+                                        value={formatBytes(slamInfo.posegraph_size_bytes)}
+                                    />
+                                </Col>
+                                <Col span={12}>
+                                    <Statistic
+                                        title="Data file"
+                                        value={formatBytes(slamInfo.data_file_size_bytes)}
+                                    />
+                                </Col>
+                                <Col span={24}>
+                                    <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                        Last modified: {relativeTime(slamInfo.last_modified)}
+                                    </Typography.Text>
+                                </Col>
+                                <Col span={24}>
+                                    <Typography.Text
+                                        type="secondary"
+                                        style={{fontSize: 11, fontFamily: "monospace", wordBreak: "break-all"}}
+                                    >
+                                        {slamInfo.map_path}
+                                    </Typography.Text>
+                                </Col>
+                            </>
+                        )}
+                        <Col span={24}>
+                            <Space wrap>
+                                <Button
+                                    size="small"
+                                    icon={<SaveOutlined/>}
+                                    loading={slamSaving}
+                                    onClick={handleSlamSave}
+                                >
+                                    Save Map
+                                </Button>
+                                <Popconfirm
+                                    title="Delete SLAM map"
+                                    description="This will delete the SLAM map. The robot will start fresh mapping on next boot. Continue?"
+                                    okText="Delete"
+                                    okType="danger"
+                                    cancelText="Cancel"
+                                    onConfirm={handleSlamDelete}
+                                >
+                                    <Button
+                                        size="small"
+                                        danger
+                                        icon={<DeleteOutlined/>}
+                                        loading={slamDeleting}
+                                        disabled={!slamInfo?.map_file_exists}
+                                    >
+                                        Delete Map
+                                    </Button>
+                                </Popconfirm>
+                            </Space>
+                        </Col>
+                    </Row>
+                </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+                <Card
+                    title="Configuration Cross-checks"
+                    size="small"
+                    extra={
+                        <Tag color={
+                            crossCheckStatus === "ok" ? "success" :
+                            crossCheckStatus === "warn" ? "warning" : "error"
+                        }>
+                            {crossCheckStatus.toUpperCase()}
+                        </Tag>
+                    }
+                >
+                    {crossChecks?.warnings && crossChecks.warnings.length > 0 ? (
+                        <Space direction="vertical" style={{width: "100%", marginBottom: 12}}>
+                            {crossChecks.warnings.map((w, i) => (
+                                <Alert key={i} type="warning" message={w} showIcon style={{fontSize: 12}}/>
+                            ))}
+                        </Space>
+                    ) : (
+                        <Typography.Text type="secondary" style={{fontSize: 12, display: "block", marginBottom: 12}}>
+                            No warnings.
+                        </Typography.Text>
+                    )}
+                    {crossChecks?.dock_pose && (
+                        <Row gutter={[8, 4]}>
+                            <Col span={24}>
+                                <Typography.Text type="secondary" style={{fontSize: 11}}>Dock pose</Typography.Text>
+                            </Col>
+                            <Col span={8}>
+                                <Statistic
+                                    title="X (m)"
+                                    value={crossChecks.dock_pose.configured_x}
+                                    precision={3}
+                                />
+                            </Col>
+                            <Col span={8}>
+                                <Statistic
+                                    title="Y (m)"
+                                    value={crossChecks.dock_pose.configured_y}
+                                    precision={3}
+                                />
+                            </Col>
+                            <Col span={8}>
+                                <Statistic
+                                    title="Yaw (deg)"
+                                    value={(crossChecks.dock_pose.configured_yaw * 180 / Math.PI).toFixed(1)}
+                                    suffix="°"
+                                />
+                            </Col>
+                            <Col span={12}>
+                                <Statistic
+                                    title="Datum lat"
+                                    value={crossChecks.dock_pose.datum_lat}
+                                    precision={7}
+                                />
+                            </Col>
+                            <Col span={12}>
+                                <Statistic
+                                    title="Datum lon"
+                                    value={crossChecks.dock_pose.datum_lon}
+                                    precision={7}
+                                />
+                            </Col>
+                            <Col span={24}>
+                                <Space>
+                                    <Typography.Text type="secondary" style={{fontSize: 12}}>Config present</Typography.Text>
+                                    <Tag color={crossChecks.dock_pose.has_config ? "success" : "warning"}>
+                                        {crossChecks.dock_pose.has_config ? "Yes" : "No"}
+                                    </Tag>
+                                </Space>
+                            </Col>
+                        </Row>
+                    )}
+                </Card>
+            </Col>
+        </Row>
+    );
+
     // ── Section 4: Sensors ───────────────────────────────────────────────────
 
     const escStatusLabel = (v?: number) => {
@@ -678,6 +920,11 @@ export const DiagnosticsPage = () => {
                             children: sectionBtCoverage,
                         },
                         {
+                            key: "slam",
+                            label: "SLAM Map Management",
+                            children: sectionSlam,
+                        },
+                        {
                             key: "sensors",
                             label: <Space><ThunderboltOutlined/> Sensors</Space>,
                             children: sectionSensors,
@@ -700,6 +947,7 @@ export const DiagnosticsPage = () => {
             <Col span={24}>{sectionSystem}</Col>
             <Col span={24}>{sectionLocalization}</Col>
             <Col span={24}>{sectionBtCoverage}</Col>
+            <Col span={24}>{sectionSlam}</Col>
             <Col span={24}>{sectionSensors}</Col>
             <Col span={24}>{sectionRosDiagnostics}</Col>
         </Row>

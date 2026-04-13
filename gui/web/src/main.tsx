@@ -11,6 +11,7 @@ import MapPage from "./pages/MapPage.tsx";
 import OnboardingPage from "./pages/OnboardingPage.tsx";
 import SchedulePage from "./pages/SchedulePage.tsx";
 import DiagnosticsPage from "./pages/DiagnosticsPage.tsx";
+import StatisticsPage from "./pages/StatisticsPage.tsx";
 import {App, ConfigProvider, theme} from "antd";
 import {Spinner} from "./components/Spinner.tsx";
 import {ThemeProvider, useThemeMode} from "./theme/ThemeContext.tsx";
@@ -47,6 +48,10 @@ const router = createHashRouter([
             {
                 element: <DiagnosticsPage/>,
                 path: "/diagnostics",
+            },
+            {
+                element: <StatisticsPage/>,
+                path: "/statistics",
             }
         ]
     },
