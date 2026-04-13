@@ -43,7 +43,7 @@ from launch.actions import (
     RegisterEventHandler,
     TimerAction,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
@@ -412,10 +412,29 @@ def generate_launch_description() -> LaunchDescription:
     # Wrap in a GroupAction with SetParameter so bond_timeout is available as
     # a global parameter override — lifecycle_manager will pick it up.
     #
-    # Instead of a fixed 30 s delay, we gate Nav2 startup on the map→odom
-    # TF being available. wait_for_tf.py polls every 0.5 s and exits as
-    # soon as slam_toolbox publishes the transform, so Nav2 starts as
-    # early as possible.
+    # ------------------------------------------------------------------
+    # 3. Static map→odom fallback (no-SLAM mode)
+    # When SLAM is disabled, FusionCore's odom is already GPS-anchored
+    # so map≈odom. Publish a static identity TF to satisfy Nav2.
+    # ------------------------------------------------------------------
+    static_map_odom_tf = Node(
+        condition=UnlessCondition(slam),
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_map_odom_tf",
+        output="screen",
+        arguments=[
+            "--x", "0", "--y", "0", "--z", "0",
+            "--roll", "0", "--pitch", "0", "--yaw", "0",
+            "--frame-id", "map",
+            "--child-frame-id", "odom",
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # Gate Nav2 startup on the map→odom TF being available.
+    # wait_for_tf.py polls every 0.5 s and exits as soon as the
+    # transform is published (by SLAM or by static_map_odom_tf).
     # Installed to lib/mowgli_bringup/ by CMakeLists.txt (install PROGRAMS)
     wait_for_tf_script = os.path.join(
         get_package_prefix("mowgli_bringup"),
@@ -474,6 +493,7 @@ def generate_launch_description() -> LaunchDescription:
             map_file_arg,
             use_lidar_arg,
             slam_toolbox_launch,
+            static_map_odom_tf,
             fusioncore_node,
             fusioncore_configure,
             fusioncore_start,

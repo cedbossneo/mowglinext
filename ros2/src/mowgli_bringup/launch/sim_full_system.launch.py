@@ -40,7 +40,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     TimerAction,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -159,7 +159,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 2. Navigation stack — SLAM, dual EKF, Nav2
+    # 2. Navigation stack — SLAM, FusionCore, Nav2
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -176,25 +176,8 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    # ------------------------------------------------------------------
-    # 2b. Static map→odom TF (identity) for simulation without SLAM
-    #     When SLAM is enabled, slam_toolbox provides the map→odom TF.
-    #     When SLAM is disabled, we publish a static identity transform.
-    # ------------------------------------------------------------------
-    static_map_odom_tf = Node(
-        condition=UnlessCondition(slam),
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_map_odom_tf",
-        output="screen",
-        arguments=[
-            "--x", "0", "--y", "0", "--z", "0",
-            "--roll", "0", "--pitch", "0", "--yaw", "0",
-            "--frame-id", "map",
-            "--child-frame-id", "odom",
-        ],
-        parameters=[{"use_sim_time": True}],
-    )
+    # Static map→odom TF (no-SLAM fallback) is now handled by
+    # navigation.launch.py via UnlessCondition(slam).
 
     # ------------------------------------------------------------------
     # 3. Behavior tree node
@@ -281,51 +264,14 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 9. NavSat → Pose converter — bridges Gazebo NavSatFix to the
-    #    PoseWithCovarianceStamped expected by the EKF's pose0 input.
-    #    On real hardware, gps_pose_converter handles this from AbsolutePose.
+    # 9. GPS notes
+    #    FusionCore takes /gps/fix (NavSatFix) directly from Gazebo.
+    #    navsat_to_pose_node is no longer needed (was for old EKF).
+    #    GPS degradation simulator needs rewriting to intercept NavSatFix
+    #    instead of PoseWithCovarianceStamped — disabled for now.
+    # TODO: rewrite gps_degradation_sim_node to modify NavSatFix messages
+    #       (inflate covariance, inject position drift on /gps/fix).
     # ------------------------------------------------------------------
-    navsat_to_pose_node = Node(
-        package="mowgli_simulation",
-        executable="navsat_to_pose_node",
-        name="navsat_to_pose_node",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "datum_lat": 0.0,
-                "datum_lon": 0.0,
-                "xy_covariance": 0.001,
-            },
-        ],
-    )
-
-    # ------------------------------------------------------------------
-    # 9. GPS degradation simulator — periodically degrades GPS to float
-    #    mode so LiDAR/odometry must compensate. Subscribes to /gps/pose
-    #    and republishes on /gps/pose_degraded with inflated covariance.
-    #    The EKF is remapped to use /gps/pose_degraded when this is active.
-    # ------------------------------------------------------------------
-    gps_degradation_node = Node(
-        condition=IfCondition(simulate_gps_degradation),
-        package="mowgli_simulation",
-        executable="gps_degradation_sim_node",
-        name="gps_degradation_sim_node",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "normal_duration_sec": 30.0,
-                "degraded_duration_sec": 10.0,
-                "degradation_covariance_scale": 100.0,
-                "enable_position_drift": True,
-                "drift_stddev": 0.5,
-                "enabled": True,
-            },
-        ],
-        # The node subscribes to /gps/pose and publishes to /gps/pose_sim
-        # by default (hardcoded topics). No remapping needed.
-    )
 
     # ------------------------------------------------------------------
     # 10. Fake hardware bridge — stub services/topics for simulation
@@ -357,7 +303,6 @@ def generate_launch_description() -> LaunchDescription:
             # Subsystem includes
             simulation_launch,
             navigation_launch,
-            static_map_odom_tf,
             # Individual nodes
             fake_hardware_bridge_node,
             behavior_tree_node,
@@ -365,7 +310,5 @@ def generate_launch_description() -> LaunchDescription:
             obstacle_tracker_node,
             diagnostics_node,
             foxglove_bridge_node,
-            navsat_to_pose_node,
-            gps_degradation_node,
         ]
     )
