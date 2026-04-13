@@ -559,9 +559,8 @@ diagnostic_msgs::msg::DiagnosticStatus DiagnosticsNode::check_fusioncore(
   const double roll_deg = std::atan2(sinr, cosr) * 180.0 / M_PI;
 
   const double sinp = 2.0 * (q.w * q.y - q.z * q.x);
-  const double pitch_deg = (std::abs(sinp) >= 1.0
-      ? std::copysign(90.0, sinp)
-      : std::asin(sinp) * 180.0 / M_PI);
+  const double pitch_deg =
+      (std::abs(sinp) >= 1.0 ? std::copysign(90.0, sinp) : std::asin(sinp) * 180.0 / M_PI);
 
   const double siny = 2.0 * (q.w * q.z + q.x * q.y);
   const double cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);

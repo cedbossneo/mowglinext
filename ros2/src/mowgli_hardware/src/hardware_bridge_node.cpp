@@ -132,9 +132,11 @@ private:
     // /gnss/heading at 1 Hz so FusionCore has a heading anchor.
     // Stops automatically when robot undocks (GPS velocity takes over).
     pub_dock_heading_ = create_publisher<sensor_msgs::msg::Imu>("/gnss/heading", 10);
-    timer_dock_heading_ = create_wall_timer(
-        std::chrono::seconds(1),
-        [this]() { publish_dock_heading(); });
+    timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
+                                            [this]()
+                                            {
+                                              publish_dock_heading();
+                                            });
   }
 
   void create_subscribers()
@@ -548,7 +550,7 @@ private:
     msg.orientation.w = 1.0;
     msg.orientation_covariance[0] = 0.001;  // roll  variance (tight)
     msg.orientation_covariance[4] = 0.001;  // pitch variance (tight)
-    msg.orientation_covariance[8] = 99.0;   // yaw   variance (don't constrain)
+    msg.orientation_covariance[8] = 99.0;  // yaw   variance (don't constrain)
 
     // Gyro covariance: WT901 gyro z-axis severely under-reports yaw rate
     // (~17% of actual). Set high covariance so the EKF trusts wheel odom
@@ -562,7 +564,8 @@ private:
 
   void publish_dock_heading()
   {
-    if (!is_charging_) return;
+    if (!is_charging_)
+      return;
 
     // Publish dock heading as sensor_msgs/Imu on /gnss/heading.
     // FusionCore interprets the orientation quaternion as heading in ENU.
@@ -768,8 +771,7 @@ private:
   {
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u &&
-        (msg->twist.linear.x != 0.0 || msg->twist.angular.z != 0.0))
+    if (current_mode_ == 0u && (msg->twist.linear.x != 0.0 || msg->twist.angular.z != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();
