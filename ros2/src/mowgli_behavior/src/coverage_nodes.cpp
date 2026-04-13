@@ -302,4 +302,70 @@ void TransitToStrip::onHalted()
   nav_handle_.reset();
 }
 
+// ===========================================================================
+// GetNextUnmowedArea — iterate areas, find first with strips remaining
+// ===========================================================================
+
+BT::NodeStatus GetNextUnmowedArea::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  auto helper = ctx->helper_node;
+
+  if (!client_)
+  {
+    client_ = helper->create_client<mowgli_interfaces::srv::GetCoverageStatus>(
+        "/map_server_node/get_coverage_status");
+  }
+
+  if (!client_->wait_for_service(std::chrono::seconds(2)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(),
+                 "GetNextUnmowedArea: get_coverage_status service not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  uint32_t max_areas = 20;
+  getInput<uint32_t>("max_areas", max_areas);
+
+  for (uint32_t i = 0; i < max_areas; ++i)
+  {
+    auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
+    request->area_index = i;
+
+    auto future = client_->async_send_request(request);
+    if (rclcpp::spin_until_future_complete(helper, future, std::chrono::seconds(2)) !=
+        rclcpp::FutureReturnCode::SUCCESS)
+    {
+      // Service call failed — no more areas exist at this index
+      break;
+    }
+
+    auto response = future.get();
+    if (!response->success)
+    {
+      // Area index out of range — no more areas
+      break;
+    }
+
+    if (response->strips_remaining > 0)
+    {
+      setOutput("area_index", i);
+      ctx->current_area = static_cast<int>(i);
+
+      RCLCPP_INFO(ctx->node->get_logger(),
+                  "GetNextUnmowedArea: area %u has %u strips remaining (%.1f%% done)",
+                  i, response->strips_remaining, response->coverage_percent);
+      return BT::NodeStatus::SUCCESS;
+    }
+
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "GetNextUnmowedArea: area %u complete (%.1f%%)",
+                i, response->coverage_percent);
+  }
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "GetNextUnmowedArea: all areas complete");
+  return BT::NodeStatus::FAILURE;
+}
+
 }  // namespace mowgli_behavior

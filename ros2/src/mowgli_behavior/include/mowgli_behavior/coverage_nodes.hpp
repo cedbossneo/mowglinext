@@ -23,6 +23,7 @@
 #include "behaviortree_cpp/bt_factory.h"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "mowgli_behavior/bt_context.hpp"
+#include "mowgli_interfaces/srv/get_coverage_status.hpp"
 #include "mowgli_interfaces/srv/get_next_strip.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
@@ -120,6 +121,32 @@ private:
   rclcpp_action::Client<Nav2Navigate>::SharedPtr nav_client_;
   std::shared_future<NavGoalHandle::SharedPtr> nav_future_;
   NavGoalHandle::SharedPtr nav_handle_;
+};
+
+// ---------------------------------------------------------------------------
+// GetNextUnmowedArea — find next area with remaining strips
+// ---------------------------------------------------------------------------
+
+class GetNextUnmowedArea : public BT::SyncActionNode
+{
+public:
+  GetNextUnmowedArea(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+        BT::InputPort<uint32_t>("max_areas", 20u, "Maximum number of areas to check"),
+        BT::OutputPort<uint32_t>("area_index", "Index of the next unmowed area"),
+    };
+  }
+
+  BT::NodeStatus tick() override;
+
+private:
+  rclcpp::Client<mowgli_interfaces::srv::GetCoverageStatus>::SharedPtr client_;
 };
 
 }  // namespace mowgli_behavior
