@@ -131,7 +131,7 @@ export const DiagnosticsPage = () => {
 
     const batteryPercent = useMemo(() => {
         if (highLevelStatus.battery_percent != null && highLevelStatus.battery_percent > 0) {
-            return highLevelStatus.battery_percent * 100;
+            return highLevelStatus.battery_percent;
         }
         if (power.v_battery) {
             const full = parseFloat(settings["battery_full_voltage"] ?? "28.5");

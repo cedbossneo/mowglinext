@@ -143,15 +143,35 @@ def generate_launch_description() -> LaunchDescription:
         cl = float(rp.get("chassis_length", 0.54))
         cw = float(rp.get("chassis_width", 0.40))
         ccx = float(rp.get("chassis_center_x", 0.18))
-        fp_f = ccx + cl / 2.0
-        fp_r = ccx - cl / 2.0
-        fp_hw = cw / 2.0
+        # Add 5cm margin to chassis footprint for costmap planning clearance
+        margin = 0.05
+        fp_f = ccx + cl / 2.0 + margin
+        fp_r = ccx - cl / 2.0 - margin
+        fp_hw = cw / 2.0 + margin
         footprint_str = (
             f"[[{fp_f:.3f}, {fp_hw:.3f}], "
             f"[{fp_f:.3f}, {-fp_hw:.3f}], "
             f"[{fp_r:.3f}, {-fp_hw:.3f}], "
             f"[{fp_r:.3f}, {fp_hw:.3f}]]"
         )
+
+    # Read GPS datum from runtime config (same path as SLAM function).
+    # The installed config has defaults (0.0); runtime has per-site values.
+    datum_lat = 0.0
+    datum_lon = 0.0
+    gps_x = 0.0
+    gps_y = 0.0
+    gps_z = 0.0
+    runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
+    if os.path.isfile(runtime_robot_config):
+        with open(runtime_robot_config, "r") as f:
+            rt_cfg = yaml.safe_load(f) or {}
+        rt_rp = rt_cfg.get("mowgli", {}).get("ros__parameters", {})
+        datum_lat = float(rt_rp.get("datum_lat", 0.0))
+        datum_lon = float(rt_rp.get("datum_lon", 0.0))
+        gps_x = float(rt_rp.get("gps_x", 0.0))
+        gps_y = float(rt_rp.get("gps_y", 0.0))
+        gps_z = float(rt_rp.get("gps_z", 0.0))
 
     # Rewrite use_sim_time and footprint throughout nav2_params.yaml.
     param_rewrites = {"use_sim_time": use_sim_time}
@@ -365,9 +385,16 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             localization_params,
             {"use_sim_time": use_sim_time},
+            # GPS lever arm from mowgli_robot.yaml (gps_x/y/z)
+            {"gnss.lever_arm_x": gps_x},
+            {"gnss.lever_arm_y": gps_y},
+            {"gnss.lever_arm_z": gps_z},
         ],
         remappings=[
             ("/odom/wheels", "/wheel_odom"),
+            # GPS kept in FusionCore for heading stability via position deltas.
+            # q_orientation=0.0001 prevents GPS from flipping heading.
+            # GPS corrector handles global map anchoring separately.
             ("/gnss/fix", "/gps/fix"),
         ],
     )
@@ -398,6 +425,31 @@ def generate_launch_description() -> LaunchDescription:
                     transition_id=Transition.TRANSITION_CONFIGURE,
                 )
             ),
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 3b. GPS-SLAM corrector — publishes map→slam_map TF
+    #     Bridges GPS real-world coordinates with SLAM's internal frame.
+    #     Only active when SLAM is enabled (no-SLAM mode uses static TF).
+    # ------------------------------------------------------------------
+    gps_slam_corrector = Node(
+        condition=IfCondition(slam),
+        package="mowgli_localization",
+        executable="gps_slam_corrector_node",
+        name="gps_slam_corrector",
+        output="screen",
+        parameters=[
+            {"alpha": 0.002},
+            {"max_correction_rate": 0.01},
+            {"map_frame": "map"},
+            {"slam_frame": "slam_map"},
+            {"base_frame": "base_footprint"},
+            {"publish_rate": 20.0},
+            {"gps_noise_threshold": 2.0},
+            {"datum_lat": datum_lat},
+            {"datum_lon": datum_lon},
+            {"use_sim_time": use_sim_time},
         ],
     )
 
@@ -493,6 +545,7 @@ def generate_launch_description() -> LaunchDescription:
             map_file_arg,
             use_lidar_arg,
             slam_toolbox_launch,
+            gps_slam_corrector,
             static_map_odom_tf,
             fusioncore_node,
             fusioncore_configure,

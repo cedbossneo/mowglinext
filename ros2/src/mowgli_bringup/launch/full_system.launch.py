@@ -311,8 +311,11 @@ def generate_launch_description() -> LaunchDescription:
         map_dir, "config", "obstacle_tracker.yaml"
     )
 
+    # Obstacle tracker disabled by default — creates large persistent obstacles
+    # from lidar that block the planner. Collision_monitor handles real-time
+    # obstacle avoidance instead.
     obstacle_tracker_node = Node(
-        condition=IfCondition(use_lidar),
+        condition=IfCondition("false"),
         package="mowgli_map",
         executable="obstacle_tracker_node",
         name="obstacle_tracker",

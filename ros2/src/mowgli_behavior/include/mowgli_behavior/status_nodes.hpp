@@ -99,4 +99,20 @@ public:
   BT::NodeStatus tick() override;
 };
 
+class IncrementSkippedSwaths : public BT::SyncActionNode
+{
+public:
+  IncrementSkippedSwaths(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
 }  // namespace mowgli_behavior
