@@ -161,10 +161,10 @@
               <RecordUndockStart/>
               <!-- Wait for Nav2 to fully activate on ARM. Retry ClearCostmap
                    until it succeeds — this confirms costmap services are ready. -->
-              <RetryUntilSuccessful num_attempts="30">
+              <RetryUntilSuccessful num_attempts="60">
                 <Sequence>
-                  <ClearCostmap/>
                   <WaitForDuration duration_sec="1.0"/>
+                  <ClearCostmap/>
                 </Sequence>
               </RetryUntilSuccessful>
               <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
