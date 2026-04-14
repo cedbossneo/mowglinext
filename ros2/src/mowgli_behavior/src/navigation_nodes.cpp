@@ -121,10 +121,10 @@ BT::NodeStatus ClearCostmap::tick()
 
   auto request = std::make_shared<std_srvs::srv::Empty::Request>();
 
-  // Wait up to 2s for service discovery. Return FAILURE if services
-  // aren't ready so the BT can retry (RetryUntilSuccessful).
-  bool global_ok = global_client_->wait_for_service(std::chrono::seconds(2));
-  bool local_ok = local_client_->wait_for_service(std::chrono::seconds(2));
+  // Wait up to 5s for service discovery. Cyclone DDS on ARM needs
+  // extra time for service discovery vs topic discovery.
+  bool global_ok = global_client_->wait_for_service(std::chrono::seconds(5));
+  bool local_ok = local_client_->wait_for_service(std::chrono::seconds(5));
 
   if (!global_ok || !local_ok)
   {
