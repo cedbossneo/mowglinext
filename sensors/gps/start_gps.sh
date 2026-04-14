@@ -24,6 +24,7 @@ parse_yaml() {
 
 GPS_PORT=$(parse_yaml gps_port)
 GPS_BAUD=$(parse_yaml gps_baudrate)
+GPS_PROTOCOL=$(parse_yaml gps_protocol)
 NTRIP_ENABLED=$(parse_yaml ntrip_enabled)
 NTRIP_HOST=$(parse_yaml ntrip_host)
 NTRIP_PORT=$(parse_yaml ntrip_port)
@@ -43,24 +44,37 @@ set +u
 source /opt/ros/kilted/setup.bash
 set -u
 
-# Generate runtime params override — only the device path.
-# uart1.baudrate is intentionally omitted: the GPS is USB-connected (/dev/ttyACMx)
-# so physical UART1 baud rate config is irrelevant and causes CFG-PRT failures.
-# The stock launch file hardcodes c94_m8p_rover.yaml and ignores arguments,
-# so we use ros2 run with two --params-file layers instead.
-cat > /tmp/ublox_override.yaml << EOF
+if [ "$GPS_PROTOCOL" == "NMEA" ]; then
+  # Launch nmea_gps in background
+  ros2 run nmea_navsat_driver nmea_serial_driver --ros-args \
+    -p port:="${GPS_PORT}" \
+    -p baud:=${GPS_BAUD} \
+    -p frame_id:=gps_link \
+    -r /fix:=/gps/fix &
+  GPS_PID=$!
+else
+
+  # Generate runtime params override — only the device path.
+  # uart1.baudrate is intentionally omitted: the GPS is USB-connected (/dev/ttyACMx)
+  # so physical UART1 baud rate config is irrelevant and causes CFG-PRT failures.
+  # The stock launch file hardcodes c94_m8p_rover.yaml and ignores arguments,
+  # so we use ros2 run with two --params-file layers instead.
+
+  cat > /tmp/ublox_override.yaml << EOF
 ublox_gps_node:
   ros__parameters:
     device: "${GPS_PORT}"
+    baudrate: "${GPS_BAUD}"
 EOF
 
-# Launch ublox_gps in background
-ros2 run ublox_gps ublox_gps_node --ros-args \
-  --params-file /f9p_rover.yaml \
-  --params-file /tmp/ublox_override.yaml \
-  -r /fix:=/gps/fix \
-  -r /fix_velocity:=/gps/fix_velocity &
-GPS_PID=$!
+  # Launch ublox_gps in background
+  ros2 run ublox_gps ublox_gps_node --ros-args \
+    --params-file /f9p_rover.yaml \
+    --params-file /tmp/ublox_override.yaml \
+    -r /fix:=/gps/fix \
+    -r /fix_velocity:=/gps/fix_velocity &
+  GPS_PID=$!
+fi
 
 # Launch NTRIP client if enabled
 if [ "$NTRIP_ENABLED" = "true" ]; then
