@@ -3,14 +3,15 @@ package providers
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"os"
+	"text/template"
+
 	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"golang.org/x/sys/execabs"
 	"golang.org/x/xerrors"
-	"io"
-	"os"
-	"text/template"
 )
 
 type FirmwareProvider struct {
@@ -26,14 +27,14 @@ func NewFirmwareProvider(db types.IDBProvider) *FirmwareProvider {
 
 // BuildBoardHeader Open file ../../setup/board.h, apply go template to it with config and return the result
 func (fp *FirmwareProvider) buildBoardHeader(templateFile string, config types.FirmwareConfig) ([]byte, error) {
-	if config.BatChargeCutoffVoltage > 30 {
-		config.BatChargeCutoffVoltage = 30
+	if config.BatChargeCutoffVoltage > 29.4 {
+		config.BatChargeCutoffVoltage = 29.4
 	}
-	if config.MaxChargeVoltage > 30 {
-		config.MaxChargeVoltage = 30
+	if config.MaxChargeVoltage > 29.4 {
+		config.MaxChargeVoltage = 29.4
 	}
-	if config.LimitVoltage150MA > 30 {
-		config.LimitVoltage150MA = 30
+	if config.LimitVoltage150MA > 29.4 {
+		config.LimitVoltage150MA = 29.4
 	}
 	if config.MaxChargeCurrent > 5 {
 		config.MaxChargeCurrent = 5
