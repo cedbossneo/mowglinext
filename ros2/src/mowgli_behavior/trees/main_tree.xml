@@ -161,12 +161,10 @@
               <RecordUndockStart/>
               <!-- Wait for Nav2 to fully activate on ARM. Retry ClearCostmap
                    until it succeeds — this confirms costmap services are ready. -->
-              <RetryUntilSuccessful num_attempts="60">
-                <Sequence>
-                  <WaitForDuration duration_sec="1.0"/>
-                  <ClearCostmap/>
-                </Sequence>
-              </RetryUntilSuccessful>
+              <!-- Wait for Nav2 to fully activate on ARM before clearing costmaps.
+                   30s is generous — lifecycle_manager typically takes 15-25s. -->
+              <WaitForDuration duration_sec="30.0"/>
+              <ClearCostmap/>
               <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses

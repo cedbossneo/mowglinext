@@ -121,22 +121,13 @@ BT::NodeStatus ClearCostmap::tick()
 
   auto request = std::make_shared<std_srvs::srv::Empty::Request>();
 
-  // Non-blocking check: service_is_ready() doesn't block the executor,
-  // unlike wait_for_service() which deadlocks when called from a BT tick.
-  bool global_ok = global_client_->service_is_ready();
-  bool local_ok = local_client_->service_is_ready();
-
-  if (!global_ok || !local_ok)
-  {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "ClearCostmap: costmap services not ready (global=%s, local=%s)",
-                global_ok ? "ok" : "waiting", local_ok ? "ok" : "waiting");
-    return BT::NodeStatus::FAILURE;
-  }
-
+  // Just send the requests. If the service isn't ready, async_send_request
+  // will fail silently (no response). This avoids DDS discovery issues
+  // where service_is_ready() and wait_for_service() never return true
+  // even though the services exist (Cyclone DDS on ARM).
   global_client_->async_send_request(request);
   local_client_->async_send_request(request);
-  RCLCPP_INFO(ctx->node->get_logger(), "ClearCostmap: cleared both costmaps");
+  RCLCPP_INFO(ctx->node->get_logger(), "ClearCostmap: sent clear requests");
 
   return BT::NodeStatus::SUCCESS;
 }
