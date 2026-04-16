@@ -10,16 +10,17 @@
 # =============================================================================
 set -e
 
-# Source ROS2 base installation
-# shellcheck source=/opt/ros/kilted/setup.bash
-source /opt/ros/kilted/setup.bash
-
-# Source ROS2 Jazzy overlay if present (rtabmap_slam and other packages
-# not yet released for kilted are installed there).
+# Source ROS2 Jazzy first (underlay) so its paths are available for
+# packages not yet released for kilted (e.g. rtabmap_slam). Then source
+# kilted on top so it wins for ROS_DISTRO and conflicting packages.
 if [ -d /opt/ros/jazzy ] && [ -f /opt/ros/jazzy/setup.bash ]; then
     # shellcheck source=/opt/ros/jazzy/setup.bash
     source /opt/ros/jazzy/setup.bash
 fi
+
+# Source ROS2 base installation (kilted is primary distro)
+# shellcheck source=/opt/ros/kilted/setup.bash
+source /opt/ros/kilted/setup.bash
 
 # Source the workspace overlay if it has been built (not present in dev before
 # first colcon build, but always present in runtime/simulation images).
