@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 
+# Run Docker immediately after adding the user to the docker group.
+# If the current shell has not reloaded group membership yet, fallback to sg.
+docker_cmd() {
+  if id -nG 2>/dev/null | grep -qw docker; then
+    docker "$@"
+  else
+    sg docker -c "$(printf '%q ' docker "$@")"
+  fi
+}
 check_devices() {
   step "Check: Hardware devices"
 
@@ -109,11 +118,11 @@ check_containers() {
     esac
 
     local status
-    status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
+    status=$(docker_cmd inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
 
     if [[ "$status" == "running" ]]; then
       local uptime
-      uptime=$(docker inspect -f '{{.State.StartedAt}}' "$container" 2>/dev/null | cut -dT -f2 | cut -d. -f1)
+      uptime=$(docker_cmd inspect -f '{{.State.StartedAt}}' "$container" 2>/dev/null | cut -dT -f2 | cut -d. -f1)
       info "$svc ($container) — running since $uptime"
     else
       fail "$svc ($container) — $status"
@@ -125,9 +134,9 @@ check_containers() {
     fi
   done
 
-  if docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
+  if docker_cmd inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
     local dead_nodes
-    dead_nodes=$(docker logs mowgli-ros2 --tail 200 2>&1 \
+    dead_nodes=$(docker_cmd logs mowgli-ros2 --tail 200 2>&1 \
       | grep -oP "process has died.*cmd '([^']+)'" \
       | grep -oP "(?<=cmd ')[^']+" \
       | xargs -I{} basename {} 2>/dev/null \
@@ -146,13 +155,13 @@ check_containers() {
 check_firmware() {
   step "Check: Mowgli firmware"
 
-  if ! docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
+  if ! docker_cmd inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
     warn "mowgli-ros2 not running — skipping firmware check"
     return
   fi
 
   local status_data
-  status_data=$(docker exec mowgli-ros2 bash -c \
+  status_data=$(docker_cmd exec mowgli-ros2 bash -c \
     "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /hardware_bridge/status --once 2>/dev/null" \
     2>/dev/null || echo "")
 
@@ -182,19 +191,19 @@ check_firmware() {
 check_gps() {
   step "Check: GPS"
 
-  if ! docker inspect -f '{{.State.Status}}' mowgli-gps 2>/dev/null | grep -q running; then
+  if ! docker_cmd inspect -f '{{.State.Status}}' mowgli-gps 2>/dev/null | grep -q running; then
     warn "mowgli-gps not running — skipping GPS check"
     return
   fi
 
   local fix_data
-  fix_data=$(docker exec mowgli-ros2 bash -c \
+  fix_data=$(docker_cmd exec mowgli-ros2 bash -c \
     "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /gps/fix --once 2>/dev/null" \
     2>/dev/null || echo "")
 
   if [[ -z "$fix_data" ]]; then
     fail "No GPS fix data on /gps/fix"
-    add_issue "GPS not publishing. Check: docker logs mowgli-gps --tail 30"
+    add_issue "GPS not publishing. Check: docker_cmd logs mowgli-gps --tail 30"
     return
   fi
 
@@ -221,7 +230,7 @@ check_gps() {
   fi
 
   local ntrip_logs
-  ntrip_logs=$(docker logs mowgli-gps --tail 50 2>&1)
+  ntrip_logs=$(docker_cmd logs mowgli-gps --tail 50 2>&1)
 
   if echo "$ntrip_logs" | grep -q "Connected to http"; then
     local ntrip_url
@@ -285,13 +294,13 @@ check_lidar() {
 
   info "LiDAR config: type=${LIDAR_TYPE} port=${LIDAR_PORT} baud=${LIDAR_BAUD}"
 
-  if ! docker inspect -f '{{.State.Status}}' mowgli-lidar 2>/dev/null | grep -q running; then
+  if ! docker_cmd inspect -f '{{.State.Status}}' mowgli-lidar 2>/dev/null | grep -q running; then
     warn "mowgli-lidar not running — skipping LiDAR check"
     return
   fi
 
   local scan_check
-  scan_check=$(docker exec mowgli-ros2 bash -c \
+  scan_check=$(docker_cmd exec mowgli-ros2 bash -c \
     "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /scan 2>/dev/null" \
     2>/dev/null || echo "")
 
@@ -302,7 +311,7 @@ check_lidar() {
     info "LiDAR publishing on /scan ($pub_count publisher)"
   else
     fail "No publisher on /scan — LiDAR data not reaching ROS"
-    add_issue "LiDAR not publishing. Check: docker logs mowgli-lidar --tail 20"
+    add_issue "LiDAR not publishing. Check: docker_cmd logs mowgli-lidar --tail 20"
     echo -e "       ${DIM}Expected serial port: ${LIDAR_PORT}${NC}"
   fi
 }
@@ -310,13 +319,13 @@ check_lidar() {
 check_slam() {
   step "Check: SLAM & Navigation"
 
-  if ! docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
+  if ! docker_cmd inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
     warn "mowgli-ros2 not running — skipping SLAM check"
     return
   fi
 
   local slam_state
-  slam_state=$(docker exec mowgli-ros2 bash -c \
+  slam_state=$(docker_cmd exec mowgli-ros2 bash -c \
     "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /slam_toolbox/pose 2>/dev/null" \
     2>/dev/null || echo "")
 
@@ -328,7 +337,7 @@ check_slam() {
   fi
 
   local map_exists
-  map_exists=$(docker exec mowgli-ros2 bash -c \
+  map_exists=$(docker_cmd exec mowgli-ros2 bash -c \
     "ls /ros2_ws/maps/garden_map.posegraph 2>/dev/null && echo yes || echo no" \
     2>/dev/null || echo "no")
 
@@ -365,7 +374,7 @@ check_rangefinders() {
 check_gui() {
   step "Check: GUI & connectivity"
 
-  if ! docker inspect -f '{{.State.Status}}' mowgli-gui 2>/dev/null | grep -q running; then
+  if ! docker_cmd inspect -f '{{.State.Status}}' mowgli-gui 2>/dev/null | grep -q running; then
     fail "mowgli-gui not running"
     add_issue "GUI container not running. Run: mowgli-up gui"
     return
@@ -382,7 +391,7 @@ check_gui() {
   fi
 
   local fg_info
-  fg_info=$(docker exec mowgli-ros2 bash -c \
+  fg_info=$(docker_cmd exec mowgli-ros2 bash -c \
     "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 node list 2>/dev/null" \
     2>/dev/null | grep foxglove_bridge || echo "")
 
