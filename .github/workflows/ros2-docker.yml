@@ -83,8 +83,8 @@ jobs:
           cache-to: type=registry,ref=${{ env.IMAGE_NAME }}${{ matrix.suffix }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE_NAME }}${{ matrix.suffix }},push-by-digest=true,name-canonical=true,push=true
-          provenance: true
-          sbom: true
+          provenance: false
+          sbom: false
 
       - name: Export digest
         run: |
