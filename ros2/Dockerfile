@@ -3,8 +3,11 @@
 # Stage 1: base
 # Installs all runtime ROS2 dependencies. Both runtime and simulation stages
 # inherit from here, keeping the image lean.
+#
+# Base: introlab3it/rtabmap:noble-kilted has librtabmap pre-built and
+# optimized in /usr/local. We add ROS2 Kilted on top via apt.
 # =============================================================================
-FROM ros:kilted-ros-base AS base
+FROM introlab3it/rtabmap:noble-kilted AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -41,12 +44,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ros-kilted-nav2-lifecycle-manager \
     ros-kilted-nav2-waypoint-follower \
     ros-kilted-nav2-velocity-smoother \
-    # SLAM — RTAB-Map core library (the ROS2 wrapper rtabmap_ros is built
-    # from source in our workspace because rtabmap_slam is not yet released
-    # for kilted, and jazzy binaries have ABI mismatch with kilted rclcpp).
-    ros-kilted-rtabmap \
-    ros-kilted-rtabmap-msgs \
-    # Build dependencies for rtabmap_ros source build
+    # SLAM — librtabmap is provided by the introlab3it/rtabmap base image.
+    # rtabmap_ros (slam, sync, util, msgs, conversions) built from source
+    # in our workspace below — kilted doesn't have these as apt packages yet
+    # and jazzy binaries have ABI mismatch with kilted rclcpp.
+    # Build dependencies for rtabmap_ros source build:
     ros-kilted-cv-bridge \
     ros-kilted-image-transport \
     ros-kilted-laser-geometry \
@@ -212,7 +214,7 @@ RUN /bin/bash -c "\
       --packages-ignore fusioncore fusioncore_gazebo \
         rtabmap_demos rtabmap_examples rtabmap_launch rtabmap_python \
         rtabmap_ros rtabmap_rviz_plugins rtabmap_viz rtabmap_costmap_plugins \
-        rtabmap_odom rtabmap_msgs \
+        rtabmap_odom \
       --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF \
       --parallel-workers \$(nproc) \
       --event-handlers console_cohesion+ \
