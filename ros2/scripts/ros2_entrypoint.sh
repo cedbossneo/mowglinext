@@ -14,6 +14,13 @@ set -e
 # shellcheck source=/opt/ros/kilted/setup.bash
 source /opt/ros/kilted/setup.bash
 
+# Source ROS2 Jazzy overlay if present (rtabmap_slam and other packages
+# not yet released for kilted are installed there).
+if [ -d /opt/ros/jazzy ] && [ -f /opt/ros/jazzy/setup.bash ]; then
+    # shellcheck source=/opt/ros/jazzy/setup.bash
+    source /opt/ros/jazzy/setup.bash
+fi
+
 # Source the workspace overlay if it has been built (not present in dev before
 # first colcon build, but always present in runtime/simulation images).
 if [ -f /ros2_ws/install/setup.bash ]; then
