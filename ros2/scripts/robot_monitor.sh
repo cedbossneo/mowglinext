@@ -116,9 +116,9 @@ run_check() {
   slam_rpy=$(echo "$tf_mo" | grep "RPY.*degree" | sed 's/.*\[/[/')
   fusion_rpy=$(echo "$tf_ob" | grep "RPY.*degree" | sed 's/.*\[/[/')
 
-  echo "  map→base_footprint:  $robot_pos  RPY: $robot_rpy"
-  echo "  map→odom (SLAM):     $(echo "$tf_mo" | grep "Translation" | sed 's/.*\[/[/')  RPY: $slam_rpy"
-  echo "  odom→base (Fusion):  $(echo "$tf_ob" | grep "Translation" | sed 's/.*\[/[/')  RPY: $fusion_rpy"
+  echo "  map→base_footprint:    $robot_pos  RPY: $robot_rpy"
+  echo "  map→odom  (RTAB-Map):  $(echo "$tf_mo" | grep "Translation" | sed 's/.*\[/[/')  RPY: $slam_rpy"
+  echo "  odom→base (FusionCore):$(echo "$tf_ob" | grep "Translation" | sed 's/.*\[/[/')  RPY: $fusion_rpy"
 
   # Extract yaw for drift check
   local robot_yaw
@@ -143,6 +143,37 @@ run_check() {
   local map_z
   map_z=$(echo "$tf_mb" | grep "Translation" | sed 's/.*\[//' | sed 's/\]//' | awk -F',' '{gsub(/ /,"",$3); printf "%.2f", $3}')
   echo "  z-drift: odom=${odom_z}m  map=${map_z}m"
+
+  # --- FusionCore pose stability (2s drift sample) ---
+  echo -e "\n${BOLD}[FUSION STABILITY]${RESET}"
+  local pose1 pose2
+  pose1=$(ros2cmd "ros2 topic echo /fusion/pose --once 2>/dev/null")
+  sleep 2
+  pose2=$(ros2cmd "ros2 topic echo /fusion/pose --once 2>/dev/null")
+  python3 - <<PYEOF 2>/dev/null
+import re, math, sys
+def parse(p, key):
+    m = re.search(rf'^\s*{key}:\s*(-?\d+\.?\d*(?:e-?\d+)?)', p, re.M)
+    return float(m.group(1)) if m else None
+p1 = """$pose1"""
+p2 = """$pose2"""
+x1, y1 = parse(p1, 'x'), parse(p1, 'y')
+x2, y2 = parse(p2, 'x'), parse(p2, 'y')
+# Covariance: 1st diagonal = x_var, 7th = y_var, 35th = yaw_var (6x6)
+cov_match = re.findall(r'-?\d+\.?\d*(?:e-?\d+)?', p2.split('covariance:')[-1] if 'covariance' in p2 else '')
+cov_vals = [float(v) for v in cov_match[:36]] if len(cov_match) >= 36 else []
+sigma_x = math.sqrt(cov_vals[0]) if cov_vals else 0
+sigma_y = math.sqrt(cov_vals[7]) if cov_vals else 0
+sigma_yaw = math.sqrt(cov_vals[35]) * 180/math.pi if cov_vals else 0
+if x1 is None or x2 is None:
+    print('  Could not sample pose')
+    sys.exit()
+drift = math.hypot(x2-x1, y2-y1) * 1000  # mm
+print(f'  Drift over 2s (stationary check): {drift:.1f}mm')
+print(f'  Pose σ: x={sigma_x*1000:.1f}mm  y={sigma_y*1000:.1f}mm  yaw={sigma_yaw:.2f}°')
+status = '${GREEN}STABLE${RESET}' if drift < 50 else ('${YELLOW}DRIFTING${RESET}' if drift < 200 else '${RED}UNSTABLE${RESET}')
+print(f'  Status: {status}')
+PYEOF
 
   # --- Coverage ---
   echo -e "\n${BOLD}[COVERAGE]${RESET}"
@@ -206,8 +237,8 @@ print(f'  Grid: [{ox:.2f}, {gx_max:.2f}] x [{oy:.2f}, {gy_max:.2f}]')
     fi
   done
 
-  # --- SLAM ---
-  echo -e "\n${BOLD}[SLAM]${RESET}"
+  # --- SLAM (RTAB-Map) ---
+  echo -e "\n${BOLD}[SLAM (RTAB-Map)]${RESET}"
   local slam_info
   slam_info=$(topic_once "/map --no-arr")
   local map_w map_h map_res
@@ -215,6 +246,11 @@ print(f'  Grid: [{ox:.2f}, {gx_max:.2f}] x [{oy:.2f}, {gy_max:.2f}]')
   map_h=$(echo "$slam_info" | grep "height:" | awk '{print $2}')
   map_res=$(echo "$slam_info" | grep "resolution:" | awk '{printf "%.2f", $2}')
   echo "  Map: ${map_w:-?}x${map_h:-?} cells @ ${map_res:-?}m"
+  # RTAB-Map graph size (poses count in mapPath)
+  local map_path_pts
+  map_path_pts=$(ros2cmd "timeout 3 ros2 topic echo /mapPath --once 2>/dev/null" | grep -cE "^\s*- header:" 2>/dev/null)
+  map_path_pts="${map_path_pts:-0}"
+  echo "  Graph poses: $map_path_pts"
 
   # --- Errors ---
   echo -e "\n${BOLD}[RECENT ERRORS]${RESET}"
