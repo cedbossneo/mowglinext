@@ -66,6 +66,9 @@ mowgli:
     gps_protocol: "UBX"
     datum_lat: 0.0             # map origin latitude  (set per-site)
     datum_lon: 0.0             # map origin longitude (set per-site)
+    datum_alt: 0.0             # map origin altitude in metres WGS84 (set per-site,
+                               # optional — small errors OK, only affects z which
+                               # is ignored by the ground constraint)
     gps_wait_after_undock_sec: 10.0   # wait for RTK fix after undocking
     gps_timeout_sec: 5.0              # pause mowing if no GPS for this long
 

@@ -141,10 +141,20 @@ def generate_launch_description() -> LaunchDescription:
             f"[{fp_r:.3f}, {fp_hw:.3f}]]"
         )
 
-    # Read GPS lever arm from runtime config for FusionCore.
+    # Read GPS lever arm + fixed datum + dock pose from runtime config.
+    # Datum gives FusionCore a stable ENU origin → odom frame is globally
+    # consistent across sessions. dock_pose is used by pose_init_node to
+    # anchor RTAB-Map's map frame whenever the robot docks.
+    import math as _math
     gps_x = 0.0
     gps_y = 0.0
     gps_z = 0.0
+    datum_lat = 0.0
+    datum_lon = 0.0
+    datum_alt = 0.0
+    dock_pose_x = 0.0
+    dock_pose_y = 0.0
+    dock_pose_yaw = 0.0
     runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
     if os.path.isfile(runtime_robot_config):
         with open(runtime_robot_config, "r") as f:
@@ -153,6 +163,30 @@ def generate_launch_description() -> LaunchDescription:
         gps_x = float(rt_rp.get("gps_x", 0.0))
         gps_y = float(rt_rp.get("gps_y", 0.0))
         gps_z = float(rt_rp.get("gps_z", 0.0))
+        datum_lat = float(rt_rp.get("datum_lat", 0.0))
+        datum_lon = float(rt_rp.get("datum_lon", 0.0))
+        datum_alt = float(rt_rp.get("datum_alt", 0.0))
+        dock_pose_x = float(rt_rp.get("dock_pose_x", 0.0))
+        dock_pose_y = float(rt_rp.get("dock_pose_y", 0.0))
+        dock_pose_yaw = float(rt_rp.get("dock_pose_yaw", 0.0))
+
+    # Convert datum lat/lon/alt → ECEF (WGS84) for FusionCore's PROJ reference.
+    # FusionCore's output CRS is EPSG:4978 (ECEF); we pass reference.x/y/z in
+    # ECEF metres so that its ENU origin stays fixed across restarts.
+    WGS84_A = 6378137.0
+    WGS84_F = 1.0 / 298.257223563
+    WGS84_E2 = WGS84_F * (2.0 - WGS84_F)
+    datum_is_fixed = (datum_lat != 0.0 or datum_lon != 0.0)
+    ref_x = ref_y = ref_z = 0.0
+    if datum_is_fixed:
+        lat_rad = _math.radians(datum_lat)
+        lon_rad = _math.radians(datum_lon)
+        sin_lat = _math.sin(lat_rad)
+        cos_lat = _math.cos(lat_rad)
+        N = WGS84_A / _math.sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat)
+        ref_x = (N + datum_alt) * cos_lat * _math.cos(lon_rad)
+        ref_y = (N + datum_alt) * cos_lat * _math.sin(lon_rad)
+        ref_z = (N * (1.0 - WGS84_E2) + datum_alt) * sin_lat
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -214,6 +248,12 @@ def generate_launch_description() -> LaunchDescription:
             {"gnss.lever_arm_x": gps_x},
             {"gnss.lever_arm_y": gps_y},
             {"gnss.lever_arm_z": gps_z},
+            # Fixed datum in ECEF (WGS84). When datum_lat/lon=0, fall back
+            # to first-GPS-fix behaviour for bench testing.
+            {"reference.use_first_fix": not datum_is_fixed},
+            {"reference.x": ref_x},
+            {"reference.y": ref_y},
+            {"reference.z": ref_z},
         ],
         remappings=[
             ("/odom/wheels", "/wheel_odom"),
@@ -268,6 +308,26 @@ def generate_launch_description() -> LaunchDescription:
             "--child-frame-id", "odom",
         ],
         parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # ------------------------------------------------------------------
+    # 3c. Pose init — anchor RTAB-Map's map frame to dock pose.
+    # Publishes /initialpose (PoseWithCovarianceStamped) on boot if the
+    # robot is charging, and on every subsequent dock event (charging
+    # transition false→true). dock_pose_x/y are ENU metres from datum.
+    # ------------------------------------------------------------------
+    pose_init_node = Node(
+        condition=IfCondition(slam),
+        package="mowgli_localization",
+        executable="pose_init_node",
+        name="pose_init_node",
+        output="screen",
+        parameters=[
+            {"dock_pose_x": dock_pose_x},
+            {"dock_pose_y": dock_pose_y},
+            {"dock_pose_yaw": dock_pose_yaw},
+            {"use_sim_time": use_sim_time},
+        ],
     )
 
     # ------------------------------------------------------------------
@@ -328,6 +388,7 @@ def generate_launch_description() -> LaunchDescription:
             use_lidar_arg,
             rtabmap_launch,
             static_map_odom_tf,
+            pose_init_node,
             fusioncore_node,
             fusioncore_configure,
             fusioncore_start,
