@@ -95,25 +95,6 @@ ament_target_dependencies(localization_monitor_node
 )
 
 # ---------------------------------------------------------------------------
-# Executable: gps_slam_corrector_node
-# ---------------------------------------------------------------------------
-
-add_executable(gps_slam_corrector_node
-  src/gps_slam_corrector_node.cpp
-)
-
-target_include_directories(gps_slam_corrector_node PUBLIC ${INCLUDE_DIR})
-
-ament_target_dependencies(gps_slam_corrector_node
-  rclcpp
-  sensor_msgs
-  geometry_msgs
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-)
-
-# ---------------------------------------------------------------------------
 # Executable: pose_init_node (RTAB-Map initial pose anchor)
 # ---------------------------------------------------------------------------
 
@@ -145,7 +126,6 @@ install(
     wheel_odometry_node
     navsat_to_absolute_pose_node
     localization_monitor_node
-    gps_slam_corrector_node
     pose_init_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

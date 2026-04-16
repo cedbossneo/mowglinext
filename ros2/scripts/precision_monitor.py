@@ -31,7 +31,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from sensor_msgs.msg import LaserScan, PointCloud2
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Float64
 
 
@@ -116,13 +116,6 @@ class PrecisionMonitorNode(Node):
             self._on_scan,
             _SENSOR_QOS,
         )
-        # SLAM scan-match visualisation — PointCloud2, best-effort.
-        self.create_subscription(
-            PointCloud2,
-            "/slam_toolbox/scan_visualization",
-            self._on_slam_scan,
-            _SENSOR_QOS,
-        )
         self.create_subscription(
             OccupancyGrid,
             "/map",
@@ -160,11 +153,6 @@ class PrecisionMonitorNode(Node):
 
     def _on_scan(self, msg: LaserScan) -> None:
         self._scan = msg
-
-    def _on_slam_scan(self, _msg: PointCloud2) -> None:
-        # Received but not processed further — presence confirms SLAM is alive.
-        # Future: could compare point density to odom data if needed.
-        pass
 
     def _on_map(self, msg: OccupancyGrid) -> None:
         self._map = msg

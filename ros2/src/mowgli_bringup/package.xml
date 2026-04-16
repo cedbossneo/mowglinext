@@ -6,7 +6,7 @@
   <description>
     Launch files, parameter configurations, and URDF/xacro for the Mowgli
     autonomous robot mower. Provides bringup for hardware, navigation stack
-    (Nav2 + slam_toolbox + FusionCore), and Gazebo Ignition simulation.
+    (Nav2 + RTAB-Map + FusionCore), and Gazebo Ignition simulation.
   </description>
   <maintainer email="cedric@example.com">Cedric</maintainer>
   <license>GPL-3.0</license>

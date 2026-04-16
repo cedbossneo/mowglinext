@@ -108,13 +108,12 @@ void LocalizationMonitorNode::create_subscribers()
         on_absolute_pose(msg);
       });
 
-  slam_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      "/slam_toolbox/pose",
-      rclcpp::QoS(10),
-      [this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg)
-      {
-        on_slam_pose(msg);
-      });
+  // RTAB-Map publishes /mapPath periodically (~1 Hz) — used as heartbeat
+  // to confirm SLAM is alive and producing poses.
+  slam_heartbeat_sub_ = create_subscription<nav_msgs::msg::Path>(
+      "/mapPath",
+      rclcpp::QoS(1),
+      [this](nav_msgs::msg::Path::ConstSharedPtr msg) { on_slam_heartbeat(msg); });
 }
 
 void LocalizationMonitorNode::create_timer()
@@ -150,8 +149,7 @@ void LocalizationMonitorNode::on_absolute_pose(
                     ((msg->flags & Flags::FLAG_GPS_RTK) != 0u);
 }
 
-void LocalizationMonitorNode::on_slam_pose(
-    geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg)
+void LocalizationMonitorNode::on_slam_heartbeat(nav_msgs::msg::Path::ConstSharedPtr msg)
 {
   last_slam_stamp_ = msg->header.stamp;
 }

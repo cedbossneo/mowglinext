@@ -33,7 +33,7 @@
  * Subscribed topics:
  *   /wheel_odom               nav_msgs/msg/Odometry       (wheel odometry alive-check)
  *   /gps/absolute_pose        mowgli_interfaces/msg/AbsolutePose
- *   /slam_toolbox/pose        geometry_msgs/msg/PoseWithCovarianceStamped
+ *   /mapPath                  nav_msgs/msg/Path           (RTAB-Map heartbeat)
  *
  * Published topics:
  *   /localization/mode        std_msgs/msg/String   (latched, 10 Hz)
@@ -52,9 +52,9 @@
 #include <memory>
 #include <string>
 
-#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -92,7 +92,7 @@ private:
   // ---------------------------------------------------------------------------
   void on_wheel_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
   void on_absolute_pose(mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg);
-  void on_slam_pose(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg);
+  void on_slam_heartbeat(nav_msgs::msg::Path::ConstSharedPtr msg);
 
   // ---------------------------------------------------------------------------
   // Timer callback – evaluates state and publishes
@@ -146,7 +146,7 @@ private:
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr wheel_odom_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr abs_pose_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr slam_pose_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr slam_heartbeat_sub_;
 
   rclcpp::TimerBase::SharedPtr publish_timer_;
 };

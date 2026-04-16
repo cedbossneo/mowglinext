@@ -170,8 +170,6 @@ def generate_launch_description() -> LaunchDescription:
             "slam": slam,
             "map": map_yaml,
             "use_ekf": "True",
-            "slam_mode": "lifelong",
-            "map_file_name": "/ros2_ws/maps/garden_map",
             "use_lidar": use_lidar,
         }.items(),
     )
