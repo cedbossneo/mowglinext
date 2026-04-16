@@ -34,7 +34,7 @@ def generate_launch_description() -> LaunchDescription:
     # Subscribes to /scan and /fusion/odom, publishes map→odom TF.
     rtabmap_slam_node = Node(
         package="rtabmap_slam",
-        executable="rtabmap_node",
+        executable="rtabmap",
         name="rtabmap",
         output="screen",
         parameters=[{
