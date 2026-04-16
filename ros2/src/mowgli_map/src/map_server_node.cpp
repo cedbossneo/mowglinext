@@ -288,8 +288,12 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     // The dock footprint is the robot chassis + 15cm margin on each side.
     const double dock_half_length = 0.45;  // (0.60 chassis + 0.30 margin) / 2
     const double dock_half_width = 0.35;   // (0.40 chassis + 0.30 margin) / 2
-    const double cy = std::cos(dock_yaw);
-    const double sy = std::sin(dock_yaw);
+    const double d_x = docking_pose_.position.x;
+    const double d_y = docking_pose_.position.y;
+    const double d_yaw = 2.0 * std::atan2(docking_pose_.orientation.z,
+                                           docking_pose_.orientation.w);
+    const double cy = std::cos(d_yaw);
+    const double sy = std::sin(d_yaw);
     const double corners[][2] = {
         {dock_half_length, dock_half_width},
         {dock_half_length, -dock_half_width},
@@ -299,8 +303,8 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     for (const auto& c : corners)
     {
       geometry_msgs::msg::Point32 pt;
-      pt.x = static_cast<float>(dock_x + cy * c[0] - sy * c[1]);
-      pt.y = static_cast<float>(dock_y + sy * c[0] + cy * c[1]);
+      pt.x = static_cast<float>(d_x + cy * c[0] - sy * c[1]);
+      pt.y = static_cast<float>(d_y + sy * c[0] + cy * c[1]);
       pt.z = 0.0f;
       dock_exclusion_polygon_.points.push_back(pt);
     }
@@ -308,7 +312,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     has_dock_exclusion_ = true;
     RCLCPP_INFO(get_logger(),
                 "Dock exclusion zone: (%.2f, %.2f) yaw=%.2f, %.1fx%.1fm",
-                dock_x, dock_y, dock_yaw,
+                d_x, d_y, d_yaw,
                 dock_half_length * 2, dock_half_width * 2);
   }
 
