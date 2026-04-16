@@ -53,9 +53,11 @@ def generate_launch_description() -> LaunchDescription:
 
             # 2D SLAM mode
             "Reg/Strategy": "1",             # ICP registration
-            "Reg/Force3DoF": "true",         # 2D mode
+            "Reg/Force3DoF": "true",         # 2D mode (no z, roll, pitch)
             "RGBD/ProximityBySpace": "true",
             "RGBD/NeighborLinkRefining": "true",
+            # Don't add new node unless robot has moved meaningfully:
+            # prevents map graph bloat when stationary on dock.
             "RGBD/AngularUpdate": "0.1",     # ~6 degrees
             "RGBD/LinearUpdate": "0.1",      # 10cm
             "RGBD/OptimizeFromGraphEnd": "false",
@@ -70,6 +72,8 @@ def generate_launch_description() -> LaunchDescription:
             "Mem/IncrementalMemory": "true",
             "Mem/InitWMWithAllNodes": "true",
             "Mem/STMSize": "30",
+            # Skip identical scans (graph dedup) to limit DB growth
+            "Mem/RehearsalSimilarity": "0.6",
 
             # Optimizer
             "Optimizer/Strategy": "1",       # g2o
@@ -78,10 +82,15 @@ def generate_launch_description() -> LaunchDescription:
 
             # Grid map for costmap
             "Grid/FromDepth": "false",       # Use scan, not depth
+            "Grid/Sensor": "0",              # 0=scan, 1=depth (silences warning)
             "Grid/RangeMax": "8.0",
             "Grid/RangeMin": "0.2",          # Filter grass
             "Grid/CellSize": "0.05",
             "Grid/3D": "false",
+            "Grid/RayTracing": "true",       # Mark free space behind obstacles
+
+            # Disable octomap (we're 2D — silences "octomap empty" spam)
+            "octomap_enabled": False,
 
             # Database
             "database_path": "/ros2_ws/maps/rtabmap.db",
