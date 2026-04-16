@@ -26,6 +26,35 @@ fusioncore_node:
     odom_frame: odom
     publish_rate: 50.0
 
+    # QoS overrides — match the publishers' QoS.
+    # hardware_bridge publishes /imu/data and /wheel_odom with BEST_EFFORT.
+    # ublox publishes /gps/fix with BEST_EFFORT (sensor data convention).
+    qos_overrides:
+      /imu/data:
+        subscription:
+          reliability: best_effort
+          durability: volatile
+          history: keep_last
+          depth: 10
+      /wheel_odom:
+        subscription:
+          reliability: best_effort
+          durability: volatile
+          history: keep_last
+          depth: 10
+      /gps/fix:
+        subscription:
+          reliability: best_effort
+          durability: volatile
+          history: keep_last
+          depth: 10
+      /gnss/heading:
+        subscription:
+          reliability: reliable
+          durability: volatile
+          history: keep_last
+          depth: 10
+
     # IMU: differential gyro + accel only — no magnetometer.
     # hardware_bridge publishes identity orientation (no real heading).
     # has_magnetometer must be false so FusionCore only uses gyro rates.
