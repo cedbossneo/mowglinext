@@ -33,9 +33,9 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
 
   <!-- SLAM and localization -->
-  <exec_depend>rtabmap_ros</exec_depend>
-  <exec_depend>rtabmap_launch</exec_depend>
+  <exec_depend>rtabmap_slam</exec_depend>
   <exec_depend>rtabmap_msgs</exec_depend>
+  <exec_depend>rtabmap_conversions</exec_depend>
   <exec_depend>fusioncore_ros</exec_depend>
 
   <!-- Velocity multiplexing -->

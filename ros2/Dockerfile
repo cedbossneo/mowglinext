@@ -21,11 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-nav2-lifecycle-manager \
     ros-kilted-nav2-waypoint-follower \
     ros-kilted-nav2-velocity-smoother \
-    # SLAM — RTAB-Map for 2D LiDAR SLAM
-    # Kilted uses jazzy packages for rtabmap (third-party, not yet re-released)
-    ros-jazzy-rtabmap-ros \
-    ros-jazzy-rtabmap-launch \
+    # SLAM — RTAB-Map for 2D LiDAR SLAM (jazzy: rtabmap_ros not yet released for kilted)
+    # Only install what we use: rtabmap_slam (SLAM node), msgs, conversions.
+    # Skip rtabmap_ros metapackage (pulls viz/demos/examples we don't need).
+    ros-jazzy-rtabmap-slam \
     ros-jazzy-rtabmap-msgs \
+    ros-jazzy-rtabmap-conversions \
     # Motion control
     ros-kilted-twist-mux \
     # Behavior trees
