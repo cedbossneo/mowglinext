@@ -22,8 +22,12 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
  && echo 'Acquire::Queue-Mode "access";' > /etc/apt/apt.conf.d/99parallel \
  && echo 'Acquire::http::Pipeline-Depth "10";' >> /etc/apt/apt.conf.d/99parallel \
  && echo 'Acquire::Languages "none";' >> /etc/apt/apt.conf.d/99parallel \
- && (sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list.d/*.sources 2>/dev/null \
-  || sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null \
+ && (sed -i -e 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' \
+              -e 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' \
+              /etc/apt/sources.list.d/*.sources 2>/dev/null \
+  || sed -i -e 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' \
+              -e 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' \
+              /etc/apt/sources.list 2>/dev/null \
   || true)
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -221,10 +225,15 @@ RUN /bin/bash -c "\
     "
 
 # Run unit tests (non-blocking)
+# Skip the same packages we excluded from build (avoid "package not built" errors).
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
     source install/setup.bash && \
     colcon test \
+      --packages-ignore fusioncore fusioncore_gazebo \
+        rtabmap_demos rtabmap_examples rtabmap_launch rtabmap_python \
+        rtabmap_ros rtabmap_rviz_plugins rtabmap_viz rtabmap_costmap_plugins \
+        rtabmap_odom \
       --ctest-args -L 'gtest' --output-on-failure \
     ; colcon test-result --verbose \
     " || true
