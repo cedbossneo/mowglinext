@@ -23,15 +23,11 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean \
   || sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null \
   || true)
 
-# Install eatmydata first to disable fsync() in subsequent dpkg installs
-# (CI image is ephemeral, no need for fsync durability).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends eatmydata
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    eatmydata apt-get install -y --no-install-recommends \
+    apt-get update \
+ && apt-get install -y --no-install-recommends eatmydata \
+ && eatmydata apt-get install -y --no-install-recommends \
     # Navigation
     ros-kilted-nav2-bringup \
     ros-kilted-nav2-bt-navigator \
@@ -119,7 +115,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    eatmydata apt-get install -y --no-install-recommends \
+    apt-get update \
+ && eatmydata apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
@@ -277,7 +274,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    eatmydata apt-get install -y --no-install-recommends \
+    apt-get update \
+ && eatmydata apt-get install -y --no-install-recommends \
     # Gazebo Harmonic comes via ros-kilted-ros-gz-sim (Jazzy default pairing)
     ros-kilted-ros-gz-sim \
     ros-kilted-ros-gz-bridge \
