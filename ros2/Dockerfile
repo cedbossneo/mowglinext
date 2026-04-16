@@ -21,8 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-nav2-lifecycle-manager \
     ros-kilted-nav2-waypoint-follower \
     ros-kilted-nav2-velocity-smoother \
-    # SLAM (FusionCore is built from source in the workspace)
-    ros-kilted-slam-toolbox \
+    # SLAM — RTAB-Map for 2D LiDAR SLAM
+    ros-jazzy-rtabmap-slam \
+    ros-jazzy-rtabmap-launch \
     # Motion control
     ros-kilted-twist-mux \
     # Behavior trees

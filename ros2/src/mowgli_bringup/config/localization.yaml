@@ -1,15 +1,14 @@
 # ---------------------------------------------------------------------------
 # FusionCore configuration — single UKF fusing GPS + IMU + wheels.
 #
-# ARCHITECTURE:
+# ARCHITECTURE (RTAB-Map backend):
 #   FusionCore publishes odom → base_footprint TF (GPS-aided local odometry).
-#   SLAM Toolbox publishes slam_map → odom TF (LiDAR scan matching).
-#   GPS-SLAM corrector publishes map → slam_map TF (GPS global anchor).
-#   Full chain: map → slam_map → odom → base_footprint.
+#   RTAB-Map publishes map → odom TF (LiDAR scan matching).
+#   No GPS-SLAM corrector — GPS is fused directly in FusionCore.
+#   Full chain: map → odom → base_footprint.
 #
-#   GPS is in FusionCore for heading stability (position deltas prevent
-#   gyro drift). q_orientation=0.0001 prevents GPS from flipping heading.
-#   GPS corrector handles global map-frame anchoring separately.
+#   GPS in FusionCore provides heading stability via position deltas and
+#   global anchoring. q_orientation=0.0001 prevents GPS heading flips.
 #
 # INPUT TOPICS (remapped in launch file):
 #   /wheel_odom  (nav_msgs/Odometry)    — wheel encoder velocity
@@ -47,9 +46,9 @@ fusioncore_node:
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
     gnss.min_satellites: 4
-    # Accept any GPS fix — heading comes from position deltas when moving.
-    # RTK gives better accuracy but basic GPS still provides a heading reference.
-    gnss.min_fix_type: 1  # 1=GPS_FIX
+    # Accept any GPS fix (including basic GPS without RTK).
+    # RTK gives better accuracy but basic GPS still anchors position.
+    gnss.min_fix_type: 0  # 0=any fix, 1=SBAS, 2=RTK
 
     # GPS antenna offset from base_link in body frame.
     # Overridden at launch from mowgli_robot.yaml (gps_x/y/z).

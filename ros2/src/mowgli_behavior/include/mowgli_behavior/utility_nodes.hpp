@@ -25,7 +25,6 @@
 #include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "slam_toolbox/srv/serialize_pose_graph.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace mowgli_behavior
@@ -91,45 +90,25 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap
+// SaveSlamMap (no-op stub)
 // ---------------------------------------------------------------------------
 
-/// Calls /slam_toolbox/serialize_map to persist the current pose graph to
-/// disk.  Intended to run after mowing completes so the map survives container
-/// restarts.
-///
-/// Input ports:
-///   map_path (string, default "/ros2_ws/maps/garden_map") – destination path
-///            without extension.  slam_toolbox appends .posegraph / .data.
-///
-/// Returns SUCCESS when the service call succeeds, FAILURE otherwise.  The
-/// node is synchronous: it blocks for up to 5 s waiting for the service
-/// response before declaring failure.
-class SaveSlamMap : public BT::StatefulActionNode
+/// No-op stub — slam_toolbox map serialization removed (RTAB-Map backend).
+/// Keeps BT XML compatible: always returns SUCCESS immediately.
+class SaveSlamMap : public BT::SyncActionNode
 {
 public:
-  using SerializeSrv = slam_toolbox::srv::SerializePoseGraph;
-
   SaveSlamMap(const std::string& name, const BT::NodeConfig& config)
-      : BT::StatefulActionNode(name, config)
+      : BT::SyncActionNode(name, config)
   {
   }
 
   static BT::PortsList providedPorts()
   {
-    return {
-        BT::InputPort<std::string>("map_path",
-                                   "/ros2_ws/maps/garden_map",
-                                   "Destination path without extension for the pose graph files")};
+    return {BT::InputPort<std::string>("map_path", "/ros2_ws/maps/garden_map", "Unused — kept for BT XML compatibility")};
   }
 
-  BT::NodeStatus onStart() override;
-  BT::NodeStatus onRunning() override;
-  void onHalted() override;
-
-private:
-  rclcpp::Client<SerializeSrv>::SharedPtr client_;
-  std::shared_future<SerializeSrv::Response::SharedPtr> response_future_;
+  BT::NodeStatus tick() override;
 };
 
 // ---------------------------------------------------------------------------

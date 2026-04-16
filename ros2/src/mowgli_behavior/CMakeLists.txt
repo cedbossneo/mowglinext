@@ -32,7 +32,6 @@ find_package(action_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(mowgli_interfaces REQUIRED)
-find_package(slam_toolbox REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 
 
@@ -73,7 +72,6 @@ ament_target_dependencies(behavior_tree_node
   std_msgs
   std_srvs
   mowgli_interfaces
-  slam_toolbox
   rcl_interfaces
 )
 

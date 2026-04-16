@@ -119,79 +119,12 @@ void WaitForDuration::onHalted()
 }
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap
+// SaveSlamMap (no-op stub — slam_toolbox removed, RTAB-Map backend)
 // ---------------------------------------------------------------------------
 
-BT::NodeStatus SaveSlamMap::onStart()
+BT::NodeStatus SaveSlamMap::tick()
 {
-  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-
-  std::string map_path = "/ros2_ws/maps/garden_map";
-  if (auto res = getInput<std::string>("map_path"))
-  {
-    map_path = res.value();
-  }
-
-  // Lazily create the service client once.
-  if (!client_)
-  {
-    client_ = ctx->node->create_client<SerializeSrv>("/slam_toolbox/serialize_map");
-  }
-
-  if (!client_->wait_for_service(std::chrono::seconds(5)))
-  {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "SaveSlamMap: /slam_toolbox/serialize_map not available — skipping save");
-    // Non-fatal: a missing service should not abort the post-mow sequence.
-    return BT::NodeStatus::SUCCESS;
-  }
-
-  auto request = std::make_shared<SerializeSrv::Request>();
-  request->filename = map_path;
-
-  response_future_ = client_->async_send_request(request).future.share();
-
-  RCLCPP_INFO(ctx->node->get_logger(),
-              "SaveSlamMap: serialize_map request sent (path='%s')",
-              map_path.c_str());
-
-  return BT::NodeStatus::RUNNING;
-}
-
-BT::NodeStatus SaveSlamMap::onRunning()
-{
-  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-
-  if (response_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-  {
-    return BT::NodeStatus::RUNNING;
-  }
-
-  auto response = response_future_.get();
-  if (!response)
-  {
-    RCLCPP_ERROR(ctx->node->get_logger(), "SaveSlamMap: serialize_map returned null response");
-    return BT::NodeStatus::FAILURE;
-  }
-
-  // result == 0 means RESULT_SUCCESS in slam_toolbox.
-  if (response->result != 0)
-  {
-    RCLCPP_ERROR(ctx->node->get_logger(),
-                 "SaveSlamMap: serialize_map failed with result code %d",
-                 response->result);
-    return BT::NodeStatus::FAILURE;
-  }
-
-  RCLCPP_INFO(ctx->node->get_logger(), "SaveSlamMap: map saved successfully");
   return BT::NodeStatus::SUCCESS;
-}
-
-void SaveSlamMap::onHalted()
-{
-  // The future cannot be cancelled once sent; release the handle so the
-  // response is discarded if it arrives after the node is halted.
-  response_future_ = {};
 }
 
 // ---------------------------------------------------------------------------
