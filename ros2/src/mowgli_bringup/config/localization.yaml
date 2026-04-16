@@ -61,6 +61,11 @@ fusioncore_node:
     imu.gyro_noise: 0.02
     imu.accel_noise: 0.1
     imu.has_magnetometer: false
+    # Subtract earth's gravity (~9.81 m/s²) from IMU z-axis accel.
+    # Our IMU reports raw specific force (gravity included, z ≈ 10.2 m/s²).
+    # FusionCore uses the current filter orientation to remove gravity — this
+    # prevents z-drift from the 1g bias being treated as real acceleration.
+    imu.remove_gravitational_acceleration: true
 
     # Wheel encoders: noisy on soft/wet ground
     encoder.vel_noise: 0.15
