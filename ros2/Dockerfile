@@ -22,8 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-nav2-waypoint-follower \
     ros-kilted-nav2-velocity-smoother \
     # SLAM — RTAB-Map for 2D LiDAR SLAM
-    ros-jazzy-rtabmap-slam \
-    ros-jazzy-rtabmap-launch \
+    ros-kilted-rtabmap-ros \
+    ros-kilted-rtabmap-launch \
+    ros-kilted-rtabmap-msgs \
     # Motion control
     ros-kilted-twist-mux \
     # Behavior trees
