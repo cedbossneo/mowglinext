@@ -8,14 +8,30 @@ FROM ros:kilted-ros-base AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Disable apt's auto-clean so BuildKit cache mounts persist .deb downloads
-# between builds (saves minutes of re-downloading from packages.ros.org).
+# Apt optimizations:
+#   1. Disable apt's auto-clean so BuildKit cache mounts persist .deb files
+#      between builds (saves minutes of re-downloading from packages.ros.org).
+#   2. Use Azure mirror for archive.ubuntu.com (direct-peering with GitHub
+#      runners hosted on Azure — much faster than upstream).
+#   3. Enable parallel downloads (Pipeline-Depth) and skip language packs.
 RUN rm -f /etc/apt/apt.conf.d/docker-clean \
- && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+ && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache \
+ && echo 'Acquire::Queue-Mode "access";' > /etc/apt/apt.conf.d/99parallel \
+ && echo 'Acquire::http::Pipeline-Depth "10";' >> /etc/apt/apt.conf.d/99parallel \
+ && echo 'Acquire::Languages "none";' >> /etc/apt/apt.conf.d/99parallel \
+ && (sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list.d/*.sources 2>/dev/null \
+  || sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null \
+  || true)
+
+# Install eatmydata first to disable fsync() in subsequent dpkg installs
+# (CI image is ephemeral, no need for fsync durability).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends eatmydata
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    eatmydata apt-get install -y --no-install-recommends \
     # Navigation
     ros-kilted-nav2-bringup \
     ros-kilted-nav2-bt-navigator \
@@ -94,7 +110,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    eatmydata apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
@@ -247,7 +263,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+    eatmydata apt-get install -y --no-install-recommends \
     # Gazebo Harmonic comes via ros-kilted-ros-gz-sim (Jazzy default pairing)
     ros-kilted-ros-gz-sim \
     ros-kilted-ros-gz-bridge \
