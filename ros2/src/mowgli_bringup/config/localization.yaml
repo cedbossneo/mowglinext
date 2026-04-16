@@ -72,13 +72,13 @@ fusioncore_node:
     encoder.yaw_noise: 0.04
 
     # GNSS: u-blox F9P RTK
-    # base_noise_xy: 0.1m — matches RTK Fixed accuracy (~2cm).
-    #   q_orientation=0.0001 keeps heading stiff so GPS position noise
-    #   can't induce yaw flips even with tight GPS trust.
+    # base_noise_xy: 0.5m — middle ground:
+    #   - RTK Fixed (2cm): filter smooths GPS jitter (doesn't chase noise)
+    #   - Basic GPS (1m+): filter weights encoder/IMU more, stays stable
+    #   FusionCore also auto-scales by HDOP, so effective σ adapts.
     # base_noise_z: 100m — effectively ignore GPS altitude.
-    #   Ground constraint (VZ=0) pseudo-measurement keeps z near 0.
-    #   Without this, GPS altitude variations leak into z (saw 2.2m drift).
-    gnss.base_noise_xy: 0.1
+    #   Ground constraint (VZ=0) + gravity removal keep z near 0.
+    gnss.base_noise_xy: 0.5
     gnss.base_noise_z: 100.0
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
