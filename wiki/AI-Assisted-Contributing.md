@@ -86,7 +86,7 @@ RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
 
 #### 3. SLAM as TF Authority
 
-AI may suggest having multiple nodes publish the same TF transforms. **Don't.** SLAM Toolbox is the sole TF authority for `map→odom` (20 Hz via scan matching). FusionCore publishes `odom→base_footprint` only.
+AI may suggest having multiple nodes publish the same TF transforms. **Don't.** RTAB-Map (2D LiDAR mode, ICP + loop closure) is the sole TF authority for `map→odom`. FusionCore publishes `odom→base_footprint` only. There is no intermediate `slam_map` frame and no GPS-SLAM corrector — GPS is fused directly inside FusionCore's UKF.
 
 #### 4. MPPI Controller for Coverage
 

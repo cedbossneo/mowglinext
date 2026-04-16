@@ -28,9 +28,9 @@ MowgliNext has a fully functional autonomous mowing stack running on real hardwa
 | Component | Status | Details |
 |-----------|:------:|---------|
 | ROS2 Kilted | :white_check_mark: | Full stack on differential-drive mower, Cyclone DDS, multi-arch Docker |
-| SLAM Toolbox | :white_check_mark: | Lifelong mode for mapping and localization; zero-odom only when charging AND idle to prevent corruption during undock |
-| Dual EKF Localization | :white_check_mark: | `ekf_odom` (50 Hz, wheel + IMU) and `ekf_map` (20 Hz, GPS + SLAM heading); heading calibration from EKF TF on undock |
-| RTK-GPS | :white_check_mark: | u-blox F9P support with GPS degradation handling and wait-for-fix logic |
+| RTAB-Map SLAM | :white_check_mark: | 2D LiDAR scan matching publishes `map → odom`; database persisted to `/ros2_ws/maps/rtabmap.db`, built from source from `ros2/src/rtabmap_ros` on top of `introlab3it/rtabmap:noble-kilted` |
+| FusionCore Localization | :white_check_mark: | Single UKF (50 Hz) fuses GPS, IMU, and wheel odometry; publishes `odom → base_footprint`. Pose sigma ~25 mm with RTK fixed |
+| RTK-GPS | :white_check_mark: | u-blox F9P support with GPS degradation handling and wait-for-fix logic. Fused directly in FusionCore — no separate GPS-SLAM corrector |
 | Nav2 Navigation | :white_check_mark: | RPP controller for transit paths |
 | Collision Monitor | :white_check_mark: | LiDAR-based real-time obstacle detection with 3-zone approach (stop, slow, approach) |
 | Obstacle Tracker | :white_check_mark: | DBSCAN clustering, persistence promotion, overlapping merge |
@@ -115,7 +115,7 @@ Thank you, OpenMower team. You showed us what's possible.
 
 | Directory | Description |
 |-----------|-------------|
-| [`ros2/`](ros2/) | ROS2 stack: Nav2, SLAM Toolbox, behavior trees, coverage planner, hardware bridge |
+| [`ros2/`](ros2/) | ROS2 stack: Nav2, RTAB-Map SLAM, behavior trees, coverage planner, hardware bridge |
 | [`install/`](install/) | Interactive installer, hardware presets, modular Docker Compose configs |
 | [`docker/`](docker/) | Docker Compose deployment for manual setup, DDS config |
 | [`sensors/`](sensors/) | Dockerized sensor drivers (GPS, LiDAR) — one directory per model |
@@ -145,15 +145,16 @@ See the [Getting Started](https://github.com/cedbossneo/mowglinext/wiki/Getting-
 ├─────────────────────────────────────────────────┤
 │  ROS2 Stack (Kilted)                             │
 │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐│
-│  │ Nav2     │ │ SLAM     │ │ Behavior Tree    ││
-│  │ (navigate│ │ Toolbox  │ │ (main_tree.xml)  ││
-│  │  dock    │ │          │ │                  ││
+│  │ Nav2     │ │ RTAB-Map │ │ Behavior Tree    ││
+│  │ (navigate│ │ SLAM     │ │ (main_tree.xml)  ││
+│  │  dock    │ │ map→odom │ │                  ││
 │  │  cover)  │ │          │ │                  ││
 │  └──────────┘ └──────────┘ └──────────────────┘│
 │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐│
-│  │ Coverage │ │ Localiz. │ │ Hardware Bridge  ││
-│  │ Planner  │ │ (GPS+EKF)│ │ (serial ↔ ROS2) ││
-│  │ (F2C v2) │ │          │ │                  ││
+│  │ Coverage │ │FusionCore│ │ Hardware Bridge  ││
+│  │ Planner  │ │ UKF      │ │ (serial ↔ ROS2) ││
+│  │(cell-str)│ │ GPS+IMU+ │ │                  ││
+│  │          │ │ wheels   │ │                  ││
 │  └──────────┘ └──────────┘ └──────────────────┘│
 ├──────────────────────┬──────────────────────────┤
 │  Sensors (Docker)    │  STM32 Firmware          │

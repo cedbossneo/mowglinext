@@ -43,7 +43,7 @@ This is expected — GPS needs a few seconds to converge after the robot moves a
 
 ### SLAM map doesn't persist
 
-Check that the Docker volume `mowgli_maps` is mounted. The behavior tree saves the map before docking via `SaveSLAMMap`.
+Check that the Docker volume `mowgli_maps` is mounted — RTAB-Map's database lives at `/ros2_ws/maps/rtabmap.db` inside the container and is multi-session by default (previous sessions are merged into the same global map on restart). The behavior tree additionally triggers a database save before docking via `SaveSlamMap`. To fully reset the map, stop the ROS2 container and delete `rtabmap.db` from the `mowgli_maps` volume.
 
 ## Development
 

@@ -1,6 +1,6 @@
 # MowgliNext
 
-Open-source autonomous robot mower monorepo. ROS2 Kilted, Nav2, SLAM Toolbox, BehaviorTree.CPP v4, cell-based strip coverage.
+Open-source autonomous robot mower monorepo. ROS2 Kilted, Nav2, RTAB-Map, BehaviorTree.CPP v4, cell-based strip coverage.
 
 **Website:** https://mowgli.garden | **Wiki:** https://github.com/cedbossneo/mowglinext/wiki
 
@@ -17,7 +17,7 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
 
 | Directory | Language | Build | Description |
 |-----------|----------|-------|-------------|
-| `ros2/` | C++17, Python | `colcon build` | ROS2 stack: 12 packages (Nav2, SLAM, BT, coverage, hardware bridge) |
+| `ros2/` | C++17, Python | `colcon build` | ROS2 stack: 12 packages + RTAB-Map submodule (Nav2, SLAM, BT, coverage, hardware bridge) |
 | `install/` | Shell | `./mowglinext.sh` | Interactive installer, hardware presets, modular Docker Compose configs |
 | `gui/` | Go, TypeScript/React | `go build`, `yarn build` | Web interface for config, map editing, monitoring |
 | `docker/` | YAML, Shell | `docker compose` | Manual deployment configs, DDS, service orchestration |
@@ -27,8 +27,8 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
 
 ## Architecture Invariants (DO NOT VIOLATE)
 
-1. **SLAM Toolbox is TF authority for map→odom** — `transform_publish_period: 0.05` (20 Hz). FusionCore owns `odom→base_footprint` (GPS+IMU+wheels fused in single UKF). No feedback loop: SLAM does not feed into FusionCore.
-2. **TF chain follows REP-105** — `map→odom→base_footprint→base_link→sensors`. All Nav2 nodes, FusionCore, and SLAM use `base_footprint` as the robot frame. `base_link` is at the rear wheel axis (OpenMower convention, do not move).
+1. **RTAB-Map is TF authority for map→odom** — publishes `map→odom` directly. FusionCore owns `odom→base_footprint` (GPS+IMU+wheels fused in single UKF). No feedback loop: SLAM does not feed into FusionCore.
+2. **TF chain follows REP-105** — `map→odom→base_footprint→base_link→sensors`. All Nav2 nodes, FusionCore, and RTAB-Map use `base_footprint` as the robot frame. `base_link` is at the rear wheel axis (OpenMower convention, do not move). No `slam_map` intermediate frame (removed with the GPS-SLAM corrector).
 3. **Cyclone DDS** — not FastRTPS (stale shm issues on ARM)
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation transform
 5. **Costmap obstacles disabled in coverage mode** — collision_monitor handles real-time avoidance
@@ -77,7 +77,7 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
 - Dedicated BT state with `COMMAND_MANUAL_MOW` (7) — does not hijack recording mode
 - Teleop via `/cmd_vel_teleop` (twist_mux priority)
 - Blade managed by GUI (fire-and-forget to firmware)
-- Collision_monitor, GPS, SLAM all remain active
+- Collision_monitor, GPS, RTAB-Map all remain active
 
 ## Code Style
 
@@ -104,17 +104,18 @@ No Co-Authored-By lines. Keep messages concise and focused on "why".
 - **Distro:** Kilted
 - **DDS:** Cyclone DDS (all containers share `docker/config/cyclonedds.xml`)
 - **Topics:** Mowgli-specific topics under `/mowgli/` namespace
-- **Frames:** `map` (global), `odom` (local), `base_footprint` (robot frame for Nav2/FusionCore/SLAM), `base_link` (rear axle), `lidar_link`, `imu_link`
-- **TF chain:** `map→odom` (SLAM Toolbox), `odom→base_footprint` (FusionCore), `base_footprint→base_link` (static), `base_link→sensors` (static)
+- **Frames:** `map` (global), `odom` (local), `base_footprint` (robot frame for Nav2/FusionCore/RTAB-Map), `base_link` (rear axle), `lidar_link`, `imu_link`
+- **TF chain:** `map→odom` (RTAB-Map), `odom→base_footprint` (FusionCore), `base_footprint→base_link` (static), `base_link→sensors` (static)
 - **Units:** SI throughout (metres, radians, seconds)
-- **Sensor fusion:** FusionCore (single UKF, 50Hz, GPS+IMU+wheels → odom→base_footprint TF + `/fusion/odom`). Source-built from `ros2/src/fusioncore/`. Lifecycle node auto-configured at launch.
+- **Sensor fusion:** FusionCore (single UKF, 50Hz, GPS+IMU+wheels → odom→base_footprint TF + `/fusion/odom`). Source-built from `ros2/src/fusioncore/` (upstream `manankharwar/fusioncore`). Lifecycle node auto-configured at launch.
 - **Navigation:** RPP for transit, FTCController (Follow-the-Carrot with 3-axis PID) for coverage paths (NOT MPPI — it jumps between adjacent swaths)
 - **Coverage:** Cell-based strip planner in `map_server_node`. Multi-area outer loop (`GetNextUnmowedArea`) iterates through all mowing areas. Inner strip loop fetches strips one at a time (`GetNextStrip` -> `TransitToStrip` -> `FollowStrip`). No full-path pre-planning. Progress persisted in `mow_progress` grid layer. All areas mowed sequentially, then robot docks.
 - **Area Recording:** `RecordArea` BT node records trajectory at 2 Hz, Douglas-Peucker simplification, saves polygon via `/map_server_node/add_area`. Live preview on `~/recording_trajectory`.
-- **Manual Mowing:** Dedicated BT state (COMMAND_MANUAL_MOW=7). Teleop via `/cmd_vel_teleop`, blade managed by GUI. Collision_monitor/GPS/SLAM remain active.
+- **Manual Mowing:** Dedicated BT state (COMMAND_MANUAL_MOW=7). Teleop via `/cmd_vel_teleop`, blade managed by GUI. Collision_monitor/GPS/RTAB-Map remain active.
 - **Emergency Auto-Reset:** BT auto-resets emergency when robot placed on dock (charging detected). Firmware is safety authority.
-- **GPS fusion:** FusionCore takes `/gps/fix` (NavSatFix) directly — no intermediate converter. `navsat_to_absolute_pose_node` still provides `/gps/absolute_pose` for GUI and BT.
-- **SLAM:** SLAM Toolbox publishes `map→odom` TF (20 Hz) and occupancy grid. No feedback into FusionCore.
+- **GPS fusion:** FusionCore takes `/gps/fix` (NavSatFix) directly and fuses it in the UKF — no intermediate converter, no separate GPS-SLAM corrector. Tuning: `gnss.min_fix_type: 0` (accept basic GPS), `gnss.base_noise_xy: 0.1` (leverages RTK 2cm accuracy), `gnss.base_noise_z: 100` (effectively ignore GPS altitude — ground constraint VZ=0 keeps z near 0). GPS lever arm (`gps_x`, `gps_y`, `gps_z`) is passed from `mowgli_robot.yaml`. `navsat_to_absolute_pose_node` still provides `/gps/absolute_pose` for GUI and BT. Note: `gps_slam_corrector_node.cpp` source still exists but is NOT launched on this branch; `SaveSlamMap` BT node is a no-op stub.
+- **SLAM (RTAB-Map):** Built from source via git submodule `ros2/src/rtabmap_ros` (pre-built jazzy binaries have ABI mismatch with kilted). Base Docker image is `introlab3it/rtabmap:noble-kilted` (provides librtabmap). Only these rtabmap_ros packages build: `rtabmap_slam`, `rtabmap_msgs`, `rtabmap_conversions`, `rtabmap_sync`, `rtabmap_util` — others are ignored in colcon build. Database persists at `/ros2_ws/maps/rtabmap.db`. Launch: `ros2/src/mowgli_bringup/launch/rtabmap.launch.py`. Publishes `map→odom` TF and occupancy grid. No feedback into FusionCore.
+- **Hardware bridge QoS:** `/imu/data` and `/wheel_odom` are published with `rclcpp::QoS(10)` (RELIABLE), NOT `SensorDataQoS()` (BEST_EFFORT) — FusionCore subscribes RELIABLE and refuses BEST_EFFORT publishers.
 - **Nav2 tuning:** Global costmap 30m x 30m rolling window; keepout_filter disabled in global costmap (blocks transit/docking); collision_monitor PolygonStop min_points=8, PolygonSlow min_points=6; source_timeout 5.0s (ARM TF jitter); progress checker 0.15m required movement, 30s timeout; failure_tolerance 1.0; speeds: mowing 0.3/0.15 m/s, transit 0.2 m/s, max 0.3 m/s.
 - **Joystick:** Foxglove client passes `schemaName` in `clientAdvertise` for JSON-to-CDR conversion. GUI shows joystick during "RECORDING" state (not just "AREA_RECORDING").
 
@@ -133,7 +134,9 @@ gh pr create --title "feat: my feature" --body "..."
 
 ### Dev Branch Workflow
 
-Docker builds trigger on both `main` and `dev` branches. Images are tagged `:main` and `:dev` respectively. Use `mowgli-dev` / `mowgli-main` commands to switch between environments. Iterate on `dev`, merge to `main` when stable.
+Docker builds trigger on `main`, `dev`, and any `feat/**` branches. Images are tagged `:main`, `:dev`, or `:feat-<name>` (e.g. the current `feat/rtabmap` branch builds `:feat-rtabmap`). Use `mowgli-dev` / `mowgli-main` commands to switch between environments. Iterate on `dev` or `feat/**`, merge to `main` when stable.
+
+**CI notes:** `provenance: false`, `sbom: false` on Docker builds (they caused 60+ min AMD64 stalls). BuildKit apt cache mounts + Azure mirror + `eatmydata` are used for fast builds.
 
 ## Quick Commands
 
@@ -210,9 +213,13 @@ When using Claude Code on this project:
 - Do NOT add ROS1 patterns (rosserial, roscore, catkin) — this is ROS2 only
 - Do NOT use FastRTPS — Cyclone DDS is required
 - Do NOT mock the database/firmware in integration tests — use real interfaces
-- Do NOT add a second TF publisher for `map→odom` — SLAM Toolbox is the sole authority
+- Do NOT add a second TF publisher for `map→odom` — RTAB-Map is the sole authority
 - Do NOT feed SLAM output into FusionCore — causes feedback loops (SLAM reads FusionCore's TF)
+- Do NOT reintroduce slam_toolbox or the `slam_map` frame — replaced by RTAB-Map on this branch
+- Do NOT relaunch the GPS-SLAM corrector node — GPS is fused directly in FusionCore now
 - Do NOT use robot_localization — replaced by FusionCore (single UKF)
+- Do NOT publish `/imu/data` or `/wheel_odom` with `SensorDataQoS()` (BEST_EFFORT) — FusionCore subscribes RELIABLE and will ignore them
+- Do NOT install `ros-kilted-rtabmap-*` or `ros-jazzy-rtabmap-*` binaries — build from the `ros2/src/rtabmap_ros` submodule (ABI mismatch otherwise)
 - Do NOT send blade commands without firmware safety checks
 - Do NOT hardcode GPS coordinates, dock poses, or NTRIP credentials
 - Do NOT use MPPI controller for coverage paths — it jumps between swaths

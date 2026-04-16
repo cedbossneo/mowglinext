@@ -14,7 +14,7 @@ config/
 ├── localization.yaml          # Dual EKF tuning
 ├── nav2_params.yaml           # Navigation stack (planner, controller, costmap)
 ├── coverage_planner.yaml      # B-RV coverage path planning parameters
-├── slam_toolbox.yaml          # SLAM parameters
+├── rtabmap.yaml               # RTAB-Map SLAM parameters
 ├── twist_mux.yaml             # Velocity multiplexer priorities
 ├── foxglove_bridge.yaml       # Foxglove Studio visualization bridge
 ├── obstacle_tracker.yaml      # LiDAR obstacle detection thresholds
@@ -248,7 +248,9 @@ The system uses **FusionCore**, a single Unscented Kalman Filter (UKF) that fuse
 - `/fusion/odom` (nav_msgs/Odometry) — fused state at 50 Hz
 - `/tf: odom → base_footprint` — transform at 50 Hz
 
-**SLAM Toolbox** provides the `map → odom` transform (20 Hz) via scan matching. No feedback from SLAM into FusionCore.
+**RTAB-Map** provides the `map → odom` transform via 2D LiDAR ICP scan matching and BoW loop closure. The database is persisted at `/ros2_ws/maps/rtabmap.db` and multi-session is enabled by default (the map survives restarts). No feedback from RTAB-Map into FusionCore.
+
+With RTK Fixed GPS (~2 cm accuracy), the UKF pose σ converges to about 25 mm; a ground constraint (VZ = 0) keeps `z = 0` even when GPS altitude varies.
 
 ### FusionCore Configuration
 
@@ -363,7 +365,7 @@ nav2_bringup (lifecycle manager)
   │   └── Default Nav2 BT: compute path → follow path → success
   │
   ├── nav2_costmap_2d (obstacle map)
-  │   ├── Static layer: /map from SLAM
+  │   ├── Static layer: /map from RTAB-Map
   │   ├── Obstacle layer: /scan from LiDAR
   │   └── Inflation layer: costmap + inflation radius
   │
@@ -532,7 +534,7 @@ global_costmap:
       # Plugins (layers)
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
 
-      # Static layer: SLAM-generated map
+      # Static layer: RTAB-Map generated occupancy grid
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -668,125 +670,69 @@ coverage_planner_node:
 
 ---
 
-## 5. slam_toolbox.yaml
+## 5. rtabmap.yaml
 
-**File:** `src/mowgli_bringup/config/slam_toolbox.yaml`
+**File:** `src/mowgli_bringup/config/rtabmap.yaml`
 
-**Purpose:** Configure SLAM (Simultaneous Localization and Mapping) for outdoor operation.
+**Purpose:** Configure RTAB-Map (2D LiDAR mode) as the map→odom SLAM backend. RTAB-Map replaces the previous `slam_toolbox` backend and removes the intermediate `slam_map` frame and the GPS-SLAM corrector node.
 
-**Full Configuration:**
+### Key Behaviour
+
+- **2D LiDAR mode** (no camera): registration via ICP scan matching on `/scan`
+- **Loop closure:** Bag-of-Words (BoW) candidate detection followed by ICP refinement
+- **Database:** persists to `/ros2_ws/maps/rtabmap.db` (mounted as the `mowgli_maps` Docker volume)
+- **Multi-session by default:** the database is not wiped at startup; previous sessions are merged into the same global map
+- **TF authority:** publishes `map → odom`; FusionCore still publishes `odom → base_footprint`
+- **Build:** source-built from the `introlab3it/rtabmap` base image via git submodule (see `ros2/src/rtabmap*`)
+
+### Typical Configuration
 
 ```yaml
-slam_toolbox:
+rtabmap:
   ros__parameters:
-    # General
     use_sim_time: false
-    mode: localization                    # or "mapping" for recording phase
 
-    # Frame setup
-    map_start_at_origin: false
-    map_frame: map
-    base_frame: base_link
-    odom_frame: odom
-    resolution: 0.05                      # 5 cm resolution
+    # Frames (REP-105)
+    frame_id: base_footprint
+    odom_frame_id: odom
+    map_frame_id: map
 
-    # ─────────────────────────────────────────────────────────────
-    # Laser scan processing
-    # ─────────────────────────────────────────────────────────────
+    # Inputs
+    subscribe_scan: true                  # 2D LiDAR mode
+    subscribe_rgbd: false                 # no camera
+    subscribe_depth: false
+
+    # Topics
     scan_topic: /scan
-    scan_queue_size: 10
+    odom_topic: /fusion/odom              # from FusionCore UKF
 
-    # Maximum range (ignore returns beyond this)
-    maximum_laser_range: 25.0             # m
+    # Database — persistent, multi-session
+    database_path: /ros2_ws/maps/rtabmap.db
+    Mem/IncrementalMemory: "true"         # keep adding nodes
+    Mem/InitWMWithAllNodes: "true"        # reload previous session into working memory
 
-    # Angular range (typically full 360° or limited for efficiency)
-    minimum_scan_angle: -3.14             # rad (-180°)
-    maximum_scan_angle: 3.14              # rad (+180°)
+    # Registration — ICP on 2D scan
+    Reg/Strategy: "1"                     # 1 = ICP
+    Reg/Force3DoF: "true"                 # planar robot
 
-    # Minimum range (ignore returns closer than this, avoid self-reflection)
-    minimum_laser_range: 0.15             # m
+    # Loop closure — BoW + ICP
+    Kp/DetectorStrategy: "6"              # GFTT/BRIEF (cheap, CPU-only)
+    RGBD/ProximityBySpace: "true"
+    RGBD/OptimizeFromGraphEnd: "false"
 
-    # ─────────────────────────────────────────────────────────────
-    # Motion model (for incremental updates)
-    # ─────────────────────────────────────────────────────────────
-    # SLAM uses odometry as motion prior; update if odometry drifts
-    transform_tolerance: 0.1              # seconds
-
-    # ─────────────────────────────────────────────────────────────
-    # Map update parameters
-    # ─────────────────────────────────────────────────────────────
-    # When to update the map (conservative for outdoor to avoid noise)
-    map_update_interval: 5.0              # seconds
-
-    # Minimum translation before new scan is added to map
-    minimum_travel_distance: 0.5          # m
-
-    # Minimum rotation before new scan is added to map
-    minimum_travel_heading: 0.5           # rad (~30°)
-
-    # ─────────────────────────────────────────────────────────────
-    # Loop closure: detecting when robot revisits a location
-    # ─────────────────────────────────────────────────────────────
-    enable_loop_closure: true
-
-    # Only close loops if robot is within this distance
-    loop_search_maximum_distance: 3.0     # m (conservative for small yards)
-
-    # Number of consecutive scans to form a "chain" before loop closure
-    loop_match_minimum_chain_size: 10     # scans (avoids spurious closures)
-
-    # Minimum loop closure match score (0.0–1.0, higher = more confident)
-    loop_match_minimum_response_fine: 0.1 # Fine scan matching threshold
-    loop_match_minimum_response_coarse: 0.05
-
-    # ─────────────────────────────────────────────────────────────
-    # Scan matching (registration of consecutive scans)
-    # ─────────────────────────────────────────────────────────────
-    # Determine pose delta between consecutive scans
-
-    # Correlation window (search area for matching)
-    correlation_search_space_dimension: 0.5  # m
-    correlation_search_space_resolution: 0.01 # m
-
-    # Search size for finer correlation
-    correlation_search_space_smear_deviation: 0.1 # m
-
-    # ─────────────────────────────────────────────────────────────
-    # Optimization: graph refinement (Pose Graph Optimization)
-    # ─────────────────────────────────────────────────────────────
-    enable_interactive_mode: false        # Don't use interactive SLAM
-
-    # Optimization parameters
-    do_loop_closure_optimization: true
-    do_scan_matching_optimization: true
-    optimization_angle_variance: 0.0349   # rad² (0.2° std dev)
-    optimization_translation_variance: 0.01 # m² (0.1 m std dev)
-
-    # ─────────────────────────────────────────────────────────────
-    # Output and visualization
-    # ─────────────────────────────────────────────────────────────
-    publish_pose_graph: true              # Publish pose graph for debug
-    publish_transform: true               # Publish map→odom TF
-    tf_buffer_duration: 30.0              # seconds (TF history for debugging)
+    # Grid map for Nav2 static layer
+    Grid/FromDepth: "false"               # 2D-only: build grid from /scan
+    Grid/RayTracing: "true"
+    Grid/CellSize: "0.05"                 # 5 cm occupancy grid
 ```
 
-### Tuning for Outdoor Operation
+> Full parameter names follow RTAB-Map's `Namespace/Key` convention. See the upstream RTAB-Map parameter reference for exhaustive options.
 
-**Challenge:** Grass, trees, and seasonal changes cause false loop closures.
+### Notes
 
-**Conservative Settings (Recommended):**
-```yaml
-loop_search_maximum_distance: 2.0     # Stricter: only close very confident loops
-loop_match_minimum_chain_size: 15     # Require longer chains
-minimum_travel_distance: 1.0          # Don't add scans too frequently
-```
-
-**Aggressive Settings (Faster Mapping, Risk of Artifacts):**
-```yaml
-loop_search_maximum_distance: 5.0
-loop_match_minimum_chain_size: 5
-minimum_travel_distance: 0.2
-```
+- The old `slam_map` intermediate frame and the GPS-SLAM corrector node have been removed. The TF chain is now simply `map → odom → base_footprint`.
+- GPS is fused directly inside FusionCore's UKF (not routed through the SLAM backend). With RTK Fixed, pose σ converges to ~25 mm.
+- To fully reset the map, delete `rtabmap.db` from the `mowgli_maps` volume while the container is stopped.
 
 ---
 
@@ -898,7 +844,7 @@ topics:
 | Path tracking oscillates | Lookahead or velocity scaling too aggressive | Adjust `lookahead_dist`, `desired_linear_vel` in RegulatedPurePursuit |
 | Robot can't follow curves | Lookahead distance too short | Increase `lookahead_dist` in nav2_params.yaml |
 | Planner is very slow | Grid resolution too fine or search space too large | Increase resolution (0.05 → 0.10) or reduce grid size |
-| SLAM diverges in loop closure | Loop closure parameters too aggressive | Decrease `loop_match_minimum_chain_size`, increase `loop_search_maximum_distance` |
+| SLAM diverges in loop closure | RTAB-Map BoW/ICP thresholds too aggressive | Raise `Rtabmap/LoopThr`, require more inliers for `Reg/ICPMinInlierRatio`, or prune spurious links via RTAB-Map's database viewer |
 
 ### Step 2: Modify Parameters
 
@@ -934,13 +880,12 @@ Rerun with adjusted parameters, observe results, adjust again.
 | `serial_port` | `/dev/mowgli` | – | any `/dev/tty*` |
 | `baud_rate` | 115200 | baud | 9600–230400 |
 | `FusionCore` frequency | 50.0 | Hz | 30–100 |
-| `SLAM` frequency | 20.0 | Hz | 5–50 |
+| `RTAB-Map` update rate | per-scan | Hz | bounded by `/scan` rate |
 | `controller_frequency` | 10.0 | Hz | 5–50 |
 | `desired_linear_vel` | 0.3 | m/s | 0.1–1.0 |
 | `lookahead_dist` | 0.6 | m | 0.2–1.5 |
 | `linear_p_gain` | 2.0 | – | 0.5–5.0 |
-| `slam_resolution` | 0.05 | m/pixel | 0.01–0.20 |
-| `loop_search_max_distance` | 3.0 | m | 1.0–5.0 |
+| `Grid/CellSize` (RTAB-Map) | 0.05 | m/pixel | 0.01–0.20 |
 
 ---
 

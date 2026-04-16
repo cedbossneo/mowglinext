@@ -619,16 +619,10 @@ export const DiagnosticsPage = () => {
                         </Col>
                         {slamInfo?.map_file_exists && (
                             <>
-                                <Col span={12}>
+                                <Col span={24}>
                                     <Statistic
-                                        title="Posegraph"
-                                        value={formatBytes(slamInfo.posegraph_size_bytes)}
-                                    />
-                                </Col>
-                                <Col span={12}>
-                                    <Statistic
-                                        title="Data file"
-                                        value={formatBytes(slamInfo.data_file_size_bytes)}
+                                        title="Database"
+                                        value={formatBytes(slamInfo.database_size_bytes)}
                                     />
                                 </Col>
                                 <Col span={24}>

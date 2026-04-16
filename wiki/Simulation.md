@@ -176,7 +176,7 @@ The test runs a complete autonomous mowing cycle and tracks structured phases:
 The test collects and reports:
 
 - **Path tracking quality** — deviation between planned and actual poses (target: median < 50cm)
-- **SLAM map growth** — verifies the map is being built during mowing
+- **SLAM map growth** — verifies RTAB-Map is building the occupancy grid during mowing
 - **GPS degradation events** — logs any GPS state transitions
 - **Obstacle proximity** — minimum LiDAR ranges, collision detection
 - **Reroute events** — counts mid-swath obstacle rerouting attempts
@@ -385,7 +385,7 @@ docker compose -f docker-compose.simulation.yaml exec dev-sim bash -c "\
 | Topic | Type | Purpose |
 |-------|------|---------|
 | `/fusion/odom` | nav_msgs/Odometry | Fused wheel + IMU + GPS (FusionCore UKF) |
-| `/map` | nav_msgs/OccupancyGrid | Occupancy grid from SLAM |
+| `/map` | nav_msgs/OccupancyGrid | Occupancy grid from RTAB-Map |
 | `/tf` | tf2_msgs/TFMessage | Transform tree (map → odom → base_footprint) |
 
 ### High-Level Control Service

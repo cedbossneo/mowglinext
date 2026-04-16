@@ -170,13 +170,13 @@
       <div class="feature-card">
         <div class="icon">🗺️</div>
         <h3>LiDAR SLAM &amp; Map Management</h3>
-        <p>Real-time mapping with SLAM Toolbox, optimized for outdoor environments. Save, load, and delete maps from the web UI. No pre-built maps needed.</p>
+        <p>Real-time mapping with RTAB-Map — 2D LiDAR scan matching with appearance-based loop closure, optimized for outdoor environments. Save, load, and delete the map database from the web UI. No pre-built maps needed.</p>
       </div>
 
       <div class="feature-card">
         <div class="icon">📡</div>
         <h3>FusionCore Sensor Fusion</h3>
-        <p>Modern single-UKF combining GPS, IMU, and wheel odometry into one seamless positioning system. Replaces older multi-filter approaches with a unified, robust localization pipeline.</p>
+        <p>Single UKF fuses RTK-GPS, IMU, and wheel odometry directly at 50 Hz for ~25 mm pose accuracy. One unified localization pipeline — no separate GPS-SLAM corrector, no dual-EKF complexity.</p>
       </div>
 
       <div class="feature-card">
@@ -242,9 +242,9 @@
 │  <span class="highlight">ROS2 Kilted Stack</span>                                     │
 │                                                      │
 │  ┌─────────────┐  ┌──────────┐  ┌─────────────────┐ │
-│  │  <span class="highlight">Nav2</span>        │  │  <span class="highlight">SLAM</span>    │  │  <span class="highlight">Behavior Tree</span>  │ │
-│  │  navigate    │  │  Toolbox  │  │  main_tree.xml  │ │
-│  │  dock/undock │  │          │  │  10 Hz tick     │ │
+│  │  <span class="highlight">Nav2</span>        │  │  <span class="highlight">RTAB-Map</span>│  │  <span class="highlight">Behavior Tree</span>  │ │
+│  │  navigate    │  │  SLAM    │  │  main_tree.xml  │ │
+│  │  dock/undock │  │  map→odom│  │  10 Hz tick     │ │
 │  │  coverage    │  │          │  │                 │ │
 │  └─────────────┘  └──────────┘  └─────────────────┘ │
 │  ┌─────────────┐  ┌──────────┐  ┌─────────────────┐ │

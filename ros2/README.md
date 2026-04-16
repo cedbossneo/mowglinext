@@ -2,7 +2,7 @@
 
 A complete ROS2 Kilted robot mower stack built from scratch. Autonomous coverage mowing with RTK GPS, LiDAR SLAM, cell-based strip coverage planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
 
-Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Kilted with Nav2, slam_toolbox lifelong mode, and cell-based strip coverage.
+Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Kilted with Nav2, RTAB-Map SLAM, and cell-based strip coverage.
 
 [![CI](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml)
 [![Docker](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml)
@@ -57,10 +57,10 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
  +------v--------------------------------------------------------------+
  |                        Localization                                  |
  |                                                                      |
- |  FusionCore (50 Hz)               slam_toolbox (lifelong)            |
- |  GPS + IMU + wheels -> UKF        LiDAR scan matching                |
+ |  FusionCore (50 Hz)               RTAB-Map (online SLAM)             |
+ |  GPS + IMU + wheels -> UKF        2D LiDAR scan matching             |
  |  odom->base_footprint TF          map -> odom TF authority           |
- |  /fusion/odom topic               transform_publish_period: 0.05    |
+ |  /fusion/odom topic               database: /ros2_ws/maps/rtabmap.db |
  |                                                                      |
  |  navsat_to_absolute_pose          wheel_odometry_node                |
  |  NavSatFix -> AbsolutePose        Wheel encoder integration          |
@@ -86,9 +86,9 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 
 - **Full autonomous mowing** — plan, mow, dock, charge, resume. No manual intervention required.
 - **Multi-area strip coverage** — areas are mowed sequentially. For each area, strips are planned on demand by `map_server_node` and fetched one at a time by the BT via `GetNextUnmowedArea` (outer loop) and `GetNextStrip` (inner loop). Nav2 handles transit between strips (`TransitToStrip`), FTCController follows each strip (`FollowStrip`). No pre-planned full path. Progress tracked in `mow_progress` grid layer and survives restarts. Coverage status published on `/map_server_node/coverage_cells` (OccupancyGrid).
-- **slam_toolbox lifelong mode** — LiDAR SLAM that accumulates across sessions. Pose graph persisted to disk before docking and reloaded on next session.
-- **RTK GPS localization** — UBX protocol. RTK fixed gives ~2 cm absolute accuracy. FusionCore fuses GPS + IMU + wheel velocity into a single UKF at 50 Hz with adaptive covariances.
-- **FusionCore sensor fusion** — Single UKF fuses GPS, IMU, and wheel odometry at 50 Hz. Publishes `odom→base_footprint` TF and `/fusion/odom` topic. SLAM Toolbox is the sole `map→odom` TF authority via LiDAR scan matching (20 Hz, `transform_publish_period: 0.05`).
+- **RTAB-Map SLAM** — 2D LiDAR online SLAM with appearance-based loop closure. Database persisted at `/ros2_ws/maps/rtabmap.db` and reloaded on next session. Built from source from `src/rtabmap_ros` (git submodule) on top of the `introlab3it/rtabmap:noble-kilted` base image.
+- **RTK GPS localization** — UBX protocol. RTK fixed gives ~2 cm absolute accuracy. FusionCore fuses GPS + IMU + wheel velocity into a single UKF at 50 Hz with adaptive covariances. No separate GPS-SLAM corrector — GPS is fused directly in the UKF.
+- **FusionCore sensor fusion** — Single UKF fuses GPS, IMU, and wheel odometry at 50 Hz. Publishes `odom→base_footprint` TF and `/fusion/odom` topic. RTAB-Map is the sole `map→odom` TF authority via LiDAR scan matching. Pose sigma ~25 mm with RTK fixed.
 - **BehaviorTree.CPP v4 mission executor** — reactive guards for emergency, boundary, rain, and battery. Automatic rain-stop-dock-wait-resume cycle. Battery-aware dock-charge-undock-resume cycle.
 - **Persistent obstacle tracking** — `obstacle_tracker_node` promotes LiDAR detections to persistent after age and observation thresholds. Obstacles are reflected in Nav2 costmaps for dynamic avoidance during strip transit and mowing.
 - **Nav2 Kilted** — SmacPlanner2D global planner, RegulatedPurePursuit for transit, FTCController for coverage strips, RotationShimController, `docking_server` (opennav_docking), `collision_monitor`.
@@ -96,10 +96,11 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 - **Mow progress tracking** — `map_server_node` GridMap layer marks cells as mowed with time-based decay. Visualised as OccupancyGrid.
 - **Keepout and speed zone masks** — `map_server_node` publishes Nav2 costmap filter masks for mowing boundaries and perimeter speed limits.
 - **Cyclone DDS middleware** — `rmw_cyclonedds_cpp` selected in the runtime Docker image for reliable service discovery on ARM without shared memory issues.
-- **Docker multi-stage build** — 6 stages from `ros:kilted-ros-base`. ARM-tested on Rockchip. Dev workflow with bind-mounted source for fast iteration.
+- **Docker multi-stage build** — 6 stages from `introlab3it/rtabmap:noble-kilted` (librtabmap pre-built, ROS2 Kilted). ARM-tested on Rockchip. Dev workflow with bind-mounted source for fast iteration.
 - **Foxglove Studio bridge** — WebSocket on port 8765. Pre-built layout at `foxglove/mowgli_sim.json`.
 - **openmower-gui integration** — rosbridge WebSocket on port 9090.
 - **Diagnostics** — `diagnostics_node` monitors 8+ subsystems: hardware bridge, GPS/SLAM localization modes, FusionCore (rate, position accuracy, flat-ground constraint, Z-drift), obstacle tracker, wheel odometry, published as `diagnostic_msgs/DiagnosticArray` at 1 Hz. Optional MQTT bridge.
+- **FusionCore submodule** — Built from source from `src/fusioncore/` (tracked as git submodule against the upstream `manankharwar/fusioncore` repository). Lifecycle node auto-configured at launch.
 
 ---
 
@@ -123,7 +124,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 
 ```
 map
- +-- odom              (published by slam_toolbox — map->odom TF authority via LiDAR scan matching)
+ +-- odom              (published by RTAB-Map — map->odom TF authority via 2D LiDAR scan matching)
       +-- base_footprint (published by FusionCore at 50 Hz — odom->base_footprint)
            +-- base_link              (fixed, rear wheel axle)
                 +-- left_wheel_link        (continuous joint)
@@ -140,7 +141,7 @@ Frame conventions follow REP-105: `map` (global, GPS frame), `odom` (local, SLAM
 
 `base_link` is placed at the centre of the rear drive wheel axis at wheel axle height. The chassis geometric centre sits `chassis_center_x` (default 0.18 m) forward of `base_link`. `base_footprint` is directly below `base_link` on the ground plane. The Nav2 footprint polygon is computed at launch from `chassis_length`, `chassis_width`, and `chassis_center_x` read from `mowgli_robot.yaml`.
 
-FusionCore (lifecycle node) publishes the `odom→base_footprint` TF at 50 Hz fusing GPS, IMU, and wheel odometry. SLAM Toolbox publishes `map→odom` TF at 20 Hz (no feedback loop from FusionCore into SLAM).
+FusionCore (lifecycle node) publishes the `odom→base_footprint` TF at 50 Hz fusing GPS, IMU, and wheel odometry. RTAB-Map publishes `map→odom` TF from LiDAR scan matching (no feedback loop from FusionCore into RTAB-Map).
 
 ---
 
@@ -187,7 +188,8 @@ FusionCore (lifecycle node) publishes the `odom→base_footprint` TF at 50 Hz fu
 | `/map_server_node/get_next_strip` | `mowgli_interfaces/srv/GetNextStrip` | `map_server_node` |
 | `/map_server_node/get_coverage_status` | `mowgli_interfaces/srv/GetCoverageStatus` | `map_server_node` |
 | `/obstacle_tracker/save_obstacles` | `std_srvs/srv/Trigger` | `obstacle_tracker_node` |
-| `/slam_toolbox/serialize_map` | `slam_toolbox/srv/SerializePoseGraph` | `slam_toolbox` |
+| `/rtabmap/backup` | `std_srvs/srv/Empty` | `rtabmap` (save database) |
+| `/rtabmap/reset` | `std_srvs/srv/Empty` | `rtabmap` (clear database) |
 
 ### Actions
 
@@ -236,9 +238,9 @@ ros2 service call /behavior_tree_node/high_level_control \
 
 | mode_id | mode string | Condition | Typical accuracy |
 |---------|-------------|-----------|-----------------|
-| `4` | `RTK_SLAM` | RTK fixed + SLAM active | ~2 cm absolute |
-| `3` | `SLAM_DOMINANT` | RTK float + SLAM active | ~5–10 cm |
-| `2` | `SLAM_ODOM` | No GPS + SLAM active | ~10–20 cm relative |
+| `4` | `RTK_SLAM` | RTK fixed + RTAB-Map active | ~2 cm absolute (pose σ ~25 mm) |
+| `3` | `SLAM_DOMINANT` | RTK float + RTAB-Map active | ~5–10 cm |
+| `2` | `SLAM_ODOM` | No GPS + RTAB-Map active | ~10–20 cm relative |
 | `1` | `GPS_ODOM` | RTK fixed + no SLAM | No obstacle avoidance |
 | `0` | `DEAD_RECKONING` | All sources degraded | Return to dock |
 
@@ -342,9 +344,9 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `slam_mode` | `"lifelong"` | `mapping` / `localization` / `lifelong` |
-| `map_save_path` | `"/ros2_ws/maps/garden_map"` | Pose graph file path (no extension) |
-| `map_save_on_dock` | `true` | Save SLAM pose graph to disk before docking |
+| `slam_mode` | `"lifelong"` | `mapping` / `localization` / `lifelong` — maps to RTAB-Map's `Mem/IncrementalMemory` and localization mode |
+| `map_save_path` | `"/ros2_ws/maps/rtabmap.db"` | RTAB-Map database file path |
+| `map_save_on_dock` | `true` | Persist the RTAB-Map database to disk before docking |
 
 ### Coverage Parameters
 
@@ -356,8 +358,8 @@ Coverage strip planning is handled by `map_server_node`. Mowing parameters are c
 |------|----------|
 | `src/mowgli_bringup/config/mowgli_robot.yaml` | All physical, operational, and safety parameters |
 | `src/mowgli_bringup/config/nav2_params.yaml` | Nav2 controllers, planner, costmaps, collision monitor |
-| `src/mowgli_bringup/config/localization.yaml` | Dual EKF tuning and GPS covariances |
-| `src/mowgli_bringup/config/slam_toolbox.yaml` | SLAM scan matching, loop closure, map update rate |
+| `src/mowgli_bringup/config/localization.yaml` | FusionCore UKF tuning (GPS, IMU, wheel covariances, base noise) |
+| `src/mowgli_bringup/launch/rtabmap.launch.py` | RTAB-Map SLAM parameters (scan subsampling, loop closure, grid output) |
 | `src/mowgli_bringup/config/twist_mux.yaml` | `cmd_vel` multiplexer priorities and timeouts |
 | `src/mowgli_map/config/obstacle_tracker.yaml` | LiDAR obstacle detection thresholds |
 | `src/mowgli_behavior/config/behavior_tree.yaml` | BT node parameters |
@@ -417,10 +419,10 @@ make lint            # cppcheck + cpplint
 
 | Stage | From | Contents |
 |-------|------|----------|
-| `base` | `ros:kilted-ros-base` | All apt runtime deps: Nav2, slam_toolbox, rosbridge-suite, foxglove-bridge, Cyclone DDS |
+| `base` | `introlab3it/rtabmap:noble-kilted` | librtabmap pre-built + ROS2 Kilted. All apt runtime deps: Nav2, rosbridge-suite, foxglove-bridge, Cyclone DDS |
 | `deps` | `base` | Build tools, rosdep resolution |
 | `build-interfaces` | `deps` | `mowgli_interfaces` compiled only (cached layer, rarely rebuilt) |
-| `build` | `build-interfaces` | All remaining packages compiled, unit tests run |
+| `build` | `build-interfaces` | `rtabmap_ros` packages + all remaining mowgli packages compiled, unit tests run |
 | `runtime` | `base` | Compiled install tree + rosbridge CBOR patch applied. Sets `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` |
 | `simulation` | `runtime` | Gazebo Harmonic + TigerVNC + noVNC for GUI access |
 
@@ -498,7 +500,7 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 
 **Tier 2 — `full_system.launch.py`** (includes Tier 1 + full navigation stack):
 
-- `navigation.launch.py` — FusionCore, slam_toolbox, Nav2 bringup
+- `navigation.launch.py` — FusionCore, RTAB-Map (`rtabmap.launch.py`), Nav2 bringup
 - `behavior_tree_node` — BT mission executor
 - `map_server_node` + `obstacle_tracker_node` — area management and obstacle tracking
 - `wheel_odometry_node`, `navsat_to_absolute_pose_node`, `localization_monitor_node` — localization pipeline
@@ -515,8 +517,8 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 |----------|---------|-------------|
 | `use_sim_time` | `false` | Use Gazebo simulation clock |
 | `serial_port` | `/dev/mowgli` | Hardware bridge serial device |
-| `slam` | `true` | Run slam_toolbox; `false` with a pre-built map |
-| `map` | `""` | Path to pre-built map yaml (when `slam:=false`) |
+| `slam` | `true` | Run RTAB-Map; `false` with a pre-built database |
+| `map` | `""` | Path to pre-built RTAB-Map database (when `slam:=false`) |
 | `enable_mqtt` | `false` | Launch MQTT bridge node |
 | `enable_foxglove` | `true` | Launch Foxglove Bridge |
 | `enable_rosbridge` | `true` | Launch rosbridge_server |
@@ -528,7 +530,7 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `slam_mode` | `lifelong` | `mapping` / `localization` / `lifelong` |
-| `map_file_name` | `/ros2_ws/maps/garden_map` | Pose graph path without file extension |
+| `map_file_name` | `/ros2_ws/maps/rtabmap.db` | RTAB-Map database path |
 
 ### Simulation Launch Files
 
@@ -580,7 +582,7 @@ MowingSequence
     IsCharging? -> skip (robot already in field)
     UndockSequence:
       Wait up to 30s for GPS fix (timeout -> proceed anyway)
-      SaveSlamMap("/ros2_ws/maps/garden_map")
+      SaveSlamMap("/ros2_ws/maps/rtabmap.db")
       RecordUndockStart         snapshot GPS position
       UndockRobot               opennav_docking undock action
       CalibrateHeadingFromUndock compute map heading from GPS displacement
@@ -659,7 +661,7 @@ MowingSequence
 | `FollowStrip` | Follows the current strip path via Nav2 `FollowPath` with FTCController |
 | `DockRobot(dock_id, dock_type)` | `opennav_docking` `/dock_robot` action |
 | `UndockRobot(dock_type)` | `opennav_docking` `/undock_robot` action |
-| `SaveSlamMap(map_path)` | Calls `/slam_toolbox/serialize_map` service |
+| `SaveSlamMap(map_path)` | Calls `/rtabmap/backup` to persist the RTAB-Map database to disk |
 | `SaveObstacles` | Calls `/obstacle_tracker/save_obstacles` service |
 | `ClearCostmap` | Clears global and local costmaps via Nav2 services |
 | `SetNavMode(mode)` | Adjusts Nav2 speed limits based on GPS quality (`precise` / `degraded`) |
@@ -740,7 +742,7 @@ GUI settings use snake_case YAML keys: `datum_lat`, `datum_lon`, `tool_width`, `
 
 - **BT visualization:** Active behavior tree nodes displayed from `/behavior_tree_log` topic (JSON publication from `behavior_tree_node`)
 - **Automatic session recording:** Go backend monitors `HighLevelStatus` state transitions (AUTONOMOUS ↔ IDLE_DOCKED) and records mowing sessions with timestamps, coverage percentage, battery consumed
-- **SLAM map management:** API endpoints to query map info, serialize (save), and delete pose graph via `/slam_toolbox/serialize_map` service
+- **RTAB-Map database management:** API endpoints to query map info, persist (save via `/rtabmap/backup`), and delete the RTAB-Map database
 
 ---
 
@@ -792,7 +794,7 @@ Contributions are welcome. Before opening a pull request:
 - **C++ standard:** C++17, `ament_cmake` build system
 - **Naming:** `snake_case` for files and ROS parameters, `CamelCase` for C++ classes and node names
 - **Units:** SI throughout — metres, radians, seconds
-- **Frames:** `map` (global), `odom` (local), `base_link` (robot body)
+- **Frames:** `map` (global, RTAB-Map authority), `odom` (FusionCore authority), `base_footprint` (robot frame for Nav2), `base_link` (rear wheel axle)
 - **Topics:** `~/topic` for node-private topics, `/topic` for shared topics
 
 ### Pre-commit
@@ -806,11 +808,12 @@ pre-commit install
 
 ### CI Pipeline
 
-GitHub Actions runs on every push and pull request to `main`:
+GitHub Actions runs on every push and pull request to `main`, `dev`, and `feat/**` branches:
 
 - Build and unit test on `ubuntu-24.04` / ROS2 Kilted
 - `clang-format` compliance check (clang-format-17)
 - `cppcheck` static analysis
+- Docker multi-arch build (linux/amd64, linux/arm64). Branch tags are published to GHCR — e.g. `ghcr.io/cedbossneo/mowglinext/mowgli-ros2:main`, `:dev`, `:feat-rtabmap`.
 
 ---
 

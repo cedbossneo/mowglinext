@@ -477,17 +477,18 @@ FusionCore node (50 Hz, single UKF)
 
 ↓
 
-SLAM Toolbox (20 Hz):
-   - Fuses: /scan + /fusion/odom
-   - Output: /map (occupancy grid)
+RTAB-Map (2D LiDAR mode, ICP scan matching):
+   - Inputs: /scan + /fusion/odom
+   - Output: /map (occupancy grid) + rtabmap.db (persistent multi-session database)
+   - Loop closure: Bag-of-Words (BoW) + ICP
    - Publishes TF: map → odom (TF authority for map→odom)
 
 ↓
 
 Final Output:
   /tf tree: map → odom → base_footprint
-  /fusion/odom (sensor fusion result, both local and GPS-corrected)
-  /map (occupancy grid from SLAM)
+  /fusion/odom (sensor fusion result with GPS fused directly in UKF)
+  /map (occupancy grid from RTAB-Map)
 ```
 
 #### 3a. wheel_odometry_node
@@ -679,13 +680,13 @@ base_footprint (on ground, fixed to base_link)
 **Transform Tree (TF):**
 
 ```
-Map frame (SLAM origin)
+Map frame (RTAB-Map origin)
     │
-    ├── [SLAM Toolbox publishes map→odom @ 20 Hz]
+    ├── [RTAB-Map publishes map→odom via 2D LiDAR ICP + loop closure]
     │
 Odometry frame (local dead-reckoning origin)
     │
-    ├── [FusionCore publishes odom→base_footprint @ 50 Hz]
+    ├── [FusionCore publishes odom→base_footprint @ 50 Hz — fuses wheels+IMU+GPS]
     │
 Base footprint (on ground, robot frame for Nav2/FusionCore)
     │
@@ -710,7 +711,7 @@ Starts:
 3. `twist_mux` – Priority-based cmd_vel multiplexer
 4. `FusionCore` (single UKF, lifecycle node) – Wheel odometry + IMU + GPS fusion
 5. `wheel_odometry_node`, `imu_filter_madgwick`, `navsat_to_absolute_pose_node`, `localization_monitor_node` – Sensor preparation
-6. (Optional) SLAM, Nav2, behavior tree nodes
+6. (Optional) RTAB-Map, Nav2, behavior tree nodes
 
 **simulation.launch.py** – Gazebo Ignition
 
@@ -725,14 +726,14 @@ Starts:
 
 Starts:
 1. `nav2_bringup` – All Nav2 servers (controller, planner, behaviors, costmap)
-2. `slam_toolbox` – SLAM node for mapping (optional, environment-based)
+2. `rtabmap` – SLAM node for mapping (2D LiDAR ICP + loop closure, persistent rtabmap.db)
 
 #### Configuration Files
 
 **hardware_bridge.yaml** – Serial communication
 **localization.yaml** – Dual EKF tuning
 **nav2_params.yaml** – Navigation stack (costmaps, planner, controller)
-**slam_toolbox.yaml** – SLAM-specific parameters
+**rtabmap.yaml** – RTAB-Map parameters (2D LiDAR mode, loop closure, database path)
 **twist_mux.yaml** – Velocity command multiplexing
 
 ---
@@ -991,7 +992,7 @@ BehaviorTreeNode (main ROS2 node, 10 Hz)
                 │
                 ├── Sequence: MowingSequence (COMMAND_START = 1)
                 │   ├── IsCommand(1)
-                │   ├── Undock (with GPS wait, SLAM save, heading calibration)
+                │   ├── Undock (with GPS wait, RTAB-Map save, heading calibration)
                 │   ├── Multi-area coverage loop:
                 │   │   └── Repeat(until no more areas): AreaLoop
                 │   │       ├── GetNextUnmowedArea() — fetch next unmowed area polygon
@@ -1132,7 +1133,7 @@ class ClearCostmap : public BT::ActionNode
 // Returns SUCCESS
 
 class SaveSlamMap : public BT::ActionNode
-// Persists SLAM map to disk
+// Triggers RTAB-Map database save (rtabmap.db auto-persists across restarts)
 // Port In: map_path (string)
 // Returns SUCCESS
 
@@ -1530,7 +1531,7 @@ Simulation Stack (ros_gz_sim + ros_gz_bridge)
         └── (identical to real hardware)
             ├── robot_state_publisher (URDF)
             ├── Nav2 stack
-            ├── SLAM (if enabled)
+            ├── RTAB-Map (if enabled)
             └── Behavior tree
 ```
 
@@ -1608,7 +1609,7 @@ The simulated robot is fully compatible with the real robot's ROS2 stack, allowi
 **Location:** `src/mowgli_map/`
 
 **Features:**
-- Loads pre-recorded SLAM maps from disk
+- Loads pre-recorded maps from disk (RTAB-Map persists via `rtabmap.db`, multi-session by default)
 - Serves /map topic (occupancy grid) to Nav2
 - Persists maps generated during online SLAM runs
 - Supports multi-map environments (e.g., different properties/zones)
@@ -1720,10 +1721,10 @@ foxglove_bridge:
      ├─ Output: /fusion/odom (sensor fusion result, odom → base_footprint)
      └─→ /tf: odom → base_footprint
 
-   SLAM (slam_toolbox, 20 Hz):
+   SLAM (RTAB-Map, 2D LiDAR mode):
      ├─ /scan + /fusion/odom
-     ├─ Output: /map (occupancy grid)
-     └─→ /tf: map → odom (scan matching + loop closure, TF authority)
+     ├─ Output: /map (occupancy grid) + rtabmap.db (multi-session, persistent)
+     └─→ /tf: map → odom (ICP scan matching + BoW loop closure, TF authority)
 
    FTCController (10 Hz, coverage) / RPP Controller (10 Hz, transit):
      ├─ Reads robot pose from /tf: odom → base_link
@@ -1775,7 +1776,7 @@ foxglove_bridge:
 11. Telemetry (Foxglove Bridge, 8765/ws):
     → Web UI receives:
        ├─ /fusion/odom (robot pose from sensor fusion)
-       ├─ /map (occupancy grid from SLAM)
+       ├─ /map (occupancy grid from RTAB-Map)
        ├─ /coverage_path and /coverage_outline (visualization)
        ├─ /scan (LiDAR pointcloud)
        ├─ /diagnostics (system health)
@@ -1789,11 +1790,11 @@ foxglove_bridge:
 **Standard ROS2 conventions (REP-103 + REP-105):**
 
 ```
-map (SLAM origin, or GPS-corrected)
-  │ [published by SLAM Toolbox @ 20 Hz]
+map (RTAB-Map origin; GPS fused directly in FusionCore UKF)
+  │ [published by RTAB-Map via 2D LiDAR ICP + loop closure]
   │
   odom (local dead-reckoning origin)
-  │ [published by FusionCore @ 50 Hz]
+  │ [published by FusionCore @ 50 Hz — fuses wheels+IMU+GPS]
   │
   base_footprint (on ground, robot frame for Nav2/FusionCore)
   │ [published by FusionCore from URDF]
@@ -1805,7 +1806,7 @@ map (SLAM origin, or GPS-corrected)
   │   └── [hardware_bridge publishes IMU data in this frame]
   │
   ├── laser_link (fixed to chassis, LiDAR origin)
-  │   └── [SLAM and costmap read /scan in this frame]
+  │   └── [RTAB-Map and costmap read /scan in this frame]
   │
   ├── gps_link (fixed to antenna, GPS measurement point)
   │
@@ -1818,7 +1819,7 @@ map (SLAM origin, or GPS-corrected)
 
 | Frame | Publisher | Rate | Purpose |
 |-------|-----------|------|---------|
-| map | SLAM Toolbox | 20 Hz | Global origin (scan matching + loop closure) |
+| map | RTAB-Map | On scan | Global origin (2D LiDAR ICP + BoW loop closure; persisted in rtabmap.db) |
 | odom | FusionCore | 50 Hz | Local dead-reckoning origin (wheel odometry reference) |
 | base_footprint | FusionCore | 50 Hz | On ground, robot frame for Nav2/controllers (per REP-105) |
 | base_link | robot_state_publisher | Static | Rear wheel axle (OpenMower convention) |
@@ -1829,8 +1830,8 @@ map (SLAM origin, or GPS-corrected)
 
 **Frame Conventions:**
 
-- `map` – Global frame, typically z-up, x-east, y-north (REP-103). Set by SLAM Toolbox via scan matching.
-- `odom` – Local odometry frame, z-up. Represents wheel odometry reference; drift corrected by SLAM.
+- `map` – Global frame, typically z-up, x-east, y-north (REP-103). Set by RTAB-Map via 2D LiDAR ICP and loop closure.
+- `odom` – Local odometry frame, z-up. Published by FusionCore (fuses wheels + IMU + GPS in a single UKF); drift corrected by RTAB-Map via the map→odom transform.
 - `base_footprint` – Ground contact point, robot frame for Nav2. Published by FusionCore.
 - `base_link` – Robot body frame at rear wheel axle height (OpenMower convention). Static offset from base_footprint.
 
@@ -1840,7 +1841,7 @@ Static TF bridges connect Gazebo sensor frame names to URDF frames:
 - `mowgli_mower/laser_link/lidar_sensor` ↔ `laser_link` (identity)
 - `mowgli_mower/base_link/imu_sensor` ↔ `imu_link` (identity)
 
-This allows SLAM, costmap, and other nodes to use standard ROS2 frame names regardless of simulation vs. real hardware.
+This allows RTAB-Map, costmap, and other nodes to use standard ROS2 frame names regardless of simulation vs. real hardware.
 
 ---
 
@@ -1850,7 +1851,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 
 | Topic | Type | Publisher | Rate | Purpose |
 |-------|------|-----------|------|---------|
-| `/map` | nav_msgs/OccupancyGrid | slam_toolbox | 1 Hz | Occupancy map from SLAM (if enabled) |
+| `/map` | nav_msgs/OccupancyGrid | rtabmap | 1 Hz | Occupancy map from RTAB-Map (if enabled) |
 | `/scan` | sensor_msgs/LaserScan | Gazebo bridge / LiDAR driver | 10 Hz | LiDAR range data (Gazebo simulated or real) |
 | `/imu/data` | sensor_msgs/Imu | imu_filter_madgwick | 50 Hz | Filtered IMU (9-DOF fusion) |
 | `/imu/data_raw` | sensor_msgs/Imu | hardware_bridge_node | 100 Hz | Raw accelerometer + gyroscope |
@@ -1875,9 +1876,9 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | Topic | Subscriber | Purpose |
 |-------|-----------|---------|
 | `/cmd_vel` | hardware_bridge_node / Gazebo | Motor/wheel commands |
-| `/scan` | slam_toolbox, nav2_local_costmap, diagnostics_node | SLAM, obstacle detection, monitoring |
+| `/scan` | rtabmap, nav2_local_costmap, diagnostics_node | SLAM, obstacle detection, monitoring |
 | `/imu/data_raw` | diagnostics_node | Monitor IMU freshness |
-| `/fusion/odom` | slam_toolbox, nav2 controller, diagnostics_node | SLAM input, localized pose for control |
+| `/fusion/odom` | rtabmap, nav2 controller, diagnostics_node | SLAM input, localized pose for control |
 | `/map` | nav2 planner, behavior_tree (goal comparison), diagnostics_node | Global navigation reference |
 | `/gps/rtk_fix` | FusionCore, navsat_to_absolute_pose_node, diagnostics_node | Sensor fusion, convert fix to local frame, monitor GPS |
 | `/status` | behavior_tree_node, localization_monitor_node, diagnostics_node | Health checks, sensor freshness |
@@ -1928,9 +1929,11 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 4. **Robust Serial Protocol (COBS + CRC-16):** Enables reliable bidirectional communication between Raspberry Pi and STM32 firmware over noisy USB at 115200 baud.
 
 5. **Single-Tier UKF Localization (FusionCore):**
-   - Fuses wheel odometry + IMU + GPS in single UKF (50 Hz)
-   - Outputs `/fusion/odom` (odom→base_footprint) with GPS correction
-   - SLAM Toolbox provides map→odom TF authority via scan matching (20 Hz)
+   - Fuses wheel odometry + IMU + GPS (NavSatFix) in single UKF (50 Hz)
+   - Outputs `/fusion/odom` (odom→base_footprint)
+   - Ground constraint (VZ=0) keeps z=0 even when GPS altitude varies
+   - With RTK Fixed, pose σ converges to ~25 mm (GPS accuracy ~2 cm)
+   - RTAB-Map provides map→odom TF authority via 2D LiDAR ICP + BoW loop closure (persists in rtabmap.db, multi-session by default)
    - Graceful degradation: operates without GPS in GNSS-denied areas (wheel+IMU only)
 
 6. **Coverage Path Following:** FTCController (Follow-the-Carrot) is the active controller for FollowCoveragePath, achieving <10mm lateral accuracy with 3-axis PID control and in-place rotation at swath turns. RPP remains active for FollowPath (transit and docking).
@@ -1950,7 +1953,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 11. **Unified Simulation-to-Hardware Workflow:**
     - Gazebo Harmonic with ros_gz_bridge enables identical ROS2 stack on both sim and real hardware
     - Static TF bridges map Gazebo sensor frames to URDF frames
-    - Behavior tree, Nav2, SLAM, and diagnostics unchanged between environments
+    - Behavior tree, Nav2, RTAB-Map SLAM, and diagnostics unchanged between environments
 
 12. **Foxglove Bridge for Remote UI:** Modern WebSocket-based telemetry (port 8765) replaces legacy rosbridge, reducing latency and CPU overhead.
 
@@ -1963,7 +1966,7 @@ This allows SLAM, costmap, and other nodes to use standard ROS2 frame names rega
 | Resource | Location | Purpose |
 |----------|----------|---------|
 | URDF/Xacro | src/mowgli_bringup/urdf/mowgli.urdf.xacro | Robot kinematics, sensor frames, collision geometry |
-| SLAM Config | src/mowgli_bringup/config/slam_toolbox.yaml | Loop closure, occupancy grid updates |
+| SLAM Config | src/mowgli_bringup/config/rtabmap.yaml | RTAB-Map 2D LiDAR mode, ICP, loop closure, rtabmap.db path |
 | Nav2 Config | src/mowgli_bringup/config/nav2_params.yaml | Planner, controller, costmap tuning |
 | Behavior Tree | src/mowgli_behavior/trees/main_tree.xml | High-level state machine and sequencing |
 | Coverage Config | src/mowgli_brv_planner/config/coverage_planner.yaml | B-RV planner parameters (tool width, headland) |
@@ -1978,7 +1981,7 @@ ros2 launch mowgli_simulation simulation.launch.py
 # Real hardware (Raspberry Pi + STM32)
 ros2 launch mowgli_bringup mowgli.launch.py
 
-# SLAM + mapping
+# RTAB-Map SLAM + mapping
 ros2 launch mowgli_bringup navigation.launch.py
 
 # Coverage planning (standalone test)

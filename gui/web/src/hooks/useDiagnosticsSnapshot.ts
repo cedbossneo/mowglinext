@@ -34,8 +34,7 @@ export interface CrossChecks {
 
 export interface SlamInfo {
     map_file_exists: boolean;
-    posegraph_size_bytes: number;
-    data_file_size_bytes: number;
+    database_size_bytes: number;
     last_modified: string;
     map_path: string;
 }

@@ -71,13 +71,12 @@ type DockPoseCheck struct {
 	HasConfig     bool    `json:"has_config"`
 }
 
-// SlamInfo holds SLAM map file metadata.
+// SlamInfo holds SLAM map file metadata (RTAB-Map database).
 type SlamInfo struct {
-	MapFileExists    bool   `json:"map_file_exists"`
-	PosegraphSize    int64  `json:"posegraph_size_bytes"`
-	DataFileSize     int64  `json:"data_file_size_bytes"`
-	LastModified     string `json:"last_modified"`
-	MapPath          string `json:"map_path"`
+	MapFileExists bool   `json:"map_file_exists"`
+	DatabaseSize  int64  `json:"database_size_bytes"`
+	LastModified  string `json:"last_modified"`
+	MapPath       string `json:"map_path"`
 }
 
 // MowingSession represents a single mowing session stored in the DB.
@@ -184,8 +183,8 @@ func getDiagnosticsSnapshot(dockerProvider types.IDockerProvider, rosProvider ty
 		// --- Cross-checks ---
 		snapshot.CrossChecks = buildCrossChecks(dbProvider)
 
-		// --- SLAM info ---
-		snapshot.SlamInfo = readSlamInfo("/ros2_ws/maps/garden_map")
+		// --- SLAM info (RTAB-Map database) ---
+		snapshot.SlamInfo = readSlamInfo("/ros2_ws/maps/rtabmap.db")
 
 		c.JSON(http.StatusOK, snapshot)
 	}
@@ -270,21 +269,14 @@ func extractYAMLFloat(data map[string]interface{}, key string) float64 {
 	return 0
 }
 
-// readSlamInfo checks SLAM map files on disk.
-func readSlamInfo(basePath string) SlamInfo {
-	info := SlamInfo{MapPath: basePath}
+// readSlamInfo checks the RTAB-Map database file on disk.
+func readSlamInfo(dbPath string) SlamInfo {
+	info := SlamInfo{MapPath: dbPath}
 
-	pgPath := basePath + ".posegraph"
-	dataPath := basePath + ".data"
-
-	if stat, err := os.Stat(pgPath); err == nil {
+	if stat, err := os.Stat(dbPath); err == nil {
 		info.MapFileExists = true
-		info.PosegraphSize = stat.Size()
+		info.DatabaseSize = stat.Size()
 		info.LastModified = stat.ModTime().UTC().Format(time.RFC3339)
-	}
-
-	if stat, err := os.Stat(dataPath); err == nil {
-		info.DataFileSize = stat.Size()
 	}
 
 	return info
@@ -297,45 +289,40 @@ func readSlamInfo(basePath string) SlamInfo {
 // getSlamInfo returns SLAM map file metadata.
 func getSlamInfo() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		info := readSlamInfo("/ros2_ws/maps/garden_map")
+		info := readSlamInfo("/ros2_ws/maps/rtabmap.db")
 		c.JSON(http.StatusOK, info)
 	}
 }
 
-// postSlamSave triggers a SLAM map save via the slam_toolbox serialize service.
+// postSlamSave triggers an RTAB-Map database backup via the /rtabmap/backup service.
+// RTAB-Map persists the live DB automatically on shutdown; this creates a copy to
+// /ros2_ws/maps/rtabmap.db.back for manual checkpointing.
 func postSlamSave(rosProvider types.IRosProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
-		// slam_toolbox SerializePoseGraph service
-		type SerializeReq struct {
-			Filename string `json:"filename"`
-		}
-		type SerializeRes struct {
-			Result int `json:"result"`
-		}
-
-		req := SerializeReq{Filename: "/ros2_ws/maps/garden_map"}
-		var res SerializeRes
-		if err := rosProvider.CallService(ctx, "/slam_toolbox/serialize_map", &req, &res, "slam_toolbox/srv/SerializePoseGraph"); err != nil {
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to save SLAM map: " + err.Error()})
+		// RTAB-Map backup service (std_srvs/srv/Empty — no fields).
+		req := struct{}{}
+		var res struct{}
+		if err := rosProvider.CallService(ctx, "/rtabmap/backup", &req, &res, "std_srvs/srv/Empty"); err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to backup RTAB-Map database: " + err.Error()})
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "SLAM map saved"})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "RTAB-Map database backed up"})
 	}
 }
 
-// postSlamDelete deletes SLAM map files. Requires ROS2 container restart.
+// postSlamDelete deletes the RTAB-Map database file. Requires ROS2 container restart.
 func postSlamDelete(rosProvider types.IRosProvider) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		basePath := "/ros2_ws/maps/garden_map"
+		dbPath := "/ros2_ws/maps/rtabmap.db"
 		deleted := []string{}
 		errors := []string{}
 
-		for _, ext := range []string{".posegraph", ".data"} {
-			path := basePath + ext
+		// Remove the DB and its typical sidecar files (journal/backup/wal).
+		for _, path := range []string{dbPath, dbPath + ".back", dbPath + "-journal", dbPath + "-wal", dbPath + "-shm"} {
 			if err := os.Remove(path); err == nil {
 				deleted = append(deleted, path)
 			} else if !os.IsNotExist(err) {

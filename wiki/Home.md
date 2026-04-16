@@ -40,7 +40,7 @@ mowglinext/
 ## Key Design Decisions
 
 1. **base_link at rear wheel axis** — OpenMower convention
-2. **SLAM is sole TF authority** — EKF publishes odometry only
+2. **RTAB-Map is map→odom TF authority** — FusionCore publishes `odom→base_footprint`
 3. **Cyclone DDS** — replaces FastRTPS (stale shm on ARM)
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation
 5. **Firmware is blade safety authority** — ROS2 is fire-and-forget

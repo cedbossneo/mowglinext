@@ -50,7 +50,7 @@ The fastest way to explore and develop MowgliNext — no local setup required:
 
 The devcontainer provides a complete ROS2 Kilted development environment:
 
-- Full Nav2 navigation stack, SLAM Toolbox, FusionCore (UKF sensor fusion)
+- Full Nav2 navigation stack, RTAB-Map SLAM (2D LiDAR, persistent rtabmap.db), FusionCore (UKF sensor fusion with direct GPS input)
 - Gazebo Harmonic simulation (headless)
 - B-RV coverage planner (mowgli_brv_planner)
 - Foxglove Bridge + rosbridge for visualization
@@ -167,13 +167,13 @@ Access the diagnostics dashboard at `http://<mower-ip>:4006/#/diagnostics`.
 - **ROS Diagnostics:** Aggregated health status (OK, WARN, ERROR, STALE) for all subsystems
 - **SLAM Map Tools:**
   - View map info (resolution, dimensions, origin)
-  - Save map to persistent storage
-  - Delete map to reset SLAM
+  - Save map to persistent storage (RTAB-Map auto-persists to `rtabmap.db`)
+  - Delete map to reset SLAM (wipes `rtabmap.db`)
 
 **Configuration Cross-Checks:**
 Verifies consistency between:
 - GPS datum origin and robot odometry
-- SLAM resolution vs. coverage cell width
+- RTAB-Map grid resolution vs. coverage cell width
 - Motor power limits and battery voltage
 - Emergency stop state and hardware ready status
 

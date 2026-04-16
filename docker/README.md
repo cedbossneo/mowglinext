@@ -2,7 +2,7 @@
 
 Docker Compose deployment for the **Mowgli** open-source robot mower.
 v3 is a ground-up rewrite: the ROS1 Noetic stack has been replaced by a
-single `mowgli_ros2` container running **ROS2 Kilted**, Nav2, SLAM Toolbox,
+single `mowgli_ros2` container running **ROS2 Kilted**, Nav2, RTAB-Map SLAM,
 and a full behavior-tree coverage planner.
 
 ## What changed from v2
@@ -156,7 +156,7 @@ Copy `.env.example` to `.env` and edit. All keys and their defaults:
 | `MOWER_IP` | `10.0.0.161` | IP of the mower Pi — only used in ser2net mode |
 | `LIDAR_PORT` | `/dev/ttyS1` | Host device path for the LD19 UART |
 | `LIDAR_BAUD` | `230400` | LD19 baud rate |
-| `MOWGLI_ROS2_IMAGE` | `ghcr.io/cedbossneo/mowgli-ros2/mowgli-ros2:main` | Full ROS2 stack |
+| `MOWGLI_ROS2_IMAGE` | `ghcr.io/cedbossneo/mowglinext/mowgli-ros2:main` | Full ROS2 stack (branch tags: `:main`, `:dev`, `:feat-rtabmap`, …) |
 | `GPS_IMAGE` | `ghcr.io/cedbossneo/mowgli-docker/gps:v3` | u-blox + NTRIP driver |
 | `LIDAR_IMAGE` | `ghcr.io/cedbossneo/mowgli-docker/lidar:v3` | LD19 LiDAR driver |
 | `GUI_IMAGE` | `ghcr.io/cedbossneo/openmower-gui:v3` | OpenMower GUI |
@@ -247,9 +247,9 @@ the affected containers to apply manual edits.
 
 | Parameter | Example | Description |
 |---|---|---|
-| `slam_mode` | `lifelong` | SLAM Toolbox mode: `mapping` (build new map) or `lifelong` (update existing) |
-| `map_save_path` | `/ros2_ws/maps/garden_map` | Path inside container where the map is saved on dock |
-| `map_save_on_dock` | `true` | Automatically serialise the SLAM map when the mower docks |
+| `slam_mode` | `lifelong` | RTAB-Map mode: `mapping` (build new database) or `lifelong` (update existing) |
+| `map_save_path` | `/ros2_ws/maps/rtabmap.db` | RTAB-Map database path inside the container |
+| `map_save_on_dock` | `true` | Automatically persist the RTAB-Map database when the mower docks |
 
 **Battery**
 
@@ -268,12 +268,15 @@ to override the built-in defaults without rebuilding the image:
 | File | What it tunes |
 |---|---|
 | `nav2_params.yaml` | Nav2 costmap, planner, controller, collision monitor |
-| `localization.yaml` | Dual EKF — GPS/odometry fusion weights and process noise |
-| `slam_toolbox.yaml` | SLAM loop closure, scan matching, map resolution |
+| `localization.yaml` | FusionCore UKF — GPS/IMU/wheel fusion covariances and base noise |
 | `hardware_bridge.yaml` | Serial port, baud rate, heartbeat and publish rates |
 | `coverage_planner.yaml` | B-RV coverage planner (tool width, headland, Voronoi transit, sweep direction) |
 | `behavior_tree.yaml` | Behavior tree tick rate, battery thresholds |
 | `mqtt_bridge.yaml` | MQTT broker connection for Home Assistant |
+
+RTAB-Map SLAM parameters (scan subsampling, loop closure, grid output)
+are set in `src/mowgli_bringup/launch/rtabmap.launch.py` inside the
+`mowgli_ros2` image — edit and rebuild to tune them.
 
 To extract a built-in default for editing:
 
@@ -300,8 +303,8 @@ docker exec mowgli-ros2 cat \
 │  │  ros2 launch mowgli_bringup full_system.launch │     │
 │  │  ├─ hardware_bridge  ←→  /dev/mowgli (STM32)   │     │
 │  │  ├─ Nav2 stack (planner, controller, BT)       │     │
-│  │  ├─ SLAM Toolbox  ←  /scan (from mowgli-lidar) │     │
-│  │  ├─ dual EKF  ←  /gps/fix + /wheel_odom        │     │
+│  │  ├─ RTAB-Map SLAM  ←  /scan (from mowgli-lidar)│     │
+│  │  ├─ FusionCore UKF ← /gps/fix + /imu + /wheel  │     │
 │  │  ├─ rosbridge_server  :9090                    │     │
 │  │  └─ foxglove_bridge   :8765                    │     │
 │  └────────────────────────────────────────────────┘     │
@@ -334,7 +337,7 @@ docker exec mowgli-ros2 cat \
 
 | Container | Image | Purpose | Exposed ports |
 |---|---|---|---|
-| `mowgli-ros2` | `ghcr.io/cedbossneo/mowgli-ros2/mowgli-ros2:main` | Full ROS2 stack: hardware bridge, Nav2, SLAM, rosbridge, Foxglove | 9090 (rosbridge), 8765 (Foxglove) |
+| `mowgli-ros2` | `ghcr.io/cedbossneo/mowglinext/mowgli-ros2:main` | Full ROS2 stack: hardware bridge, Nav2, RTAB-Map, FusionCore, rosbridge, Foxglove | 9090 (rosbridge), 8765 (Foxglove) |
 | `mowgli-gps` | `ghcr.io/cedbossneo/mowgli-docker/gps:v3` | u-blox ZED-F9P driver + NTRIP RTK corrections | — |
 | `mowgli-lidar` | `ghcr.io/cedbossneo/mowgli-docker/lidar:v3` | LDRobot LD19 driver, publishes `/scan` | — |
 | `openmower-gui` | `ghcr.io/cedbossneo/openmower-gui:v3` | Web UI — area mapping, mowing control, config editor | 80 (host networking) |
@@ -363,11 +366,11 @@ machine, preventing DDS traffic from leaking to the LAN.
 
 ### SLAM maps
 
-Maps are persisted in the Docker named volume `mowgli_maps`, mounted at
-`/ros2_ws/maps` inside the `mowgli-ros2` container. The map is saved
-automatically when the mower docks (controlled by `map_save_on_dock` in
-`mowgli_robot.yaml`). The volume survives `docker compose down` and image
-updates.
+The RTAB-Map database (`rtabmap.db`) is persisted in the Docker named
+volume `mowgli_maps`, mounted at `/ros2_ws/maps` inside the `mowgli-ros2`
+container. The database is saved automatically when the mower docks
+(controlled by `map_save_on_dock` in `mowgli_robot.yaml`). The volume
+survives `docker compose down` and image updates.
 
 ---
 
@@ -601,21 +604,22 @@ times out waiting for a node:
    docker compose logs mowgli | grep -i "timed out\|lifecycle\|error"
    ```
 
-2. The most common cause is SLAM Toolbox taking longer than Nav2's
-   lifecycle timeout allows. If maps are not loading, confirm
-   `slam_mode: lifelong` is set and a `.posegraph` file exists:
+2. The most common cause is RTAB-Map taking longer than Nav2's
+   lifecycle timeout allows to load a large database. Confirm
+   `slam_mode: lifelong` is set and an `rtabmap.db` file exists:
    ```bash
    docker exec mowgli-ros2 ls /ros2_ws/maps/
    ```
-   If there is no saved map, change `slam_mode` to `mapping` for the
-   first run, then switch back to `lifelong` after a map has been saved.
+   If there is no saved database, change `slam_mode` to `mapping` for
+   the first run, then switch back to `lifelong` after a database has
+   been saved.
 
 3. A full restart often resolves transient timing failures:
    ```bash
    docker compose restart mowgli
    ```
 
-### SLAM not building a map
+### RTAB-Map not building a map
 
 Confirm the LiDAR is publishing:
 
@@ -638,7 +642,7 @@ docker exec mowgli-ros2 bash -c "
   ros2 run tf2_tools view_frames"
 ```
 
-### SLAM map not saved after docking
+### SLAM database not saved after docking
 
 Ensure `map_save_on_dock: true` and verify the `mowgli_maps` volume is
 mounted:
@@ -647,15 +651,13 @@ mounted:
 docker inspect mowgli-ros2 | grep -A3 mowgli_maps
 ```
 
-To save the map manually without docking:
+To persist the RTAB-Map database manually without docking:
 
 ```bash
 docker exec mowgli-ros2 bash -c "
   source /opt/ros/kilted/setup.bash
   source /ros2_ws/install/setup.bash
-  ros2 service call /slam_toolbox/save_map \
-    slam_toolbox/srv/SaveMap \
-    '{name: {data: /ros2_ws/maps/garden_map}}'"
+  ros2 service call /rtabmap/backup std_srvs/srv/Empty '{}'"
 ```
 
 ### ROS nodes crashed inside `mowgli-ros2`

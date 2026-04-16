@@ -59,7 +59,7 @@ Root (ReactiveSequence) — re-evaluates all children every tick
     ├── CriticalBatteryDock (< 10%) → save, dock, clear command
     │
     ├── MowingSequence (COMMAND_START = 1)
-    │   ├── Undock (GPS wait, SLAM save, heading calibration)
+    │   ├── Undock (GPS wait, RTAB-Map save, heading calibration)
     │   ├── Strip coverage loop (reactive rain/battery guards)
     │   │   ├── GetNextStrip → TransitToStrip → FollowStrip
     │   │   └── Recovery: backup, clear costmap, retry
@@ -105,7 +105,7 @@ Root (ReactiveSequence) — re-evaluates all children every tick
 - `BackUp` — drives robot backward (configurable distance/speed)
 - `ClearCostmap` — clears Nav2 local costmap
 - `PublishHighLevelStatus` — publishes state + state_name to HighLevelStatus topic
-- `SaveSlamMap` — persists SLAM map before docking
+- `SaveSlamMap` — triggers RTAB-Map database save (rtabmap.db) before docking
 - `SaveObstacles` — persists tracked obstacles to disk
 - `SetNavMode` — switches between precise/degraded navigation
 - `ClearCommand` — clears pending high-level command

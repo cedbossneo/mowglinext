@@ -394,24 +394,11 @@
       "title": "SLAM / Mapping",
       "type": "object",
       "properties": {
-        "slam_mode": {
+        "database_path": {
           "type": "string",
-          "title": "SLAM Mode",
-          "enum": ["mapping", "localization", "lifelong"],
-          "default": "lifelong",
-          "description": "SLAM operating mode."
-        },
-        "map_save_path": {
-          "type": "string",
-          "title": "Map Save Path",
-          "default": "/ros2_ws/maps/garden_map",
-          "description": "Path to save/load the SLAM map."
-        },
-        "map_save_on_dock": {
-          "type": "boolean",
-          "title": "Save Map on Dock",
-          "default": true,
-          "description": "Automatically save the SLAM map when docking."
+          "title": "RTAB-Map Database Path",
+          "default": "/ros2_ws/maps/rtabmap.db",
+          "description": "Path to the RTAB-Map SQLite database (persisted automatically on shutdown)."
         }
       }
     },
