@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Stage 1: base
 # Installs all runtime ROS2 dependencies. Both runtime and simulation stages
@@ -7,7 +8,14 @@ FROM ros:kilted-ros-base AS base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Disable apt's auto-clean so BuildKit cache mounts persist .deb downloads
+# between builds (saves minutes of re-downloading from packages.ros.org).
+RUN rm -f /etc/apt/apt.conf.d/docker-clean \
+ && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     # Navigation
     ros-kilted-nav2-bringup \
     ros-kilted-nav2-bt-navigator \
@@ -73,8 +81,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # (no shared memory, no stale /dev/shm segments, better service discovery)
     ros-kilted-rmw-cyclonedds-cpp \
     # Utilities
-    python3-argcomplete \
- && rm -rf /var/lib/apt/lists/*
+    python3-argcomplete
 
 # =============================================================================
 # Stage 2: deps
@@ -85,7 +92,9 @@ FROM base AS deps
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
@@ -93,8 +102,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-rosidl-default-generators \
     build-essential \
     cmake \
-    git \
- && rm -rf /var/lib/apt/lists/*
+    git
 
 WORKDIR /ros2_ws
 
@@ -237,7 +245,9 @@ FROM runtime AS simulation
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     # Gazebo Harmonic comes via ros-kilted-ros-gz-sim (Jazzy default pairing)
     ros-kilted-ros-gz-sim \
     ros-kilted-ros-gz-bridge \
@@ -251,8 +261,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     websockify \
     openbox \
     xterm \
-    x11-utils \
- && rm -rf /var/lib/apt/lists/*
+    x11-utils
 
 # Copy VNC startup script
 COPY scripts/start_vnc.sh /ros2_ws/scripts/start_vnc.sh
