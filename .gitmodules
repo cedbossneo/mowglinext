@@ -1,3 +1,7 @@
 [submodule "ros2/src/fusioncore"]
 	path = ros2/src/fusioncore
 	url = https://github.com/cedbossneo/fusioncore.git
+[submodule "ros2/src/rtabmap_ros"]
+	path = ros2/src/rtabmap_ros
+	url = https://github.com/introlab/rtabmap_ros.git
+	branch = ros2

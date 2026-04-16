@@ -45,12 +45,21 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ros-kilted-nav2-lifecycle-manager \
     ros-kilted-nav2-waypoint-follower \
     ros-kilted-nav2-velocity-smoother \
-    # SLAM — RTAB-Map for 2D LiDAR SLAM (jazzy: rtabmap_ros not yet released for kilted)
-    # Only install what we use: rtabmap_slam (SLAM node), msgs, conversions.
-    # Skip rtabmap_ros metapackage (pulls viz/demos/examples we don't need).
-    ros-jazzy-rtabmap-slam \
-    ros-jazzy-rtabmap-msgs \
-    ros-jazzy-rtabmap-conversions \
+    # SLAM — RTAB-Map core library (the ROS2 wrapper rtabmap_ros is built
+    # from source in our workspace because rtabmap_slam is not yet released
+    # for kilted, and jazzy binaries have ABI mismatch with kilted rclcpp).
+    ros-kilted-rtabmap \
+    ros-kilted-rtabmap-msgs \
+    # Build dependencies for rtabmap_ros source build
+    ros-kilted-cv-bridge \
+    ros-kilted-image-transport \
+    ros-kilted-laser-geometry \
+    ros-kilted-octomap-msgs \
+    ros-kilted-pcl-conversions \
+    ros-kilted-pcl-ros \
+    ros-kilted-stereo-msgs \
+    ros-kilted-tf2-eigen \
+    ros-kilted-tf2-sensor-msgs \
     # Motion control
     ros-kilted-twist-mux \
     # Behavior trees
@@ -197,11 +206,16 @@ RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
  && ln -sf fusioncore/compass_msgs    src/compass_msgs
 
 # Build all packages (mowgli_interfaces is already built and cached)
+# Skip rtabmap_ros packages we don't use (viz, demos, examples, costmap_plugins,
+# python, odom, launch metapackage) — they pull heavy deps without value here.
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
     source install/setup.bash && \
     colcon build \
       --packages-ignore fusioncore fusioncore_gazebo \
+        rtabmap_demos rtabmap_examples rtabmap_launch rtabmap_python \
+        rtabmap_ros rtabmap_rviz_plugins rtabmap_viz rtabmap_costmap_plugins \
+        rtabmap_odom rtabmap_msgs \
       --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF \
       --parallel-workers \$(nproc) \
       --event-handlers console_cohesion+ \

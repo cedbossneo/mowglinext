@@ -10,15 +10,7 @@
 # =============================================================================
 set -e
 
-# Source ROS2 Jazzy first (underlay) so its paths are available for
-# packages not yet released for kilted (e.g. rtabmap_slam). Then source
-# kilted on top so it wins for ROS_DISTRO and conflicting packages.
-if [ -d /opt/ros/jazzy ] && [ -f /opt/ros/jazzy/setup.bash ]; then
-    # shellcheck source=/opt/ros/jazzy/setup.bash
-    source /opt/ros/jazzy/setup.bash
-fi
-
-# Source ROS2 base installation (kilted is primary distro)
+# Source ROS2 base installation
 # shellcheck source=/opt/ros/kilted/setup.bash
 source /opt/ros/kilted/setup.bash
 
