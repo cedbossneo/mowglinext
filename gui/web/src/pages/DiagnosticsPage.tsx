@@ -545,16 +545,16 @@ export const DiagnosticsPage = () => {
         </Row>
     );
 
-    // ── SLAM helpers ─────────────────────────────────────────────────────────
+    // ── RTAB-Map helpers ─────────────────────────────────────────────────────
 
     const handleSlamSave = async () => {
         setSlamSaving(true);
         try {
             await guiApi.request({ path: "/diagnostics/slam/save", method: "POST", format: "json" });
-            notification.success({ message: "SLAM map saved successfully" });
+            notification.success({ message: "RTAB-Map database backed up" });
             refresh();
         } catch (e: any) {
-            notification.error({ message: "Failed to save SLAM map", description: e.message });
+            notification.error({ message: "Failed to back up RTAB-Map database", description: e.message });
         } finally {
             setSlamSaving(false);
         }
@@ -565,7 +565,7 @@ export const DiagnosticsPage = () => {
         try {
             await guiApi.request({ path: "/diagnostics/slam/delete", method: "POST", format: "json" });
             notification.success({
-                message: "SLAM map deleted",
+                message: "RTAB-Map database deleted",
                 description: "Restart the ROS2 container to begin fresh mapping.",
                 duration: 0,
                 btn: (
@@ -576,9 +576,27 @@ export const DiagnosticsPage = () => {
             });
             refresh();
         } catch (e: any) {
-            notification.error({ message: "Failed to delete SLAM map", description: e.message });
+            notification.error({ message: "Failed to delete RTAB-Map database", description: e.message });
         } finally {
             setSlamDeleting(false);
+        }
+    };
+
+    const handleSlamModeMapping = async () => {
+        try {
+            await guiApi.request({ path: "/diagnostics/slam/mode/mapping", method: "POST", format: "json" });
+            notification.success({ message: "RTAB-Map switched to mapping mode" });
+        } catch (e: any) {
+            notification.error({ message: "Failed to switch mode", description: e.message });
+        }
+    };
+
+    const handleSlamModeLocalization = async () => {
+        try {
+            await guiApi.request({ path: "/diagnostics/slam/mode/localization", method: "POST", format: "json" });
+            notification.success({ message: "RTAB-Map switched to localization mode (read-only)" });
+        } catch (e: any) {
+            notification.error({ message: "Failed to switch mode", description: e.message });
         }
     };
 
@@ -598,7 +616,7 @@ export const DiagnosticsPage = () => {
         }
     };
 
-    // ── Section 3b: SLAM Map Management ─────────────────────────────────────
+    // ── Section 3b: RTAB-Map Management ──────────────────────────────────────
 
     const slamInfo = snapshot?.slam_info;
     const crossChecks = snapshot?.cross_checks;
@@ -607,11 +625,11 @@ export const DiagnosticsPage = () => {
     const sectionSlam = (
         <Row gutter={[12, 12]}>
             <Col xs={24} lg={12}>
-                <Card title="SLAM Map File" size="small">
+                <Card title="RTAB-Map Database" size="small">
                     <Row gutter={[12, 8]}>
                         <Col span={24}>
                             <Space>
-                                <Typography.Text type="secondary" style={{fontSize: 12}}>Map file</Typography.Text>
+                                <Typography.Text type="secondary" style={{fontSize: 12}}>Database</Typography.Text>
                                 <Tag color={slamInfo?.map_file_exists ? "success" : "error"}>
                                     {slamInfo?.map_file_exists ? "Present" : "Missing"}
                                 </Tag>
@@ -647,12 +665,13 @@ export const DiagnosticsPage = () => {
                                     icon={<SaveOutlined/>}
                                     loading={slamSaving}
                                     onClick={handleSlamSave}
+                                    title="Copy the running database to rtabmap.db.back"
                                 >
-                                    Save Map
+                                    Backup DB
                                 </Button>
                                 <Popconfirm
-                                    title="Delete SLAM map"
-                                    description="This will delete the SLAM map. The robot will start fresh mapping on next boot. Continue?"
+                                    title="Delete RTAB-Map database"
+                                    description="This will delete the RTAB-Map database. The robot will start fresh mapping on next boot. Continue?"
                                     okText="Delete"
                                     okType="danger"
                                     cancelText="Cancel"
@@ -665,9 +684,22 @@ export const DiagnosticsPage = () => {
                                         loading={slamDeleting}
                                         disabled={!slamInfo?.map_file_exists}
                                     >
-                                        Delete Map
+                                        Delete DB
                                     </Button>
                                 </Popconfirm>
+                            </Space>
+                        </Col>
+                        <Col span={24}>
+                            <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                Mode (runtime switch):
+                            </Typography.Text>
+                            <Space wrap style={{marginTop: 4}}>
+                                <Button size="small" onClick={handleSlamModeMapping}>
+                                    Switch to Mapping
+                                </Button>
+                                <Button size="small" onClick={handleSlamModeLocalization}>
+                                    Switch to Localization
+                                </Button>
                             </Space>
                         </Col>
                     </Row>
@@ -933,7 +965,7 @@ export const DiagnosticsPage = () => {
                         },
                         {
                             key: "slam",
-                            label: "SLAM Map Management",
+                            label: "RTAB-Map Management",
                             children: sectionSlam,
                         },
                         {

@@ -109,10 +109,12 @@ func DiagnosticsRoutes(r *gin.RouterGroup, dockerProvider types.IDockerProvider,
 	group := r.Group("/diagnostics")
 	group.GET("/snapshot", getDiagnosticsSnapshot(dockerProvider, rosProvider, dbProvider))
 
-	// SLAM map tools
+	// RTAB-Map tools
 	group.GET("/slam/info", getSlamInfo())
 	group.POST("/slam/save", postSlamSave(rosProvider))
 	group.POST("/slam/delete", postSlamDelete(rosProvider))
+	group.POST("/slam/mode/mapping", postSlamModeMapping(rosProvider))
+	group.POST("/slam/mode/localization", postSlamModeLocalization(rosProvider))
 
 	// Mowing sessions
 	group.GET("/sessions", getSessions(dbProvider))
@@ -311,6 +313,38 @@ func postSlamSave(rosProvider types.IRosProvider) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "RTAB-Map database backed up"})
+	}
+}
+
+// postSlamModeMapping switches RTAB-Map to mapping mode (adds new nodes to graph).
+func postSlamModeMapping(rosProvider types.IRosProvider) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+
+		req := struct{}{}
+		var res struct{}
+		if err := rosProvider.CallService(ctx, "/rtabmap/set_mode_mapping", &req, &res, "std_srvs/srv/Empty"); err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to switch to mapping mode: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "mapping"})
+	}
+}
+
+// postSlamModeLocalization switches RTAB-Map to localization mode (read-only map).
+func postSlamModeLocalization(rosProvider types.IRosProvider) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
+
+		req := struct{}{}
+		var res struct{}
+		if err := rosProvider.CallService(ctx, "/rtabmap/set_mode_localization", &req, &res, "std_srvs/srv/Empty"); err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to switch to localization mode: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "localization"})
 	}
 }
 
