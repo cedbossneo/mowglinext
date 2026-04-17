@@ -213,7 +213,12 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
 
   // Twist covariance
   odom.twist.covariance[0] = 1e-3;  // vx
-  odom.twist.covariance[7] = 1e6;  // vy  (non-holonomic: constrain later)
+  // Non-holonomic constraint: a differential-drive robot cannot slide
+  // sideways. Publish VY = 0 with a tight variance so FusionCore treats
+  // it as a hard "no lateral motion" measurement. Previously the
+  // variance was 1e6 ("unknown"), which let GPS + IMU noise pull the
+  // fused state into apparent lateral drift during outdoor runs.
+  odom.twist.covariance[7] = 1e-4;  // vy  (enforce VY = 0)
   odom.twist.covariance[14] = 1e6;  // vz
   odom.twist.covariance[21] = 1e6;  // vroll
   odom.twist.covariance[28] = 1e6;  // vpitch
