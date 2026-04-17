@@ -146,13 +146,11 @@ controller_server:
       goal_timeout: 10.0
       max_follow_distance: 2.0
       forward_only: false            # allow reversing
-      # Obstacles: check the local_costmap obstacle_layer for the next
-      # `obstacle_lookahead` path poses and abort the strip when one
-      # of them falls on a LETHAL cell. Previously disabled, which let
-      # the robot creep into walls at 30% speed behind collision_monitor.
-      check_obstacles: true
-      obstacle_lookahead: 5
-      obstacle_footprint: true
+      # Obstacles: local_costmap no longer carries an obstacle_layer
+      # (see local_costmap block), so FTC can't rely on it here.
+      # Collision_monitor's PolygonSlow + global_costmap planning cover
+      # obstacle avoidance instead.
+      check_obstacles: false
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -372,33 +370,14 @@ local_costmap:
       # planner (swaths stay within the polygon) and the collision_monitor
       # (real LiDAR obstacles only). Speed filter also removed as it depends
       # on the same mask infrastructure.
-      # Obstacle layer ENABLED so FTCController's obstacle lookahead
-      # (check_obstacles=true, obstacle_lookahead=5) can avoid LiDAR-seen
-      # obstacles on coverage paths. Collision_monitor alone (PolygonSlow
-      # at 30%) was letting the robot creep into walls during FollowStrip.
-      # observation_persistence=0 keeps the dock cleared when the robot
-      # drives away from it, so it doesn't block BackUp on the next cycle.
-      plugins: ["obstacle_layer", "inflation_layer"]
-
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: true
-        observation_persistence: 0.0
-        observation_sources: scan
-        scan:
-          topic: /scan
-          # Large ceiling so FusionCore Z drift doesn't filter scans out.
-          max_obstacle_height: 200.0
-          clearing: true
-          marking: true
-          data_type: "LaserScan"
-          raytrace_max_range: 6.0
-          raytrace_min_range: 0.0
-          obstacle_max_range: 4.0
-          # Filter grass/near-ground clutter (LiDAR is at ~0.38m forward of
-          # base_footprint and ~0.265m height, so 0.5m min catches tufts).
-          obstacle_min_range: 0.50
-          inf_is_valid: true
+      # Local costmap: inflation only (no obstacle_layer). Adding the
+      # obstacle_layer let FTC see LiDAR obstacles on coverage paths,
+      # but it also made the dock structure a LETHAL cell when the
+      # robot is docked — DriveOnHeading then refused every BackUp
+      # with 'Collision Ahead'. Fall back to the original design:
+      # global_costmap obstacles for planning, collision_monitor
+      # (PolygonSlow 30%) for real-time avoidance.
+      plugins: ["inflation_layer"]
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -492,7 +471,12 @@ collision_monitor:
       # Chassis + 15cm — slow to 30% when obstacle is close
       points: "[[0.65, 0.35], [0.65, -0.35], [-0.25, -0.35], [-0.25, 0.35]]"
       action_type: "slowdown"
-      slowdown_ratio: 0.3
+      # Raised from 0.3 to 0.7: with a 30% multiplier the collision_monitor's
+      # on/off flapping produced a big step in cmd_vel (100% ↔ 30%), which
+      # velocity_smoother then chased — visible as motor jitter and sign
+      # flips on /cmd_vel_monitored. 70% keeps the slowdown useful but the
+      # step is small enough that the smoother + motor don't oscillate.
+      slowdown_ratio: 0.7
       # 12 points (was 6) — the dock structure sits near the polygon
       # boundary when charging, causing rapid slow/normal flapping at
       # 10 Hz. Higher min_points adds hysteresis against that edge noise.

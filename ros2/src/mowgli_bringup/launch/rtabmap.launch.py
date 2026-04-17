@@ -54,7 +54,16 @@ def generate_launch_description() -> LaunchDescription:
             # 2D SLAM mode
             "Reg/Strategy": "1",             # ICP registration
             "Reg/Force3DoF": "true",         # 2D mode (no z, roll, pitch)
+            # Loop-closure: 2D LiDAR has no visual descriptors, so
+            # proximity-by-space is our only re-localisation mechanism.
+            # A keyframe within this radius of the current pose AND with
+            # a good ICP scan match becomes a loop-closure candidate.
             "RGBD/ProximityBySpace": "true",
+            "RGBD/ProximityByTime": "false",
+            "RGBD/ProximityMaxGraphDepth": "0",   # search the entire graph
+            "RGBD/ProximityPathMaxNeighbors": "10",
+            "RGBD/ProximityPathFilteringRadius": "1.0",
+            "RGBD/LocalRadius": "10.0",
             "RGBD/NeighborLinkRefining": "true",
             # Don't add new node unless robot has moved meaningfully.
             # Tuned for outdoor mowing: saw 486 nodes in 2min with 10cm/6°
@@ -81,6 +90,10 @@ def generate_launch_description() -> LaunchDescription:
             "Mem/BinDataKept": "false",
             "Mem/RawDescriptorsKept": "false",
             "Mem/LocalSpaceLinksKeptInDB": "false",
+            # Prune keyframes that never participated in a loop closure:
+            # keeps the graph dense near the dock / re-visited areas and
+            # drops stray outdoor keyframes that just accumulate.
+            "Mem/NotLinkedNodesKept": "false",
 
             # Disable visual feature extraction — we're LiDAR-only with no
             # camera, so BoW signatures waste ~50% of per-node storage.
