@@ -19,6 +19,8 @@
 
 #include "behaviortree_cpp/behavior_tree.h"
 #include "mowgli_behavior/bt_context.hpp"
+#include "mowgli_interfaces/srv/get_coverage_status.hpp"
+#include "rclcpp/rclcpp.hpp"
 
 namespace mowgli_behavior
 {
@@ -325,6 +327,60 @@ private:
 
   static constexpr double check_interval_sec_{1800.0};  // 30 minutes
   static constexpr float min_increase_{1.0f};  // 1% minimum
+};
+
+// ---------------------------------------------------------------------------
+// PreFlightCheck
+// ---------------------------------------------------------------------------
+
+/// Comprehensive readiness gate before undocking to start mowing.
+///
+/// Returns SUCCESS only when ALL the following are true at tick time:
+///   - No emergency asserted
+///   - Battery >= min_battery
+///   - GPS fix type >= min_gps_fix_type
+///   - TF chain map -> base_footprint is resolvable within tf_timeout_sec
+///     (implicitly confirms FusionCore is publishing odom→base_footprint
+///      AND RTAB-Map is publishing map→odom)
+///   - At least one mowing area is defined in map_server (service call
+///     to /map_server_node/get_coverage_status with area_index=0)
+///
+/// Returns FAILURE on any missing condition, with a single-line summary log
+/// so the operator knows exactly which check blocked undocking. Meant to be
+/// wrapped in a RetryUntilSuccessful so transient issues (GPS not yet RTK,
+/// etc.) have a grace window.
+///
+/// Input ports:
+///   min_battery       (float,   default 20.0) — require at least this %.
+///   min_gps_fix_type  (int,     default 2)    — 0=no fix, 1=autonomous,
+///                                               2=DGPS, 4=RTK fixed, 5=RTK float.
+///                                               Default 2 accepts DGPS+ which is
+///                                               the minimum for outdoor nav.
+///   tf_timeout_sec    (double,  default 0.5)  — how long to wait for TF.
+class PreFlightCheck : public BT::ConditionNode
+{
+public:
+  PreFlightCheck(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+        BT::InputPort<float>("min_battery", 20.0f,
+                             "Minimum battery percent to start mowing"),
+        BT::InputPort<int>("min_gps_fix_type", 2,
+                           "Min GPS fix type (0=no,1=auto,2=DGPS,4=RTKfix,5=RTKfloat)"),
+        BT::InputPort<double>("tf_timeout_sec", 0.5,
+                              "Max wait for map→base_footprint TF"),
+    };
+  }
+
+  BT::NodeStatus tick() override;
+
+private:
+  rclcpp::Client<mowgli_interfaces::srv::GetCoverageStatus>::SharedPtr coverage_client_;
 };
 
 }  // namespace mowgli_behavior

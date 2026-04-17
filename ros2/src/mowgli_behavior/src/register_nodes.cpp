@@ -42,6 +42,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<IsNewRain>("IsNewRain");
   factory.registerNodeType<IsResumeUndockAllowed>("IsResumeUndockAllowed");
   factory.registerNodeType<IsChargingProgressing>("IsChargingProgressing");
+  factory.registerNodeType<PreFlightCheck>("PreFlightCheck");
 
   // Action nodes
   factory.registerNodeType<SetMowerEnabled>("SetMowerEnabled");
