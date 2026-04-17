@@ -56,10 +56,12 @@ def generate_launch_description() -> LaunchDescription:
             "Reg/Force3DoF": "true",         # 2D mode (no z, roll, pitch)
             "RGBD/ProximityBySpace": "true",
             "RGBD/NeighborLinkRefining": "true",
-            # Don't add new node unless robot has moved meaningfully:
-            # prevents map graph bloat when stationary on dock.
-            "RGBD/AngularUpdate": "0.1",     # ~6 degrees
-            "RGBD/LinearUpdate": "0.1",      # 10cm
+            # Don't add new node unless robot has moved meaningfully.
+            # Tuned for outdoor mowing: saw 486 nodes in 2min with 10cm/6°
+            # thresholds because the robot wobbled on collision-monitor
+            # oscillation. Relaxed to 30cm/17° ~= fewer, more informative nodes.
+            "RGBD/AngularUpdate": "0.3",     # ~17 degrees
+            "RGBD/LinearUpdate": "0.3",      # 30 cm
             "RGBD/OptimizeFromGraphEnd": "false",
 
             # ICP parameters for 2D LiDAR
@@ -72,8 +74,21 @@ def generate_launch_description() -> LaunchDescription:
             "Mem/IncrementalMemory": "true",
             "Mem/InitWMWithAllNodes": "true",
             "Mem/STMSize": "30",
-            # Skip identical scans (graph dedup) to limit DB growth
+            # Skip near-identical scans (graph dedup) to limit DB growth.
             "Mem/RehearsalSimilarity": "0.6",
+            # Don't persist raw scans / descriptors / keypoint images per
+            # node — we don't use them at runtime and they dominate DB size.
+            "Mem/BinDataKept": "false",
+            "Mem/RawDescriptorsKept": "false",
+            "Mem/LocalSpaceLinksKeptInDB": "false",
+
+            # Disable visual feature extraction — we're LiDAR-only with no
+            # camera, so BoW signatures waste ~50% of per-node storage.
+            "Kp/MaxFeatures": "0",
+            "Mem/UseOdomFeatures": "false",
+
+            # SQLite compaction
+            "DbSqlite3/Vacuum": "true",
 
             # Optimizer
             "Optimizer/Strategy": "1",       # g2o
