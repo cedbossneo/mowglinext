@@ -196,21 +196,13 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Wheel odometry
-    # ------------------------------------------------------------------
-    wheel_track = float(robot_params.get("wheel_track", 0.325))
-    wheel_odometry_node = Node(
-        package="mowgli_localization",
-        executable="wheel_odometry_node",
-        name="wheel_odometry_node",
-        output="screen",
-        parameters=[
-            localization_params,
-            {"wheel_distance": wheel_track},
-            {"use_sim_time": use_sim_time},
-        ],
-    )
-
+    # Wheel odometry is produced directly by hardware_bridge on
+    # /wheel_odom (from the firmware's odom packet). The old
+    # mowgli_localization/wheel_odometry_node subscribed to /wheel_ticks
+    # and re-published /wheel_odom — but /wheel_ticks has no publisher
+    # on this branch, so that node was dead weight and a duplicate
+    # publisher for /wheel_odom. Keep the source in the package for now
+    # (disabled) and rely on hardware_bridge alone.
     # ------------------------------------------------------------------
     # 7a. NavSat → AbsolutePose converter (for GUI + BT)
     # FusionCore takes /gps/fix directly; this node converts to
@@ -347,7 +339,6 @@ def generate_launch_description() -> LaunchDescription:
             behavior_tree_node,
             map_server_node,
             obstacle_tracker_node,
-            wheel_odometry_node,
             navsat_converter_node,  # publishes /gps/absolute_pose for GUI + BT
             localization_monitor_node,
             diagnostics_node,

@@ -96,9 +96,15 @@ fusioncore_node:
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
     gnss.min_satellites: 4
-    # Accept any GPS fix (including basic GPS without RTK).
-    # RTK gives better accuracy but basic GPS still anchors position.
-    gnss.min_fix_type: 0  # 0=any fix, 1=SBAS, 2=RTK
+    # Accept Float + Fixed. Strict Fixed (4) starved the filter whenever
+    # the receiver was at Float, so FusionCore ran on encoder/IMU only
+    # and the unbounded position uncertainty showed up as RTAB-Map
+    # map→odom jumps (fast-moving icon on the map). DGPS (2) maps from
+    # NavSatFix STATUS_SBAS_FIX which the HP converter emits for
+    # carrSoln=1 (Float); ≥2 means "Float or Fixed".
+    # FusionCore enum: 0=NO_FIX, 1=GPS, 2=DGPS, 3=RTK_FLOAT, 4=RTK_FIXED.
+    # The ROS NavSatFix mapping in fusion_node skips 3, so use 2 or 4.
+    gnss.min_fix_type: 2
 
     # GPS antenna offset from base_link in body frame.
     # Overridden at launch from mowgli_robot.yaml (gps_x/y/z).
