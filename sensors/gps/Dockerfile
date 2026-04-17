@@ -19,7 +19,7 @@
 FROM ros:kilted-ros-base AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG UBLOX_DGNSS_REF=master
+ARG UBLOX_DGNSS_REF=main
 
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
 
