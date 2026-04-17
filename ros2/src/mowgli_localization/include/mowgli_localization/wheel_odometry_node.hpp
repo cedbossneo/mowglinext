@@ -101,6 +101,10 @@ private:
   uint32_t prev_ticks_left_{0};
   uint32_t prev_ticks_right_{0};
 
+  /// Wall-clock time of the previous tick message; used to compute the
+  /// real dt for the published twist instead of a hardcoded nominal.
+  rclcpp::Time last_tick_time_;
+
   /// Accumulated pose in the odom frame.
   double x_{0.0};
   double y_{0.0};

@@ -134,9 +134,14 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   {
     prev_ticks_left_ = msg->wheel_ticks_rl;
     prev_ticks_right_ = msg->wheel_ticks_rr;
+    last_tick_time_   = now();
     first_tick_ = false;
     return;
   }
+
+  const rclcpp::Time tick_now = now();
+  const double dt_sec = (tick_now - last_tick_time_).seconds();
+  last_tick_time_ = tick_now;
 
   // ------------------------------------------------------------------
   // Compute signed tick deltas, respecting the direction flags.
@@ -201,15 +206,14 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   odom.pose.covariance[28] = 1e6;  // pitch
   odom.pose.covariance[35] = 1e6;  // yaw (untrusted — EKF uses velocity only)
 
-  // Twist (velocities in body frame)
-  // Avoid division by zero: treat zero dt as zero velocity.
-  // The EKF does its own differentiation from consecutive poses when
-  // differential mode is on, but we publish a best-effort instantaneous v.
-  // Use a nominal dt based on the tick_factor field if available, otherwise
-  // assume 10 ms (the firmware typically sends at 100 Hz).
-  constexpr double kNominalDt = 0.01;
-  odom.twist.twist.linear.x = d_center / kNominalDt;
-  odom.twist.twist.angular.z = d_theta / kNominalDt;
+  // Twist (velocities in body frame) — derived from the real elapsed
+  // time between consecutive tick messages. Falling back to a hardcoded
+  // 10 ms (as the old code did) overstated the reported velocity by
+  // ~2x when the firmware actually publishes at ~47 Hz, which cascades
+  // into FusionCore as inflated position increments.
+  const double dt_safe = (dt_sec > 1e-3) ? dt_sec : 1e-3;
+  odom.twist.twist.linear.x = d_center / dt_safe;
+  odom.twist.twist.angular.z = d_theta / dt_safe;
 
   // Twist covariance
   odom.twist.covariance[0] = 1e-3;  // vx
