@@ -248,13 +248,15 @@ def generate_launch_description() -> LaunchDescription:
             {"gnss.lever_arm_x": gps_x},
             {"gnss.lever_arm_y": gps_y},
             {"gnss.lever_arm_z": gps_z},
-            # Fixed ECEF datum is DISABLED pending upstream FusionCore fix:
-            # `proj_normalize_for_visualization` swaps lat/lon axis order but
-            # gnss_to_output passes (lat, lon) → all fixes get rejected as
-            # thousands of km from our properly-computed ECEF reference.
-            # First-fix mode works because the bug is consistent both ways.
-            # Track: https://github.com/manankharwar/fusioncore/issues (TBD)
-            {"reference.use_first_fix": True},
+            # Fixed ECEF datum. Requires the FusionCore fix on branch
+            # fix/proj-axis-order (upstream PR
+            # https://github.com/manankharwar/fusioncore/pull/10) — the
+            # forward LLA→ECEF conversion previously swapped lat/lon.
+            # When datum_lat/lon=0, fall back to first-fix for bench tests.
+            {"reference.use_first_fix": not datum_is_fixed},
+            {"reference.x": ref_x},
+            {"reference.y": ref_y},
+            {"reference.z": ref_z},
         ],
         remappings=[
             ("/odom/wheels", "/wheel_odom"),
