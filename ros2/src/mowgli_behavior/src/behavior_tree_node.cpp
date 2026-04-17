@@ -75,6 +75,8 @@ public:
     RCLCPP_INFO(get_logger(), "mowgli_behavior_node ready");
   }
 
+  std::shared_ptr<BTContext> context() const { return context_; }
+
 private:
   // ------------------------------------------------------------------
   // ROS2 infrastructure
@@ -417,7 +419,17 @@ int main(int argc, char** argv)
   // shared_from_this() is valid.
   node->init();
 
-  rclcpp::spin(node);
+  // Use MultiThreadedExecutor so both the main BT node and the helper
+  // node (used for service clients from BT tick callbacks) get spun.
+  // Without spinning the helper, async service responses never reach
+  // the future, so GetCoverageStatus / GetNextStrip / etc. all time out
+  // — symptom: `GetNextUnmowedArea: all areas complete` immediately on
+  // start because the service future is never ready.
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node);
+  executor.add_node(node->context()->helper_node);
+  executor.spin();
+
   rclcpp::shutdown();
   return 0;
 }
