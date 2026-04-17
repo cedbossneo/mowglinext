@@ -1,16 +1,18 @@
-# ZED-F9P rover config for ublox_dgnss driver.
+# ZED-F9P rover overrides for aussierobots/ublox_dgnss.
 #
-# All keys below map directly to u-blox CFG-VALSET items; ublox_dgnss
-# reads them at startup and pushes them to the receiver over USB.
+# The driver preloads defaults from f9p_ubx_config.toml (126 CFG items);
+# the values here override that TOML for the things that matter in a
+# rover + NTRIP configuration. Keys are the exact u-blox CFG-VALSET
+# identifiers that the driver exposes as ROS parameters.
 #
-# This is a ROVER profile (no survey-in), optimised for RTK injection via
-# NTRIP. The driver auto-discovers the F9P by USB VID:PID (0x1546:0x01a9),
-# so no device path is needed.
-ublox_dgnss_node:
+# Driver auto-discovers the F9P by USB VID:PID (0x1546:0x01a9), so no
+# device path is needed.
+ublox_dgnss:
   ros__parameters:
     FRAME_ID: gps
-    # USB interface: accept NMEA + UBX + RTCM3 in, publish NMEA + UBX out.
-    # (RTCM3 input is how the ntrip_client injects corrections.)
+
+    # USB: accept UBX + NMEA + RTCM3 in (NTRIP injects RTCM3 via USB),
+    # publish UBX + NMEA out. RTCM3 out is off (we're a rover, not a base).
     CFG_USBINPROT_NMEA: true
     CFG_USBINPROT_UBX: true
     CFG_USBINPROT_RTCM3X: true
@@ -18,44 +20,32 @@ ublox_dgnss_node:
     CFG_USBOUTPROT_UBX: true
     CFG_USBOUTPROT_RTCM3X: false
 
-    # Navigation rate: 8 Hz measurements, solve every measurement.
-    CFG_RATE_MEAS: 125   # 125 ms → 8 Hz
-    CFG_RATE_NAV: 1      # solve every measurement
+    # 8 Hz nav rate (125 ms), solve every measurement.
+    CFG_RATE_MEAS: 125
+    CFG_RATE_NAV: 1
 
-    # Dynamic model: portable (fine for a ground robot up to ~2 m/s).
-    # 0=portable, 2=stationary, 3=pedestrian, 4=automotive, 5=sea, 6=air<1g, 7=air<2g, 8=air<4g
+    # Dynamic model: 0 = portable (suitable for a ground robot).
     CFG_NAVSPG_DYNMODEL: 0
 
-    # Allow RTK Fixed mode (vs Float only).
-    CFG_NAVSPG_USE_PPP: false
-
-    # UBX message publishing on USB port — rates as multiples of nav rate.
-    # (0 = off, 1 = every nav epoch, 2 = every 2nd, …)
-    CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1   # high-precision LLH
-    CFG_MSGOUT_UBX_NAV_STATUS_USB: 1     # fix type + flags (carrSoln, diffSoln)
+    # UBX messages on USB (0 = off, 1 = every nav epoch).
+    CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1   # high-precision LLH — needed by HP NavSatFix node
+    CFG_MSGOUT_UBX_NAV_STATUS_USB: 1     # fix type + carrSoln/diffSoln diagnostics
     CFG_MSGOUT_UBX_NAV_COV_USB: 1        # covariance → NavSatFix.position_covariance
-    CFG_MSGOUT_UBX_NAV_PVT_USB: 1        # position/velocity/time
-    CFG_MSGOUT_UBX_NAV_VELNED_USB: 1     # NED velocity
-    CFG_MSGOUT_UBX_NAV_RELPOSNED_USB: 0  # 0 unless moving-base/dual-antenna
+    CFG_MSGOUT_UBX_NAV_PVT_USB: 1
+    CFG_MSGOUT_UBX_NAV_VELNED_USB: 1
+    CFG_MSGOUT_UBX_NAV_RELPOSNED_USB: 0  # 0 unless moving-base / dual-antenna
+    CFG_MSGOUT_UBX_RXM_RTCM_USB: 1       # correction ingestion counter
 
     # NMEA GGA on USB — fed back to NTRIP client for VRS casters that
-    # require a client position.
+    # need a client position to generate local corrections.
     CFG_MSGOUT_NMEA_ID_GGA_USB: 1
 
-    # RTCM ingestion status (handy for diagnostics — counts corrections).
-    CFG_MSGOUT_UBX_RXM_RTCM_USB: 1
-
-# HP → NavSatFix converter (publishes /fix with position_covariance).
-ublox_nav_sat_fix_hp_node:
+ublox_nav_sat_fix_hp:
   ros__parameters:
     FRAME_ID: gps
 
-# NTRIP client (connects to caster, streams RTCM into the driver).
-# Credentials and mountpoint come from mowgli_robot.yaml via start_gps.sh.
-ntrip_client_node:
+# NTRIP client: host / port / mountpoint / username / password are passed
+# at launch from mowgli_robot.yaml (see start_gps.sh).
+ntrip_client:
   ros__parameters:
-    # host, port, username, password, mountpoint are injected at launch time
     use_https: false
-    # NMEA $GPGGA sentences are required by most VRS (virtual reference
-    # station) mountpoints so the caster can compute local corrections.
-    nmea_gga_min_period_ms: 1000
