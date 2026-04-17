@@ -13,12 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -42,6 +45,46 @@ using namespace std::chrono_literals;
 
 namespace mowgli_behavior
 {
+
+// ---------------------------------------------------------------------------
+// Battery voltage → state-of-charge curve
+// ---------------------------------------------------------------------------
+//
+// Piecewise-linear lookup for a 7S Li-ion pack (Yardforce 500 Classic and
+// equivalents). Voltages are pack voltage (not per-cell). The curve follows
+// the typical Li-ion discharge shape — a long flat plateau near 3.6–3.8 V
+// per cell — which a pure linear interpolation would mis-estimate badly:
+// a Li-ion pack reports ~26 V for most of its usable range, so a linear
+// (24→28.5 V) map would stay near 50% long after the pack is actually empty.
+//
+// If your pack is a different chemistry, edit this table.
+// Values (pack volts, percent), ordered from full to empty.
+static constexpr std::array<std::pair<float, float>, 9> kSocCurve = {{
+    {29.0f, 100.0f},
+    {28.0f,  90.0f},
+    {27.0f,  75.0f},
+    {26.0f,  55.0f},
+    {25.2f,  40.0f},   // nominal
+    {24.5f,  25.0f},
+    {23.5f,  15.0f},
+    {22.5f,   5.0f},
+    {21.5f,   0.0f},   // BMS cutoff
+}};
+
+static float voltage_to_soc_percent(float v)
+{
+  if (v >= kSocCurve.front().first) return kSocCurve.front().second;
+  if (v <= kSocCurve.back().first)  return kSocCurve.back().second;
+  for (size_t i = 1; i < kSocCurve.size(); ++i) {
+    const auto& hi = kSocCurve[i - 1];
+    const auto& lo = kSocCurve[i];
+    if (v <= hi.first && v >= lo.first) {
+      const float t = (v - lo.first) / (hi.first - lo.first);
+      return lo.second + t * (hi.second - lo.second);
+    }
+  }
+  return 0.0f;
+}
 
 // ---------------------------------------------------------------------------
 // BehaviorTreeNode
@@ -114,13 +157,15 @@ private:
                                      std::lock_guard<std::mutex> lock(context_->context_mutex);
                                      context_->latest_power = *msg;
 
-                                     // Derive battery_percent from voltage using
-                                     // configurable thresholds from ROS parameters.
-                                     const float v_max = battery_full_voltage_;
-                                     const float v_min = battery_empty_voltage_;
-                                     const float clamped = std::clamp(msg->v_battery, v_min, v_max);
+                                     // Derive battery_percent from voltage. Use a
+                                     // piecewise SoC curve so the flat Li-ion
+                                     // voltage plateau doesn't linearise into a
+                                     // wildly-wrong percentage. Curve tuned for
+                                     // a 7S Li-ion pack (Yardforce 500 Classic
+                                     // and equivalents); for other chemistries
+                                     // adjust soc_curve below.
                                      context_->battery_percent =
-                                         100.0f * (clamped - v_min) / (v_max - v_min);
+                                         voltage_to_soc_percent(msg->v_battery);
                                    });
 
     // Replan / boundary signals from map_server_node
