@@ -28,6 +28,10 @@ fusioncore_node:
     # RTAB-Map "No transform found for stamp" warnings and costmap/planner
     # TF-staleness races during fast undocking transitions.
     publish_rate: 100.0
+    # Force 2D: zero Z in published odom + TF so the costmap rolling
+    # window stays in the 2D navigation plane regardless of GPS altitude
+    # noise or IMU-Z drift. We're a garden mower — altitude is irrelevant.
+    publish.force_2d: true
 
     # QoS overrides — match the publishers' QoS.
     # hardware_bridge publishes /imu/data and /wheel_odom with BEST_EFFORT.

@@ -27,6 +27,11 @@ ublox_dgnss:
     # Dynamic model: 0 = portable (suitable for a ground robot).
     CFG_NAVSPG_DYNMODEL: 0
 
+    # High-precision DGNSS mode:
+    #   2 = Float-only (default on many F9P images)
+    #   3 = Allow RTK Fixed when integer ambiguities resolve
+    CFG_NAVHPG_DGNSSMODE: 3
+
     # UBX messages on USB (0 = off, 1 = every nav epoch).
     CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1   # high-precision LLH — needed by HP NavSatFix node
     CFG_MSGOUT_UBX_NAV_STATUS_USB: 1     # fix type + carrSoln/diffSoln diagnostics
@@ -43,6 +48,18 @@ ublox_dgnss:
 ublox_nav_sat_fix_hp:
   ros__parameters:
     FRAME_ID: gps
+    # Publish /gps/fix as RELIABLE. Cyclone DDS rejects the connection
+    # when a RELIABLE subscriber (fusioncore, rtabmap,
+    # navsat_to_absolute_pose) meets a BEST_EFFORT publisher, so none
+    # of those nodes were receiving GPS fixes — FusionCore pose drifts,
+    # BT PreFlightCheck times out, Nav2 plans from a wrong pose.
+    qos_overrides:
+      /gps/fix:
+        publisher:
+          reliability: reliable
+          durability: volatile
+          history: keep_last
+          depth: 10
 
 # NTRIP client: host / port / mountpoint / username / password are passed
 # at launch from mowgli_robot.yaml (see start_gps.sh).
