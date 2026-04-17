@@ -137,21 +137,24 @@
             <Inverter><IsCharging/></Inverter>
             <!-- On dock — wait for GPS, save map, then undock -->
             <Sequence name="UndockSequence">
-              <!-- Brief wait for GPS before undocking. Gives GPS time to
-                   get a fix and confirm SLAM/datum alignment. Times out
-                   after 30s to avoid blocking at docks with poor GPS. -->
-              <PublishHighLevelStatus state="2" state_name="WAITING_GPS"/>
-              <Fallback name="GPSWaitOrTimeout">
+              <!-- Comprehensive readiness gate before undocking: verifies
+                   GPS fix type, battery, TF chain, mowing area, coverage
+                   service — all in a single node with a clear failure log.
+                   Retry for up to 30s to allow transient issues (GPS not
+                   yet RTK, late-starting nodes) to resolve, then proceed
+                   anyway to not block indefinitely at low-GPS sites. -->
+              <PublishHighLevelStatus state="2" state_name="PREFLIGHT_CHECK"/>
+              <Fallback name="PreFlightOrTimeout">
                 <RetryUntilSuccessful num_attempts="30">
                   <Fallback>
-                    <IsGPSFixed/>
+                    <PreFlightCheck min_battery="20.0" min_gps_fix_type="2" tf_timeout_sec="0.5"/>
                     <Sequence>
                       <WaitForDuration duration_sec="1.0"/>
                       <AlwaysFailure/>
                     </Sequence>
                   </Fallback>
                 </RetryUntilSuccessful>
-                <!-- Timeout: proceed without RTK fix -->
+                <!-- Timeout: proceed with a warning in logs -->
                 <AlwaysSuccess/>
               </Fallback>
               <!-- Save SLAM map while docked with correct heading.
