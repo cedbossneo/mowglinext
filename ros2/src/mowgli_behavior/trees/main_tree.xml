@@ -317,14 +317,34 @@
                     <Sequence name="GetAndMowStrip">
                       <GetNextStrip area_index="{current_area_index}"/>
                       <Fallback name="MowOrSkip">
-                        <!-- Try up to 3 times to reach and mow this strip -->
+                        <!-- Try up to 3 times to reach and mow this strip.
+                             Between attempts, run a BackUp + ClearCostmap
+                             recovery so a stuck robot doesn't just push
+                             forward into the same obstacle on every retry.
+                             Fallback: if MowOneStrip succeeds, returns SUCCESS;
+                             otherwise runs StripRecover which ends in
+                             AlwaysFailure so RetryUntilSuccessful counts the
+                             attempt as failed and tries again. -->
                         <RetryUntilSuccessful num_attempts="3" name="StripRetry">
-                          <Sequence name="MowOneStrip">
-                            <PublishHighLevelStatus state="2" state_name="TRANSIT"/>
-                            <TransitToStrip/>
-                            <PublishHighLevelStatus state="2" state_name="MOWING"/>
-                            <FollowStrip/>
-                          </Sequence>
+                          <Fallback name="MowOrRecover">
+                            <Sequence name="MowOneStrip">
+                              <PublishHighLevelStatus state="2" state_name="TRANSIT"/>
+                              <TransitToStrip/>
+                              <PublishHighLevelStatus state="2" state_name="MOWING"/>
+                              <FollowStrip/>
+                            </Sequence>
+                            <Sequence name="StripRecover">
+                              <SetMowerEnabled enabled="false"/>
+                              <StopMoving/>
+                              <Fallback>
+                                <BackUp backup_dist="0.3" backup_speed="0.1"/>
+                                <AlwaysSuccess/>
+                              </Fallback>
+                              <ClearCostmap/>
+                              <WaitForDuration duration_sec="1.0"/>
+                              <AlwaysFailure/>
+                            </Sequence>
+                          </Fallback>
                         </RetryUntilSuccessful>
                         <!-- All 3 attempts failed — skip this strip, increment counter -->
                         <Sequence name="SkipStrip">

@@ -34,9 +34,11 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     enable_stamped_cmd_vel: true
-    # Low frequency: slow motors overshoot/oscillate at higher rates.
-    # Old mowgli project used 1.0 Hz successfully.
-    controller_frequency: 2.0
+    # 5 Hz: at 2 Hz the RotationShimController sat at the rotation_shim
+    # hysteresis edge and flipped angular.z between ±0.25 every tick, so
+    # the robot wobbled without advancing. Downstream velocity_smoother
+    # (20 Hz) still tames motor overshoot at 5 Hz.
+    controller_frequency: 5.0
     # Tolerate local_costmap update stutters (up to 600ms observed on ARM at 5Hz).
     # Default 0.30s aborts every goal with error 107 when TF/scheduler hiccups.
     costmap_update_timeout: 3.0
@@ -74,14 +76,18 @@ controller_server:
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      # Rotation shim: only rotate in place for large heading errors (>60°).
-      # Small errors are handled by RPP driving in an arc.
-      angular_dist_threshold: 1.0
+      # Rotation shim: rotate in place only when heading error > ~34°.
+      # Was 1.0 rad (57°) which let RPP arc-mode oscillate on near-boundary
+      # errors; tightening to 0.6 rad makes the shim exit sooner so RPP
+      # takes over while the heading is well-aligned.
+      angular_dist_threshold: 0.6
       forward_sampling_distance: 0.5
-      # Slow rotation — motors can't handle fast angular commands.
-      # Old mowgli project used max_cmd_vel_ang=3.2 but at 1Hz.
-      rotate_to_heading_angular_vel: 0.5
-      max_angular_accel: 0.5
+      # Commit harder during rotate-in-place so the shim doesn't wobble
+      # around the threshold — was 0.5 rad/s, now 0.8 rad/s. Motors can
+      # handle this with the velocity_smoother downstream ramping the
+      # actual motor command.
+      rotate_to_heading_angular_vel: 0.8
+      max_angular_accel: 0.8
       # RPP parameters — tuned for slow differential drive motors
       desired_linear_vel: 0.3
       lookahead_dist: 0.6
