@@ -295,9 +295,7 @@ BT::NodeStatus PreFlightCheck::tick()
   // ── 1. Emergency ─────────────────────────────────────────────────────────
   {
     std::lock_guard<std::mutex> lock(ctx->context_mutex);
-    const bool em_active = (ctx->latest_emergency.emergency & 0x01u) ||
-                           (ctx->latest_emergency.emergency & 0x08u);
-    if (em_active)
+    if (ctx->latest_emergency.active_emergency || ctx->latest_emergency.latched_emergency)
     {
       failures.emplace_back("emergency=active");
     }
