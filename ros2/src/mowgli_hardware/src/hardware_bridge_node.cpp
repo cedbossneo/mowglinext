@@ -856,7 +856,11 @@ private:
     // When driving, loose (wheel slip on grass).
     const double vel_var = force_zero ? 1e-6 : 0.01;
     msg.twist.covariance[0] = vel_var;  // vx variance
-    msg.twist.covariance[7] = 1e6;  // vy (no lateral) - very high = unknown
+    // Non-holonomic constraint: diff-drive can't slide sideways. Tight
+    // variance on VY=0 tells FusionCore to treat this as a hard
+    // constraint; leaving it at 1e6 ("unknown") let GPS + IMU noise
+    // accumulate into apparent lateral drift during outdoor runs.
+    msg.twist.covariance[7] = 1e-4;  // vy (enforce VY = 0)
     msg.twist.covariance[14] = 1e6;  // vz - unknown
     msg.twist.covariance[21] = 1e6;  // wx - unknown
     msg.twist.covariance[28] = 1e6;  // wy - unknown
