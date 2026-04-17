@@ -24,7 +24,10 @@ fusioncore_node:
   ros__parameters:
     base_frame: base_footprint
     odom_frame: odom
-    publish_rate: 50.0
+    # 100 Hz publish halves the TF gap (was 50 Hz → 20 ms max gap). Reduces
+    # Cartographer "No transform found for stamp" warnings and costmap/planner
+    # TF-staleness races during fast undocking transitions.
+    publish_rate: 100.0
     # Force 2D: zero Z in published odom + TF so the costmap rolling
     # window stays in the 2D navigation plane regardless of GPS altitude
     # noise or IMU-Z drift. We're a garden mower — altitude is irrelevant.

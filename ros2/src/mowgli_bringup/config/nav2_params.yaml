@@ -256,8 +256,12 @@ global_costmap:
   global_costmap:
     ros__parameters:
       use_sim_time: false
-      update_frequency: 0.5
-      publish_frequency: 0.5
+      # 1 Hz (was 0.5 Hz): faster updates reduce the chance of Nav2
+      # controller_server seeing a stale global costmap during action start.
+      # Costmap is 30×30m @ 5cm → obstacle_layer raycast is the main cost,
+      # still under 100 ms on ARM so 1 Hz is safe.
+      update_frequency: 1.0
+      publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
       # TF tolerance: how stale a transform can be before the costmap rejects it.
@@ -439,7 +443,10 @@ collision_monitor:
       points: "[[0.65, 0.35], [0.65, -0.35], [-0.25, -0.35], [-0.25, 0.35]]"
       action_type: "slowdown"
       slowdown_ratio: 0.3
-      min_points: 6
+      # 12 points (was 6) — the dock structure sits near the polygon
+      # boundary when charging, causing rapid slow/normal flapping at
+      # 10 Hz. Higher min_points adds hysteresis against that edge noise.
+      min_points: 12
       visualize: true
       polygon_pub_topic: "polygon_slow"
       enabled: true
