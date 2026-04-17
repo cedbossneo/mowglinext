@@ -79,10 +79,16 @@ fusioncore_node:
     #   - RTK Fixed (2cm): filter smooths GPS jitter (doesn't chase noise)
     #   - Basic GPS (1m+): filter weights encoder/IMU more, stays stable
     #   FusionCore also auto-scales by HDOP, so effective σ adapts.
-    # base_noise_z: 100m — effectively ignore GPS altitude.
-    #   Ground constraint (VZ=0) + gravity removal keep z near 0.
+    # base_noise_z: 5m — let GPS softly pin altitude around the datum.
+    #   The ground_constraint (body-frame VZ=0) + gravity removal were NOT
+    #   enough on their own: uncompensated accel-z bias integrated over time,
+    #   and with GPS altitude effectively ignored (σ=100), Z drifted to 70m+
+    #   after a few minutes of idle on the dock. That pushed LiDAR scans
+    #   above obstacle_layer's max_obstacle_height filter → blank global
+    #   costmap → nav2 couldn't plan. σ=5 m is loose enough to not fight
+    #   RTK horizontal accuracy but tight enough to bound altitude drift.
     gnss.base_noise_xy: 0.5
-    gnss.base_noise_z: 100.0
+    gnss.base_noise_z: 5.0
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
     gnss.min_satellites: 4

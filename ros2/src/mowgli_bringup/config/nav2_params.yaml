@@ -37,6 +37,9 @@ controller_server:
     # Low frequency: slow motors overshoot/oscillate at higher rates.
     # Old mowgli project used 1.0 Hz successfully.
     controller_frequency: 2.0
+    # Tolerate local_costmap update stutters (up to 600ms observed on ARM at 5Hz).
+    # Default 0.30s aborts every goal with error 107 when TF/scheduler hiccups.
+    costmap_update_timeout: 3.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -263,6 +266,9 @@ global_costmap:
       # wrong cells, creating phantom obstacles.  SLAM init delay is handled by
       # wait_for_tf.py, not this parameter.
       transform_tolerance: 5.0
+      # Force periodic full publishes even when no obstacles change, so
+      # isCurrent() reliably flips true for the planner's waitForCurrent.
+      always_send_full_costmap: true
       # Footprint computed from mowgli_robot.yaml at launch time
       footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
@@ -296,7 +302,14 @@ global_costmap:
         observation_sources: scan
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          # Raised from 2.0 to tolerate FusionCore Z drift (seen climbing to
+          # 70m+ over minutes when GPS Z is effectively ignored). Without this,
+          # all scans get filtered as "too high" and the obstacle_layer stays
+          # empty → global costmap blank → controller can't plan around real
+          # obstacles. 200m covers any realistic drift window; the LiDAR is a
+          # 2D planar sensor so height filtering only matters for multi-layer
+          # clouds, which we don't use.
+          max_obstacle_height: 200.0
           clearing: true
           marking: true
           data_type: "LaserScan"
@@ -324,6 +337,16 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_footprint
+      # Raised from default 0.3s: on ARM the odom→base_footprint TF lookup
+      # occasionally exceeds 300ms of scheduler jitter, causing updateMap()
+      # to early-return without setting current_=true → controller_server's
+      # waitForCurrent times out every goal with error 107.
+      transform_tolerance: 5.0
+      # Force periodic full publishes. Without this (default false), the
+      # costmap only publishes when its map changes — but with only the
+      # inflation_layer and no obstacle source, the map rarely changes,
+      # so the publish thread stays idle and isCurrent() never flips true.
+      always_send_full_costmap: true
       footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
       rolling_window: true
@@ -335,11 +358,33 @@ local_costmap:
       # planner (swaths stay within the polygon) and the collision_monitor
       # (real LiDAR obstacles only). Speed filter also removed as it depends
       # on the same mask infrastructure.
-      # Local costmap: NO obstacle layer. Collision_monitor handles real-time
-      # obstacle avoidance (slow/stop polygons). The obstacle layer caused
-      # BackUp "Collision Ahead" failures at the dock — the dock structure
-      # is always visible to lidar and can't be cleared from the costmap.
-      plugins: ["inflation_layer"]
+      # Obstacle layer ENABLED so FTCController's obstacle lookahead
+      # (check_obstacles=true, obstacle_lookahead=5) can avoid LiDAR-seen
+      # obstacles on coverage paths. Collision_monitor alone (PolygonSlow
+      # at 30%) was letting the robot creep into walls during FollowStrip.
+      # observation_persistence=0 keeps the dock cleared when the robot
+      # drives away from it, so it doesn't block BackUp on the next cycle.
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_persistence: 0.0
+        observation_sources: scan
+        scan:
+          topic: /scan
+          # Large ceiling so FusionCore Z drift doesn't filter scans out.
+          max_obstacle_height: 200.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 6.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          # Filter grass/near-ground clutter (LiDAR is at ~0.38m forward of
+          # base_footprint and ~0.265m height, so 0.5m min catches tufts).
+          obstacle_min_range: 0.50
+          inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
