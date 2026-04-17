@@ -30,6 +30,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       cmake \
       git \
       libusb-1.0-0-dev \
+      libcurl4-openssl-dev \
       python3-colcon-common-extensions \
       ros-kilted-rclcpp \
       ros-kilted-rclcpp-components \
@@ -62,6 +63,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       libusb-1.0-0 \
+      libcurl4 \
       ros-kilted-rmw-cyclonedds-cpp \
       ros-kilted-rtcm-msgs
 
