@@ -3,7 +3,7 @@
 #include <mutex>
 #include <string>
 
-#include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/battery_state.hpp>
@@ -35,7 +35,7 @@ private:
   void create_timers();
   void create_clients();
 
-  void on_cmd_vel(const geometry_msgs::msg::Twist::SharedPtr msg);
+  void on_cmd_vel(const geometry_msgs::msg::TwistStamped::SharedPtr msg);
   void on_high_level_status(const mowgli_interfaces::msg::HighLevelStatus::SharedPtr msg);
 
   void on_mavros_state(const mavros_msgs::msg::State::SharedPtr msg);
@@ -55,13 +55,20 @@ private:
   void publish_emergency();
   void publish_power();
 
-  void send_arm_command(bool arm);
-  void send_mode_command(const std::string& mode);
+  bool send_arm_command(bool arm);
+  bool send_mode_command(const std::string& mode);
 
 private:
   std::mutex mutex_;
 
   double status_publish_rate_hz_{10.0};
+  double manual_control_linear_scale_{1000.0};
+  double manual_control_yaw_scale_{1000.0};
+  bool manual_control_enabled_{false};
+  bool blade_control_enabled_{false};
+  bool charging_feedback_enabled_{false};
+  bool emergency_disarm_{true};
+  std::string emergency_mode_{"HOLD"};
   bool rain_detected_{false};
   bool esc_power_{true};
   bool raspberry_pi_power_{true};
@@ -104,7 +111,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_state_;
   rclcpp::Publisher<mavros_msgs::msg::ManualControl>::SharedPtr pub_manual_control_;
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr sub_cmd_vel_;
   rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr sub_hl_status_;
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr sub_mavros_state_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_mavros_imu_;
