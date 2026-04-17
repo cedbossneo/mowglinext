@@ -22,6 +22,7 @@ mowgli:
         coverage_xy_tolerance: 0.5
         datum_lat: 48.87965
         datum_lon: 2.1728173
+        datum_alt: 27.0
         dock_approach_distance: 1
         dock_max_retries: 3
         dock_pose_x: 0

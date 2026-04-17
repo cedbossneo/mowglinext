@@ -199,8 +199,17 @@ def generate_launch_description():
                 respawn_delay=2.0,
                 parameters=[configured_params],
                 arguments=['--ros-args', '--log-level', log_level],
+                # Smoother is positioned AFTER collision_monitor in the pipeline
+                # so the 30%↔100% step applied by collision_monitor's slowdown
+                # polygon gets ramped on the motor side (instead of being
+                # smoothed upstream and then step-changed downstream, which
+                # produced visible cmd_vel oscillation).
+                # Pipeline: controller_server → cmd_vel_nav → collision_monitor
+                #         → cmd_vel_safe → velocity_smoother → cmd_vel_monitored
+                #         → twist_mux → cmd_vel → hardware
                 remappings=remappings
-                + [('cmd_vel', 'cmd_vel_nav')],
+                + [('cmd_vel', 'cmd_vel_safe'),
+                   ('cmd_vel_smoothed', 'cmd_vel_monitored')],
             ),
             Node(
                 package='nav2_collision_monitor',

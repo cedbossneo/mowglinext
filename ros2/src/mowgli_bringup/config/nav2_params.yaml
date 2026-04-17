@@ -93,7 +93,11 @@ controller_server:
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.1
       approach_velocity_scaling_dist: 0.6
-      use_collision_detection: false
+      # RPP collision detection enabled: the local_costmap now carries an
+      # obstacle_layer, so RPP can slow/stop when the path is about to hit
+      # a real obstacle (not just the pre-planned path blindly).
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.5
       use_regulated_linear_velocity_scaling: true
       use_fixed_curvature_lookahead: false
       curvature_lookahead_dist: 0.6
@@ -136,8 +140,13 @@ controller_server:
       goal_timeout: 10.0
       max_follow_distance: 2.0
       forward_only: false            # allow reversing
-      # Obstacles — rely on collision_monitor, not costmap
-      check_obstacles: false
+      # Obstacles: check the local_costmap obstacle_layer for the next
+      # `obstacle_lookahead` path poses and abort the strip when one
+      # of them falls on a LETHAL cell. Previously disabled, which let
+      # the robot creep into walls at 30% speed behind collision_monitor.
+      check_obstacles: true
+      obstacle_lookahead: 5
+      obstacle_footprint: true
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -230,11 +239,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    # Topic flow: controller_server → cmd_vel_nav → velocity_smoother →
-    #             cmd_vel_smoothed → collision_monitor → cmd_vel_monitored →
-    #             twist_mux → cmd_vel → hardware
-    input_topic: cmd_vel_nav
-    output_topic: cmd_vel_smoothed
+    # Pipeline topics are wired via launch-file remappings, not yaml
+    # (nav2_velocity_smoother doesn't expose input_topic/output_topic as
+    # parameters — only 'cmd_vel' and 'smoothed_cmd_vel' remap targets).
+    # See nav2_navigation_launch.py for the actual wiring.
     max_velocity: [0.3, 0.0, 0.8]
     min_velocity: [-0.3, 0.0, -1.0]
     # Higher acceleration to overcome grass resistance and static friction.
@@ -456,8 +464,8 @@ collision_monitor:
     enable_stamped_cmd_vel: true
     base_frame_id: base_footprint
     odom_frame_id: odom
-    cmd_vel_in_topic: cmd_vel_smoothed
-    cmd_vel_out_topic: cmd_vel_monitored
+    cmd_vel_in_topic: cmd_vel_nav
+    cmd_vel_out_topic: cmd_vel_safe
     state_topic: collision_monitor_state
     transform_tolerance: 0.2
     # Source timeout: how long before stale sensor data triggers a stop.
