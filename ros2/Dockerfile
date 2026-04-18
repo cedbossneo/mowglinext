@@ -34,6 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-tf2-ros \
     ros-kilted-tf2-eigen \
     ros-kilted-tf2-geometry-msgs \
+    # std_srvs (gps_slam_corrector's ~/reset_alignment service)
+    ros-kilted-std-srvs \
     # Grid map
     ros-kilted-grid-map-core \
     ros-kilted-grid-map-ros \
