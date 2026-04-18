@@ -157,8 +157,10 @@ def generate_launch_description() -> LaunchDescription:
 
     # Read GPS datum from runtime config (same path as SLAM function).
     # The installed config has defaults (0.0); runtime has per-site values.
+    import math as _math
     datum_lat = 0.0
     datum_lon = 0.0
+    datum_alt = 0.0
     gps_x = 0.0
     gps_y = 0.0
     gps_z = 0.0
@@ -169,9 +171,34 @@ def generate_launch_description() -> LaunchDescription:
         rt_rp = rt_cfg.get("mowgli", {}).get("ros__parameters", {})
         datum_lat = float(rt_rp.get("datum_lat", 0.0))
         datum_lon = float(rt_rp.get("datum_lon", 0.0))
+        # datum_alt intentionally forced to 0 — we're a 2D ground robot on
+        # grass, altitude is irrelevant. Using the config value (e.g. 27 m)
+        # would just offset the ECEF reference without any benefit, and
+        # publish.force_2d zeroes z in the output anyway.
+        datum_alt = 0.0
         gps_x = float(rt_rp.get("gps_x", 0.0))
         gps_y = float(rt_rp.get("gps_y", 0.0))
         gps_z = float(rt_rp.get("gps_z", 0.0))
+
+    # Convert datum lat/lon/alt → ECEF (WGS84) for FusionCore's PROJ reference.
+    # Without this, FusionCore uses use_first_fix=true and anchors odom to
+    # wherever the robot first saw GPS — not the configured datum. Map frame
+    # then drifts from the GPS-absolute-pose frame, and the robot appears
+    # off-position on the displayed map.
+    WGS84_A = 6378137.0
+    WGS84_F = 1.0 / 298.257223563
+    WGS84_E2 = WGS84_F * (2.0 - WGS84_F)
+    datum_is_fixed = (datum_lat != 0.0 or datum_lon != 0.0)
+    ref_x = ref_y = ref_z = 0.0
+    if datum_is_fixed:
+        lat_rad = _math.radians(datum_lat)
+        lon_rad = _math.radians(datum_lon)
+        sin_lat = _math.sin(lat_rad)
+        cos_lat = _math.cos(lat_rad)
+        N = WGS84_A / _math.sqrt(1.0 - WGS84_E2 * sin_lat * sin_lat)
+        ref_x = (N + datum_alt) * cos_lat * _math.cos(lon_rad)
+        ref_y = (N + datum_alt) * cos_lat * _math.sin(lon_rad)
+        ref_z = (N * (1.0 - WGS84_E2) + datum_alt) * sin_lat
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -275,24 +302,53 @@ def generate_launch_description() -> LaunchDescription:
                 ))
             )
 
-        # Initialize SLAM at the dock position (relative to GPS datum) in
-        # ALL modes.  For a fresh map this aligns the new SLAM map frame
-        # with GPS coordinates; for lifelong/localization it provides a
-        # heading hint so scan-matching converges faster at the dock.
+        # SLAM start pose: ONLY use dock pose when we can confirm the robot
+        # is currently on the dock (charging). hardware_bridge writes the
+        # dock pose to /tmp/dock_start_pose.txt the first time charging is
+        # detected during its lifetime — if that file exists AND is recent,
+        # we trust that we're docked. Otherwise skip the override so
+        # slam_toolbox uses the saved map's native origin; GPS will anchor
+        # us via the map→slam_map corrector once scans register.
         dock_start_pose = None
-        robot_config = "/ros2_ws/config/mowgli_robot.yaml"
-        if os.path.isfile(robot_config):
-            with open(robot_config, "r") as f:
-                rcfg = yaml.safe_load(f) or {}
-            rp = rcfg.get("mowgli", {}).get("ros__parameters", {})
-            dx = float(rp.get("dock_pose_x", 0.0))
-            dy = float(rp.get("dock_pose_y", 0.0))
-            dyaw = float(rp.get("dock_pose_yaw", 0.0))
-            dock_start_pose = [dx, dy, dyaw]
+        dock_start_pose_file = "/tmp/dock_start_pose.txt"
+        if os.path.isfile(dock_start_pose_file):
+            try:
+                mtime = os.path.getmtime(dock_start_pose_file)
+                age = abs(_time.time() - mtime) if ("_time" in dir()) else 0
+            except Exception:
+                age = 0
+            try:
+                with open(dock_start_pose_file, "r") as f:
+                    parts = f.read().strip().split()
+                if len(parts) >= 3:
+                    # hardware_bridge writes the yaw in compass convention
+                    # (0=N, 90=E, CW). slam_toolbox's map_start_pose needs
+                    # ENU (0=E, 90=N, CCW). Convert: enu = pi/2 - compass.
+                    compass_yaw = float(parts[2])
+                    enu_yaw = (_math.pi / 2.0) - compass_yaw
+                    # Normalize to [-pi, pi] for cleanliness.
+                    while enu_yaw > _math.pi:
+                        enu_yaw -= 2.0 * _math.pi
+                    while enu_yaw <= -_math.pi:
+                        enu_yaw += 2.0 * _math.pi
+                    dock_start_pose = [float(parts[0]), float(parts[1]), enu_yaw]
+                    actions.append(
+                        LogInfo(msg=(
+                            f"[navigation.launch.py] SLAM start pose from dock file "
+                            f"[{dock_start_pose[0]:.2f}, {dock_start_pose[1]:.2f}, "
+                            f"enu_yaw={enu_yaw:.3f} rad ({_math.degrees(enu_yaw):.1f}°), "
+                            f"from compass {compass_yaw:.3f} rad]"
+                        ))
+                    )
+            except Exception as e:
+                actions.append(
+                    LogInfo(msg=f"[navigation.launch.py] Could not read {dock_start_pose_file}: {e}")
+                )
+        else:
             actions.append(
                 LogInfo(msg=(
-                    f"[navigation.launch.py] SLAM start pose "
-                    f"at dock [{dx:.2f}, {dy:.2f}, {dyaw:.3f}]"
+                    "[navigation.launch.py] Not on dock (no /tmp/dock_start_pose.txt); "
+                    "letting slam_toolbox start from saved map origin (GPS anchors later)."
                 ))
             )
 
@@ -411,13 +467,27 @@ def generate_launch_description() -> LaunchDescription:
             {"gnss.lever_arm_x": gps_x},
             {"gnss.lever_arm_y": gps_y},
             {"gnss.lever_arm_z": gps_z},
+            # Anchor FusionCore's odom frame to the configured datum so
+            # map frame == GPS ENU frame. When datum is 0, fall back to
+            # first-fix for bench tests.
+            {"reference.use_first_fix": not datum_is_fixed},
+            {"reference.x": ref_x},
+            {"reference.y": ref_y},
+            {"reference.z": ref_z},
         ],
         remappings=[
             ("/odom/wheels", "/wheel_odom"),
-            # GPS kept in FusionCore for heading stability via position deltas.
-            # q_orientation=0.0001 prevents GPS from flipping heading.
-            # GPS corrector handles global map anchoring separately.
-            ("/gnss/fix", "/gps/fix"),
+            # GPS intentionally NOT remapped to /gps/fix — FusionCore runs
+            # wheel+IMU-only for smooth local dead-reckoning. GPS noise
+            # is injected only at the map→slam_map layer via the
+            # gps_slam_corrector, and slam_toolbox corrects odom drift
+            # locally via scan matching. This decouples the three layers:
+            #   GPS → global anchor (gps_slam_corrector)
+            #   LiDAR → local correction (slam_toolbox)
+            #   wheels+IMU → short-term smoothness (FusionCore)
+            # Previously, fusing GPS into FusionCore made odom noisy with
+            # Float jitter — slam_toolbox couldn't fight it back because
+            # scan-match corrections are weak in open outdoor scenes.
         ],
     )
 
@@ -462,13 +532,17 @@ def generate_launch_description() -> LaunchDescription:
         name="gps_slam_corrector",
         output="screen",
         parameters=[
-            {"alpha": 0.002},
-            {"max_correction_rate": 0.01},
             {"map_frame": "map"},
             {"slam_frame": "slam_map"},
             {"base_frame": "base_footprint"},
-            {"publish_rate": 20.0},
-            {"gps_noise_threshold": 2.0},
+            {"publish_rate": 10.0},
+            # Umeyama alignment: one-shot fit from accumulated
+            # correspondences, then freeze map→slam_map. Replaces the
+            # old low-pass filter that drifted with Float GPS jitter.
+            {"min_samples": 20},
+            {"min_motion_m": 1.5},
+            {"min_fix_status": 1},  # accept Float+ during alignment
+            {"sample_period_sec": 0.2},
             {"datum_lat": datum_lat},
             {"datum_lon": datum_lon},
             {"gps_x": gps_x},

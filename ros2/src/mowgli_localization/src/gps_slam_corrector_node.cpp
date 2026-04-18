@@ -12,35 +12,46 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
 // ---------------------------------------------------------------------------
-// GPS-SLAM Corrector Node
+// GPS-SLAM Corrector Node — Umeyama-style alignment
 //
-// Publishes the map→slam_map TF that bridges GPS (real-world ENU) with
-// SLAM Toolbox's internal coordinate frame.
+// Replaces the previous low-pass corrector. Inspired by CIFASIS
+// gnss-stereo-inertial-fusion: accumulate (slam_pose, gps_pose) pairs
+// during an alignment phase, solve a weighted SE(2) Umeyama alignment
+// for yaw + translation, then freeze map→slam_map. The frozen alignment
+// doesn't drift with Float GPS jitter.
 //
-// Architecture:
-//   map  →  slam_map  →  odom  →  base_footprint
-//   (GPS      (SLAM)      (FusionCore: IMU+wheels)
-//    correction)
+// State machine:
+//   ACCUMULATING:  collect correspondences. Publish identity map→slam_map.
+//   ALIGNED:       compute & publish the fitted TF. Stay fixed unless a
+//                  re-align is triggered.
 //
-// SLAM Toolbox publishes slam_map→odom from lidar scan matching.
-// FusionCore publishes odom→base_footprint from IMU+wheels (no GPS).
-// This node computes map→slam_map so that the final map→base_footprint
-// is anchored to GPS coordinates while using SLAM for local precision.
+// Transition ACCUMULATING → ALIGNED requires:
+//   (a) at least `min_samples` correspondences (default 20)
+//   (b) SLAM pose spread >= `min_motion_m` in both X and Y (yaw observability)
 //
-// The correction is low-pass filtered to avoid GPS noise causing jumps.
-// In feature-rich areas, SLAM is precise and the correction stays small.
-// In open fields with RTK, GPS gently pulls the map toward reality.
+// Lever arm: the SLAM pose is base_footprint; GPS reports antenna. We
+// apply the forward model
+//   p_gps_expected = R_align · (R(yaw_slam) · t_bg + p_slam) + t_align
+// so the lever arm is baked into the correspondence before solving.
+//
+// Covariance weighting: each correspondence is weighted by
+// 1 / NavSatFix.position_covariance[0] (horizontal σ²). Float fixes with
+// large covariance contribute less than Fixed — this is exactly what
+// CIFASIS does for their g2o edges.
 // ---------------------------------------------------------------------------
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer.h>
@@ -50,49 +61,82 @@
 namespace mowgli_localization
 {
 
+namespace
+{
+
+constexpr double METERS_PER_DEG = 111320.0;
+
+// Per-sample weight from NavSatFix covariance. Defensive against zeros
+// and garbage. Falls back to a status-based weight when covariance is
+// unknown (position_covariance_type == 0).
+double weight_from_fix(const sensor_msgs::msg::NavSatFix& msg)
+{
+  const double fallback_sigma2 = 1.0;  // 1 m² if we know nothing
+  double sigma2 = fallback_sigma2;
+
+  if (msg.position_covariance_type != 0)
+  {
+    const double cov_xx = msg.position_covariance[0];
+    const double cov_yy = msg.position_covariance[4];
+    const double mean = 0.5 * (std::max(cov_xx, 0.0) + std::max(cov_yy, 0.0));
+    if (mean > 1e-6)
+      sigma2 = mean;
+  }
+  else
+  {
+    // Without covariance, weight by fix status:
+    //   2 = RTK/Fixed  → σ² ≈ 0.001 (2 cm)
+    //   1 = DGPS/Float → σ² ≈ 0.05  (20 cm)
+    //   0 = basic GPS  → σ² ≈ 4.0   (2 m)
+    switch (msg.status.status)
+    {
+      case 2: sigma2 = 0.001; break;
+      case 1: sigma2 = 0.05; break;
+      default: sigma2 = 4.0; break;
+    }
+  }
+  return 1.0 / sigma2;
+}
+
+}  // namespace
+
 class GpsSlamCorrectorNode : public rclcpp::Node
 {
 public:
   GpsSlamCorrectorNode() : Node("gps_slam_corrector")
   {
-    declare_parameter<double>("alpha", 0.02);
-    declare_parameter<double>("max_correction_rate", 0.05);
     declare_parameter<std::string>("map_frame", "map");
     declare_parameter<std::string>("slam_frame", "slam_map");
     declare_parameter<std::string>("base_frame", "base_footprint");
-    declare_parameter<double>("publish_rate", 20.0);
-    declare_parameter<double>("gps_noise_threshold", 2.0);
-    // Dock position as initial GPS datum (from mowgli_robot.yaml).
-    // If both are 0.0, falls back to first GPS fix as datum.
+    declare_parameter<double>("publish_rate", 10.0);
+    declare_parameter<int>("min_samples", 20);
+    declare_parameter<double>("min_motion_m", 1.5);
+    declare_parameter<double>("min_fix_status", 1);  // accept DGPS+ (Float) during alignment
     declare_parameter<double>("datum_lat", 0.0);
     declare_parameter<double>("datum_lon", 0.0);
-    // GPS antenna offset from base_footprint (from mowgli_robot.yaml gps_x/y).
-    // Used to compensate the heading-dependent error when comparing
-    // antenna position (GPS) with base_footprint position (SLAM).
     declare_parameter<double>("gps_x", 0.0);
     declare_parameter<double>("gps_y", 0.0);
+    declare_parameter<double>("sample_period_sec", 0.2);  // 5 Hz correspondence rate
 
-    alpha_ = get_parameter("alpha").as_double();
-    max_correction_rate_ = get_parameter("max_correction_rate").as_double();
     map_frame_ = get_parameter("map_frame").as_string();
     slam_frame_ = get_parameter("slam_frame").as_string();
     base_frame_ = get_parameter("base_frame").as_string();
     publish_rate_ = get_parameter("publish_rate").as_double();
-    gps_noise_threshold_ = get_parameter("gps_noise_threshold").as_double();
+    min_samples_ = get_parameter("min_samples").as_int();
+    min_motion_m_ = get_parameter("min_motion_m").as_double();
+    min_fix_status_ = static_cast<int>(get_parameter("min_fix_status").as_double());
     gps_lever_x_ = get_parameter("gps_x").as_double();
     gps_lever_y_ = get_parameter("gps_y").as_double();
+    sample_period_ = get_parameter("sample_period_sec").as_double();
 
-    // Use dock position as datum if configured
-    double cfg_lat = get_parameter("datum_lat").as_double();
-    double cfg_lon = get_parameter("datum_lon").as_double();
+    // Datum: use configured if non-zero, else first-fix.
+    const double cfg_lat = get_parameter("datum_lat").as_double();
+    const double cfg_lon = get_parameter("datum_lon").as_double();
     if (cfg_lat != 0.0 && cfg_lon != 0.0)
     {
-      datum_lat_ = cfg_lat;
-      datum_lon_ = cfg_lon;
-      cos_datum_lat_ = std::cos(datum_lat_ * M_PI / 180.0);
-      datum_set_ = true;
+      set_datum(cfg_lat, cfg_lon);
       RCLCPP_INFO(get_logger(),
-                  "GPS datum from config (dock): lat=%.7f lon=%.7f",
+                  "GPS datum from config: lat=%.7f lon=%.7f",
                   datum_lat_,
                   datum_lon_);
     }
@@ -104,156 +148,265 @@ public:
     gps_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
         "/gps/fix",
         rclcpp::SensorDataQoS(),
-        [this](sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
+        [this](sensor_msgs::msg::NavSatFix::ConstSharedPtr msg) { on_gps_fix(msg); });
+
+    reset_srv_ = create_service<std_srvs::srv::Trigger>(
+        "~/reset_alignment",
+        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+               std::shared_ptr<std_srvs::srv::Trigger::Response> resp)
         {
-          on_gps_fix(msg);
+          reset();
+          resp->success = true;
+          resp->message = "Alignment reset; corrector back to ACCUMULATING.";
         });
 
-    publish_timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / publish_rate_),
-                                       [this]()
-                                       {
-                                         publish_correction();
-                                         // SLAM heading injection disabled: creates feedback loop.
-                                         // SLAM already corrects heading via slam_map→odom TF.
-                                         // Nav2 uses map→base_footprint which includes SLAM
-                                         // correction. publish_slam_heading();
-                                       });
+    publish_timer_ = create_wall_timer(
+        std::chrono::duration<double>(1.0 / publish_rate_),
+        [this]() { publish_correction(); });
 
-    // SLAM heading publisher (currently disabled — see publish_slam_heading()).
-    // hardware_bridge publishes dock heading on ~/dock_heading → /gnss/heading
-    // while charging. This publisher is reserved for future SLAM heading
-    // injection if needed — uses a distinct topic to avoid dual-publisher race.
-    heading_pub_ = create_publisher<sensor_msgs::msg::Imu>("~/slam_heading", rclcpp::QoS(10));
-
-    RCLCPP_INFO(get_logger(),
-                "GPS-SLAM corrector: %s→%s, alpha=%.3f, max_rate=%.3f m/s, "
-                "SLAM heading → ~/slam_heading (disabled)",
-                map_frame_.c_str(),
-                slam_frame_.c_str(),
-                alpha_,
-                max_correction_rate_);
+    RCLCPP_INFO(
+        get_logger(),
+        "GPS-SLAM corrector (Umeyama): min_samples=%d, min_motion_m=%.2f, lever=(%.3f,%.3f)",
+        min_samples_,
+        min_motion_m_,
+        gps_lever_x_,
+        gps_lever_y_);
   }
 
 private:
-  static constexpr double METERS_PER_DEG = 111320.0;
+  struct Correspondence
+  {
+    // q_i = R(yaw_slam) · t_bg + p_slam  (antenna position in slam_map frame)
+    double q_x;
+    double q_y;
+    // GPS antenna position in ENU (datum-relative)
+    double g_x;
+    double g_y;
+    double weight;
+  };
+
+  enum class State
+  {
+    ACCUMULATING,
+    ALIGNED,
+  };
 
   // ─── GPS callback ─────────────────────────────────────────────────────────
 
   void on_gps_fix(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
   {
-    if (msg->status.status < 0)
+    if (msg->status.status < min_fix_status_)
       return;
 
-    // Set datum on first valid fix
     if (!datum_set_)
     {
-      datum_lat_ = msg->latitude;
-      datum_lon_ = msg->longitude;
-      cos_datum_lat_ = std::cos(datum_lat_ * M_PI / 180.0);
-      datum_set_ = true;
-      RCLCPP_INFO(get_logger(), "GPS datum set: lat=%.7f lon=%.7f", datum_lat_, datum_lon_);
+      set_datum(msg->latitude, msg->longitude);
+      RCLCPP_INFO(
+          get_logger(), "GPS datum from first fix: lat=%.7f lon=%.7f",
+          datum_lat_,
+          datum_lon_);
+    }
+
+    const rclcpp::Time stamp = msg->header.stamp;
+    const rclcpp::Time now_t = now();
+    // Sample rate gate — one correspondence per `sample_period_` seconds.
+    if (last_sample_time_.nanoseconds() > 0 &&
+        (now_t - last_sample_time_).seconds() < sample_period_)
       return;
-    }
 
-    // Convert to ENU (antenna position)
-    double gps_east = (msg->longitude - datum_lon_) * cos_datum_lat_ * METERS_PER_DEG;
-    double gps_north = (msg->latitude - datum_lat_) * METERS_PER_DEG;
-
-    // Compensate for antenna lever arm: GPS reports antenna position, but
-    // we need base_footprint position. Rotate the lever arm by the robot's
-    // current heading and subtract from the GPS ENU position.
-    if (gps_lever_x_ != 0.0 || gps_lever_y_ != 0.0)
-    {
-      geometry_msgs::msg::TransformStamped odom_to_base;
-      try
-      {
-        odom_to_base =
-            tf_buffer_->lookupTransform("odom", base_frame_, tf2::TimePointZero);
-        double yaw = tf2::getYaw(odom_to_base.transform.rotation);
-        // Also need slam_map→odom to get heading in map frame
-        geometry_msgs::msg::TransformStamped slam_to_odom;
-        slam_to_odom =
-            tf_buffer_->lookupTransform(slam_frame_, "odom", tf2::TimePointZero);
-        double slam_yaw = tf2::getYaw(slam_to_odom.transform.rotation);
-        double total_yaw = yaw + slam_yaw;
-        // Add current correction to get approximate heading in map frame
-        double cos_h = std::cos(total_yaw);
-        double sin_h = std::sin(total_yaw);
-        gps_east -= gps_lever_x_ * cos_h - gps_lever_y_ * sin_h;
-        gps_north -= gps_lever_x_ * sin_h + gps_lever_y_ * cos_h;
-      }
-      catch (const tf2::TransformException&)
-      {
-        // TF not yet available — skip lever arm compensation this cycle
-      }
-    }
-
-    // Weight by NavSatFix status:
-    //   -1 = no fix       → 0 (already rejected above)
-    //    0 = basic GPS     → 0.01 (barely nudge — covariance lies)
-    //    1 = SBAS/DGPS     → 0.1
-    //    2 = GBAS/RTK      → 1.0 (trust fully)
-    double weight;
-    switch (msg->status.status)
-    {
-      case 2:
-        weight = 1.0;
-        break;  // RTK
-      case 1:
-        weight = 0.1;
-        break;  // DGPS
-      default:
-        weight = 0.01;
-        break;  // Basic GPS
-    }
-
-    // Look up where SLAM thinks the robot is in slam_map frame
+    // SLAM pose: robot (base_footprint) in slam_map.
     geometry_msgs::msg::TransformStamped slam_to_base;
     try
     {
       slam_to_base = tf_buffer_->lookupTransform(slam_frame_, base_frame_, tf2::TimePointZero);
     }
-    catch (const tf2::TransformException& ex)
+    catch (const tf2::TransformException&)
     {
-      return;  // TF not yet available
+      return;
     }
 
-    double slam_x = slam_to_base.transform.translation.x;
-    double slam_y = slam_to_base.transform.translation.y;
+    const double slam_x = slam_to_base.transform.translation.x;
+    const double slam_y = slam_to_base.transform.translation.y;
+    const double slam_yaw = tf2::getYaw(slam_to_base.transform.rotation);
 
-    // The correction: where GPS says the robot is minus where SLAM says
-    // map→slam_map = gps_position - slam_position (offset)
-    // But we need to account for the existing correction:
-    //   robot_in_map = correction + robot_in_slam
-    //   gps = correction + slam → correction = gps - slam
-    double target_x = gps_east - slam_x;
-    double target_y = gps_north - slam_y;
+    // GPS antenna position in ENU (datum-relative).
+    const double g_x = (msg->longitude - datum_lon_) * cos_datum_lat_ * METERS_PER_DEG;
+    const double g_y = (msg->latitude - datum_lat_) * METERS_PER_DEG;
 
-    // Re-read tuning params (allows runtime adjustment via ros2 param set)
+    // Antenna position in slam_map frame = R(yaw_slam) · t_bg + p_slam.
+    const double c = std::cos(slam_yaw);
+    const double s = std::sin(slam_yaw);
+    const double q_x = c * gps_lever_x_ - s * gps_lever_y_ + slam_x;
+    const double q_y = s * gps_lever_x_ + c * gps_lever_y_ + slam_y;
+
+    Correspondence corr{q_x, q_y, g_x, g_y, weight_from_fix(*msg)};
+
+    if (state_ == State::ALIGNED)
     {
-      std::lock_guard<std::mutex> lock(params_mutex_);
-      alpha_ = get_parameter("alpha").as_double();
-      max_correction_rate_ = get_parameter("max_correction_rate").as_double();
+      // After alignment, keep collecting residuals for diagnostics and
+      // optional re-alignment trigger, but don't change the published TF.
+      // (Re-alignment via /reset_alignment service or restart.)
+      record_post_alignment_residual(corr);
+      last_sample_time_ = now_t;
+      return;
     }
 
-    // Low-pass filter with GPS quality weighting
-    double effective_alpha = alpha_ * weight;
-    correction_x_ += effective_alpha * (target_x - correction_x_);
-    correction_y_ += effective_alpha * (target_y - correction_y_);
+    correspondences_.push_back(corr);
+    last_sample_time_ = now_t;
 
-    has_correction_ = true;
-    last_gps_time_ = now();
+    // Throttled progress logging
+    if (correspondences_.size() % 5 == 0)
+    {
+      RCLCPP_INFO(
+          get_logger(),
+          "ACCUMULATING: %zu samples (need %d), spread=(%.2f, %.2f) m",
+          correspondences_.size(),
+          min_samples_,
+          slam_spread_x(),
+          slam_spread_y());
+    }
 
-    RCLCPP_DEBUG(get_logger(),
-                 "GPS=(%.2f,%.2f) SLAM=(%.2f,%.2f) corr=(%.2f,%.2f) status=%d w=%.3f",
-                 gps_east,
-                 gps_north,
-                 slam_x,
-                 slam_y,
-                 correction_x_,
-                 correction_y_,
-                 msg->status.status,
-                 weight);
+    // Alignment check
+    if (static_cast<int>(correspondences_.size()) >= min_samples_ &&
+        slam_spread_x() >= min_motion_m_ && slam_spread_y() >= min_motion_m_)
+    {
+      try_align();
+    }
+  }
+
+  // ─── Spread metric for observability ──────────────────────────────────────
+
+  double slam_spread_x() const
+  {
+    if (correspondences_.empty())
+      return 0.0;
+    double mn = correspondences_.front().q_x;
+    double mx = mn;
+    for (const auto& c : correspondences_)
+    {
+      mn = std::min(mn, c.q_x);
+      mx = std::max(mx, c.q_x);
+    }
+    return mx - mn;
+  }
+
+  double slam_spread_y() const
+  {
+    if (correspondences_.empty())
+      return 0.0;
+    double mn = correspondences_.front().q_y;
+    double mx = mn;
+    for (const auto& c : correspondences_)
+    {
+      mn = std::min(mn, c.q_y);
+      mx = std::max(mx, c.q_y);
+    }
+    return mx - mn;
+  }
+
+  // ─── Weighted SE(2) Umeyama ───────────────────────────────────────────────
+  // Solve R, t such that g_i ≈ R · q_i + t with weights w_i (closed form).
+  //   μ_q = Σ w_i q_i / Σ w_i
+  //   μ_g = Σ w_i g_i / Σ w_i
+  //   s_i = q_i - μ_q ;  d_i = g_i - μ_g
+  //   H = Σ w_i s_i d_iᵀ     (2×2 cross-covariance)
+  //   yaw = atan2(H[0,1] - H[1,0], H[0,0] + H[1,1])     (SO(2) case)
+  //   t = μ_g - R(yaw) · μ_q
+
+  void try_align()
+  {
+    double sum_w = 0.0;
+    double mean_qx = 0.0, mean_qy = 0.0, mean_gx = 0.0, mean_gy = 0.0;
+    for (const auto& c : correspondences_)
+    {
+      sum_w += c.weight;
+      mean_qx += c.weight * c.q_x;
+      mean_qy += c.weight * c.q_y;
+      mean_gx += c.weight * c.g_x;
+      mean_gy += c.weight * c.g_y;
+    }
+    if (sum_w < 1e-9)
+    {
+      RCLCPP_WARN(get_logger(), "Alignment skipped: zero total weight");
+      return;
+    }
+    mean_qx /= sum_w;
+    mean_qy /= sum_w;
+    mean_gx /= sum_w;
+    mean_gy /= sum_w;
+
+    double H00 = 0.0, H01 = 0.0, H10 = 0.0, H11 = 0.0;
+    for (const auto& c : correspondences_)
+    {
+      const double sx = c.q_x - mean_qx;
+      const double sy = c.q_y - mean_qy;
+      const double dx = c.g_x - mean_gx;
+      const double dy = c.g_y - mean_gy;
+      H00 += c.weight * sx * dx;
+      H01 += c.weight * sx * dy;
+      H10 += c.weight * sy * dx;
+      H11 += c.weight * sy * dy;
+    }
+
+    const double yaw = std::atan2(H01 - H10, H00 + H11);
+    const double cy = std::cos(yaw);
+    const double sy = std::sin(yaw);
+    const double tx = mean_gx - (cy * mean_qx - sy * mean_qy);
+    const double ty = mean_gy - (sy * mean_qx + cy * mean_qy);
+
+    // RMS residual for reporting
+    double rms = 0.0;
+    double total_w = 0.0;
+    for (const auto& c : correspondences_)
+    {
+      const double px = cy * c.q_x - sy * c.q_y + tx;
+      const double py = sy * c.q_x + cy * c.q_y + ty;
+      const double ex = c.g_x - px;
+      const double ey = c.g_y - py;
+      rms += c.weight * (ex * ex + ey * ey);
+      total_w += c.weight;
+    }
+    rms = std::sqrt(rms / std::max(total_w, 1e-9));
+
+    std::lock_guard<std::mutex> lock(align_mutex_);
+    align_tx_ = tx;
+    align_ty_ = ty;
+    align_yaw_ = yaw;
+    state_ = State::ALIGNED;
+
+    RCLCPP_INFO(
+        get_logger(),
+        "ALIGNED: n=%zu yaw=%.3f rad (%.1f deg) t=(%.3f, %.3f) rms=%.3f m",
+        correspondences_.size(),
+        yaw,
+        yaw * 180.0 / M_PI,
+        tx,
+        ty,
+        rms);
+  }
+
+  void record_post_alignment_residual(const Correspondence& c)
+  {
+    double cy, sy, tx, ty;
+    {
+      std::lock_guard<std::mutex> lock(align_mutex_);
+      cy = std::cos(align_yaw_);
+      sy = std::sin(align_yaw_);
+      tx = align_tx_;
+      ty = align_ty_;
+    }
+    const double px = cy * c.q_x - sy * c.q_y + tx;
+    const double py = sy * c.q_x + cy * c.q_y + ty;
+    const double ex = c.g_x - px;
+    const double ey = c.g_y - py;
+    const double err = std::sqrt(ex * ex + ey * ey);
+
+    // EWMA of post-alignment residual error
+    constexpr double alpha = 0.05;
+    post_residual_rms_ = (1.0 - alpha) * post_residual_rms_ + alpha * err;
+
+    RCLCPP_DEBUG(
+        get_logger(), "Post-align residual: %.3f m (ewma %.3f m)", err, post_residual_rms_);
   }
 
   // ─── Publish map→slam_map TF ──────────────────────────────────────────────
@@ -265,117 +418,76 @@ private:
     t.header.frame_id = map_frame_;
     t.child_frame_id = slam_frame_;
 
-    if (has_correction_)
+    double tx = 0.0, ty = 0.0, yaw = 0.0;
     {
-      // Rate-limit the correction change to avoid jumps
-      double dt = 1.0 / publish_rate_;
-      double dx = correction_x_ - published_x_;
-      double dy = correction_y_ - published_y_;
-      double dist = std::sqrt(dx * dx + dy * dy);
-      double max_step;
+      std::lock_guard<std::mutex> lock(align_mutex_);
+      if (state_ == State::ALIGNED)
       {
-        std::lock_guard<std::mutex> lock(params_mutex_);
-        max_step = max_correction_rate_ * dt;
-      }
-
-      if (dist > max_step && dist > 1e-6)
-      {
-        double scale = max_step / dist;
-        published_x_ += dx * scale;
-        published_y_ += dy * scale;
-      }
-      else
-      {
-        published_x_ = correction_x_;
-        published_y_ = correction_y_;
+        tx = align_tx_;
+        ty = align_ty_;
+        yaw = align_yaw_;
       }
     }
 
-    t.transform.translation.x = published_x_;
-    t.transform.translation.y = published_y_;
+    t.transform.translation.x = tx;
+    t.transform.translation.y = ty;
     t.transform.translation.z = 0.0;
-    // No rotation correction — SLAM heading from scan matching is trusted.
-    // GPS doesn't provide heading; dock_pose_yaw aligns SLAM at startup.
-    t.transform.rotation.w = 1.0;
+    const double half = 0.5 * yaw;
     t.transform.rotation.x = 0.0;
     t.transform.rotation.y = 0.0;
-    t.transform.rotation.z = 0.0;
-
+    t.transform.rotation.z = std::sin(half);
+    t.transform.rotation.w = std::cos(half);
     tf_broadcaster_->sendTransform(t);
   }
 
-  // ─── Publish SLAM heading to FusionCore ────────────────────────────────────
-  // DISABLED — creates feedback loop. Kept for reference.
-  // Reads map→base_footprint TF (SLAM + FusionCore combined), extracts yaw,
-  // publishes on ~/slam_heading. If re-enabled, would need remapping to
-  // /gnss/heading in the launch file (currently used by hardware_bridge
-  // dock heading only).
+  // ─── Reset ────────────────────────────────────────────────────────────────
 
-  void publish_slam_heading()
+  void reset()
   {
-    geometry_msgs::msg::TransformStamped tf;
-    try
-    {
-      tf = tf_buffer_->lookupTransform(map_frame_, base_frame_, tf2::TimePointZero);
-    }
-    catch (const tf2::TransformException&)
-    {
-      return;
-    }
-
-    double yaw = tf2::getYaw(tf.transform.rotation);
-
-    auto msg = sensor_msgs::msg::Imu{};
-    msg.header.stamp = now();
-    msg.header.frame_id = base_frame_;
-    msg.orientation.z = std::sin(yaw / 2.0);
-    msg.orientation.w = std::cos(yaw / 2.0);
-    // Loose yaw covariance so FusionCore's Mahalanobis gate accepts large
-    // corrections. With 1.0 rad² and threshold 100, accepts up to ~10 rad
-    // (any angle). The heading value is correct — we just need the gate open.
-    msg.orientation_covariance[0] = 0.01;  // roll
-    msg.orientation_covariance[4] = 0.01;  // pitch
-    msg.orientation_covariance[8] = 1.0;  // yaw — loose to pass outlier gate
-
-    heading_pub_->publish(msg);
+    std::lock_guard<std::mutex> lock(align_mutex_);
+    state_ = State::ACCUMULATING;
+    correspondences_.clear();
+    align_tx_ = align_ty_ = align_yaw_ = 0.0;
+    post_residual_rms_ = 0.0;
+    RCLCPP_WARN(get_logger(), "Alignment reset. Re-accumulating correspondences.");
   }
 
-  // ─── Parameters ────────────────────────────────────────────────────────────
+  // ─── Datum ────────────────────────────────────────────────────────────────
 
-  std::mutex params_mutex_;  // Guards alpha_ and max_correction_rate_
-  double alpha_;  // Low-pass filter coefficient (0-1)
-  double max_correction_rate_;  // Max m/s the correction can move
-  std::string map_frame_;
-  std::string slam_frame_;
-  std::string base_frame_;
+  void set_datum(double lat, double lon)
+  {
+    datum_lat_ = lat;
+    datum_lon_ = lon;
+    cos_datum_lat_ = std::cos(datum_lat_ * M_PI / 180.0);
+    datum_set_ = true;
+  }
+
+  // ─── State ────────────────────────────────────────────────────────────────
+
+  std::string map_frame_, slam_frame_, base_frame_;
   double publish_rate_;
-  double gps_noise_threshold_;  // Sigma below which GPS gets full weight
-  double gps_lever_x_ = 0.0;  // Antenna offset from base_footprint (m)
-  double gps_lever_y_ = 0.0;
-
-  // ─── Datum ─────────────────────────────────────────────────────────────────
+  int min_samples_;
+  double min_motion_m_;
+  int min_fix_status_;
+  double gps_lever_x_, gps_lever_y_;
+  double sample_period_;
 
   bool datum_set_ = false;
-  double datum_lat_ = 0.0;
-  double datum_lon_ = 0.0;
-  double cos_datum_lat_ = 1.0;
+  double datum_lat_ = 0.0, datum_lon_ = 0.0, cos_datum_lat_ = 1.0;
 
-  // ─── State ─────────────────────────────────────────────────────────────────
+  std::mutex align_mutex_;
+  State state_ = State::ACCUMULATING;
+  double align_tx_ = 0.0, align_ty_ = 0.0, align_yaw_ = 0.0;
+  double post_residual_rms_ = 0.0;
 
-  bool has_correction_ = false;
-  double correction_x_ = 0.0;  // Filtered correction
-  double correction_y_ = 0.0;
-  double published_x_ = 0.0;  // Rate-limited published value
-  double published_y_ = 0.0;
-  rclcpp::Time last_gps_time_{0, 0, RCL_ROS_TIME};
-
-  // ─── ROS ───────────────────────────────────────────────────────────────────
+  std::vector<Correspondence> correspondences_;
+  rclcpp::Time last_sample_time_{0, 0, RCL_ROS_TIME};
 
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr heading_pub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_sub_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
   rclcpp::TimerBase::SharedPtr publish_timer_;
 };
 
