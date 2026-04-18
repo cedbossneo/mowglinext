@@ -57,14 +57,15 @@ describe('useManualMode', () => {
         expect(result.current.manualMode).toBe(false);
     });
 
-    it('handleJoyMove sends twist message', () => {
+    it('handleJoyMove scales joystick input by MAX_LINEAR_MPS and MAX_ANGULAR_RAD_S', () => {
         const {result} = renderManualMode();
         act(() => {
             result.current.handleJoyMove({x: 0.5, y: 0.8} as any);
         });
+        // Raw joystick: x=0.5, y=0.8 → scaled to linear=0.8*0.25=0.2, angular=-0.5*0.6=-0.3
         expect(sendJsonMessage).toHaveBeenCalledWith({
             header: {stamp: {sec: 0, nanosec: 0}, frame_id: ""},
-            twist: {linear: {x: 0.8, y: 0, z: 0}, angular: {z: -0.5, x: 0, y: 0}},
+            twist: {linear: {x: 0.2, y: 0, z: 0}, angular: {z: -0.3, x: 0, y: 0}},
         });
     });
 
