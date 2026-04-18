@@ -63,7 +63,7 @@
             <RetryUntilSuccessful num_attempts="5">
               <Sequence name="BackUpAndCheck">
                 <Fallback name="BoundaryBackUpOrWait">
-                  <BackUp backup_dist="1.0" backup_speed="0.15"/>
+                  <BackUp backup_dist="1.0" backup_speed="0.20"/>
                   <AlwaysSuccess/>
                 </Fallback>
                 <WaitForDuration duration_sec="2.0"/>
@@ -169,7 +169,7 @@
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="2.0" backup_speed="0.15"/>
+              <BackUp backup_dist="2.0" backup_speed="0.20"/>
               <!-- Compute heading from GPS displacement during undock -->
               <CalibrateHeadingFromUndock/>
               <!-- Clear costmaps again after undock — dock structure must be
@@ -243,7 +243,7 @@
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="1.5" backup_speed="0.15"/>
+              <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
                       <RecordResumeUndockFailure/>
                       <ClearCommand/>
@@ -291,7 +291,7 @@
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="1.5" backup_speed="0.15"/>
+              <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
                       <RecordResumeUndockFailure/>
                       <ClearCommand/>
@@ -329,7 +329,7 @@
                           <SetMowerEnabled enabled="false"/>
                           <StopMoving/>
                           <Fallback>
-                            <BackUp backup_dist="0.3" backup_speed="0.1"/>
+                            <BackUp backup_dist="0.3" backup_speed="0.2"/>
                             <AlwaysSuccess/>
                           </Fallback>
                           <ClearCostmap/>
@@ -424,8 +424,16 @@
         <!-- ============================================================
              e. Manual Mowing (COMMAND_MANUAL_MOW = 7)
              Teleop via /cmd_vel_teleop (twist_mux priority).
-             Blade is managed by GUI (fire-and-forget to firmware).
              Collision_monitor remains active. GPS/SLAM continues.
+
+             Blade is enabled here by the BT (not the GUI) because the
+             firmware forcibly zeroes target_blade_on_off whenever its
+             mirrored HL mode is IDLE/NULL (cpp_main.cpp on_hl_state).
+             The GUI used to send mow_enabled=1 immediately after
+             Command=7, but the firmware had not yet received the
+             MANUAL_MOWING mode update, so it zeroed the blade. Driving
+             the blade on AFTER PublishHighLevelStatus(4) guarantees the
+             firmware sees MANUAL_MOWING first, then the blade command.
 
              ReactiveSequence is used deliberately: on every tick it
              re-evaluates IsCommand from the first child, even while
@@ -433,11 +441,13 @@
              (command changes from 7 to 2), IsCommand returns FAILURE,
              the ReactiveSequence halts WaitForDuration and returns
              FAILURE, allowing the Fallback to select HomeSequence on
-             the very next tick.
+             the very next tick. On exit, the following sequence (Home
+             or Idle) calls SetMowerEnabled(false) which stops the blade.
              ============================================================ -->
         <ReactiveSequence name="ManualMowingSequence">
           <IsCommand command="7"/>
           <PublishHighLevelStatus state="4" state_name="MANUAL_MOWING"/>
+          <SetMowerEnabled enabled="true"/>
           <WaitForDuration duration_sec="0.5"/>
         </ReactiveSequence>
 
