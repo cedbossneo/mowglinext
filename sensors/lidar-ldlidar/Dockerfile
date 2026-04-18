@@ -49,6 +49,12 @@ WORKDIR /ros2_ws/src
 RUN git clone --depth 1 --branch ${LDLIDAR_REF} \
       https://github.com/Myzhar/ldrobot-lidar-ros2.git
 
+# Upstream CMakeLists has a FATAL_ERROR when the ROS distro isn't humble
+# or jazzy. Downgrade the guard to a warning so Kilted builds — the code
+# itself has no distro-specific calls; the check is purely a courtesy.
+RUN find ldrobot-lidar-ros2 -name CMakeLists.txt -exec \
+      sed -i 's/message(FATAL_ERROR "ROS2 \([a-z]\+\) is not officially supported/message(WARNING "ROS2 \1 is not officially supported/g' {} \;
+
 WORKDIR /ros2_ws
 RUN . /opt/ros/kilted/setup.sh \
  && colcon build --merge-install \
