@@ -111,7 +111,7 @@ public:
     declare_parameter<double>("publish_rate", 10.0);
     declare_parameter<int>("min_samples", 20);
     declare_parameter<double>("min_motion_m", 1.5);
-    declare_parameter<double>("min_fix_status", 1);  // accept DGPS+ (Float) during alignment
+    declare_parameter<int>("min_fix_status", 1);  // accept DGPS+ (Float) during alignment
     declare_parameter<double>("datum_lat", 0.0);
     declare_parameter<double>("datum_lon", 0.0);
     declare_parameter<double>("gps_x", 0.0);
@@ -124,7 +124,7 @@ public:
     publish_rate_ = get_parameter("publish_rate").as_double();
     min_samples_ = get_parameter("min_samples").as_int();
     min_motion_m_ = get_parameter("min_motion_m").as_double();
-    min_fix_status_ = static_cast<int>(get_parameter("min_fix_status").as_double());
+    min_fix_status_ = get_parameter("min_fix_status").as_int();
     gps_lever_x_ = get_parameter("gps_x").as_double();
     gps_lever_y_ = get_parameter("gps_y").as_double();
     sample_period_ = get_parameter("sample_period_sec").as_double();
