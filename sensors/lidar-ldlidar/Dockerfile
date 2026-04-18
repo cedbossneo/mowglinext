@@ -50,10 +50,12 @@ RUN git clone --depth 1 --branch ${LDLIDAR_REF} \
       https://github.com/Myzhar/ldrobot-lidar-ros2.git
 
 # Upstream CMakeLists has a FATAL_ERROR when the ROS distro isn't humble
-# or jazzy. Downgrade the guard to a warning so Kilted builds — the code
-# itself has no distro-specific calls; the check is purely a courtesy.
+# or jazzy. Downgrade every FATAL_ERROR to WARNING in the driver's cmake
+# so Kilted builds — the FATAL_ERROR on the distro check is multi-line
+# so a targeted sed can't anchor on the string. The driver has no
+# distro-specific calls; the check is a courtesy.
 RUN find ldrobot-lidar-ros2 -name CMakeLists.txt -exec \
-      sed -i 's/message(FATAL_ERROR "ROS2 \([a-z]\+\) is not officially supported/message(WARNING "ROS2 \1 is not officially supported/g' {} \;
+      sed -i 's/message(FATAL_ERROR/message(WARNING/g' {} \;
 
 WORKDIR /ros2_ws
 RUN . /opt/ros/kilted/setup.sh \
