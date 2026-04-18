@@ -87,7 +87,7 @@ check_devices() {
 check_containers() {
   step "Check: Containers"
 
-  cd "$INSTALL_DIR" 2>/dev/null || cd "$(dirname "$(realpath "$0")")"
+  cd "$DOCKER_DIR" 2>/dev/null || cd "$(dirname "$(realpath "$0")")"
 
   : "${LIDAR_ENABLED:=true}"
   : "${LIDAR_TYPE:=unknown}"
@@ -244,8 +244,8 @@ check_gps() {
   fi
 
   local datum_lat datum_lon
-  datum_lat=$(grep "datum_lat:" "$INSTALL_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')
-  datum_lon=$(grep "datum_lon:" "$INSTALL_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')
+  datum_lat=$(grep "datum_lat:" "$DOCKER_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')
+  datum_lon=$(grep "datum_lon:" "$DOCKER_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')
 
   if [[ "${datum_lat:-0}" == "0" || "${datum_lat:-0.0}" == "0.0" || "${datum_lon:-0}" == "0" || "${datum_lon:-0.0}" == "0.0" || -z "$datum_lat" ]]; then
     fail "GPS datum is not set — robot position will be wrong"
@@ -254,7 +254,7 @@ check_gps() {
     if [[ -n "$lat" && "$lat" != "0.0" ]]; then
       echo -e "       ${DIM}GPS has a fix at: $lat, $lon${NC}"
       if confirm "Set datum to current GPS position ($lat, $lon)?"; then
-        local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+        local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
         sed -i "s/datum_lat:.*/datum_lat: $lat/" "$yaml_file"
         sed -i "s/datum_lon:.*/datum_lon: $lon/" "$yaml_file"
         info "Datum set to $lat, $lon in $yaml_file"

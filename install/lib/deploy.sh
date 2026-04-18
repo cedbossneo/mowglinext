@@ -1,12 +1,37 @@
 #!/usr/bin/env bash
+
 setup_directory() {
   step "Preparing repository"
 
   if [ -d "$REPO_DIR/.git" ]; then
     info "Updating existing git repository in $REPO_DIR"
-    git -C "$REPO_DIR" fetch origin
-    git -C "$REPO_DIR" reset --hard "origin/$REPO_BRANCH"
-    return
+
+    if ! git -C "$REPO_DIR" fetch origin "$REPO_BRANCH"; then
+      error "Failed to fetch branch '$REPO_BRANCH' from origin"
+      return 1
+    fi
+
+    if ! git -C "$REPO_DIR" rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+      error "Fetched branch '$REPO_BRANCH' is not available"
+      return 1
+    fi
+
+    if ! git -C "$REPO_DIR" checkout -B "$REPO_BRANCH" FETCH_HEAD; then
+      error "Failed to check out branch '$REPO_BRANCH'"
+      return 1
+    fi
+
+    if ! git -C "$REPO_DIR" reset --hard FETCH_HEAD; then
+      error "Failed to reset repository to fetched branch '$REPO_BRANCH'"
+      return 1
+    fi
+
+    if [ ! -d "$INSTALL_DIR" ]; then
+      error "Install directory not found in existing repository: $INSTALL_DIR"
+      return 1
+    fi
+
+    return 0
   fi
 
   if [ -d "$REPO_DIR" ]; then
@@ -23,12 +48,17 @@ setup_directory() {
   fi
 
   info "Cloning repository into $REPO_DIR"
-  git clone --branch "$REPO_BRANCH" --depth 1 "$REPO_URL" "$REPO_DIR"
-
-  if [ ! -d "$INSTALL_DIR" ]; then
-    error "Docker directory not found after clone: $INSTALL_DIR"
+  if ! git clone --branch "$REPO_BRANCH" --depth 1 "$REPO_URL" "$REPO_DIR"; then
+    error "Failed to clone branch '$REPO_BRANCH' from $REPO_URL"
     return 1
   fi
+
+  if [ ! -d "$INSTALL_DIR" ]; then
+    error "Install directory not found after clone: $INSTALL_DIR"
+    return 1
+  fi
+
+  return 0
 }
 
 run_startup_step_live() {

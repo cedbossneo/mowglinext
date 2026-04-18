@@ -300,10 +300,6 @@ func (c *Client) Publish(topic string, msg interface{}, schemaName ...string) er
 	chanID, ok := c.advertised[topic]
 	if !ok {
 		chanID = c.chanIDCounter.Add(1)
-		sn := ""
-		if len(schemaName) > 0 {
-			sn = schemaName[0]
-		}
 		advMsg := clientAdvertise{
 			Op: "advertise",
 			Channels: []clientChannelDef{
@@ -311,7 +307,12 @@ func (c *Client) Publish(topic string, msg interface{}, schemaName ...string) er
 					ID:         chanID,
 					Topic:      topic,
 					Encoding:   "json",
-					SchemaName: sn,
+					SchemaName: func() string {
+						if len(schemaName) > 0 {
+							return schemaName[0]
+						}
+						return ""
+					}(),
 				},
 			},
 		}

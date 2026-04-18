@@ -45,6 +45,7 @@
 
   <!-- Mowgli packages -->
   <exec_depend>mowgli_hardware</exec_depend>
+  <exec_depend>mowgli_mavros_bridge</exec_depend>
   <exec_depend>mowgli_interfaces</exec_depend>
   <exec_depend>mowgli_behavior</exec_depend>
   <exec_depend>mowgli_map</exec_depend>

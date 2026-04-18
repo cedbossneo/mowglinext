@@ -3,6 +3,7 @@
   # Connects to mowgli's foxglove_bridge WebSocket on ws://localhost:8765
   # -------------------------------------------------------------------------
 services:
+
   gui:
     container_name: mowgli-gui
     image: ${GUI_IMAGE}
@@ -19,9 +20,9 @@ services:
       DOCKER_HOST: unix:///var/run/docker.sock
       DB_PATH: /db
     volumes:
-      - ./config/db:/db
-      - ./config/om:/config:ro
-      - ./config/mowgli:/mowgli_config
+      - ./docker/config/db:/db
+      - ./docker/config/om:/config:ro
+      - ./docker/config/mowgli:/mowgli_config
       - /var/run/docker.sock:/var/run/docker.sock
       - /dev/bus/usb:/dev/bus/usb
       - mowgli_maps:/ros2_ws/maps

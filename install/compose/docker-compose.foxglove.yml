@@ -2,5 +2,6 @@ services:
   mowgli:
     command: >
       ros2 launch mowgli_bringup full_system.launch.py
-      enable_foxglove:=true
+      enable_foxglove:=${ENABLE_FOXGLOVE}
       enable_coverage:=true
+      use_lidar:=${LIDAR_ENABLED}

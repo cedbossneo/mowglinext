@@ -1,11 +1,24 @@
 import { Col, Row } from "antd";
 import { SchemaSettingsComponent } from "../components/SchemaSettingsComponent.tsx";
+import { BackendSettingsCard } from "../components/BackendSettingsCard.tsx";
 import { useApi } from "../hooks/useApi.ts";
+import { useBackendSettings } from "../hooks/useBackendSettings.ts";
 import { App } from "antd";
+import { useEffect, useState } from "react";
 
 export const SettingsPage = () => {
     const guiApi = useApi();
     const { notification } = App.useApp();
+    const {
+        values: backendValues,
+        saveValues: saveBackendValues,
+        loading: backendLoading,
+    } = useBackendSettings();
+    const [localBackendValues, setLocalBackendValues] = useState(backendValues);
+
+    useEffect(() => {
+        setLocalBackendValues(backendValues);
+    }, [backendValues]);
 
     const findContainer = async (match: (c: any) => boolean, label: string) => {
         const res = await guiApi.containers.containersList();
@@ -43,8 +56,20 @@ export const SettingsPage = () => {
         }
     };
 
+    const handleBackendChange = (key: "HARDWARE_BACKEND" | "MAVROS_AUTOPILOT", value: any) => {
+        setLocalBackendValues((prev) => ({ ...prev, [key]: value }));
+    };
+
     return (
         <Row>
+            <Col span={24}>
+                <BackendSettingsCard
+                    values={localBackendValues}
+                    onChange={handleBackendChange}
+                    onSave={() => saveBackendValues(localBackendValues)}
+                    loading={backendLoading}
+                />
+            </Col>
             <Col span={24}>
                 <SchemaSettingsComponent
                     onRestartOM={restartMowgliNext}
