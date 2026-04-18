@@ -37,6 +37,12 @@ controller_server:
     # Low frequency: slow motors overshoot/oscillate at higher rates.
     # Old mowgli project used 1.0 Hz successfully.
     controller_frequency: 2.0
+    # Default 0.30s causes "Costmap timed out waiting for update" error 107
+    # on ARM (we see local_costmap update gaps of 600ms+ at 5 Hz). 3.0s
+    # is generous but only matters when update *actually* stalls.
+    # 5s timeout because local_costmap publishes at ~0.5 Hz on ARM
+    # (vs configured 2 Hz) under load; occasional 2-3 s gaps seen.
+    costmap_update_timeout: 5.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -316,8 +322,11 @@ local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: false
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      # Controller checks costmap freshness each cycle; if update_frequency
+      # is close to controller_frequency (5 Hz), timing jitter causes
+      # sporadic 'Costmap timed out' aborts. Bumped both to 10 Hz.
+      update_frequency: 10.0
+      publish_frequency: 10.0
       global_frame: odom
       robot_base_frame: base_footprint
       footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"

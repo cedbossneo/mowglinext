@@ -103,24 +103,28 @@ fusioncore_node:
     # stationary UKF drifts on IMU alone between 5 Hz GPS fixes, causing
     # every fix to be rejected once the first one fails the gate.
     outlier_rejection: true
-    outlier_threshold_gnss: 100.0
+    # chi2(3, 0.999) = 16.27 — reject real outliers. 100 was effectively
+    # disabled, and every 1m Float outlier was absorbed as "truth",
+    # causing recorded trajectories to smear into bow-ties.
+    outlier_threshold_gnss: 16.27
     outlier_threshold_imu: 15.09    # chi2(6, 0.999)
     outlier_threshold_enc: 11.34    # chi2(3, 0.999)
-    # Heading threshold raised to 100: dock heading (/gnss/heading) is a
-    # known-good reference but gets rejected once gyro drift exceeds ~19°.
-    # With a high threshold the dock heading always corrects the filter.
-    outlier_threshold_hdg: 100.0
+    outlier_threshold_hdg: 16.27    # chi2(3, 0.999)
 
     # Adaptive noise estimation — auto-tunes from innovation sequence
     adaptive.imu: true
     adaptive.encoder: true
-    adaptive.gnss: true
+    # Disable adaptive GNSS — auto-shrinking noise when innovations are
+    # small at rest makes the filter over-trust GPS during motion, turning
+    # Float jitter into visible position drift on the map.
+    adaptive.gnss: false
     adaptive.window: 50       # ~1s at 50 Hz publish rate
     adaptive.alpha: 0.01
 
-    # UKF process noise — q_position elevated so position uncertainty grows
-    # fast without GPS, making the filter snap back when GPS is available.
-    ukf.q_position: 0.5
+    # UKF process noise — q_position low so the filter stays smooth
+    # between GPS fixes and doesn't snap aggressively to each Float
+    # noise sample. Wheels+IMU dominate short-term, GPS is a slow anchor.
+    ukf.q_position: 0.05
     # q_orientation very low: heading is stiff, resists GPS position-induced
     # yaw flips.  Heading changes come from gyro (WZ) through process model,
     # not from process noise spreading sigma points across yaw.
