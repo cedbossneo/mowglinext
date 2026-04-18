@@ -1,0 +1,68 @@
+# ZED-F9P rover overrides for aussierobots/ublox_dgnss.
+#
+# The driver preloads defaults from f9p_ubx_config.toml (126 CFG items);
+# the values here override that TOML for the things that matter in a
+# rover + NTRIP configuration. Keys are the exact u-blox CFG-VALSET
+# identifiers that the driver exposes as ROS parameters.
+#
+# Driver auto-discovers the F9P by USB VID:PID (0x1546:0x01a9), so no
+# device path is needed.
+ublox_dgnss:
+  ros__parameters:
+    FRAME_ID: gps
+
+    # USB: accept UBX + NMEA + RTCM3 in (NTRIP injects RTCM3 via USB),
+    # publish UBX + NMEA out. RTCM3 out is off (we're a rover, not a base).
+    CFG_USBINPROT_NMEA: true
+    CFG_USBINPROT_UBX: true
+    CFG_USBINPROT_RTCM3X: true
+    CFG_USBOUTPROT_NMEA: true
+    CFG_USBOUTPROT_UBX: true
+    CFG_USBOUTPROT_RTCM3X: false
+
+    # 8 Hz nav rate (125 ms), solve every measurement.
+    CFG_RATE_MEAS: 125
+    CFG_RATE_NAV: 1
+
+    # Dynamic model: 0 = portable (suitable for a ground robot).
+    CFG_NAVSPG_DYNMODEL: 0
+
+    # High-precision DGNSS mode:
+    #   2 = Float-only (default on many F9P images)
+    #   3 = Allow RTK Fixed when integer ambiguities resolve
+    CFG_NAVHPG_DGNSSMODE: 3
+
+    # UBX messages on USB (0 = off, 1 = every nav epoch).
+    CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1   # high-precision LLH — needed by HP NavSatFix node
+    CFG_MSGOUT_UBX_NAV_STATUS_USB: 1     # fix type + carrSoln/diffSoln diagnostics
+    CFG_MSGOUT_UBX_NAV_COV_USB: 1        # covariance → NavSatFix.position_covariance
+    CFG_MSGOUT_UBX_NAV_PVT_USB: 1
+    CFG_MSGOUT_UBX_NAV_VELNED_USB: 1
+    CFG_MSGOUT_UBX_NAV_RELPOSNED_USB: 0  # 0 unless moving-base / dual-antenna
+    CFG_MSGOUT_UBX_RXM_RTCM_USB: 1       # correction ingestion counter
+
+    # NMEA GGA on USB — fed back to NTRIP client for VRS casters that
+    # need a client position to generate local corrections.
+    CFG_MSGOUT_NMEA_ID_GGA_USB: 1
+
+ublox_nav_sat_fix_hp:
+  ros__parameters:
+    FRAME_ID: gps
+    # Publish /gps/fix as RELIABLE. Cyclone DDS rejects the connection
+    # when a RELIABLE subscriber (fusioncore, rtabmap,
+    # navsat_to_absolute_pose) meets a BEST_EFFORT publisher, so none
+    # of those nodes were receiving GPS fixes — FusionCore pose drifts,
+    # BT PreFlightCheck times out, Nav2 plans from a wrong pose.
+    qos_overrides:
+      /gps/fix:
+        publisher:
+          reliability: reliable
+          durability: volatile
+          history: keep_last
+          depth: 10
+
+# NTRIP client: host / port / mountpoint / username / password are passed
+# at launch from mowgli_robot.yaml (see start_gps.sh).
+ntrip_client:
+  ros__parameters:
+    use_https: false

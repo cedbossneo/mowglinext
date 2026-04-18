@@ -1,26 +1,77 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
-# u-blox GPS driver + NTRIP client for ROS2 Jazzy
+# u-blox ZED-F9P driver (aussierobots/ublox_dgnss) + NTRIP client
 #
-# Publishes sensor_msgs/NavSatFix on /ublox_gps_node/fix.
-# Receives RTK corrections via ntrip_client and forwards to u-blox receiver.
+# Built from source — ublox_dgnss is not in the kilted apt index. Uses
+# libusb directly (no serial / ttyACM), supports full UBX topic tree, and
+# bundles its own NTRIP client so RTCM gets injected over USB correctly.
 #
-# All config is read from /config/mowgli_robot.yaml (bind-mounted).
+# Publishes:
+#   /fix                    sensor_msgs/NavSatFix (high-precision)
+#   /ubx_nav_hpposllh       ublox_ubx_msgs — 0.1mm lat/lon/alt
+#   /ubx_nav_status         — fix type, flags, diffSoln, carrSoln
+#   /ubx_rxm_rtcm           — RTCM correction ingestion counter
+#
+# Config read from /config/mowgli_robot.yaml (bind-mounted).
 # =============================================================================
+
+# ─── Builder ────────────────────────────────────────────────────────────────
+FROM ros:kilted-ros-base AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG UBLOX_DGNSS_REF=main
+
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      cmake \
+      git \
+      libusb-1.0-0-dev \
+      libcurl4-openssl-dev \
+      python3-colcon-common-extensions \
+      ros-kilted-rclcpp \
+      ros-kilted-rclcpp-components \
+      ros-kilted-rclcpp-lifecycle \
+      ros-kilted-nav-msgs \
+      ros-kilted-sensor-msgs \
+      ros-kilted-std-msgs \
+      ros-kilted-rtcm-msgs \
+      ros-kilted-geometry-msgs \
+      ros-kilted-tf2-ros
+
+WORKDIR /ws/src
+RUN git clone --depth 1 --branch ${UBLOX_DGNSS_REF} https://github.com/aussierobots/ublox_dgnss.git
+
+WORKDIR /ws
+RUN . /opt/ros/kilted/setup.sh \
+ && colcon build --merge-install \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release \
+                   -Wno-dev \
+ && rm -rf /ws/build /ws/log /ws/src
+
+# ─── Runtime ────────────────────────────────────────────────────────────────
 FROM ros:kilted-ros-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-kilted-ublox \
-    ros-kilted-ntrip-client \
-    ros-kilted-rtcm-msgs \
-    ros-kilted-rmw-cyclonedds-cpp \
- && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      libusb-1.0-0 \
+      libcurl4 \
+      ros-kilted-rmw-cyclonedds-cpp \
+      ros-kilted-rtcm-msgs
+
+COPY --from=builder /ws/install /opt/ublox_dgnss
 
 COPY ros2_entrypoint.sh /ros2_entrypoint.sh
 COPY start_gps.sh /start_gps.sh
-COPY f9p_rover.yaml /f9p_rover.yaml
-COPY rtcm_serial_bridge.py /rtcm_serial_bridge.py
+COPY ublox_dgnss.yaml /ublox_dgnss.yaml
 RUN chmod +x /ros2_entrypoint.sh /start_gps.sh
 
 ENTRYPOINT ["/ros2_entrypoint.sh"]
