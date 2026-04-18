@@ -108,6 +108,7 @@ ament_target_dependencies(gps_slam_corrector_node
   rclcpp
   sensor_msgs
   geometry_msgs
+  std_srvs
   tf2
   tf2_ros
   tf2_geometry_msgs
