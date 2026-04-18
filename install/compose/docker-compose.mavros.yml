@@ -1,9 +1,3 @@
-x-ros2-env: &ros2-env
-  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
-  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
-  ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
-  RCUTILS_COLORIZED_OUTPUT: "1"
-  RCUTILS_LOGGING_USE_STDOUT: "1"
 
 services:
   mavros:
@@ -14,6 +8,7 @@ services:
     privileged: true
     volumes:
       - /dev:/dev
+      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     environment:
       <<: *ros2-env
       MAVROS_ENABLED: ${MAVROS_ENABLED:-true}

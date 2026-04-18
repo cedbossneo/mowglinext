@@ -1,9 +1,14 @@
 services:
   tfluna_edge:
     container_name: mowgli-tfluna-edge
-    image: ${RANGE_IMAGE:-ghcr.io/...}
+    image: ${RANGE_IMAGE}
     network_mode: host
     privileged: true
+    environment:
+      <<: *ros2-env
+      TFLUNA_PORT: ${TFLUNA_EDGE_PORT:-/dev/tfluna_edge}
+      TFLUNA_BAUD: ${TFLUNA_EDGE_BAUD:-115200}
     volumes:
       - /dev:/dev
+      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     restart: unless-stopped

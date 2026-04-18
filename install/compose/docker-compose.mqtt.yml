@@ -3,7 +3,6 @@
   # -------------------------------------------------------------------------
 
 services:
-
   mosquitto:
     container_name: mowgli-mqtt
     image: eclipse-mosquitto:latest
@@ -15,5 +14,5 @@ services:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./config/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/config/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     restart: unless-stopped

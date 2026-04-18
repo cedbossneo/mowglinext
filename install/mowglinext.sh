@@ -55,13 +55,12 @@ main() {
     select_language
 
     # Load existing .env for defaults on re-run (preset/CLI flags override)
-    if [ -f "$INSTALL_DIR/.env" ]; then
+  if [ -f "$REPO_DIR/docker/.env" ]; then
       set -a
-      # shellcheck disable=SC1091
-      source "$INSTALL_DIR/.env"
+      source "$REPO_DIR/docker/.env"
       set +a
-      info "Loaded previous configuration from .env"
-    fi
+      info "Loaded previous configuration from docker/.env"
+  fi
 
     load_preset
 
