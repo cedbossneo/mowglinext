@@ -27,6 +27,38 @@ fusioncore_node:
     odom_frame: odom
     publish_rate: 50.0
 
+    # QoS overrides — hardware_bridge publishes /imu/data and /wheel_odom
+    # BEST_EFFORT, and ublox_dgnss publishes /gps/fix BEST_EFFORT (sensor
+    # data convention). FusionCore's default subscription QoS is RELIABLE,
+    # which refuses BEST_EFFORT publishers with "incompatible QoS policy".
+    # Without these overrides no IMU/wheel data reaches FusionCore → no
+    # odom → slam_toolbox starves.
+    qos_overrides:
+      /imu/data:
+        subscription:
+          reliability: best_effort
+          durability: volatile
+          history: keep_last
+          depth: 10
+      /wheel_odom:
+        subscription:
+          reliability: best_effort
+          durability: volatile
+          history: keep_last
+          depth: 10
+      /gps/fix:
+        subscription:
+          reliability: best_effort
+          durability: volatile
+          history: keep_last
+          depth: 10
+      /gnss/heading:
+        subscription:
+          reliability: reliable
+          durability: volatile
+          history: keep_last
+          depth: 10
+
     # IMU: differential gyro + accel only — no magnetometer.
     # hardware_bridge publishes identity orientation (no real heading).
     # has_magnetometer must be false so FusionCore only uses gyro rates.
