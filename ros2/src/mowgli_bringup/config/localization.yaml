@@ -26,6 +26,10 @@ fusioncore_node:
     base_frame: base_footprint
     odom_frame: odom
     publish_rate: 50.0
+    # Force 2D: zero Z in published odom + TF so the costmap rolling
+    # window stays in the 2D navigation plane regardless of GPS altitude
+    # noise or IMU-Z drift. We're a garden mower — altitude is irrelevant.
+    publish.force_2d: true
 
     # QoS overrides — hardware_bridge publishes /imu/data and /wheel_odom
     # BEST_EFFORT, and ublox_dgnss publishes /gps/fix BEST_EFFORT (sensor
