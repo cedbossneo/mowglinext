@@ -33,7 +33,9 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     enable_stamped_cmd_vel: true
-    controller_frequency: 10.0
+    # Low frequency: slow motors overshoot/oscillate at higher rates.
+    # Old mowgli project used 1.0 Hz successfully.
+    controller_frequency: 2.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -44,8 +46,10 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.30  # must move 15cm to count as progress
-      movement_time_allowance: 30.0  # seconds without progress before controller fails
+      # Low threshold: in-place rotation barely moves the position but is valid
+      # progress. The robot's slow motors need time to complete turns.
+      required_movement_radius: 0.05
+      movement_time_allowance: 60.0
 
     stopped_goal_checker:
       plugin: "nav2_controller::StoppedGoalChecker"
@@ -66,18 +70,23 @@ controller_server:
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      angular_dist_threshold: 0.5    # rotate in place when heading error > ~30deg
+      # Rotation shim: only rotate in place for large heading errors (>60°).
+      # Small errors are handled by RPP driving in an arc.
+      angular_dist_threshold: 1.0
       forward_sampling_distance: 0.5
-      rotate_to_heading_angular_vel: 3.0
-      max_angular_accel: 5.0
-      # RPP parameters (passed through to primary controller)
-      desired_linear_vel: 0.4
-      lookahead_dist: 0.4
-      min_lookahead_dist: 0.2
-      max_lookahead_dist: 0.6
+      # Slow rotation — motors can't handle fast angular commands.
+      # Old mowgli project used max_cmd_vel_ang=3.2 but at 1Hz.
+      rotate_to_heading_angular_vel: 0.5
+      max_angular_accel: 0.5
+      # RPP parameters — tuned for slow differential drive motors
+      desired_linear_vel: 0.3
+      lookahead_dist: 0.6
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 1.0
       lookahead_time: 1.5
       transform_tolerance: 2.0
-      use_velocity_scaled_lookahead_dist: false
+      # Larger lookahead = smoother turns, less oscillation
+      use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.1
       approach_velocity_scaling_dist: 0.6
       use_collision_detection: false
@@ -86,10 +95,10 @@ controller_server:
       curvature_lookahead_dist: 0.6
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.15
+      regulated_linear_scaling_min_speed: 0.10
       use_rotate_to_heading: false
       allow_reversing: false
-      max_angular_vel: 3.0
+      max_angular_vel: 0.8
       max_robot_pose_search_dist: 2.0
 
     # Follow-the-Carrot controller for coverage mowing.
@@ -222,7 +231,7 @@ velocity_smoother:
     #             twist_mux → cmd_vel → hardware
     input_topic: cmd_vel_nav
     output_topic: cmd_vel_smoothed
-    max_velocity: [0.5, 0.0, 1.0]
+    max_velocity: [0.3, 0.0, 0.8]
     min_velocity: [-0.3, 0.0, -1.0]
     # Higher acceleration to overcome grass resistance and static friction.
     # The robot needs a burst of power to start moving on thick terrain.
@@ -250,7 +259,7 @@ global_costmap:
       # wait_for_tf.py, not this parameter.
       transform_tolerance: 5.0
       # Footprint computed from mowgli_robot.yaml at launch time
-      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
+      footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
       track_unknown_space: false
       # Rolling window large enough to cover transit across any garden.
@@ -277,6 +286,8 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        # No persistence: heading drift causes wall duplicates
+        observation_persistence: 0.0
         observation_sources: scan
         scan:
           topic: /scan
@@ -294,12 +305,8 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Garden-tuned: steep cost drop-off (10.0) means cost decays fast
-        # with distance, so only cells very close to obstacles are costly.
-        # Small inflation radius (0.25m) avoids detours around grass tufts
-        # while still keeping the robot from scraping real obstacles.
         cost_scaling_factor: 10.0
-        inflation_radius: 0.25
+        inflation_radius: 0.40
 
 # ---------------------------------------------------------------------------
 # Local costmap
@@ -312,7 +319,7 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_footprint
-      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
+      footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
       rolling_window: true
       width: 6
@@ -328,6 +335,9 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        # Short persistence: heading drift causes wall duplicates if old
+        # scans persist. 0s = only current scan used, clears immediately.
+        observation_persistence: 0.0
         observation_sources: scan
         scan:
           topic: /scan
@@ -344,7 +354,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 10.0
-        inflation_radius: 0.25
+        inflation_radius: 0.40
 
 # ---------------------------------------------------------------------------
 # Map server / AMCL (not used with slam_toolbox, kept for completeness)
@@ -369,7 +379,7 @@ docking_server:
   ros__parameters:
     use_sim_time: false
     enable_stamped_cmd_vel: true
-    controller_frequency: 50.0
+    controller_frequency: 2.0
     initial_perception_timeout: 5.0
     wait_charge_timeout: 5.0
     dock_approach_timeout: 30.0
@@ -421,38 +431,28 @@ collision_monitor:
     source_timeout: 5.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    polygons: ["PolygonStop", "PolygonSlow", "FootprintApproach"]
-    # Stop zone: tight safety box matching the robot footprint.
-    # Garden-tuned: min_points=8 prevents grass/ground clutter from triggering
-    # emergency stop — requires a solid cluster to confirm a real obstacle.
-    PolygonStop:
-      type: "polygon"
-      points: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
-      action_type: "stop"
-      min_points: 8
-      visualize: true
-      polygon_pub_topic: "polygon_stop"
-      enabled: true
-    # Slowdown zone: extends 0.25m beyond the robot front for early braking.
-    # Garden-tuned: min_points=6 filters scattered grass returns.
+    # Two-layer protection:
+    # 1. Slow zone (chassis +15cm): reduces speed, gives Nav2 time to replan
+    # 2. Hard stop (exact chassis): last-resort emergency stop
+    polygons: ["PolygonSlow", "PolygonStop"]
     PolygonSlow:
       type: "polygon"
-      points: "[[0.70, 0.25], [0.70, -0.25], [-0.09, -0.25], [-0.09, 0.25]]"
+      # Chassis + 15cm — slow to 30% when obstacle is close
+      points: "[[0.65, 0.35], [0.65, -0.35], [-0.25, -0.35], [-0.25, 0.35]]"
       action_type: "slowdown"
-      slowdown_ratio: 0.8
+      slowdown_ratio: 0.3
       min_points: 6
       visualize: true
       polygon_pub_topic: "polygon_slow"
       enabled: true
-    # Approach: uses dynamic robot footprint with velocity projection.
-    FootprintApproach:
+    PolygonStop:
       type: "polygon"
-      action_type: "approach"
-      footprint_topic: "/local_costmap/published_footprint"
-      time_before_collision: 2.0
-      simulation_time_step: 0.05
-      min_points: 2
+      # Exact chassis — hard stop only on imminent contact
+      points: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
+      action_type: "stop"
+      min_points: 6
       visualize: true
+      polygon_pub_topic: "polygon_stop"
       enabled: true
     observation_sources: ["scan"]
     scan:

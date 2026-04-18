@@ -204,7 +204,7 @@ export const FlashBoardComponent = (props: { onNext: () => void }) => {
                     </Typography.Title>
                 </Col>
                 <Col span={24}>
-                    <div ref={terminalRef} style={{height: isMobile ? "50vh" : "55vh", overflowY: "auto"}}>
+                    <div ref={terminalRef} style={{height: isMobile ? "30vh" : "35vh", overflowY: "auto"}}>
                         <StyledTerminal>
                             <Terminal colorMode={ColorMode.Dark}>
                                 {(data ?? []).map((line, index) => (

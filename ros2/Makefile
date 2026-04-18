@@ -163,11 +163,11 @@ lint:
 	  | xargs cpplint --quiet
 
 format:
-	find src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+	find src/ -path src/fusioncore -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print \
 	  | xargs clang-format -i -style=file
 
 format-check:
-	find src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+	find src/ -path src/fusioncore -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print \
 	  | xargs clang-format --dry-run --Werror -style=file
 
 # ─── Deployment ────────────────────────────────────────────────────────────────

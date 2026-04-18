@@ -19,9 +19,11 @@ slam_toolbox:
 
     # Frame IDs
     odom_frame: odom
-    # SLAM Toolbox is TF authority for map→odom. FusionCore provides
-    # odom→base_footprint. Together they give map→base_footprint.
-    map_frame: map
+    # SLAM Toolbox publishes slam_map→odom (lidar scan matching).
+    # GPS-SLAM corrector node publishes map→slam_map (GPS anchor).
+    # FusionCore publishes odom→base_footprint (IMU+wheels).
+    # Full chain: map→slam_map→odom→base_footprint.
+    map_frame: slam_map
     base_frame: base_footprint
     scan_topic: /scan
 

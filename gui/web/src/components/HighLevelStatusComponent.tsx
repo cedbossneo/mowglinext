@@ -27,7 +27,7 @@ export function HighLevelStatusComponent() {
     // Derive battery percentage: prefer highLevelStatus, fall back to voltage-based estimate
     const batteryPercent = (() => {
         if (highLevelStatus.battery_percent != null && highLevelStatus.battery_percent > 0) {
-            return highLevelStatus.battery_percent * 100;
+            return highLevelStatus.battery_percent;
         }
         // Estimate from voltage if highLevelStatus is unavailable
         if (power.v_battery) {
