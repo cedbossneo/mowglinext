@@ -412,9 +412,14 @@ local_costmap:
           raytrace_max_range: 6.0
           raytrace_min_range: 0.0
           obstacle_max_range: 4.0
-          # Filter grass/near-ground clutter (LiDAR is at ~0.38m forward of
-          # base_footprint and ~0.265m height, so 0.5m min catches tufts).
-          obstacle_min_range: 0.50
+          # Blank returns within 0.65m: the dock sits ~50cm behind base_footprint
+          # when charging, and the BackUp behavior's collision checker (via
+          # behavior_server → local_costmap/costmap_raw) aborts undock at error
+          # 714 "Collision Ahead" if the dock is LETHAL. 0.65m blanks the dock
+          # but still catches real obstacles (walls/fences always >0.65m during
+          # mowing). observation_persistence=0 clears dock residue as robot
+          # drives away, so this doesn't hurt post-undock navigation.
+          obstacle_min_range: 0.65
           inf_is_valid: true
 
       inflation_layer:
