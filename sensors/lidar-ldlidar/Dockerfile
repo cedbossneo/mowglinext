@@ -57,6 +57,16 @@ RUN git clone --depth 1 --branch ${LDLIDAR_REF} \
 RUN find ldrobot-lidar-ros2 -name CMakeLists.txt -exec \
       sed -i 's/message(FATAL_ERROR/message(WARNING/g' {} \;
 
+# Patch the subscriber-count gating bug: the driver calls
+# count_subscribers(_scanTopic) with the UNRESOLVED relative topic name
+# (e.g. "~/scan"), which always returns 0 — even when real subscribers
+# exist on the resolved /scan. Replace the relative-name lookup with
+# the publisher's own get_subscription_count(), which uses the resolved
+# name. Without this patch the driver reports "NO SUBSCRIBERS" and
+# skips publishing even though it reads the LiDAR at 10 Hz.
+RUN sed -i 's|count_subscribers(_scanTopic)|_scanPub->get_subscription_count()|g' \
+      ldrobot-lidar-ros2/ldlidar_component/component/src/ldlidar_component.cpp
+
 WORKDIR /ros2_ws
 RUN . /opt/ros/kilted/setup.sh \
  && colcon build --merge-install \
