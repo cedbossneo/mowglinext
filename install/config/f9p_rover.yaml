@@ -1,0 +1,30 @@
+# Configuration for ZED-F9P in rover mode (USB connection)
+# Based on zed_f9p.yaml but adapted for rover (no survey-in).
+# The `gnss` section is intentionally omitted — the F9P GNSS channel
+# comparison in the ublox_gps driver triggers an infinite cold-reset loop
+# when gnss constellations are specified for this firmware version.
+ublox_gps_node:
+  ros__parameters:
+    debug: 1
+    device: /dev/gps
+    frame_id: gps
+    rate: 8.0
+    nav_rate: 1
+    dynamic_model: portable
+    fix_mode: auto
+    enable_ppp: false
+    dr_limit: 0
+
+    tmode3: 0   # 0 = disabled (rover), 1 = survey-in (base station)
+
+    dgnss_mode: 3   # RTK Fixed
+
+    inf:
+      all: true
+
+    publish:
+      all: true
+      aid:
+        hui: false
+      nav:
+        posecef: false

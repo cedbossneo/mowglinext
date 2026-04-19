@@ -13,8 +13,10 @@ services:
     privileged: true
     environment:
       <<: *ros2-env
+    devices:
+      - /dev/gps:/dev/gps
     volumes:
-      - /dev:/dev
+      - ./start_gps.sh:/start_gps.sh:ro
       - ./docker/config/mowgli:/config:ro
       - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     restart: unless-stopped
