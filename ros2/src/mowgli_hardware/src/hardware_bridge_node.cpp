@@ -784,8 +784,8 @@ private:
     std::memcpy(&pkt, data, sizeof(LlOdometry));
 
     // Signed tick deltas since last firmware packet (polarity = direction).
-    const int32_t d_left  = pkt.left_ticks  - prev_left_ticks_;
-    const int32_t d_right = pkt.right_ticks - prev_right_ticks_;
+    int32_t d_left  = pkt.left_ticks  - prev_left_ticks_;
+    int32_t d_right = pkt.right_ticks - prev_right_ticks_;
     prev_left_ticks_  = pkt.left_ticks;
     prev_right_ticks_ = pkt.right_ticks;
 
@@ -793,6 +793,27 @@ private:
     {
       odom_initialized_ = true;
       return;
+    }
+
+    // Sanity-clamp to physically plausible deltas. Firmware packets arrive
+    // every ~21 ms; at a hard upper bound of 2 m/s the robot would move
+    // ~0.042 m = ~13 ticks per packet (TICKS_PER_M = 300). Anything above
+    // kTickSpikeLimit is a firmware glitch — typically the motor-controller
+    // PCB's encoder reset on direction change not happening in lockstep with
+    // the firmware's own prev_*_encoder_val reset, giving a phantom delta of
+    // ~tens-of-thousands-of-ticks (observed as 1000+ m/s velocity spikes in
+    // wheel_odom). Dropping the offending packet's delta is far safer than
+    // letting FusionCore integrate that into a position/yaw jump.
+    constexpr int32_t kTickSpikeLimit = 100;
+    if (std::abs(d_left) > kTickSpikeLimit || std::abs(d_right) > kTickSpikeLimit)
+    {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "Dropping wheel tick spike: dL=%d dR=%d (limit=%d). Likely a "
+          "direction-change encoder-reset mismatch from the motor controller.",
+          d_left, d_right, kTickSpikeLimit);
+      d_left = 0;
+      d_right = 0;
     }
 
     // ----- Aggregate firmware packets into ~10 Hz wheel_odom publishes -----
