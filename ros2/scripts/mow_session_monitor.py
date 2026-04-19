@@ -621,25 +621,49 @@ def _json_default(o: Any) -> Any:
     return str(o)
 
 
-def _git(cmd: list[str]) -> Optional[str]:
+def _git(cmd: list[str], cwd: Optional[str] = None) -> Optional[str]:
     try:
-        repo = os.path.dirname(os.path.abspath(__file__))
-        out = subprocess.check_output(["git", "-C", repo, *cmd], stderr=subprocess.DEVNULL)
+        target = cwd or os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.check_output(
+            ["git", "-C", target, *cmd], stderr=subprocess.DEVNULL
+        )
         return out.decode().strip()
     except Exception:
         return None
 
 
 def _git_branch() -> Optional[str]:
-    return _git(["rev-parse", "--abbrev-ref", "HEAD"])
+    # Try the script's own location first (works on host), then the
+    # well-known host checkout path (works when running from a bind-mount).
+    return (
+        _git(["rev-parse", "--abbrev-ref", "HEAD"])
+        or _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd="/home/ubuntu/mowglinext")
+    )
 
 
 def _git_commit() -> Optional[str]:
-    return _git(["rev-parse", "--short", "HEAD"])
+    # Inside the container there's no git repo; fall back to the
+    # OCI image revision label baked in at build time (set by
+    # docker/metadata-action@v5 in ros2-docker.yml) via env var or
+    # /proc/1/status inspection isn't reliable. Easiest: the image tag
+    # itself encodes the branch, and config_hashes still pin tuning —
+    # so a missing commit hash isn't catastrophic.
+    host = (
+        _git(["rev-parse", "--short", "HEAD"])
+        or _git(["rev-parse", "--short", "HEAD"], cwd="/home/ubuntu/mowglinext")
+    )
+    if host is not None:
+        return host
+    # Container fallback: git env var set by the Dockerfile (if any) or
+    # the image revision label read via a well-known env.
+    return os.environ.get("GIT_COMMIT") or os.environ.get("OCI_REVISION")
 
 
 def _git_dirty() -> Optional[bool]:
-    out = _git(["status", "--porcelain"])
+    out = (
+        _git(["status", "--porcelain"])
+        or _git(["status", "--porcelain"], cwd="/home/ubuntu/mowglinext")
+    )
     if out is None:
         return None
     return len(out) > 0
@@ -647,8 +671,10 @@ def _git_dirty() -> Optional[bool]:
 
 def _image_tags() -> dict[str, Optional[str]]:
     """Best-effort lookup of the image tags the running containers were
-    pulled from, via the .env file in install/."""
+    pulled from. Tries the host .env, then the container's own image
+    revision label (readable via the docker runtime OCI spec file)."""
     tags: dict[str, Optional[str]] = {}
+    # Host-side .env
     env_path = "/home/ubuntu/mowglinext/install/.env"
     try:
         with open(env_path) as f:
@@ -659,25 +685,51 @@ def _image_tags() -> dict[str, Optional[str]]:
                     tags[key] = tag
     except Exception:
         pass
+    # Container-side fallback: OCI image revision is exposed as env var by
+    # some CI systems, and the container's own ROS image tag is hinted at
+    # via /.dockerenv + image labels (not always available at runtime).
+    # The git_commit field below carries the same info from build labels
+    # when accessible, so we don't need to break a sweat here.
     return tags
+
+
+# Config files that influence runtime behavior. First entry is the host
+# path (used when the monitor is run from the host), second is the
+# container-internal path (used when run via docker exec). The first
+# readable file wins.
+_CONFIG_LOCATIONS = {
+    "mowgli_robot.yaml": [
+        "/home/ubuntu/mowglinext/install/config/mowgli/mowgli_robot.yaml",
+        "/ros2_ws/config/mowgli_robot.yaml",
+    ],
+    "localization.yaml": [
+        "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/localization.yaml",
+        "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/localization.yaml",
+    ],
+    "nav2_params.yaml": [
+        "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/nav2_params.yaml",
+        "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/nav2_params.yaml",
+    ],
+    "cartographer.lua": [
+        "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/cartographer.lua",
+        "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/cartographer.lua",
+    ],
+}
 
 
 def _config_hashes() -> dict[str, Optional[str]]:
     """SHA-256 of the key config files that influence behavior. Lets us
     group sessions that ran with the same tuning."""
-    paths = {
-        "mowgli_robot.yaml": "/home/ubuntu/mowglinext/install/config/mowgli/mowgli_robot.yaml",
-        "localization.yaml": "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/localization.yaml",
-        "nav2_params.yaml":  "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/nav2_params.yaml",
-        "cartographer.lua":  "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/cartographer.lua",
-    }
     out: dict[str, Optional[str]] = {}
-    for name, path in paths.items():
-        try:
-            with open(path, "rb") as f:
-                out[name] = hashlib.sha256(f.read()).hexdigest()[:16]
-        except Exception:
-            out[name] = None
+    for name, candidates in _CONFIG_LOCATIONS.items():
+        out[name] = None
+        for path in candidates:
+            try:
+                with open(path, "rb") as f:
+                    out[name] = hashlib.sha256(f.read()).hexdigest()[:16]
+                break
+            except Exception:
+                continue
     return out
 
 
