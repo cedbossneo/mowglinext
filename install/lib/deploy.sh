@@ -69,3 +69,49 @@ run_startup_step_live() {
     auto_detect_position
   fi
 }
+
+backup_path_if_exists() {
+  local path="$1"
+  if [ -e "$path" ]; then
+    local backup="${path}.old.$(date +%Y%m%d_%H%M%S)"
+    mv "$path" "$backup"
+    info "Moved old runtime path: $path -> $backup"
+  fi
+}
+
+fix_path_type_conflict() {
+  local path="$1"
+  local expected_type="$2"   # file | dir
+
+  if [ "$expected_type" = "file" ] && [ -d "$path" ]; then
+    backup_path_if_exists "$path"
+  fi
+
+  if [ "$expected_type" = "dir" ] && [ -f "$path" ]; then
+    backup_path_if_exists "$path"
+  fi
+}
+
+migrate_runtime_paths() {
+  step "Preparing runtime directory"
+
+  # Only runtime files under docker/
+  backup_path_if_exists "$DOCKER_DIR/.env"
+  backup_path_if_exists "$DOCKER_DIR/docker-compose.yaml"
+
+  # Optional: backup generated runtime config folders only if you want a clean regen
+  # backup_path_if_exists "$DOCKER_DIR/config/mqtt"
+  # backup_path_if_exists "$DOCKER_DIR/config/mowgli"
+  # backup_path_if_exists "$DOCKER_DIR/config/om"
+  # backup_path_if_exists "$DOCKER_DIR/config/db"
+
+  mkdir -p "$DOCKER_DIR"
+  mkdir -p "$DOCKER_DIR/config/mqtt"
+  mkdir -p "$DOCKER_DIR/config/mowgli"
+  mkdir -p "$DOCKER_DIR/config/om"
+  mkdir -p "$DOCKER_DIR/config/db"
+
+  # Fix bad old mounts that created directories instead of files
+  fix_path_type_conflict "$DOCKER_DIR/config/mqtt/mosquitto.conf" "file"
+  fix_path_type_conflict "$DOCKER_DIR/config/cyclonedds.xml" "file"
+}
