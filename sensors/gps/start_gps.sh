@@ -34,7 +34,7 @@ NTRIP_MOUNTPOINT=$(parse_yaml ntrip_mountpoint)
 
 # Defaults
 GPS_PORT="${GPS_PORT:-/dev/gps}"
-GPS_BAUD="${GPS_BAUD:-921600}"
+GPS_BAUD="${GPS_BAUD:-460800}"
 NTRIP_ENABLED="${NTRIP_ENABLED:-false}"
 
 echo "[start_gps.sh] GPS port: $GPS_PORT @ ${GPS_BAUD} baud"
@@ -44,37 +44,44 @@ set +u
 source /opt/ros/kilted/setup.bash
 set -u
 
-if [ "$GPS_PROTOCOL" == "NMEA" ]; then
-# Launch nmea_gps in background
-  ros2 run nmea_navsat_driver nmea_serial_driver --ros-args \
-    -p port:="${GPS_PORT}" \
-    -p baud:=${GPS_BAUD} \
-    -p frame_id:=gps_link \
-    -r /fix:=/gps/fix &
-  GPS_PID=$!
-else
 
-# Generate runtime params override — only the device path.
-# uart1.baudrate is intentionally omitted: the GPS is USB-connected (/dev/ttyACMx)
-# so physical UART1 baud rate config is irrelevant and causes CFG-PRT failures.
-# The stock launch file hardcodes c94_m8p_rover.yaml and ignores arguments,
-# so we use ros2 run with two --params-file layers instead.
-
-  cat > /tmp/ublox_override.yaml << EOF
-ublox_gps_node:
-  ros__parameters:
-    device: "${GPS_PORT}"
-    baudrate: "${GPS_BAUD}"
-EOF
-
-# Launch ublox_gps in background
-ros2 run ublox_gps ublox_gps_node --ros-args \
-  --params-file /f9p_rover.yaml \
-  --params-file /tmp/ublox_override.yaml \
-  -r /fix:=/gps/fix \
-  -r /fix_velocity:=/gps/fix_velocity &
-GPS_PID=$!
-fi
+# Do not start ublox_gps_node for now.
+# The receiver is already configured, and ublox_gps tries to push UART config
+# at startup, which breaks this setup.
+echo "[start_gps.sh] ublox_gps_node disabled for now (no GPS reconfiguration)"
+GPS_PID=""
+#if [ "$GPS_PROTOCOL" == "NMEA" ]; then
+## Launch nmea_gps in background
+#  ros2 run nmea_navsat_driver nmea_serial_driver --ros-args \
+#    -p port:="${GPS_PORT}" \
+#    -p baud:=${GPS_BAUD} \
+#    -p frame_id:=gps_link \
+#    -r /fix:=/gps/fix &
+#  GPS_PID=$!
+#else
+#
+## Generate runtime params override — only the device path.
+## uart1.baudrate is intentionally omitted: the GPS is USB-connected (/dev/ttyACMx)
+## so physical UART1 baud rate config is irrelevant and causes CFG-PRT failures.
+## The stock launch file hardcodes c94_m8p_rover.yaml and ignores arguments,
+## so we use ros2 run with two --params-file layers instead.
+#
+#cat > /tmp/ublox_override.yaml <<EOF
+#ublox_gps_node:
+#  ros__parameters:
+#    device: "${GPS_PORT}"
+#    baudrate: ${GPS_BAUD}
+#EOF
+#echo "[start_gps.sh] Generated /tmp/ublox_override.yaml:"
+#cat /tmp/ublox_override.yaml
+## Launch ublox_gps in background
+#ros2 run ublox_gps ublox_gps_node --ros-args \
+#  --params-file /f9p_rover.yaml \
+#  --params-file /tmp/ublox_override.yaml \
+#  -r /fix:=/gps/fix \
+#  -r /fix_velocity:=/gps/fix_velocity &
+#GPS_PID=$!
+#fi
 
 # Launch NTRIP client if enabled
 if [ "$NTRIP_ENABLED" = "true" ]; then
@@ -104,7 +111,8 @@ fi
 
 # Wait for any child to exit, then stop everything
 wait -n || true
-kill "$GPS_PID" 2>/dev/null || true
+#kill "$GPS_PID" 2>/dev/null || true
+[ -n "${GPS_PID:-}" ] && kill "$GPS_PID" 2>/dev/null || true
 [ -n "${NTRIP_PID:-}" ] && kill "$NTRIP_PID" 2>/dev/null || true
 [ -n "${BRIDGE_PID:-}" ] && kill "$BRIDGE_PID" 2>/dev/null || true
 wait

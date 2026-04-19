@@ -20,7 +20,7 @@ class RtcmSerialBridge(Node):
         device = self.get_parameter('device').value
 
         try:
-            self._fd = os.open(device, os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+            self._fd = os.open(device, os.O_WRONLY | os.O_NOCTTY)
             self.get_logger().info(
                 f'Opened {device} (write-only) for RTCM forwarding')
         except Exception as e:
