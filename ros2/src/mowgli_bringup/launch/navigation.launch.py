@@ -243,6 +243,36 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 3. KISS-ICP LiDAR odometry (scan -> PointCloud2 -> /kiss_icp/odometry)
+    #    Gated entirely on use_lidar. KISS-ICP does NOT publish TF;
+    #    an external adapter republishes /kiss_icp/odometry as /encoder2/odom
+    #    so FusionCore can fuse it as a wheel-odom-like source.
+    # ------------------------------------------------------------------
+    kiss_icp_group = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(bringup_dir, "launch", "kiss_icp.launch.py")
+        ),
+        condition=IfCondition(use_lidar),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+        }.items(),
+    )
+
+    # Adapter: /kiss_icp/odometry (pose-only) -> /encoder2/odom (twist-only).
+    # Finite-differences KISS-ICP pose into body-frame twist and advertises
+    # tight covariance when ICP is healthy / inflated covariance when the
+    # pose-covariance proxy indicates a bad match. FusionCore fuses this as
+    # a second encoder source. See scripts/kiss_icp_encoder_adapter.py.
+    kiss_icp_encoder_adapter = Node(
+        condition=IfCondition(use_lidar),
+        package="mowgli_localization",
+        executable="kiss_icp_encoder_adapter.py",
+        name="kiss_icp_encoder_adapter",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # ------------------------------------------------------------------
     # 4. Nav2 navigation (controllers, planners, behaviors, BT navigator)
     # ------------------------------------------------------------------
     # Gate Nav2 startup on the map→odom TF being available.
@@ -300,6 +330,8 @@ def generate_launch_description() -> LaunchDescription:
             fusioncore_node,
             fusioncore_configure,
             fusioncore_start,
+            kiss_icp_group,
+            kiss_icp_encoder_adapter,
             wait_for_map_odom_tf,
             nav2_after_tf,
         ]

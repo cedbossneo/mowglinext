@@ -1,0 +1,32 @@
+# KISS-ICP parameters tuned for Mowgli's 2D LD19 LiDAR.
+#
+# LD19: single-plane, 455 points/scan @ 10 Hz, ~6-8 m usable range outdoors.
+# Each LaserScan is a complete snapshot — no per-point timestamps — so deskew
+# MUST be off (deskew requires per-point timing).
+#
+# These values override kiss_icp/config/config.yaml defaults (100 m range,
+# deskew on, default voxel sizing).
+
+kiss_icp_node:
+  ros__parameters:
+
+    # NOTE: ROS-related params (base_frame, publish_odom_tf, ...) are set on the
+    # launch-file command line so they remain overridable without editing YAML.
+
+    data:
+      deskew: False
+      max_range: 8.0
+      min_range: 0.3
+
+    mapping:
+      voxel_size: 0.1
+      max_points_per_voxel: 20
+
+    adaptive_threshold:
+      initial_threshold: 0.5
+      min_motion_th: 0.05
+
+    registration:
+      max_num_iterations: 500
+      convergence_criterion: 0.0001
+      max_num_threads: 0

@@ -49,6 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtinyxml2-dev \
     # Topic tools (relay, throttle — used in simulation for topic remapping)
     ros-kilted-topic-tools \
+    # LaserScan <-> PointCloud2 conversion (feeds KISS-ICP from LD19 /scan)
+    ros-kilted-pointcloud-to-laserscan \
     # Docking (opennav_docking — dock/undock action server)
     # DockRobot/UndockRobot actions are in nav2_msgs (already installed).
     # The docking_server executable is in opennav_docking.
