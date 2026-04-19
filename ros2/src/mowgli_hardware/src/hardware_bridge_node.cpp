@@ -866,16 +866,22 @@ private:
     msg.header.frame_id = "odom";
     msg.child_frame_id = "base_link";
 
-    // Force zero only when the robot is MECHANICALLY LOCKED to the dock
-    // AND not in the middle of an undock/mission. `is_charging_` confirms
-    // dock contacts are live (so the robot cannot have physically moved),
-    // and mode ∈ {NULL, IDLE} confirms we're not in active motion. Off-dock
-    // IDLE states (manual calibration rotation, a drifted-off-dock robot)
-    // are NOT zeroed — the wheel aggregation window alone handles noise
-    // there, and real motion must still pass through for testing/recovery.
-    const bool force_zero =
-        is_charging_ &&
-        (current_mode_ == HL_MODE_NULL || current_mode_ == HL_MODE_IDLE);
+    // Force zero whenever the dock contacts are live. Charging current
+    // proves the robot is mechanically anchored to the dock — the motors
+    // cannot have moved it regardless of BT state. Previous narrower
+    // condition (charging AND mode ∈ {NULL, IDLE}) missed the transient
+    // RETURNING_HOME / end-of-mission states, during which the BT is
+    // still mode=AUTONOMOUS(2) but the robot has already re-docked and
+    // is physically stationary. Without the zero constraint, gyro_z
+    // bias (~0.01 rad/s on the WT901) integrates into fusion yaw at
+    // ~30°/min, which then corrupts Cartographer's scan-match pose and
+    // smears the occupancy grid ("SLAM map breaks" while stationary).
+    //
+    // Edge case: the charger bit can briefly stay high during a BackUp
+    // undock before the contacts separate. That moment is handled by
+    // the UndockRobot action, not by the wheel-odom path, so zeroing
+    // for those ~100 ms is harmless.
+    const bool force_zero = is_charging_;
     if (force_zero)
     {
       vx = 0.0;
