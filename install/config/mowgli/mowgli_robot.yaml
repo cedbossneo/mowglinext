@@ -68,7 +68,9 @@ mowgli:
     datum_lon: 2.2950198399135893     # map origin longitude (set per-site)
     gps_wait_after_undock_sec: 10.0   # wait for RTK fix after undocking
     gps_timeout_sec: 5.0              # pause mowing if no GPS for this long
-    
+    gps_port: /dev/gps
+    gps_baudrate: 460800
+    gps_protocol: UBX
 
     # NTRIP (RTK correction stream)
     ntrip_enabled: false
