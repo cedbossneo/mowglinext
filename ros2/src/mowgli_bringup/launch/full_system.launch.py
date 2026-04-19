@@ -237,6 +237,20 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 8b. IMU yaw calibration node (on-demand)
+    # Exposes /calibrate_imu_yaw_node/calibrate — idle until called.
+    # ------------------------------------------------------------------
+    calibrate_imu_yaw_node = Node(
+        package="mowgli_localization",
+        executable="calibrate_imu_yaw_node.py",
+        name="calibrate_imu_yaw_node",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # 9. Diagnostics
     # ------------------------------------------------------------------
     diagnostics_node = Node(
@@ -341,6 +355,7 @@ def generate_launch_description() -> LaunchDescription:
             obstacle_tracker_node,
             navsat_converter_node,  # publishes /gps/absolute_pose for GUI + BT
             localization_monitor_node,
+            calibrate_imu_yaw_node,
             diagnostics_node,
             mqtt_bridge_node,
             foxglove_bridge_node,

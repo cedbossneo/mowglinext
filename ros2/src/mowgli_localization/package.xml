@@ -27,6 +27,12 @@
   <!-- FusionCore is launched by this package but not compiled against -->
   <exec_depend>fusioncore_ros</exec_depend>
 
+  <!-- Python runtime deps for calibrate_imu_yaw_node.py.
+       sensor_msgs / nav_msgs / mowgli_interfaces are already declared
+       as build+exec via <depend> above. -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <test_depend>ament_cmake_gtest</test_depend>

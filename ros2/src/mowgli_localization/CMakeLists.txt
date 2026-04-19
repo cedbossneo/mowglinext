@@ -143,6 +143,13 @@ install(
   DESTINATION share/${PROJECT_NAME}/config
 )
 
+# Python nodes (installed executable, run via `ros2 run mowgli_localization ...`)
+install(
+  PROGRAMS
+    scripts/calibrate_imu_yaw_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # ---------------------------------------------------------------------------
 # Testing
 # ---------------------------------------------------------------------------
