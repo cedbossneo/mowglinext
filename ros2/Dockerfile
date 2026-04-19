@@ -222,6 +222,11 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 COPY scripts/ros2_entrypoint.sh /ros2_entrypoint.sh
 RUN chmod +x /ros2_entrypoint.sh
 
+# Mow-session monitor — runs alongside the live stack to record a full
+# state timeline per mowing test (see CLAUDE.md "Mowing Session Monitoring").
+COPY scripts/mow_session_monitor.py /ros2_ws/scripts/mow_session_monitor.py
+RUN chmod +x /ros2_ws/scripts/mow_session_monitor.py
+
 ENTRYPOINT ["/ros2_entrypoint.sh"]
 CMD ["ros2", "launch", "mowgli_bringup", "mowgli.launch.py"]
 
@@ -254,10 +259,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY scripts/start_vnc.sh /ros2_ws/scripts/start_vnc.sh
 RUN chmod +x /ros2_ws/scripts/start_vnc.sh
 
-# Copy the mowing-session monitor so it can be launched inside the
-# container (`python3 /ros2_ws/scripts/mow_session_monitor.py --session <name>`).
-COPY scripts/mow_session_monitor.py /ros2_ws/scripts/mow_session_monitor.py
-RUN chmod +x /ros2_ws/scripts/mow_session_monitor.py
 
 # Copy Foxglove layout for easy import
 COPY foxglove/ /ros2_ws/foxglove/
