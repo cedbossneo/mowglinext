@@ -90,11 +90,14 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap (no-op stub)
+// SaveSlamMap (deprecated no-op stub)
 // ---------------------------------------------------------------------------
 
-/// No-op stub — slam_toolbox map serialization removed (Cartographer backend).
-/// Keeps BT XML compatible: always returns SUCCESS immediately.
+/// Deprecated no-op stub — SLAM (Cartographer / slam_toolbox) was removed
+/// with the switch to the KISS-ICP drift-correction architecture, and no
+/// replacement map-serialization hook is wired up yet. Kept so existing BT
+/// XML files continue to load; the tick logs a one-line notice and returns
+/// SUCCESS immediately.
 class SaveSlamMap : public BT::SyncActionNode
 {
 public:

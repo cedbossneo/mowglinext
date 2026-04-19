@@ -24,7 +24,7 @@ behavior stack, using simulated time throughout.
 
 Brings up:
   1. mowgli_simulation/launch/simulation.launch.py — Gazebo world + spawned robot
-  2. navigation.launch.py                          — SLAM, dual EKF, Nav2
+  2. navigation.launch.py                          — FusionCore, static map->odom, Nav2
   3. Behavior tree node                             — mowgli_behavior
   4. Map server                                     — mowgli_map
   5. Coverage server                                — opennav_coverage
@@ -38,7 +38,6 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
-    TimerAction,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -59,18 +58,6 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
-    slam_arg = DeclareLaunchArgument(
-        "slam",
-        default_value="True",
-        description="Run slam_toolbox when True; skip when using a pre-built map.",
-    )
-
-    map_arg = DeclareLaunchArgument(
-        "map",
-        default_value="",
-        description="Absolute path to a pre-built map yaml file (used when slam=false).",
-    )
-
     world_arg = DeclareLaunchArgument(
         "world",
         default_value="garden",
@@ -98,15 +85,13 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="Enable LiDAR-dependent nodes (SLAM, obstacle tracker). Set to false for GPS-only.",
+        description="Enable LiDAR-dependent nodes (obstacle tracker, KISS-ICP). Set to false for GPS-only.",
     )
 
     # ------------------------------------------------------------------
     # Resolved substitutions
     # use_sim_time is always true in simulation — no argument needed.
     # ------------------------------------------------------------------
-    slam = LaunchConfiguration("slam")
-    map_yaml = LaunchConfiguration("map")
     world = LaunchConfiguration("world")
     headless = LaunchConfiguration("headless")
     use_rviz = LaunchConfiguration("use_rviz")
@@ -159,7 +144,11 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 2. Navigation stack — SLAM, FusionCore, Nav2
+    # 2. Navigation stack — FusionCore, static map->odom, Nav2
+    #    FusionCore publishes odom -> base_footprint; navigation.launch.py
+    #    publishes a static identity map -> odom. KISS-ICP drift correction
+    #    is real-robot only (requires LiDAR on ARM); sim runs open-loop
+    #    GPS-only for now.
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -167,17 +156,10 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "use_sim_time": "true",
-            "slam": slam,
-            "map": map_yaml,
             "use_ekf": "True",
-            "slam_mode": "lifelong",
-            "map_file_name": "/ros2_ws/maps/garden_map",
             "use_lidar": use_lidar,
         }.items(),
     )
-
-    # Static map→odom TF (no-SLAM fallback) is now handled by
-    # navigation.launch.py via UnlessCondition(slam).
 
     # ------------------------------------------------------------------
     # 3. Behavior tree node
@@ -290,8 +272,6 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             # Arguments
-            slam_arg,
-            map_arg,
             world_arg,
             headless_arg,
             use_rviz_arg,

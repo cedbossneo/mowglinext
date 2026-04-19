@@ -428,7 +428,8 @@ local_costmap:
         inflation_radius: 0.40
 
 # ---------------------------------------------------------------------------
-# Map server / AMCL (not used with slam_toolbox, kept for completeness)
+# Map server / AMCL (unused — map->odom is a static identity with KISS-ICP
+# drift correction; kept for completeness / Nav2 lifecycle compatibility)
 # ---------------------------------------------------------------------------
 map_server:
   ros__parameters:
