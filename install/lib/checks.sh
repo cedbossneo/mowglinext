@@ -50,9 +50,11 @@ check_devices() {
           fi
 
           if [[ -n "$uart_dev" && ! -e "$uart_dev" ]]; then
+            # UART device itself doesn't exist — likely needs reboot for dtoverlay
             warn "$sensor_name: UART device $uart_dev not available yet — reboot required"
             add_issue "$sensor_name UART $uart_dev not found. Reboot to enable UART overlays, then re-check: sudo reboot"
           elif [[ -n "$uart_dev" ]]; then
+            # UART device exists but symlink missing — udev rule issue
             add_issue "$sensor_name symlink $dev not found but $uart_dev exists. Check udev rules: cat /etc/udev/rules.d/50-mowgli.rules"
             echo -e "       ${DIM}Try: sudo udevadm control --reload-rules && sudo udevadm trigger${NC}"
           else
