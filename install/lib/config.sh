@@ -5,10 +5,14 @@
 
 REPO_URL="https://github.com/mowglifrenchtouch/mowglinext.git"
 REPO_BRANCH="feat/mavros"
-IMAGE_TAG="feat-mavros"
+IMAGE_TAG="nightly"
 REPO_DIR="${MOWGLI_HOME:-$HOME/mowglinext}"
 DOCKER_SUBDIR="install"
 INSTALL_DIR="${REPO_DIR}/${DOCKER_SUBDIR}"
+DOCKER_DIR="$REPO_DIR/docker"
+COMPOSE_SRC_DIR="$INSTALL_DIR/compose"
+FINAL_COMPOSE_FILE="$DOCKER_DIR/docker-compose.yaml"
+FINAL_ENV_FILE="$DOCKER_DIR/.env"
 UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
 
 MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/mowglifrenchtouch/mowglinext/mowgli-ros2:${IMAGE_TAG}"
@@ -143,7 +147,7 @@ add_issue() {
 
 # Load existing config values from mowgli_robot.yaml for use as defaults
 load_existing_config() {
-  local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+  local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
   if [ ! -f "$yaml_file" ]; then
     return
   fi
@@ -165,22 +169,22 @@ load_existing_config() {
 interactive_config() {
   step "5/6  Mower configuration"
 
-  local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+  local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
   local defaults="$REPO_DIR/docker/config"
-  mkdir -p "$INSTALL_DIR/config/mowgli"
-  mkdir -p "$INSTALL_DIR/config/om"
-  mkdir -p "$INSTALL_DIR/config/mqtt"
-  mkdir -p "$INSTALL_DIR/config/db"
+  mkdir -p "$DOCKER_DIR/config/mowgli"
+  mkdir -p "$DOCKER_DIR/config/om"
+  mkdir -p "$DOCKER_DIR/config/mqtt"
+  mkdir -p "$DOCKER_DIR/config/db"
 
   # CycloneDDS
-  if [ ! -f "$INSTALL_DIR/config/cyclonedds.xml" ]; then
-    cp "$defaults/cyclonedds.xml" "$INSTALL_DIR/config/cyclonedds.xml"
+  if [ ! -f "$DOCKER_DIR/config/cyclonedds.xml" ]; then
+    cp "$defaults/cyclonedds.xml" "$DOCKER_DIR/config/cyclonedds.xml"
     info "Created cyclonedds.xml"
   fi
 
   # Mosquitto
-  if [ ! -f "$INSTALL_DIR/config/mqtt/mosquitto.conf" ]; then
-    cp "$defaults/mqtt/mosquitto.conf" "$INSTALL_DIR/config/mqtt/mosquitto.conf"
+  if [ ! -f "$DOCKER_DIR/config/mqtt/mosquitto.conf" ]; then
+    cp "$defaults/mqtt/mosquitto.conf" "$DOCKER_DIR/config/mqtt/mosquitto.conf"
     info "Created mosquitto.conf"
   fi
 
@@ -324,7 +328,7 @@ interactive_config() {
 }
 
 write_config() {
-  local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+  local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
 
   : "${GPS_PROTOCOL:=UBX}"
   : "${GPS_PORT:=/dev/gps}"
@@ -367,7 +371,7 @@ EOF
 
   info "Wrote $yaml_file"
 
-  cat > "$INSTALL_DIR/config/om/mower_config.sh" <<EOF
+  cat > "$DOCKER_DIR/config/om/mower_config.sh" <<EOF
 export OM_DATUM_LAT=$CONFIG_DATUM_LAT
 export OM_DATUM_LONG=$CONFIG_DATUM_LON
 export OM_GPS_PROTOCOL=$GPS_PROTOCOL
@@ -462,8 +466,10 @@ auto_detect_position() {
   info "Config updated with auto-detected position"
 
   echo -e "${DIM}Restarting containers with new config...${NC}"
-  cd "$INSTALL_DIR"
-  docker compose --project-directory "$INSTALL_DIR" --env-file "$INSTALL_DIR/.env" restart gps mowgli 2>&1 | tail -3
+  docker compose \
+    -f "$FINAL_COMPOSE_FILE" \
+    --env-file "$FINAL_ENV_FILE" \
+    restart gps mowgli 2>&1 | tail -3
   sleep 10
 }
 

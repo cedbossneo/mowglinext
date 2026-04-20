@@ -15,7 +15,8 @@ upsert_env_key() {
 setup_env() {
   step "Environment (.env)"
 
-  local env_file="$INSTALL_DIR/.env"
+  local env_file="$REPO_DIR/docker/.env"
+  mkdir -p "$REPO_DIR/docker"
 
   : "${ROS_DOMAIN_ID:=0}"
   : "${MOWER_IP:=10.0.0.161}"
