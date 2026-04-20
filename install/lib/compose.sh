@@ -28,6 +28,9 @@ build_compose_stack() {
   COMPOSE_FILES+=("compose/docker-compose.base.yml")
   COMPOSE_FILES+=("compose/docker-compose.gui.yml")
   COMPOSE_FILES+=("compose/docker-compose.mqtt.yml")
+  # GNSS backend selection lives at the compose layer. For now the default
+  # stack keeps using docker-compose.gps.yml so existing compatibility behavior
+  # stays unchanged on feat/gps while backend-specific fragments converge later.
   COMPOSE_FILES+=("compose/docker-compose.gps.yml")
 
   # Foxglove bridge is controlled via the ENABLE_FOXGLOVE env var passed
