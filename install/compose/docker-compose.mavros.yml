@@ -16,7 +16,11 @@ services:
       - /dev:/dev
     environment:
       <<: *ros2-env
-    command: >
-      ros2 launch mavros px4.launch
-      fcu_url:=${MAVLINK_PORT:-/dev/ttyUSB0}:${MAVLINK_BAUD:-921600}
+      MAVROS_ENABLED: ${MAVROS_ENABLED:-true}
+      MAVROS_PORT: ${MAVROS_PORT:-/dev/mavros}
+      MAVROS_BAUD: ${MAVROS_BAUD:-921600}
+      MAVROS_GCS_URL: ${MAVROS_GCS_URL:-}
+      MAVROS_TGT_SYSTEM: ${MAVROS_TGT_SYSTEM:-1}
+      MAVROS_TGT_COMPONENT: ${MAVROS_TGT_COMPONENT:-1}
+      MAVROS_AUTOPILOT: ${MAVROS_AUTOPILOT:-ardupilot}
     restart: unless-stopped

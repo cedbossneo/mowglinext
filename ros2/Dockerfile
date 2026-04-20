@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Stage 1: base
 # Installs all runtime ROS2 dependencies. Both runtime and simulation stages
@@ -47,6 +48,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-ublox-msgs \
     ros-kilted-nmea-msgs \
     ros-kilted-rtcm-msgs \
+    # MAVROS
+    ros-kilted-mavros \
+    ros-kilted-mavros-msgs \
+    ros-kilted-mavros-extras \
     # tinyxml2 (required at runtime by BehaviorTree.CPP)
     libtinyxml2-dev \
     # Topic tools (relay, throttle — used in simulation for topic remapping)
@@ -90,6 +95,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
+    ccache \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ros2_ws
@@ -142,8 +148,14 @@ FROM deps AS build-interfaces
 # Copy the full mowgli_interfaces package
 COPY src/mowgli_interfaces/ src/mowgli_interfaces/
 
-RUN /bin/bash -c "\
+RUN --mount=type=cache,target=/ccache/${TARGETARCH} \
+    /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
+    export CCACHE_DIR=/ccache/${TARGETARCH} && \
+    export CC='ccache gcc' && \
+    export CXX='ccache g++' && \
+    ccache --max-size=2G && \
+    echo Building for ${TARGETPLATFORM} / ${TARGETARCH} && \
     colcon build \
       --packages-select mowgli_interfaces \
       --cmake-args -DCMAKE_BUILD_TYPE=Release \
@@ -168,10 +180,30 @@ RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
  && ln -sf fusioncore/fusioncore_ros  src/fusioncore_ros \
  && ln -sf fusioncore/compass_msgs    src/compass_msgs
 
-# Build all packages (mowgli_interfaces is already built and cached)
+# Check MAVROS installation
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
-    source install/setup.bash && \
+    echo '=== ROS env ===' && \
+    echo \$AMENT_PREFIX_PATH && \
+    echo \$CMAKE_PREFIX_PATH && \
+    echo '=== MAVROS packages ===' && \
+    ros2 pkg list | grep mavros || true && \
+    echo '=== Filesystem check ===' && \
+    ls -la /opt/ros/kilted/share | grep mavros || true && \
+    ls -la /opt/ros/kilted/share/mavros_msgs/cmake || true && \
+    test -f /opt/ros/kilted/share/mavros_msgs/cmake/mavros_msgsConfig.cmake || true \
+    "
+
+# Build all packages (mowgli_interfaces is already built and cached)
+RUN --mount=type=cache,target=/ccache/${TARGETARCH} \
+    /bin/bash -c "\
+    source /opt/ros/kilted/setup.bash && \
+    if [ -f install/setup.bash ]; then source install/setup.bash; fi && \
+    export CCACHE_DIR=/ccache/${TARGETARCH} && \
+    export CC='ccache gcc' && \
+    export CXX='ccache g++' && \
+    ccache --max-size=2G && \
+    echo Building for ${TARGETPLATFORM} / ${TARGETARCH} && \
     colcon build \
       --packages-ignore fusioncore fusioncore_gazebo \
       --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF \
@@ -182,7 +214,7 @@ RUN /bin/bash -c "\
 # Run unit tests (non-blocking)
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
-    source install/setup.bash && \
+    if [ -f install/setup.bash ]; then source install/setup.bash; fi && \
     colcon test \
       --ctest-args -L 'gtest' --output-on-failure \
     ; colcon test-result --verbose \
