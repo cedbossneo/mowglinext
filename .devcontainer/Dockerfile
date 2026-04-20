@@ -2,8 +2,8 @@
 # MowgliNext Development Container
 #
 # All-in-one image for GitHub Codespaces and local devcontainer usage.
-# Includes: ROS2 Jazzy, Nav2, Gazebo Harmonic (headless),
-# build tools, and developer utilities.
+# Includes: ROS2 Kilted, Nav2, Gazebo Harmonic (headless), Go 1.24, Node 22,
+# Python linting, build tools, and developer utilities.
 #
 # Gazebo runs headless (CPU rendering) — connect Foxglove Studio to
 # ws://localhost:8765 for visualization.
@@ -13,7 +13,8 @@ FROM ros:kilted-ros-base
 ARG DEBIAN_FRONTEND=noninteractive
 
 # ---------------------------------------------------------------------------
-# 1. All ROS2 runtime + build + simulation dependencies in one layer
+# 1. ROS2 runtime + build + simulation dependencies
+#    (apt layer — heaviest; cache by keeping this mostly stable)
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # ── Navigation ──
@@ -33,9 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-nav2-core \
     ros-kilted-nav2-util \
     ros-kilted-nav2-msgs \
-    # ── SLAM (FusionCore is built from source in the workspace) ──
-    ros-kilted-slam-toolbox \
-    # ── DDS ──
+    # ── DDS (Cyclone is required — FastRTPS has stale shm issues on ARM) ──
     ros-kilted-rmw-cyclonedds-cpp \
     # ── Docking ──
     ros-kilted-opennav-docking \
@@ -88,12 +87,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     bash-completion \
-    python3-pip \
     clang-format \
+    cppcheck \
+    # ── Python runtime + linting (matches mowgli_localization runtime deps) ──
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-numpy \
+    python3-yaml \
     # ── Headless rendering (Gazebo sensors need a virtual display on ARM) ──
     xvfb \
     # ── GitHub CLI ──
     gpg \
+    ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
       | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -103,17 +109,50 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 2. rosdep init (needed for resolving deps on first build)
+# 2. Python linters + pre-commit (system-wide, PEP 668 override OK inside
+#    a dev container). Versions track .pre-commit-config.yaml if the repo
+#    adds one later.
+# ---------------------------------------------------------------------------
+RUN pip install --break-system-packages --no-cache-dir \
+    ruff==0.8.0 \
+    pre-commit==4.0.1
+
+# ---------------------------------------------------------------------------
+# 3. Go 1.24 — matches gui/go.mod + gui/Dockerfile build stage.
+#    Installed under /usr/local/go, put on PATH.
+# ---------------------------------------------------------------------------
+ENV GO_VERSION=1.24.0
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) go_arch=amd64 ;; \
+      arm64) go_arch=arm64 ;; \
+      *) echo "Unsupported arch: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${go_arch}.tar.gz" \
+      | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# ---------------------------------------------------------------------------
+# 4. Node 22 + yarn — matches gui/Dockerfile build stage (gui/web build).
+# ---------------------------------------------------------------------------
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g --no-fund --no-audit yarn
+
+# ---------------------------------------------------------------------------
+# 5. rosdep init (needed for resolving deps on first build)
 # ---------------------------------------------------------------------------
 RUN rosdep update --rosdistro kilted || true
 
 # ---------------------------------------------------------------------------
-# 3. Workspace directory
+# 6. Workspace directory
 # ---------------------------------------------------------------------------
 WORKDIR /ros2_ws
 
 # ---------------------------------------------------------------------------
-# 4. Environment setup — auto-source ROS2 + workspace in every shell
+# 7. Environment setup — auto-source ROS2 + workspace in every shell
 # ---------------------------------------------------------------------------
 RUN echo 'source /opt/ros/kilted/setup.bash' >> /etc/bash.bashrc && \
     echo '[ -f /ros2_ws/install/setup.bash ] && source /ros2_ws/install/setup.bash' >> /etc/bash.bashrc && \
@@ -121,10 +160,19 @@ RUN echo 'source /opt/ros/kilted/setup.bash' >> /etc/bash.bashrc && \
     echo 'export RCUTILS_COLORIZED_OUTPUT=1' >> /etc/bash.bashrc
 
 # ---------------------------------------------------------------------------
-# 5. Cyclone DDS config (localhost-only discovery for containers)
+# 8. Cyclone DDS config (localhost-only discovery for containers)
 # ---------------------------------------------------------------------------
 COPY docker/config/cyclonedds.xml /etc/cyclonedds.xml
 ENV CYCLONEDDS_URI=file:///etc/cyclonedds.xml
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV ROS_DOMAIN_ID=0
 ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+
+# ---------------------------------------------------------------------------
+# NOT installed by default (opt in if you need them):
+#   PlatformIO      — firmware builds (~500 MB). Install with:
+#                       pip install --break-system-packages platformio
+#                     Works on x86 for ARM-target cross-compile.
+#   Docker-in-Docker — multi-container sim/hardware topologies. Add the
+#                     docker-in-docker feature to devcontainer.json.
+# ---------------------------------------------------------------------------

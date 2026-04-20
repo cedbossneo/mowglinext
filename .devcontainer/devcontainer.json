@@ -19,14 +19,16 @@
 
   // Forward ports for visualization and debugging
   "forwardPorts": [
+    4006,   // GUI (Go backend + React frontend)
     8765,   // Foxglove Bridge WebSocket
     6080,   // noVNC (if Gazebo GUI needed)
-    9090    // rosbridge WebSocket (GUI)
+    9090    // rosbridge WebSocket (legacy GUI path)
   ],
   "portsAttributes": {
+    "4006": { "label": "Mowgli GUI", "onAutoForward": "notify" },
     "8765": { "label": "Foxglove Studio", "onAutoForward": "notify" },
     "6080": { "label": "noVNC Gazebo GUI", "onAutoForward": "ignore" },
-    "9090": { "label": "rosbridge (GUI)", "onAutoForward": "ignore" }
+    "9090": { "label": "rosbridge (legacy)", "onAutoForward": "ignore" }
   },
 
   // Claude Code CLI
@@ -47,7 +49,7 @@
     "RCUTILS_LOGGING_USE_STDOUT": "1"
   },
 
-  // VS Code extensions for ROS2 development
+  // VS Code extensions for ROS2 + GUI + firmware development
   "customizations": {
     "vscode": {
       "extensions": [
@@ -55,8 +57,13 @@
         "ms-vscode.cpptools",
         "ms-vscode.cmake-tools",
         "ms-python.python",
+        "charliermarsh.ruff",
         "redhat.vscode-yaml",
-        "streetsidesoftware.code-spell-checker"
+        "streetsidesoftware.code-spell-checker",
+        "golang.go",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
@@ -68,14 +75,22 @@
           "*.urdf": "xml"
         },
         "python.analysis.extraPaths": [
-          "/opt/ros/jazzy/lib/python3.12/site-packages",
-          "/ros2_ws/install/mowgli_interfaces/lib/python3.12/site-packages"
-        ]
+          "/opt/ros/kilted/lib/python3.12/site-packages",
+          "/ros2_ws/install/mowgli_interfaces/lib/python3.12/site-packages",
+          "/ros2_ws/install/mowgli_localization/lib/python3.12/site-packages"
+        ],
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+        },
+        "go.toolsManagement.autoUpdate": true,
+        "go.useLanguageServer": true
       }
     },
     "codespaces": {
       "openFiles": [
-        "ros2/CLAUDE.md"
+        "CLAUDE.md",
+        "docs/FIRST_BOOT.md"
       ]
     }
   }
