@@ -2,7 +2,7 @@
 
 Open-source autonomous robot mower monorepo. ROS2 Kilted, Nav2, FusionCore (GPS-RTK + IMU + wheels UKF, sole localizer), optional Kinematic-ICP drift correction, BehaviorTree.CPP v4, cell-based strip coverage.
 
-**Website:** https://mowgli.garden | **Wiki:** https://github.com/cedbossneo/mowglinext/wiki
+**Website:** https://mowgli.garden | **Wiki:** https://github.com/cedbossneo/mowglinext/wiki | **First-boot checklist:** [`docs/FIRST_BOOT.md`](docs/FIRST_BOOT.md)
 
 ## Safety — READ FIRST
 
@@ -107,7 +107,7 @@ No Co-Authored-By lines. Keep messages concise and focused on "why".
 - **Frames:** `map` (global, == `odom` via static identity), `odom` (GPS-ENU, RTK-anchored), `base_footprint` (robot frame for Nav2/FusionCore), `base_link` (rear axle), `lidar_link`, `imu_link`
 - **TF chain:** `map→odom` (static identity, published once at launch), `odom→base_footprint` (FusionCore, 50 Hz), `base_footprint→base_link` (static), `base_link→sensors` (static — `base_link→imu_link` rotation = `imu_yaw/pitch/roll` from `mowgli_robot.yaml`, auto-calibratable via GUI button)
 - **Units:** SI throughout (metres, radians, seconds)
-- **Sensor fusion:** FusionCore (single UKF, 50Hz, GPS+IMU+wheels → odom→base_footprint TF + `/fusion/odom`). Source-built from `ros2/src/fusioncore/`. Lifecycle node auto-configured at launch.
+- **Sensor fusion:** FusionCore (single UKF, 100Hz, GPS+IMU+wheels+optional Kinematic-ICP twist → odom→base_footprint TF + `/fusion/odom`). Source-built from `ros2/src/fusioncore/`. Lifecycle node auto-configured at launch. Key tuning: `gnss.apply_lever_arm_pre_heading: true` lets RTK fixes drive yaw from fix #1 via the antenna offset; `imu.lever_arm_x/y/z` can be auto-resolved from TF (`base_footprint → imu_link`) if left at 0, so the URDF is the single source of truth for sensor geometry. The `hardware_bridge_node` runs a 20 s IMU bias calibration (`imu_cal_samples: 1000`) every time the robot docks, and logs the implied mounting pitch/roll so the operator can promote any >1° offset into `mowgli_robot.yaml` → `imu_pitch/imu_roll`.
 - **Navigation:** RPP for transit, FTCController (Follow-the-Carrot with 3-axis PID) for coverage paths (NOT MPPI — it jumps between adjacent swaths)
 - **Coverage:** Cell-based strip planner in `map_server_node`. Multi-area outer loop (`GetNextUnmowedArea`) iterates through all mowing areas. Inner strip loop fetches strips one at a time (`GetNextStrip` -> `TransitToStrip` -> `FollowStrip`). No full-path pre-planning. Progress persisted in `mow_progress` grid layer. All areas mowed sequentially, then robot docks.
 - **Area Recording:** `RecordArea` BT node records trajectory at 2 Hz, Douglas-Peucker simplification, saves polygon via `/map_server_node/add_area`. Live preview on `~/recording_trajectory`.
