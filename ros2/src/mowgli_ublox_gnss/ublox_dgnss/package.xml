@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ublox_dgnss</name>
+  <version>0.7.4</version>
+  <description>Provides a ublox_dgnss node for a u-blox GPS DGNSS receiver using Gen 9 UBX Protocol</description>
+  <maintainer email="nick@aussierobots.com">Nick Hortovanyi</maintainer>
+  <license>Apache License, Version 2.0</license>
+
+  <url>https://github.com/aussierobots/ublox_dgnss</url>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>ublox_ubx_msgs</depend>
+  <depend>ublox_ubx_interfaces</depend>
+  <depend>ublox_dgnss_node</depend>
+  <depend>ublox_nav_sat_fix_hp_node</depend>
+  <depend>ntrip_client_node</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

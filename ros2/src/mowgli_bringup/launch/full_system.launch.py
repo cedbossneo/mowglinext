@@ -89,6 +89,36 @@ def generate_launch_description() -> LaunchDescription:
         description="Launch the MQTT bridge node when true.",
     )
 
+    enable_ublox_gnss_arg = DeclareLaunchArgument(
+        "enable_ublox_gnss",
+        default_value="false",
+        description="Launch the minimal u-blox GNSS V1 backend when true.",
+    )
+
+    ublox_device_family_arg = DeclareLaunchArgument(
+        "ublox_device_family",
+        default_value="F9P",
+        description="u-blox device family: F9P, F9R, or X20P.",
+    )
+
+    ublox_device_serial_string_arg = DeclareLaunchArgument(
+        "ublox_device_serial_string",
+        default_value="",
+        description="Optional USB serial string to select a specific u-blox receiver.",
+    )
+
+    ublox_frame_id_arg = DeclareLaunchArgument(
+        "ublox_frame_id",
+        default_value="gps_link",
+        description="Frame ID reported by the u-blox backend.",
+    )
+
+    ublox_config_file_arg = DeclareLaunchArgument(
+        "ublox_config_file",
+        default_value="",
+        description="Optional explicit u-blox TOML config file path.",
+    )
+
     enable_foxglove_arg = DeclareLaunchArgument(
         "enable_foxglove",
         default_value="true",
@@ -115,6 +145,11 @@ def generate_launch_description() -> LaunchDescription:
     slam = LaunchConfiguration("slam")
     map_yaml = LaunchConfiguration("map")
     enable_mqtt = LaunchConfiguration("enable_mqtt")
+    enable_ublox_gnss = LaunchConfiguration("enable_ublox_gnss")
+    ublox_device_family = LaunchConfiguration("ublox_device_family")
+    ublox_device_serial_string = LaunchConfiguration("ublox_device_serial_string")
+    ublox_frame_id = LaunchConfiguration("ublox_frame_id")
+    ublox_config_file = LaunchConfiguration("ublox_config_file")
     enable_foxglove = LaunchConfiguration("enable_foxglove")
     foxglove_port = LaunchConfiguration("foxglove_port")
     use_lidar = LaunchConfiguration("use_lidar")
@@ -149,6 +184,23 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             "use_sim_time": use_sim_time,
             "serial_port": serial_port,
+        }.items(),
+    )
+
+    # ------------------------------------------------------------------
+    # 1b. Optional u-blox GNSS backend — vendor driver behind Mowgli adapter
+    # ------------------------------------------------------------------
+    ublox_gnss_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(bringup_dir, "launch", "ublox_gnss.launch.py")
+        ),
+        condition=IfCondition(enable_ublox_gnss),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "ublox_device_family": ublox_device_family,
+            "ublox_device_serial_string": ublox_device_serial_string,
+            "ublox_frame_id": ublox_frame_id,
+            "ublox_config_file": ublox_config_file,
         }.items(),
     )
 
@@ -337,11 +389,17 @@ def generate_launch_description() -> LaunchDescription:
             slam_arg,
             map_arg,
             enable_mqtt_arg,
+            enable_ublox_gnss_arg,
+            ublox_device_family_arg,
+            ublox_device_serial_string_arg,
+            ublox_frame_id_arg,
+            ublox_config_file_arg,
             enable_foxglove_arg,
             foxglove_port_arg,
             use_lidar_arg,
             # Subsystem includes
             mowgli_launch,
+            ublox_gnss_launch,
             navigation_launch,
             # Individual nodes
             behavior_tree_node,

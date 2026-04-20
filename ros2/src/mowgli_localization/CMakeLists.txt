@@ -18,6 +18,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ---------------------------------------------------------------------------
 
 find_package(ament_cmake        REQUIRED)
+find_package(diagnostic_msgs    REQUIRED)
 find_package(rclcpp             REQUIRED)
 find_package(nav_msgs           REQUIRED)
 find_package(geometry_msgs      REQUIRED)
@@ -28,6 +29,7 @@ find_package(tf2                REQUIRED)
 find_package(tf2_ros            REQUIRED)
 find_package(tf2_geometry_msgs  REQUIRED)
 find_package(mowgli_interfaces  REQUIRED)
+find_package(ublox_ubx_msgs     REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Common include directory macro
@@ -114,6 +116,23 @@ ament_target_dependencies(gps_slam_corrector_node
 )
 
 # ---------------------------------------------------------------------------
+# Executable: ublox_gnss_adapter_node
+# ---------------------------------------------------------------------------
+
+add_executable(ublox_gnss_adapter_node
+  src/ublox_gnss_adapter_node.cpp
+)
+
+target_include_directories(ublox_gnss_adapter_node PUBLIC ${INCLUDE_DIR})
+
+ament_target_dependencies(ublox_gnss_adapter_node
+  diagnostic_msgs
+  rclcpp
+  sensor_msgs
+  ublox_ubx_msgs
+)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
 
@@ -128,6 +147,7 @@ install(
     navsat_to_absolute_pose_node
     localization_monitor_node
     gps_slam_corrector_node
+    ublox_gnss_adapter_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -173,6 +193,7 @@ endif()
 ament_export_include_directories(include)
 ament_export_dependencies(
   rclcpp
+  diagnostic_msgs
   nav_msgs
   geometry_msgs
   sensor_msgs
@@ -181,6 +202,7 @@ ament_export_dependencies(
   tf2_ros
   tf2_geometry_msgs
   mowgli_interfaces
+  ublox_ubx_msgs
 )
 
 ament_package()

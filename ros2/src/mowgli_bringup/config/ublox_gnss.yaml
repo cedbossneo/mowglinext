@@ -1,0 +1,33 @@
+ublox_dgnss:
+  ros__parameters:
+    DEVICE_FAMILY: "F9P"
+    DEVICE_SERIAL_STRING: ""
+    FRAME_ID: "gps_link"
+    UBX_CONFIG_FILE: ""
+
+    # Minimal rover-oriented output set for Mowgli V1.
+    CFG_USBOUTPROT_NMEA: false
+    CFG_RATE_MEAS: 200
+    CFG_RATE_NAV: 1
+    CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1
+    CFG_MSGOUT_UBX_NAV_COV_USB: 1
+    CFG_MSGOUT_UBX_NAV_STATUS_USB: 1
+    CFG_MSGOUT_UBX_NAV_PVT_USB: 1
+
+ublox_gnss_adapter:
+  ros__parameters:
+    vendor_fix_topic: "/ublox/fix"
+    vendor_nav_status_topic: "/ublox/ubx_nav_status"
+    vendor_nav_pvt_topic: "/ublox/ubx_nav_pvt"
+    vendor_nav_cov_topic: "/ublox/ubx_nav_cov"
+
+    gnss_fix_topic: "/gnss/fix"
+    gps_fix_topic: "/gps/fix"
+    gnss_diagnostics_topic: "/gnss/diagnostics"
+
+    publish_gps_compat_topic: true
+    diagnostics_rate_hz: 1.0
+    fix_timeout_sec: 2.0
+    backend_name: "ublox"
+    device_family: "F9P"
+    frame_id_hint: "gps_link"

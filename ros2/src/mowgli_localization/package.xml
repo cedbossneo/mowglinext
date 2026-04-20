@@ -14,6 +14,7 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
@@ -23,6 +24,7 @@
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>mowgli_interfaces</depend>
+  <depend>ublox_ubx_msgs</depend>
 
   <!-- FusionCore is launched by this package but not compiled against -->
   <exec_depend>fusioncore_ros</exec_depend>
