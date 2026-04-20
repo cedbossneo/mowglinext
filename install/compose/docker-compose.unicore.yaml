@@ -1,0 +1,24 @@
+services:
+  gnss_unicore:
+    container_name: gnss_unicore
+    image: mowgli_ros2:latest
+
+    network_mode: host
+    ipc: host
+
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+
+    volumes:
+      - ./config/mowgli:/config/mowgli
+
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+
+    command: >
+      ros2 run mowgli_unicore_gnss um982_node
+      --ros-args
+      --params-file /config/mowgli/gnss_unicore.yaml
+
+    restart: unless-stopped

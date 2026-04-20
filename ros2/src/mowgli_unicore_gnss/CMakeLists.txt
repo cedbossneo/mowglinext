@@ -32,15 +32,12 @@ add_executable(um982_node
   src/um982_node.cpp
 )
 
-target_link_libraries(um982_node
+target_link_libraries(um982_node PUBLIC
   ${PROJECT_NAME}_core
-)
-
-ament_target_dependencies(um982_node
-  rclcpp
-  sensor_msgs
-  compass_msgs
-  diagnostic_msgs
+  rclcpp::rclcpp
+  ${sensor_msgs_TARGETS}
+  ${compass_msgs_TARGETS}
+  ${diagnostic_msgs_TARGETS}
 )
 
 install(
