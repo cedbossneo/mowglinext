@@ -1,6 +1,6 @@
 import { App } from "antd";
 import { useApi } from "./useApi.ts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type BackendSettingsValues = {
     HARDWARE_BACKEND: "mowgli" | "mavros";
@@ -12,13 +12,18 @@ const DEFAULT_VALUES: BackendSettingsValues = {
     MAVROS_AUTOPILOT: "ardupilot",
 };
 
+const LOAD_ERROR_NOTIFICATION_KEY = "backend-settings-load-error";
+
 export const useBackendSettings = () => {
     const guiApi = useApi();
     const { notification } = App.useApp();
     const [values, setValues] = useState<BackendSettingsValues>(DEFAULT_VALUES);
     const [loading, setLoading] = useState(false);
+    const lastLoadErrorRef = useRef<string | null>(null);
 
     useEffect(() => {
+        let cancelled = false;
+
         (async () => {
             try {
                 setLoading(true);
@@ -28,22 +33,38 @@ export const useBackendSettings = () => {
                 }
 
                 const settings = res.data.settings ?? {};
-                setValues({
+                const nextValues: BackendSettingsValues = {
                     HARDWARE_BACKEND:
                         settings.HARDWARE_BACKEND === "mavros" ? "mavros" : "mowgli",
                     MAVROS_AUTOPILOT:
                         settings.MAVROS_AUTOPILOT === "px4" ? "px4" : "ardupilot",
-                });
+                };
+
+                if (!cancelled) {
+                    setValues(nextValues);
+                    lastLoadErrorRef.current = null;
+                }
             } catch (e: any) {
-                notification.error({
-                    message: "Failed to load backend settings",
-                    description: e.message,
-                });
+                const description = e.message ?? "Unknown error";
+                if (!cancelled && lastLoadErrorRef.current !== description) {
+                    notification.error({
+                        key: LOAD_ERROR_NOTIFICATION_KEY,
+                        message: "Failed to load backend settings",
+                        description,
+                    });
+                    lastLoadErrorRef.current = description;
+                }
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         })();
-    }, [guiApi, notification]);
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const saveValues = useCallback(
         async (newValues: BackendSettingsValues, options?: { silent?: boolean }) => {
