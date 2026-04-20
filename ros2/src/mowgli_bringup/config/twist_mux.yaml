@@ -8,7 +8,8 @@ twist_mux:
     topics:
       navigation:
         topic: /cmd_vel_monitored
-        timeout: 0.5      # seconds – source considered stale if no message arrives
+        timeout: 2.0      # seconds – must exceed controller period (0.5s at 2 Hz)
+        # collision_monitor IS working — it stops the robot when PolygonStop triggers.
         priority: 10      # lowest priority – autonomous navigation (post collision_monitor)
 
       docking:

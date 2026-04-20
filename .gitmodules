@@ -1,3 +1,3 @@
 [submodule "ros2/src/fusioncore"]
 	path = ros2/src/fusioncore
-	url = https://github.com/manankharwar/fusioncore.git
+	url = https://github.com/cedbossneo/fusioncore.git

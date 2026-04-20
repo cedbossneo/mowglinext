@@ -10,7 +10,7 @@
     z  up
 
   Key dimensions (from real YardForce Classic 500 URDF):
-    Base:          0.54 m long, 0.40 m wide, 0.19 m high
+    Base:          0.60 m long, 0.40 m wide, 0.19 m high
     Drive wheels:  radius 0.04475 m, width 0.04 m, track 0.40 m (rear)
     Front casters: radius 0.03 m, width 0.03 m
     Blade disc:    radius 0.09 m, height 0.01 m (centred under base)
@@ -37,10 +37,10 @@
   <xacro:arg name="gps_z"     default="0.20"/>
 
   <!-- Chassis shape (all from mowgli_robot.yaml via launch file) -->
-  <xacro:arg name="chassis_length"   default="0.54"/>
+  <xacro:arg name="chassis_length"   default="0.60"/>
   <xacro:arg name="chassis_width"    default="0.40"/>
   <xacro:arg name="chassis_height"   default="0.19"/>
-  <xacro:arg name="chassis_center_x" default="0.18"/>
+  <xacro:arg name="chassis_center_x" default="0.20"/>
   <xacro:arg name="wheel_radius"     default="0.04475"/>
   <xacro:arg name="wheel_width"      default="0.04"/>
   <xacro:arg name="wheel_track"      default="0.325"/>

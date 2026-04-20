@@ -106,4 +106,18 @@ BT::NodeStatus ClearCommand::tick()
   return BT::NodeStatus::SUCCESS;
 }
 
+// ---------------------------------------------------------------------------
+// IncrementSkippedSwaths
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IncrementSkippedSwaths::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  ctx->skipped_swaths++;
+  RCLCPP_WARN(ctx->node->get_logger(),
+              "IncrementSkippedSwaths: skipped %d strips (unreachable)",
+              ctx->skipped_swaths);
+  return BT::NodeStatus::SUCCESS;
+}
+
 }  // namespace mowgli_behavior

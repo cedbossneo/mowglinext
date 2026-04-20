@@ -129,7 +129,8 @@ jobs:
       - name: Check formatting
         run: |
           FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
-            -not -path "*/opennav_coverage/*")
+            -not -path "*/opennav_coverage/*" \
+            -not -path "*/fusioncore/*")
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0
@@ -154,7 +155,8 @@ jobs:
       - name: Run cppcheck
         run: |
           FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" \) \
-            -not -path "*/test/*" -not -path "*/opennav_coverage/*")
+            -not -path "*/test/*" -not -path "*/opennav_coverage/*" \
+            -not -path "*/fusioncore/*")
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0

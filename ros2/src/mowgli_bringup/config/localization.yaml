@@ -2,14 +2,20 @@
 # FusionCore configuration — single UKF fusing GPS + IMU + wheels.
 #
 # ARCHITECTURE:
-#   FusionCore publishes odom → base_footprint TF (GPS-anchored odometry).
-#   SLAM Toolbox publishes map → odom TF (LiDAR scan matching).
-#   No dual-EKF, no navsat_transform_node.
+#   FusionCore publishes odom → base_footprint TF (GPS-aided local odometry).
+#   SLAM Toolbox publishes slam_map → odom TF (LiDAR scan matching).
+#   GPS-SLAM corrector publishes map → slam_map TF (GPS global anchor).
+#   Full chain: map → slam_map → odom → base_footprint.
+#
+#   GPS is in FusionCore for heading stability (position deltas prevent
+#   gyro drift). q_orientation=0.0001 prevents GPS from flipping heading.
+#   GPS corrector handles global map-frame anchoring separately.
 #
 # INPUT TOPICS (remapped in launch file):
 #   /wheel_odom  (nav_msgs/Odometry)    — wheel encoder velocity
 #   /imu/data    (sensor_msgs/Imu)      — gyro + accel
-#   /gps/fix     (sensor_msgs/NavSatFix) — RTK GPS position
+#   /gps/fix     (sensor_msgs/NavSatFix) — GPS position
+#   /gnss/heading (sensor_msgs/Imu)     — dock heading while charging
 #
 # OUTPUT:
 #   /fusion/odom (nav_msgs/Odometry)    — fused state estimate
@@ -21,25 +27,32 @@ fusioncore_node:
     odom_frame: odom
     publish_rate: 50.0
 
-    # IMU: hardware_bridge publishes identity orientation with tight
-    # roll/pitch covariance (flat-ground constraint) and loose yaw.
-    # has_magnetometer=true tells FusionCore to fuse the orientation.
+    # IMU: differential gyro + accel only — no magnetometer.
+    # hardware_bridge publishes identity orientation (no real heading).
+    # has_magnetometer must be false so FusionCore only uses gyro rates.
     imu.gyro_noise: 0.02
     imu.accel_noise: 0.1
-    imu.has_magnetometer: true
+    imu.has_magnetometer: false
 
     # Wheel encoders: noisy on soft/wet ground
     encoder.vel_noise: 0.15
     encoder.yaw_noise: 0.04
 
     # GNSS: u-blox F9P RTK
-    gnss.base_noise_xy: 1.0
+    # base_noise_xy scales the GPS covariance. At 1.0 the filter trusts GPS
+    # position tightly, causing heading flips from stationary position noise.
+    # At 5.0 the gyro/wheels dominate locally, GPS anchors loosely.
+    gnss.base_noise_xy: 5.0
     gnss.base_noise_z: 5.0
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
     gnss.min_satellites: 4
+    # Accept any GPS fix — heading comes from position deltas when moving.
+    # RTK gives better accuracy but basic GPS still provides a heading reference.
+    gnss.min_fix_type: 1  # 1=GPS_FIX
 
-    # GPS antenna is approximately above base_footprint origin
+    # GPS antenna offset from base_link in body frame.
+    # Overridden at launch from mowgli_robot.yaml (gps_x/y/z).
     gnss.lever_arm_x: 0.0
     gnss.lever_arm_y: 0.0
     gnss.lever_arm_z: 0.0
@@ -57,7 +70,10 @@ fusioncore_node:
     outlier_threshold_gnss: 100.0
     outlier_threshold_imu: 15.09    # chi2(6, 0.999)
     outlier_threshold_enc: 11.34    # chi2(3, 0.999)
-    outlier_threshold_hdg: 10.83    # chi2(1, 0.999)
+    # Heading threshold raised to 100: dock heading (/gnss/heading) is a
+    # known-good reference but gets rejected once gyro drift exceeds ~19°.
+    # With a high threshold the dock heading always corrects the filter.
+    outlier_threshold_hdg: 100.0
 
     # Adaptive noise estimation — auto-tunes from innovation sequence
     adaptive.imu: true
@@ -69,9 +85,14 @@ fusioncore_node:
     # UKF process noise — q_position elevated so position uncertainty grows
     # fast without GPS, making the filter snap back when GPS is available.
     ukf.q_position: 0.5
-    ukf.q_orientation: 0.01
+    # q_orientation very low: heading is stiff, resists GPS position-induced
+    # yaw flips.  Heading changes come from gyro (WZ) through process model,
+    # not from process noise spreading sigma points across yaw.
+    ukf.q_orientation: 0.0001
     ukf.q_velocity: 0.1
     ukf.q_angular_vel: 0.1
     ukf.q_acceleration: 1.0
-    ukf.q_gyro_bias: 1.0e-5
-    ukf.q_accel_bias: 1.0e-5
+    # WT901 gyro has ~0.01 rad/s z-axis bias that drifts heading.
+    # Higher q_gyro_bias lets the estimator track it faster.
+    ukf.q_gyro_bias: 0.001
+    ukf.q_accel_bias: 0.001

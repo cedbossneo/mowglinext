@@ -18,7 +18,7 @@ mowgli:
     mower_model: "YardForce500"
 
     # Chassis dimensions (metres)
-    chassis_length: 0.54
+    chassis_length: 0.60
     chassis_width: 0.40
     chassis_height: 0.19
     chassis_mass_kg: 8.76
@@ -28,7 +28,8 @@ mowgli:
     wheel_width: 0.04
     wheel_track: 0.325         # centre-to-centre (from OpenMower)
     wheel_x_offset: 0.0       # drive wheels at base_link (wheel axis centre)
-    chassis_center_x: 0.18    # chassis geometric centre forward of wheel axis (m)
+    chassis_center_x: 0.20    # chassis geometric centre forward of wheel axis (m)
+                               # rear bumper at -0.10, front bumper at +0.50
     ticks_per_revolution: 1050 # encoder ticks per full wheel revolution
 
     # Front casters
