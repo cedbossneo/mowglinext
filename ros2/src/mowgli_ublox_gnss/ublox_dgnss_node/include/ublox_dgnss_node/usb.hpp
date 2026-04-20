@@ -1,0 +1,306 @@
+// Copyright 2021 Australian Robotics Supplies & Technology
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef UBLOX_DGNSS_NODE__USB_HPP_
+#define UBLOX_DGNSS_NODE__USB_HPP_
+
+#include <libusb-1.0/libusb.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <iostream>
+#include <exception>
+#include <string>
+#include <functional>
+#include <deque>
+#include <mutex>
+#include <vector>
+#include <memory>
+
+#include "ublox_dgnss_node/device_family.hpp"
+
+#define U_BLOX_AG_VENDOR_ID  0x1546   // U-Blox AG
+#define F9_PRODUCT_ID        0x01a9   // u-blox GNSS receiver (F9P/F9R)
+#define X20P_PRODUCT_ID      0x01ab   // u-blox GNSS receiver (X20P)
+#define X20P_UART1_PRODUCT_ID 0x050c   // X20P UART1
+#define X20P_UART2_PRODUCT_ID 0x050d   // X20P UART2
+
+#define ACM_CTRL_DTR   0x01
+#define ACM_CTRL_RTS   0x02
+
+// USB CDC Line Coding for UART configuration
+#define USB_CDC_SET_LINE_CODING    0x20
+#define USB_CDC_GET_LINE_CODING    0x21
+#define USB_CDC_SET_CONTROL_LINE_STATE 0x22
+
+#define IN_BUFFER_SIZE 64 * 200
+#define SERIAL_STRING_BUFFER_SIZE 256
+
+namespace usb
+{
+using UCharVector = std::vector<u_char>;
+enum TransferType {USB_IN, USB_OUT};
+
+enum class USBDriverState
+{
+  DISCONNECTED,           // No USB device
+  CONNECTING,             // Device detected, opening connection
+  CONNECTED,              // USB connected, device accessible
+  ERROR,                  // Error state requiring recovery
+};
+
+struct transfer_t
+{
+  libusb_transfer * usb_transfer = nullptr;
+  std::shared_ptr<UCharVector> buffer = nullptr;
+  bool completed = false;
+  TransferType type = USB_IN;
+
+  transfer_t()
+  : usb_transfer(libusb_alloc_transfer(0)),
+    buffer(std::make_shared<UCharVector>())
+  {}
+  ~transfer_t()
+  {
+    if (usb_transfer) {libusb_free_transfer(usb_transfer);}
+  }
+};
+
+class TimeoutException : public std::exception
+{
+public:
+  const char * what() const throw()
+  {
+    return "Timeout";
+  }
+};
+
+class UsbException : public std::runtime_error
+{
+public:
+  explicit UsbException(std::string msg)
+  : std::runtime_error(msg)
+  {
+  }
+};
+
+// external function callback definitions for the connection class
+typedef std::function<void (struct libusb_transfer * transfer)> connection_out_cb_fn;
+typedef std::function<void (struct libusb_transfer * transfer)> connection_in_cb_fn;
+typedef std::function<void (UsbException e, void * user_data)> connection_exception_cb_fn;
+typedef std::function<void (std::string msg)> connection_debug_cb_fn;
+typedef std::function<void ()> hotplug_attach_cb_fn;
+typedef std::function<void ()> hotplug_detach_cb_fn;
+
+class Connection
+{
+private:
+  libusb_context * ctx_;
+  libusb_device_handle * devh_;
+  libusb_device * dev_;
+
+// libusb transfer callbacks to here
+  libusb_transfer_cb_fn callback_in_fn_;
+  libusb_transfer_cb_fn callback_out_fn_;
+
+// hotplug
+  hotplug_attach_cb_fn hp_attach_cb_fn_;
+  hotplug_detach_cb_fn hp_detach_cb_fn_;
+  std::vector<libusb_hotplug_callback_handle> hp_attach_;
+  std::vector<libusb_hotplug_callback_handle> hp_detach_;
+
+  int log_level_;
+  int vendor_id_;
+  std::vector<uint16_t> product_ids_;
+  uint16_t connected_product_id_;  // Actual connected device product ID
+  std::string serial_str_;
+  ublox_dgnss::DeviceFamily device_family_;
+  int class_id_;
+  int ep_data_out_addr_ = 0;
+  int ep_data_in_addr_ = 0;
+  int ep_comms_in_addr_ = 0;
+  u_int8_t num_interfaces_ = 0;
+  size_t data_in_max_packet_size_ = 64;  // default safe for FS bulk
+  unsigned int timeout_ms_;
+
+// asynchronous comms
+  connection_out_cb_fn out_cb_fn_;
+  connection_in_cb_fn in_cb_fn_;
+  connection_exception_cb_fn exception_cb_fn_;
+  connection_debug_cb_fn debug_cb_fn_;
+  struct timeval timeout_tv_;
+  bool keep_running_;
+  bool attached_;
+
+  USBDriverState driver_state_;
+
+  size_t err_count_ = 0;
+
+  std::deque<std::shared_ptr<transfer_t>> transfer_queue_;
+  std::mutex transfer_queue_mutex_;
+  std::mutex write_mutex_;
+
+  int no_device_streak_ = 0;
+  static constexpr int kNoDeviceThreshold = 3;
+
+private:
+  libusb_device_handle * open_device_with_serial_string(
+    libusb_context * ctx, int vendor_id,
+    const std::vector<uint16_t> & product_ids, std::string serial_str, char * serial_num_string);
+// this is called after the out transfer to USB from HOST has been received by libusb
+  void callback_out(struct libusb_transfer * transfer);
+// this is called when the stat for in is available - from USB in HOST
+  void callback_in(struct libusb_transfer * transfer);
+
+  int hotplug_attach_callback(
+    libusb_context * ctx, libusb_device * dev,
+    libusb_hotplug_event event, void * user_data);
+  int hotplug_detach_callback(
+    libusb_context * ctx, libusb_device * dev,
+    libusb_hotplug_event event, void * user_data);
+
+
+  std::shared_ptr<transfer_t> make_transfer_in();
+  std::shared_ptr<transfer_t> make_transfer_out(u_char * buf, size_t size);
+  void submit_transfer(
+    std::shared_ptr<transfer_t> transfer,
+    const std::string msg = "Error submit transfer: ",
+    bool wait_for_completed = true);
+  void cleanup_transfer_queue();
+  void cleanup_all_transfers();
+  void close_devh();
+
+public:
+  void init();  // throws exception on failure
+  bool open_device();  // returns false on failure
+  void init_async();  // throws exception on failure
+  Connection(
+    int vendor_id, const std::vector<uint16_t> & product_ids, std::string serial_str,
+    ublox_dgnss::DeviceFamily device_family = ublox_dgnss::DeviceFamily::F9P,
+    int log_level = LIBUSB_OPTION_LOG_LEVEL);
+  ~Connection();
+  void set_in_callback(connection_in_cb_fn in_cb_fn)
+  {
+    in_cb_fn_ = in_cb_fn;
+  }
+  void set_out_callback(connection_out_cb_fn out_cb_fn)
+  {
+    out_cb_fn_ = out_cb_fn;
+  }
+  void set_exception_callback(connection_exception_cb_fn exception_fb_fn)
+  {
+    exception_cb_fn_ = exception_fb_fn;
+  }
+  void set_debug_callback(connection_debug_cb_fn debug_fb_fn)
+  {
+    debug_cb_fn_ = debug_fb_fn;
+  }
+  void set_hotplug_attach_callback(hotplug_attach_cb_fn hp_attach_cb_fn)
+  {
+    hp_attach_cb_fn_ = hp_attach_cb_fn;
+  }
+  void set_hotplug_detach_callback(hotplug_detach_cb_fn hp_detach_cb_fn)
+  {
+    hp_detach_cb_fn_ = hp_detach_cb_fn;
+  }
+  int vendor_id()
+  {
+    return vendor_id_;
+  }
+  int product_id()
+  {
+    return connected_product_id_;
+  }
+  const std::vector<uint16_t> & product_ids() const
+  {
+    return product_ids_;
+  }
+  std::string serial_str()
+  {
+    return serial_str_;
+  }
+  bool inline dev_valid()
+  {
+    return dev_ != nullptr;
+  }
+  bool inline devh_valid()
+  {
+    return devh_ != nullptr;
+  }
+  int bus_number()
+  {
+    return dev_valid() ? libusb_get_bus_number(dev_) : 0;
+  }
+  int device_address()
+  {
+    return dev_valid() ? libusb_get_device_address(dev_) : 0;
+  }
+  int device_speed()
+  {
+    return dev_valid() ? libusb_get_device_speed(dev_) : 0;
+  }
+  char * device_speed_txt();
+  u_int8_t port_number()
+  {
+    return dev_valid() ? libusb_get_port_number(dev_) : 0;
+  }
+  int read_chars(u_char * data, size_t size);
+  void write_char(u_char c);
+  void write_buffer(u_char * buf, size_t size);
+  void write_buffer_async(u_char * buf, size_t size, void * user_data);
+  u_int8_t num_interfaces()
+  {
+    return num_interfaces_;
+  }
+  int ep_data_out_addr()
+  {
+    return ep_data_out_addr_;
+  }
+  int ep_data_in_addr()
+  {
+    return ep_data_in_addr_;
+  }
+  int ep_comms_in_addr()
+  {
+    return ep_comms_in_addr_;
+  }
+  unsigned int timeout_ms()
+  {
+    return timeout_ms_;
+  }
+  bool keep_running()
+  {
+    return keep_running_;
+  }
+  bool attached()
+  {
+    return attached_;
+  }
+
+  USBDriverState driver_state()
+  {
+    return driver_state_;
+  }
+
+// number of existing transfer in in the queue that are not complete
+  size_t queued_transfer_in_num();
+
+// needs to be called for libusb to action asynchronos events
+  void handle_usb_events();
+  void shutdown();
+};
+}   // end namespace usb
+
+#endif  // UBLOX_DGNSS_NODE__USB_HPP_
