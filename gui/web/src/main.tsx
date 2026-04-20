@@ -1,20 +1,21 @@
-// wdyr disabled — @welldone-software/why-did-you-render UMD build incompatible with Vite 8 + React 19
-// import './wdyr';
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import {createHashRouter, RouterProvider,} from "react-router-dom";
 import Root from "./routes/root.tsx";
-import SettingsPage from "./pages/SettingsPage.tsx";
-import LogsPage from "./pages/LogsPage.tsx";
-import MowgliNextPage from "./pages/MowgliNextPage.tsx";
-import MapPage from "./pages/MapPage.tsx";
-import OnboardingPage from "./pages/OnboardingPage.tsx";
-import SchedulePage from "./pages/SchedulePage.tsx";
-import DiagnosticsPage from "./pages/DiagnosticsPage.tsx";
-import StatisticsPage from "./pages/StatisticsPage.tsx";
 import {App, ConfigProvider, theme} from "antd";
 import {Spinner} from "./components/Spinner.tsx";
 import {ThemeProvider, useThemeMode} from "./theme/ThemeContext.tsx";
+
+// Lazy-load each page so the first paint only ships the shell + the route
+// the user actually opens. Everything else streams in on demand.
+const SettingsPage     = React.lazy(() => import("./pages/SettingsPage.tsx"));
+const LogsPage         = React.lazy(() => import("./pages/LogsPage.tsx"));
+const MowgliNextPage   = React.lazy(() => import("./pages/MowgliNextPage.tsx"));
+const MapPage          = React.lazy(() => import("./pages/MapPage.tsx"));
+const OnboardingPage   = React.lazy(() => import("./pages/OnboardingPage.tsx"));
+const SchedulePage     = React.lazy(() => import("./pages/SchedulePage.tsx"));
+const DiagnosticsPage  = React.lazy(() => import("./pages/DiagnosticsPage.tsx"));
+const StatisticsPage   = React.lazy(() => import("./pages/StatisticsPage.tsx"));
 
 const router = createHashRouter([
     {
