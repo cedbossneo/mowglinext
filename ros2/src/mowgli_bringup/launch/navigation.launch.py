@@ -102,12 +102,6 @@ def generate_launch_description() -> LaunchDescription:
     localization_params = os.path.join(bringup_dir, "config", "localization.yaml")
     nav2_params_lidar = os.path.join(bringup_dir, "config", "nav2_params.yaml")
     nav2_params_no_lidar = os.path.join(bringup_dir, "config", "nav2_params_no_lidar.yaml")
-    # Select nav2 params based on use_lidar flag (resolved at launch time)
-    nav2_params_file = PythonExpression([
-        "'", nav2_params_lidar, "' if '",
-        use_lidar, "'.lower() in ('true', '1') else '",
-        nav2_params_no_lidar, "'",
-    ])
 
     # Compute robot footprint from mowgli_robot.yaml so Nav2 costmaps
     # match the actual chassis shape regardless of mower model.
@@ -170,19 +164,46 @@ def generate_launch_description() -> LaunchDescription:
         "behavior_trees", "navigate_through_poses_w_replanning_and_recovery.xml",
     )
 
+    # opennav_docking declares home_dock.pose as PARAMETER_DOUBLE_ARRAY (see
+    # opennav_docking/utils.hpp::parseDockParams). Nav2's RewrittenYaml can
+    # only substitute scalar values; passing a stringified list "[x, y, yaw]"
+    # ends up as a STRING parameter and the node rejects it with
+    # "Dock home_dock has no valid 'pose'".
+    #
+    # So we preprocess both nav2 yaml files here — load with yaml.safe_load,
+    # write the dock pose as a native list, dump to a tmp file — and hand
+    # those tmp files to RewrittenYaml as its sources. RewrittenYaml then
+    # handles the remaining scalar rewrites (use_sim_time, footprint, BT XML
+    # paths) without touching the pose list.
+    def _inject_dock_pose(src_path: str) -> str:
+        import tempfile
+        with open(src_path, "r") as fh:
+            doc = yaml.safe_load(fh) or {}
+        (doc.setdefault("docking_server", {})
+            .setdefault("ros__parameters", {})
+            .setdefault("home_dock", {}))["pose"] = [dock_pose_x, dock_pose_y, dock_pose_yaw]
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", prefix="mowgli_nav2_", suffix=".yaml", delete=False)
+        yaml.safe_dump(doc, tmp, default_flow_style=False, sort_keys=False)
+        tmp.close()
+        return tmp.name
+
+    nav2_params_lidar = _inject_dock_pose(nav2_params_lidar)
+    nav2_params_no_lidar = _inject_dock_pose(nav2_params_no_lidar)
+    nav2_params_file = PythonExpression([
+        "'", nav2_params_lidar, "' if '",
+        use_lidar, "'.lower() in ('true', '1') else '",
+        nav2_params_no_lidar, "'",
+    ])
+
     # Rewrite use_sim_time, footprint, and BT XML paths throughout nav2_params.yaml.
+    # (home_dock.pose is NOT in this dict — it's injected as a proper YAML
+    # list by _inject_dock_pose above; RewrittenYaml can only do scalar
+    # substitutions.)
     param_rewrites = {
         "use_sim_time": use_sim_time,
         "default_nav_to_pose_bt_xml": bt_nav_to_pose_xml,
         "default_nav_through_poses_bt_xml": bt_nav_through_poses_xml,
-        # Override docking_server's home_dock.pose with the user-configured
-        # dock_pose_x/y/yaw. Without this, the dock server always targets the
-        # map origin (0,0,0) regardless of the actual dock location/orientation,
-        # so DockRobot routinely misses, retries, and the BT appears "stuck"
-        # in RETURNING_HOME for up to ~5 min per call. Dotted path matches
-        # both nav2_params.yaml and nav2_params_no_lidar.yaml.
-        "docking_server.ros__parameters.home_dock.pose":
-            f"[{dock_pose_x}, {dock_pose_y}, {dock_pose_yaw}]",
     }
     if footprint_str:
         param_rewrites["footprint"] = footprint_str
