@@ -136,7 +136,9 @@ def generate_launch_description() -> LaunchDescription:
                 "lidar_odom_frame": "lidar_odom_kicp",
                 "publish_odom_tf": False,
                 "invert_odom_tf": False,
-                "tf_timeout": 0.0,
+                # Small timeout so the scan-end TF lookup can wait for the
+                # next 50 Hz wheel-TF rebroadcast instead of failing.
+                "tf_timeout": 0.1,
             },
         ],
         remappings=[

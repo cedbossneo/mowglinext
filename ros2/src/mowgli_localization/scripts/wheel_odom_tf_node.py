@@ -37,7 +37,16 @@ from tf2_ros import TransformBroadcaster
 
 
 class WheelOdomTfNode(Node):
-    """Integrate /wheel_odom twist into a wheel_odom_raw -> base_footprint_wheels TF."""
+    """Integrate /wheel_odom twist into a wheel_odom_raw -> base_footprint_wheels TF.
+
+    /wheel_odom typically publishes at 5 Hz (hardware_bridge rate) while
+    Kinematic-ICP looks up the wheel TF at scan-end timestamps — usually
+    ahead of the latest wheel message, so raw lookups fail with
+    "extrapolation into the future". We fix this by re-broadcasting the
+    current pose at a higher rate (rebroadcast_hz, default 50 Hz) with
+    fresh timestamps, so K-ICP always has a recent TF to interpolate
+    against.
+    """
 
     MAX_DT_SEC = 0.5  # reset integration if messages stall (e.g. hardware reconnect)
 
@@ -47,10 +56,12 @@ class WheelOdomTfNode(Node):
         self.declare_parameter("input_topic", "/wheel_odom")
         self.declare_parameter("parent_frame", "wheel_odom_raw")
         self.declare_parameter("child_frame", "base_footprint_wheels")
+        self.declare_parameter("rebroadcast_hz", 50.0)
 
         input_topic = self.get_parameter("input_topic").value
         self._parent = self.get_parameter("parent_frame").value
         self._child = self.get_parameter("child_frame").value
+        rebroadcast_hz = float(self.get_parameter("rebroadcast_hz").value)
 
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -63,22 +74,37 @@ class WheelOdomTfNode(Node):
         self._y = 0.0
         self._yaw = 0.0
         self._prev_t: Optional[float] = None
+        self._have_odom = False
 
         self._tf = TransformBroadcaster(self)
         self._sub = self.create_subscription(
             Odometry, input_topic, self._on_odom, sensor_qos
         )
+        # High-rate rebroadcast with current-time stamps so K-ICP's
+        # scan-end TF lookups always have fresh data.
+        self._rebroadcast_timer = self.create_timer(
+            1.0 / rebroadcast_hz, self._on_rebroadcast_tick
+        )
 
         self.get_logger().info(
-            f"wheel_odom_tf_node ready: {input_topic} -> TF {self._parent} -> {self._child}"
+            f"wheel_odom_tf_node ready: {input_topic} -> TF {self._parent} -> {self._child} "
+            f"(rebroadcast {rebroadcast_hz:.0f} Hz)"
         )
 
     @staticmethod
     def _stamp_to_float(stamp) -> float:
         return float(stamp.sec) + float(stamp.nanosec) * 1e-9
 
+    def _on_rebroadcast_tick(self) -> None:
+        """Re-send the current pose at a fresh timestamp so consumers always
+        have a recent TF available for interpolation/extrapolation."""
+        if not self._have_odom:
+            return
+        self._broadcast(self.get_clock().now().to_msg())
+
     def _on_odom(self, msg: Odometry) -> None:
         t = self._stamp_to_float(msg.header.stamp)
+        self._have_odom = True
         if self._prev_t is None:
             self._prev_t = t
             self._broadcast(msg.header.stamp)
