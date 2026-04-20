@@ -4,6 +4,20 @@ Complete guide to all configuration files and parameters in the Mowgli ROS2 syst
 
 This documentation is for ROS2 Kilted with Gazebo Harmonic.
 
+> **⚠️ Some sections below describe the older slam_toolbox / dual-EKF stack.**
+> The active configuration files today are:
+>
+> | File | Controls |
+> |---|---|
+> | `src/mowgli_bringup/config/localization.yaml` | FusionCore UKF (IMU noise, GPS covariance, ZUPT, adaptive R, IMU + GPS lever arms, `apply_lever_arm_pre_heading`). |
+> | `src/mowgli_bringup/config/kinematic_icp.yaml` | Kinematic-ICP voxel / registration / threshold tuning (2D LD19 profile). |
+> | `src/mowgli_bringup/config/nav2_params.yaml` | Nav2 with LiDAR (obstacle layer + FTCController + docking). |
+> | `src/mowgli_bringup/config/nav2_params_no_lidar.yaml` | Nav2 without LiDAR (collision_monitor pass-through). |
+> | `src/mowgli_bringup/config/hardware_bridge.yaml` | Serial port, baud, publish rate, IMU cal sample count. |
+> | `src/mowgli_bringup/config/twist_mux.yaml` | cmd_vel multiplexer priorities. |
+>
+> There is no `slam_toolbox.yaml`. Ignore any SLAM-related sections further down.
+
 ## Overview
 
 Configuration is centralized in `src/mowgli_bringup/config/`:

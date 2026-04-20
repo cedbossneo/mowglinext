@@ -29,23 +29,26 @@ Welcome to the MowgliNext documentation wiki — the reference hub for the open-
 
 ```
 mowglinext/
-├── ros2/        ROS2 stack (Nav2, SLAM, BT, coverage planner)
+├── ros2/        ROS2 stack (Nav2, FusionCore UKF, Kinematic-ICP, BT, coverage planner)
 ├── docker/      Docker Compose deployment and config
 ├── sensors/     Dockerized sensor drivers (GPS, LiDAR)
 ├── gui/         React + Go web interface
 ├── firmware/    STM32 firmware (motor, IMU, blade)
-└── docs/        Landing page (GitHub Pages)
+├── install/     Interactive installer + gh-pages install composer
+├── docs/        GitHub Pages landing page + first-boot checklist
+└── wiki/        This wiki (auto-synced to the GitHub wiki)
 ```
 
 ## Key Design Decisions
 
-1. **base_link at rear wheel axis** — OpenMower convention
-2. **SLAM is sole TF authority** — EKF publishes odometry only
-3. **Cyclone DDS** — replaces FastRTPS (stale shm on ARM)
-4. **Map frame = GPS frame** — X=east, Y=north, no rotation
-5. **Firmware is blade safety authority** — ROS2 is fire-and-forget
-6. **Collision monitor for avoidance** — costmap obstacles disabled in planner
-7. **Cell-based strip coverage** — no full-path pre-planning, strips fetched one at a time
-8. **Emergency auto-reset on dock** — firmware decides whether to clear latch
-9. **Area recording via BT** — drive boundary, Douglas-Peucker simplification, save polygon
-10. **Dedicated manual mowing mode** — teleop with collision_monitor/GPS/SLAM active
+1. **base_link at rear wheel axis** — OpenMower convention.
+2. **FusionCore is the sole localizer.** `map == odom` is a static identity transform; FusionCore owns `odom → base_footprint` (GPS + IMU + wheels + optional Kinematic-ICP twist fused in a single 22D quaternion UKF). No SLAM.
+3. **Cyclone DDS** — replaces FastRTPS (stale shm on ARM).
+4. **Map frame = GPS frame** — X=east, Y=north, no rotation.
+5. **Firmware is blade safety authority** — ROS2 is fire-and-forget.
+6. **Collision monitor for avoidance** — costmap obstacles disabled in planner.
+7. **Cell-based strip coverage** — no full-path pre-planning, strips fetched one at a time.
+8. **Emergency auto-reset on dock** — firmware decides whether to clear latch.
+9. **Area recording via BT** — drive boundary, Douglas-Peucker simplification, save polygon.
+10. **Kinematic-ICP runs on a parallel TF tree** — no feedback into FusionCore; LiDAR drift correction only.
+11. **Dedicated manual mowing mode** — teleop with collision_monitor, GPS, FusionCore, and Kinematic-ICP active.

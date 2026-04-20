@@ -1,6 +1,23 @@
 # Mowgli ROS2 Architecture
 
-Comprehensive technical documentation of the Mowgli ROS2 system design, including package organization, data flow, communication protocols, and integration points.
+> **⚠️ Sections below still describe the old SLAM-based architecture.**
+> The stack has moved to **FusionCore** as the sole UKF localizer and
+> **Kinematic-ICP** (PRBonn 2024) as an optional LiDAR drift corrector
+> running on a parallel TF tree. Where this page and [CLAUDE.md](https://github.com/cedbossneo/mowglinext/blob/main/CLAUDE.md)
+> disagree, CLAUDE.md is authoritative. The "System Overview" and
+> "TF / Localization" sub-sections here are scheduled for rewrite —
+> see the short summary below for the current architecture.
+
+## Current architecture (one-page summary)
+
+| Layer | Owner | Notes |
+|---|---|---|
+| `map → odom` | static identity transform | Published once at launch; the odom frame IS the GPS-ENU frame. |
+| `odom → base_footprint` | FusionCore UKF @ 100 Hz | 22D quaternion state; fuses GPS, IMU, wheels, and optionally Kinematic-ICP twist on `/encoder2/odom`. |
+| Kinematic-ICP | parallel TF tree | Reads `/scan` via a scan-frame relay onto `wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`. Output goes only through the encoder2 adapter — no feedback into the main TF. |
+| Map / areas | `map_server_node` | Polygon-based area DB + `mow_progress` GridMap layer, persisted to disk. No SLAM back-end. |
+
+Comprehensive technical documentation of the Mowgli ROS2 system design follows. Ignore any "slam_toolbox", "Cartographer", or "Dual EKF" wording — those components are no longer in the stack.
 
 Built on **ROS2 Kilted** with **Gazebo Harmonic** simulation, this architecture spans 12 focused packages providing complete autonomous lawn mower functionality.
 
