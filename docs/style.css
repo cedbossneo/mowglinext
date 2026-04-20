@@ -392,6 +392,24 @@ nav .links a:hover { color: var(--text-heading); text-decoration: none; }
   text-align: center;
 }
 
+/* "Experimental" / "Coming soon" badge above the option label */
+.option-badge {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  background: var(--accent-muted, #fcecd6);
+  color: var(--accent, #8a5400);
+}
+.option-badge.coming-soon {
+  background: #e6e6e6;
+  color: #555;
+}
+
 .composer-result {
   margin-top: 32px;
   padding-top: 28px;

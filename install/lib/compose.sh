@@ -37,12 +37,15 @@ build_compose_stack() {
   if [[ "${LIDAR_ENABLED:-true}" == "true" && "${LIDAR_TYPE:-none}" != "none" ]]; then
     case "${LIDAR_TYPE:-}" in
       rplidar)
+        # RPLiDAR A-series: supported, but A1 only is the tested combo today.
+        # A2 / A3 / S-series images are built but untested — please report back.
         COMPOSE_FILES+=("compose/docker-compose.lidar-rplidar.yml")
         ;;
       ldlidar)
         COMPOSE_FILES+=("compose/docker-compose.lidar-ldlidar.yml")
         ;;
       stl27l)
+        warn "LIDAR_TYPE=stl27l is EXPERIMENTAL — driver is a stub, motion tests not run yet."
         COMPOSE_FILES+=("compose/docker-compose.lidar-stl27l.yml")
         ;;
       *)
@@ -51,17 +54,25 @@ build_compose_stack() {
     esac
   fi
 
-  [[ "${TFLUNA_FRONT_ENABLED:-false}" == "true" ]] && \
+  if [[ "${TFLUNA_FRONT_ENABLED:-false}" == "true" ]]; then
+    warn "TF-Luna (front) integration is EXPERIMENTAL and not wired into collision_monitor yet."
     COMPOSE_FILES+=("compose/docker-compose.tfluna-front.yml")
+  fi
 
-  [[ "${TFLUNA_EDGE_ENABLED:-false}" == "true" ]] && \
+  if [[ "${TFLUNA_EDGE_ENABLED:-false}" == "true" ]]; then
+    warn "TF-Luna (edge) integration is EXPERIMENTAL and not wired into collision_monitor yet."
     COMPOSE_FILES+=("compose/docker-compose.tfluna-edge.yml")
+  fi
 
-  [[ "${ENABLE_MAVROS:-false}" == "true" ]] && \
+  if [[ "${ENABLE_MAVROS:-false}" == "true" ]]; then
+    warn "MAVROS bridge is COMING SOON — enabling this starts the service but nothing in Mowgli consumes it."
     COMPOSE_FILES+=("compose/docker-compose.mavros.yml")
+  fi
 
-  [[ "${ENABLE_VESC:-false}" == "true" ]] && \
+  if [[ "${ENABLE_VESC:-false}" == "true" ]]; then
+    warn "VESC motor-controller support is COMING SOON — not integrated with the STM32-based hardware_bridge flow yet."
     COMPOSE_FILES+=("compose/docker-compose.vesc.yml")
+  fi
 
   info "Compose stack:"
   for f in "${COMPOSE_FILES[@]}"; do
