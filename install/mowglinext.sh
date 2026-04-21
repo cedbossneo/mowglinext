@@ -92,7 +92,7 @@ main() {
       setup_directory
 
     progress_run 10 "$TOTAL_STEPS" "Migrating runtime files" \
-      'migrate_legacy_runtime_paths'
+      'migrate_runtime_paths'
 
     progress_run 11 "$TOTAL_STEPS" "Writing environment" \
       'setup_env'
