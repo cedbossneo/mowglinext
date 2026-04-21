@@ -34,9 +34,11 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     enable_stamped_cmd_vel: true
-    # Low frequency: slow motors overshoot/oscillate at higher rates.
-    # Old mowgli project used 1.0 Hz successfully.
-    controller_frequency: 2.0
+    # 10 Hz: the controller must close its heading loop faster than the robot
+    # can drift off. At 0.3 m/s and 2 Hz the robot slides 15 cm between
+    # corrections — it overshoots into an S-curve. 10 Hz keeps each step <3 cm,
+    # which is well inside FTC's corridor.
+    controller_frequency: 10.0
     # Default 0.30s causes "Costmap timed out waiting for update" error 107
     # on ARM (local_costmap update gaps of 600ms+ at 5Hz, 2-3s under load).
     # 5s gives headroom while we run local_costmap at 10Hz.

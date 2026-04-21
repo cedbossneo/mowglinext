@@ -28,6 +28,8 @@ import math
 from typing import Optional
 
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
@@ -39,13 +41,13 @@ from tf2_ros import TransformBroadcaster
 class WheelOdomTfNode(Node):
     """Integrate /wheel_odom twist into a wheel_odom_raw -> base_footprint_wheels TF.
 
-    /wheel_odom typically publishes at 5 Hz (hardware_bridge rate) while
-    Kinematic-ICP looks up the wheel TF at scan-end timestamps — usually
-    ahead of the latest wheel message, so raw lookups fail with
-    "extrapolation into the future". We fix this by re-broadcasting the
-    current pose at a higher rate (rebroadcast_hz, default 50 Hz) with
-    fresh timestamps, so K-ICP always has a recent TF to interpolate
-    against.
+    /wheel_odom publishes at ~10 Hz (hardware_bridge rate) while Kinematic-ICP
+    looks up the wheel TF at scan-end timestamps — usually ahead of the latest
+    wheel message, so raw lookups fail with "extrapolation into the future".
+    We fix this by re-broadcasting the current pose at rebroadcast_hz (default
+    100 Hz) with fresh timestamps. Timer and subscription run on separate
+    callback groups under a MultiThreadedExecutor so timer ticks don't get
+    starved by subscription callbacks.
     """
 
     MAX_DT_SEC = 0.5  # reset integration if messages stall (e.g. hardware reconnect)
@@ -56,7 +58,13 @@ class WheelOdomTfNode(Node):
         self.declare_parameter("input_topic", "/wheel_odom")
         self.declare_parameter("parent_frame", "wheel_odom_raw")
         self.declare_parameter("child_frame", "base_footprint_wheels")
-        self.declare_parameter("rebroadcast_hz", 50.0)
+        # 100 Hz: K-ICP looks up the wheel TF at scan timestamps that can land
+        # 5-20 ms ahead of the latest rebroadcast. At 50 Hz (20 ms) and a
+        # single-threaded executor contended with /wheel_odom callbacks, the
+        # rebroadcast occasionally fell behind — K-ICP dropped every scan and
+        # eventually aborted (SIGABRT). 100 Hz keeps the gap <10 ms and plays
+        # well with the MultiThreadedExecutor below.
+        self.declare_parameter("rebroadcast_hz", 100.0)
 
         input_topic = self.get_parameter("input_topic").value
         self._parent = self.get_parameter("parent_frame").value
@@ -76,14 +84,23 @@ class WheelOdomTfNode(Node):
         self._prev_t: Optional[float] = None
         self._have_odom = False
 
+        # Put the subscription and the timer on separate mutually-exclusive
+        # callback groups so a MultiThreadedExecutor can run them in parallel.
+        # Without this, the timer gets starved by bursty /wheel_odom callbacks
+        # and K-ICP's scan-time TF lookups fail.
+        self._sub_cbg = MutuallyExclusiveCallbackGroup()
+        self._timer_cbg = MutuallyExclusiveCallbackGroup()
+
         self._tf = TransformBroadcaster(self)
         self._sub = self.create_subscription(
-            Odometry, input_topic, self._on_odom, sensor_qos
+            Odometry, input_topic, self._on_odom, sensor_qos,
+            callback_group=self._sub_cbg,
         )
         # High-rate rebroadcast with current-time stamps so K-ICP's
         # scan-end TF lookups always have fresh data.
         self._rebroadcast_timer = self.create_timer(
-            1.0 / rebroadcast_hz, self._on_rebroadcast_tick
+            1.0 / rebroadcast_hz, self._on_rebroadcast_tick,
+            callback_group=self._timer_cbg,
         )
 
         self.get_logger().info(
@@ -147,8 +164,14 @@ class WheelOdomTfNode(Node):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = WheelOdomTfNode()
+    # Two threads are enough: one for /wheel_odom, one for the rebroadcast
+    # timer. The timer must not stall when subscription callbacks fire, or
+    # K-ICP's scan-time TF lookups will fail with "extrapolation into the
+    # future".
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
