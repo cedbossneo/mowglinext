@@ -171,6 +171,10 @@ if(BUILD_TESTING)
     mowgli_map_lib
   )
 
+  # Kept ament_target_dependencies() for this gtest target because
+  # ament_add_gtest() already uses target_link_libraries() with the plain
+  # signature internally. Migrating this block to keyword-signature
+  # target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_map_server
     rclcpp
     grid_map_core
@@ -189,6 +193,10 @@ if(BUILD_TESTING)
     mowgli_obstacle_tracker_lib
   )
 
+  # Kept ament_target_dependencies() for this gtest target because
+  # ament_add_gtest() already uses target_link_libraries() with the plain
+  # signature internally. Migrating this block to keyword-signature
+  # target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_obstacle_tracker
     rclcpp
     std_srvs

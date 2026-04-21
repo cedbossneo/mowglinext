@@ -172,6 +172,10 @@ if(BUILD_TESTING)
     mowgli_monitoring_core
   )
 
+  # Kept ament_target_dependencies() for this gtest target because
+  # ament_add_gtest() already uses target_link_libraries() with the plain
+  # signature internally. Migrating this block to keyword-signature
+  # target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_diagnostics
     rclcpp
     diagnostic_msgs

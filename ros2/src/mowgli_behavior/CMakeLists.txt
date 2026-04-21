@@ -118,7 +118,11 @@ if(BUILD_TESTING)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   )
-
+# NOTE:
+# Kept ament_target_dependencies() here because test_recording_nodes is created
+# via ament_add_gtest(), which already uses target_link_libraries() with the
+# plain signature internally. Replacing this with keyword-signature
+# target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_recording_nodes
     rclcpp
     geometry_msgs
