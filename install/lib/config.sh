@@ -402,6 +402,12 @@ auto_detect_position() {
     return
   fi
 
+  if [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]]; then
+    warn "GPS datum auto-detect via mowgli-gps is not available for MAVROS on this branch"
+    add_issue "Set datum_lat and datum_lon manually in docker/config/mowgli/mowgli_robot.yaml"
+    return
+  fi
+
   if ! docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
     warn "mowgli-ros2 container not running — cannot auto-detect"
     add_issue "Set datum_lat and datum_lon manually in config/mowgli/mowgli_robot.yaml"
@@ -480,4 +486,3 @@ run_mower_configuration_step() {
     write_config
   fi
 }
-
