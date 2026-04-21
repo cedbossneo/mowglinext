@@ -49,19 +49,18 @@ main() {
   init_install_logs
 
   if ! $CHECK_ONLY; then
-    local TOTAL_STEPS=14
+    local TOTAL_STEPS=15
 
     # Language selection, load previous env, then load preset
     select_language
 
     # Load existing .env for defaults on re-run (preset/CLI flags override)
-    if [ -f "$INSTALL_DIR/.env" ]; then
+  if [ -f "$REPO_DIR/docker/.env" ]; then
       set -a
-      # shellcheck disable=SC1091
-      source "$INSTALL_DIR/.env"
+      source "$REPO_DIR/docker/.env"
       set +a
-      info "Loaded previous configuration from .env"
-    fi
+      info "Loaded previous configuration from docker/.env"
+  fi
 
     load_preset
 
@@ -92,31 +91,38 @@ main() {
     progress_run_interactive 9 "$TOTAL_STEPS" "Preparing repository" \
       setup_directory
 
-    progress_run 10 "$TOTAL_STEPS" "Writing environment" \
+    progress_run 10 "$TOTAL_STEPS" "Migrating runtime files" \
+      'migrate_legacy_runtime_paths'
+
+    progress_run 11 "$TOTAL_STEPS" "Writing environment" \
       'setup_env'
 
-    progress_run_interactive 11 "$TOTAL_STEPS" "Configuring mower" \
+    progress_run_interactive 12 "$TOTAL_STEPS" "Configuring mower" \
       run_mower_configuration_step
 
-    progress_run_interactive 12 "$TOTAL_STEPS" "Installing optional tools" \
+    progress_run_interactive 13 "$TOTAL_STEPS" "Installing optional tools" \
       install_optional_tools
 
-    progress_run 13 "$TOTAL_STEPS" "Installing MOTD" \
+    progress_run 14 "$TOTAL_STEPS" "Installing MOTD" \
       'install_motd'
 
-    progress_run_live 14 "$TOTAL_STEPS" "Starting containers" \
+    progress_run_live 15 "$TOTAL_STEPS" "Starting containers" \
       run_startup_step_live
 
   else
     if [ ! -f "$INSTALL_DIR/compose/docker-compose.base.yml" ]; then
-      error "No installation found at $INSTALL_DIR — run without --check first"
+      error "No installation sources found at $INSTALL_DIR — run without --check first"
       return 1
     fi
 
-    cd "$INSTALL_DIR"
-    echo -e "${DIM}Running diagnostics on $INSTALL_DIR${NC}"
-  fi
+    if [ ! -f "$FINAL_COMPOSE_FILE" ]; then
+      error "No generated runtime compose found at $FINAL_COMPOSE_FILE — run installer first"
+      return 1
+    fi
 
+    cd "$DOCKER_DIR"
+    echo -e "${DIM}Running diagnostics on runtime at $DOCKER_DIR${NC}"
+  fi
   echo ""
   echo -e "${CYAN}${BOLD}══ System Health Check ══${NC}"
 

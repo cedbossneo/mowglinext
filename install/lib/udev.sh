@@ -30,7 +30,7 @@ build_dynamic_udev_rules() {
   echo "# ========================================================="
 
   # MAVROS selected by /dev/serial/by-id
-  if [ "${HARDWARE_BACKEND:-mowgli}" = "mavros" ] && [ -n "${MAVROS_BY_ID:-}" ] && [ -e "${MAVROS_BY_ID}" ]; then
+  if [ "${MAVROS_ENABLED:-false}" = "true" ] && [ -n "${MAVROS_BY_ID:-}" ] && [ -e "${MAVROS_BY_ID}" ]; then
     local mavros_kernel
     mavros_kernel="$(basename "$(readlink -f "$MAVROS_BY_ID")")"
     echo "KERNEL==\"${mavros_kernel}\", SYMLINK+=\"mavros\", MODE=\"0666\""

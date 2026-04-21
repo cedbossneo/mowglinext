@@ -7,7 +7,7 @@ source /opt/ros/kilted/setup.bash
 : "${ROS_DOMAIN_ID:=0}"
 : "${RMW_IMPLEMENTATION:=rmw_cyclonedds_cpp}"
 
-: "${HARDWARE_BACKEND:=mowgli}"
+: "${MAVROS_ENABLED:=true}"
 : "${MAVROS_PORT:=/dev/mavros}"
 : "${MAVROS_BAUD:=921600}"
 : "${MAVROS_GCS_URL:=}"

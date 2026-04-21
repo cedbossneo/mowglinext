@@ -58,14 +58,13 @@ check_devices() {
             add_issue "$sensor_name symlink $dev not found but $uart_dev exists. Check udev rules: cat /etc/udev/rules.d/50-mowgli.rules"
             echo -e "       ${DIM}Try: sudo udevadm control --reload-rules && sudo udevadm trigger${NC}"
           else
-            add_issue "$sensor_name device $dev not detected. Check connection and .env configuration."
+            add_issue "$sensor_name device $dev not detected. Check connection and docker/.env configuration."
           fi
           ;;
       esac
     fi
   done
 
-  # Verify symlinks point to the expected UART devices
   if [[ "${GPS_CONNECTION:-}" == "uart" && -L "${GPS_PORT}" && -n "${GPS_UART_DEVICE:-}" ]]; then
     local gps_target
     gps_target="$(readlink -f "$GPS_PORT")"
@@ -74,6 +73,7 @@ check_devices() {
       add_issue "GPS symlink $GPS_PORT points to $gps_target instead of $GPS_UART_DEVICE. Re-run installer or fix udev rules."
     fi
   fi
+
   if [[ "${LIDAR_CONNECTION:-}" == "uart" && -L "${LIDAR_PORT}" && -n "${LIDAR_UART_DEVICE:-}" ]]; then
     local lidar_target
     lidar_target="$(readlink -f "$LIDAR_PORT")"
@@ -87,8 +87,6 @@ check_devices() {
 check_containers() {
   step "Check: Containers"
 
-  cd "$INSTALL_DIR" 2>/dev/null || cd "$(dirname "$(realpath "$0")")"
-
   : "${LIDAR_ENABLED:=true}"
   : "${LIDAR_TYPE:=unknown}"
 
@@ -98,27 +96,42 @@ check_containers() {
     services+=(lidar)
   fi
 
+  if [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]] || [[ "${MAVROS_ENABLED:-false}" == "true" ]]; then
+    services+=(mavros)
+  fi
+
+  if [[ "${TFLUNA_FRONT_ENABLED:-false}" == "true" ]]; then
+    services+=(tfluna_front)
+  fi
+
+  if [[ "${TFLUNA_EDGE_ENABLED:-false}" == "true" ]]; then
+    services+=(tfluna_edge)
+  fi
+
   for svc in "${services[@]}"; do
-    local container
+    local container=""
     case "$svc" in
-      mowgli)    container="mowgli-ros2" ;;
-      gps)       container="mowgli-gps" ;;
-      lidar)     container="mowgli-lidar" ;;
-      gui)       container="mowgli-gui" ;;
-      mosquitto) container="mowgli-mqtt" ;;
+      mowgli)       container="mowgli-ros2" ;;
+      gps)          container="mowgli-gps" ;;
+      lidar)        container="mowgli-lidar" ;;
+      gui)          container="mowgli-gui" ;;
+      mosquitto)    container="mowgli-mqtt" ;;
+      mavros)       container="mowgli-mavros" ;;
+      tfluna_front) container="mowgli-tfluna-front" ;;
+      tfluna_edge)  container="mowgli-tfluna-edge" ;;
     esac
 
     local status
-    status=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo "missing")
+    status="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || echo "missing")"
 
     if [[ "$status" == "running" ]]; then
       local uptime
-      uptime=$(docker inspect -f '{{.State.StartedAt}}' "$container" 2>/dev/null | cut -dT -f2 | cut -d. -f1)
+      uptime="$(docker inspect -f '{{.State.StartedAt}}' "$container" 2>/dev/null | cut -dT -f2 | cut -d. -f1)"
       info "$svc ($container) — running since $uptime"
     else
       fail "$svc ($container) — $status"
       if [[ "$status" == "missing" ]]; then
-        add_issue "Container $container not found. Run: mowgli-up"
+        add_issue "Container $container not found."
       else
         add_issue "Container $container is $status. Check logs: docker logs $container --tail 30"
       fi
@@ -127,17 +140,19 @@ check_containers() {
 
   if docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
     local dead_nodes
-    dead_nodes=$(docker logs mowgli-ros2 --tail 200 2>&1 \
-      | grep -oP "process has died.*cmd '([^']+)'" \
-      | grep -oP "(?<=cmd ')[^']+" \
-      | xargs -I{} basename {} 2>/dev/null \
-      | sort -u || true)
+    dead_nodes=$(
+      docker logs mowgli-ros2 --tail 200 2>&1 \
+        | grep -oP "process has died.*cmd '([^']+)'" \
+        | grep -oP "(?<=cmd ')[^']+" \
+        | xargs -r -I{} basename {} 2>/dev/null \
+        | sort -u || true
+    )
 
     if [[ -n "$dead_nodes" ]]; then
       warn "Crashed nodes inside mowgli-ros2:"
-      echo "$dead_nodes" | while read -r node; do
-        echo -e "       ${RED}$node${NC}"
-      done
+      while read -r node; do
+        [[ -n "$node" ]] && echo -e "       ${RED}$node${NC}"
+      done <<< "$dead_nodes"
       add_issue "Some ROS nodes crashed inside mowgli-ros2. Check: docker logs mowgli-ros2 | grep 'process has died'"
     fi
   fi
@@ -152,9 +167,11 @@ check_firmware() {
   fi
 
   local status_data
-  status_data=$(docker exec mowgli-ros2 bash -c \
-    "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /hardware_bridge/status --once 2>/dev/null" \
-    2>/dev/null || echo "")
+  status_data="$(
+    docker exec mowgli-ros2 bash -lc \
+      "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /hardware_bridge/status --once 2>/dev/null" \
+      2>/dev/null || echo ""
+  )"
 
   if [[ -z "$status_data" ]]; then
     fail "No data on /hardware_bridge/status — hardware bridge cannot communicate with Mowgli board"
@@ -163,19 +180,19 @@ check_firmware() {
     echo -e "       ${DIM}Check serial: docker logs mowgli-ros2 | grep hardware_bridge${NC}"
   else
     local mower_status
-    mower_status=$(echo "$status_data" | grep "mower_status:" | awk '{print $2}')
+    mower_status="$(echo "$status_data" | grep "mower_status:" | awk '{print $2}' | head -1)"
 
     if [[ "$mower_status" == "255" ]]; then
       warn "Firmware reporting mower_status=255 (not initialised)"
       add_issue "Mowgli board is connected but reporting uninitialised state. Press the power button on the mower or check the firmware."
     else
-      info "Firmware responding — mower_status=$mower_status"
+      info "Firmware responding — mower_status=${mower_status:-unknown}"
     fi
 
     local charging esc_power
-    charging=$(echo "$status_data" | grep "is_charging:" | awk '{print $2}')
-    esc_power=$(echo "$status_data" | grep "esc_power:" | awk '{print $2}')
-    echo -e "       ${DIM}Charging: $charging | ESC power: $esc_power${NC}"
+    charging="$(echo "$status_data" | grep "is_charging:" | awk '{print $2}' | head -1)"
+    esc_power="$(echo "$status_data" | grep "esc_power:" | awk '{print $2}' | head -1)"
+    echo -e "       ${DIM}Charging: ${charging:-?} | ESC power: ${esc_power:-?}${NC}"
   fi
 }
 
@@ -188,9 +205,11 @@ check_gps() {
   fi
 
   local fix_data
-  fix_data=$(docker exec mowgli-ros2 bash -c \
-    "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /gps/fix --once 2>/dev/null" \
-    2>/dev/null || echo "")
+  fix_data="$(
+    docker exec mowgli-ros2 bash -lc \
+      "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /gps/fix --once 2>/dev/null" \
+      2>/dev/null || echo ""
+  )"
 
   if [[ -z "$fix_data" ]]; then
     fail "No GPS fix data on /gps/fix"
@@ -199,16 +218,18 @@ check_gps() {
   fi
 
   local lat lon status_val cov
-  lat=$(echo "$fix_data" | grep "latitude:" | awk '{print $2}')
-  lon=$(echo "$fix_data" | grep "longitude:" | awk '{print $2}')
-  status_val=$(echo "$fix_data" | grep -A1 "status:" | grep "status:" | tail -1 | awk '{print $2}')
-  cov=$(echo "$fix_data" | grep -m1 "^- " | awk '{print $2}')
+  lat="$(echo "$fix_data" | grep "latitude:" | awk '{print $2}' | head -1)"
+  lon="$(echo "$fix_data" | grep "longitude:" | awk '{print $2}' | head -1)"
+  status_val="$(echo "$fix_data" | grep -A1 "status:" | grep "status:" | tail -1 | awk '{print $2}')"
+  cov="$(echo "$fix_data" | grep -m1 "^- " | awk '{print $2}')"
 
-  local accuracy
-  accuracy=$(echo "$cov" | awk '{printf "%.2f", sqrt($1)}')
+  local accuracy="0"
+  if [[ -n "$cov" ]]; then
+    accuracy="$(echo "$cov" | awk '{printf "%.2f", sqrt($1)}')"
+  fi
 
-  local acc_num
-  acc_num=$(echo "$accuracy" | awk '{printf "%d", $1 * 100}')
+  local acc_num="0"
+  acc_num="$(echo "$accuracy" | awk '{printf "%d", $1 * 100}')"
 
   if [[ "$status_val" == "2" ]] || [[ "$acc_num" -le 5 && "$acc_num" -gt 0 ]]; then
     info "GPS: RTK FIXED — ${accuracy}m accuracy (lat=$lat lon=$lon)"
@@ -221,15 +242,15 @@ check_gps() {
   fi
 
   local ntrip_logs
-  ntrip_logs=$(docker logs mowgli-gps --tail 50 2>&1)
+  ntrip_logs="$(docker logs mowgli-gps --tail 80 2>&1 || true)"
 
   if echo "$ntrip_logs" | grep -q "Connected to http"; then
     local ntrip_url
-    ntrip_url=$(echo "$ntrip_logs" | grep -oP "Connected to \K[^ ]+" | tail -1)
+    ntrip_url="$(echo "$ntrip_logs" | grep -oP "Connected to \K[^ ]+" | tail -1)"
     info "NTRIP connected: $ntrip_url"
   elif echo "$ntrip_logs" | grep -q "Unable to connect"; then
     fail "NTRIP connection failed"
-    add_issue "NTRIP cannot connect. Check ntrip_host and ntrip_mountpoint in config/mowgli/mowgli_robot.yaml"
+    add_issue "NTRIP cannot connect. Check ntrip_host and ntrip_mountpoint in docker/config/mowgli/mowgli_robot.yaml"
   elif echo "$ntrip_logs" | grep -q "Network is unreachable"; then
     fail "NTRIP: network unreachable"
     add_issue "No internet connection for NTRIP. Check your network configuration."
@@ -237,33 +258,32 @@ check_gps() {
 
   if echo "$ntrip_logs" | grep -q "Forwarded.*RTCM messages"; then
     local rtcm_count
-    rtcm_count=$(echo "$ntrip_logs" | grep -oP "Forwarded \K\d+" | tail -1)
+    rtcm_count="$(echo "$ntrip_logs" | grep -oP "Forwarded \K\d+" | tail -1)"
     info "RTCM bridge: $rtcm_count corrections forwarded to GPS"
   elif echo "$ntrip_logs" | grep -q "NTRIP enabled: true"; then
     warn "RTCM bridge not forwarding yet — RTK may take a few minutes to converge"
   fi
 
   local datum_lat datum_lon
-  datum_lat=$(grep "datum_lat:" "$INSTALL_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')
-  datum_lon=$(grep "datum_lon:" "$INSTALL_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')
+  datum_lat="$(grep "datum_lat:" "$DOCKER_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')"
+  datum_lon="$(grep "datum_lon:" "$DOCKER_DIR/config/mowgli/mowgli_robot.yaml" 2>/dev/null | head -1 | awk '{print $2}')"
 
   if [[ "${datum_lat:-0}" == "0" || "${datum_lat:-0.0}" == "0.0" || "${datum_lon:-0}" == "0" || "${datum_lon:-0.0}" == "0.0" || -z "$datum_lat" ]]; then
     fail "GPS datum is not set — robot position will be wrong"
 
-    # If we have a GPS fix, offer to set datum from current position
     if [[ -n "$lat" && "$lat" != "0.0" ]]; then
       echo -e "       ${DIM}GPS has a fix at: $lat, $lon${NC}"
       if confirm "Set datum to current GPS position ($lat, $lon)?"; then
-        local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
+        local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
         sed -i "s/datum_lat:.*/datum_lat: $lat/" "$yaml_file"
         sed -i "s/datum_lon:.*/datum_lon: $lon/" "$yaml_file"
         info "Datum set to $lat, $lon in $yaml_file"
-        info "Restart mowgli to apply: mowgli-restart mowgli gps"
+        info "Restart mowgli to apply: docker compose -f $FINAL_COMPOSE_FILE --env-file $FINAL_ENV_FILE restart gps mowgli"
       else
-        add_issue "Set datum_lat and datum_lon in config/mowgli/mowgli_robot.yaml to your docking station coordinates"
+        add_issue "Set datum_lat and datum_lon in docker/config/mowgli/mowgli_robot.yaml to your docking station coordinates"
       fi
     else
-      add_issue "Set datum_lat and datum_lon in config/mowgli/mowgli_robot.yaml to your docking station coordinates"
+      add_issue "Set datum_lat and datum_lon in docker/config/mowgli/mowgli_robot.yaml to your docking station coordinates"
     fi
   else
     info "Datum: $datum_lat, $datum_lon"
@@ -291,14 +311,16 @@ check_lidar() {
   fi
 
   local scan_check
-  scan_check=$(docker exec mowgli-ros2 bash -c \
-    "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /scan 2>/dev/null" \
-    2>/dev/null || echo "")
+  scan_check="$(
+    docker exec mowgli-ros2 bash -lc \
+      "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /scan 2>/dev/null" \
+      2>/dev/null || echo ""
+  )"
 
   local pub_count
-  pub_count=$(echo "$scan_check" | grep "Publisher count:" | awk '{print $3}')
+  pub_count="$(echo "$scan_check" | grep "Publisher count:" | awk '{print $3}')"
 
-  if [[ "$pub_count" -ge 1 ]] 2>/dev/null; then
+  if [[ "${pub_count:-0}" -ge 1 ]] 2>/dev/null; then
     info "LiDAR publishing on /scan ($pub_count publisher)"
   else
     fail "No publisher on /scan — LiDAR data not reaching ROS"
@@ -316,9 +338,11 @@ check_slam() {
   fi
 
   local slam_state
-  slam_state=$(docker exec mowgli-ros2 bash -c \
-    "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /slam_toolbox/pose 2>/dev/null" \
-    2>/dev/null || echo "")
+  slam_state="$(
+    docker exec mowgli-ros2 bash -lc \
+      "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /slam_toolbox/pose 2>/dev/null" \
+      2>/dev/null || echo ""
+  )"
 
   if echo "$slam_state" | grep -q "Publisher count: [1-9]"; then
     info "SLAM toolbox active"
@@ -328,9 +352,11 @@ check_slam() {
   fi
 
   local map_exists
-  map_exists=$(docker exec mowgli-ros2 bash -c \
-    "ls /ros2_ws/maps/garden_map.posegraph 2>/dev/null && echo yes || echo no" \
-    2>/dev/null || echo "no")
+  map_exists="$(
+    docker exec mowgli-ros2 bash -lc \
+      "ls /ros2_ws/maps/garden_map.posegraph 2>/dev/null && echo yes || echo no" \
+      2>/dev/null || echo "no"
+  )"
 
   if [[ "$map_exists" == *"yes"* ]]; then
     info "Saved map found (lifelong/localisation mode available)"
@@ -348,7 +374,7 @@ check_rangefinders() {
       info "TF-Luna front detected (${TFLUNA_FRONT_PORT})"
     else
       fail "TF-Luna front not detected (${TFLUNA_FRONT_PORT})"
-      add_issue "TF-Luna front not detected. Check selected UART and TFLUNA_FRONT_PORT in .env."
+      add_issue "TF-Luna front not detected. Check selected UART and TFLUNA_FRONT_PORT in docker/.env."
     fi
   fi
 
@@ -357,7 +383,7 @@ check_rangefinders() {
       info "TF-Luna edge detected (${TFLUNA_EDGE_PORT})"
     else
       fail "TF-Luna edge not detected (${TFLUNA_EDGE_PORT})"
-      add_issue "TF-Luna edge not detected. Check selected UART and TFLUNA_EDGE_PORT in .env."
+      add_issue "TF-Luna edge not detected. Check selected UART and TFLUNA_EDGE_PORT in docker/.env."
     fi
   fi
 }
@@ -367,12 +393,12 @@ check_gui() {
 
   if ! docker inspect -f '{{.State.Status}}' mowgli-gui 2>/dev/null | grep -q running; then
     fail "mowgli-gui not running"
-    add_issue "GUI container not running. Run: mowgli-up gui"
+    add_issue "GUI container not running."
     return
   fi
 
   local ip
-  ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")"
 
   if curl -sf -o /dev/null --connect-timeout 3 "http://$ip:80" 2>/dev/null || \
      curl -sf -o /dev/null --connect-timeout 3 "http://localhost:80" 2>/dev/null; then
@@ -382,9 +408,11 @@ check_gui() {
   fi
 
   local fg_info
-  fg_info=$(docker exec mowgli-ros2 bash -c \
-    "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 node list 2>/dev/null" \
-    2>/dev/null | grep foxglove_bridge || echo "")
+  fg_info="$(
+    docker exec mowgli-ros2 bash -lc \
+      "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 node list 2>/dev/null" \
+      2>/dev/null | grep foxglove_bridge || echo ""
+  )"
 
   if [[ -n "$fg_info" ]]; then
     info "Foxglove Bridge WebSocket active (ws://$ip:8765)"
