@@ -8,10 +8,14 @@ check_devices() {
   : "${LIDAR_TYPE:=unknown}"
   : "${LIDAR_ENABLED:=true}"
 
-  local devices=(
-    "/dev/mowgli:Mowgli STM32 board"
-    "${GPS_PORT}:GPS receiver"
-  )
+  local devices=()
+
+  if [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]]; then
+    devices+=("${MAVROS_PORT:-/dev/mavros}:Pixhawk MAVROS serial")
+  else
+    devices+=("/dev/mowgli:Mowgli STM32 board")
+    devices+=("${GPS_PORT}:GPS receiver")
+  fi
 
   if [[ "${LIDAR_ENABLED}" == "true" && "${LIDAR_TYPE}" != "none" ]]; then
     devices+=("${LIDAR_PORT}:LiDAR device")
@@ -65,7 +69,7 @@ check_devices() {
     fi
   done
 
-  if [[ "${GPS_CONNECTION:-}" == "uart" && -L "${GPS_PORT}" && -n "${GPS_UART_DEVICE:-}" ]]; then
+  if [[ "${HARDWARE_BACKEND:-mowgli}" != "mavros" && "${GPS_CONNECTION:-}" == "uart" && -L "${GPS_PORT}" && -n "${GPS_UART_DEVICE:-}" ]]; then
     local gps_target
     gps_target="$(readlink -f "$GPS_PORT")"
     if [[ "$gps_target" != "$GPS_UART_DEVICE" ]]; then
@@ -90,14 +94,16 @@ check_containers() {
   : "${LIDAR_ENABLED:=true}"
   : "${LIDAR_TYPE:=unknown}"
 
-  local services=(mowgli gps gui mosquitto)
+  local services=(mowgli gui mosquitto)
+
+  if [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]]; then
+    services+=(mavros ntrip)
+  else
+    services+=(gps)
+  fi
 
   if [[ "${LIDAR_ENABLED}" == "true" && "${LIDAR_TYPE}" != "none" ]]; then
     services+=(lidar)
-  fi
-
-  if [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]] || [[ "${MAVROS_ENABLED:-false}" == "true" ]]; then
-    services+=(mavros)
   fi
 
   if [[ "${TFLUNA_FRONT_ENABLED:-false}" == "true" ]]; then
@@ -117,6 +123,7 @@ check_containers() {
       gui)          container="mowgli-gui" ;;
       mosquitto)    container="mowgli-mqtt" ;;
       mavros)       container="mowgli-mavros" ;;
+      ntrip)        container="mowgli-ntrip" ;;
       tfluna_front) container="mowgli-tfluna-front" ;;
       tfluna_edge)  container="mowgli-tfluna-edge" ;;
     esac

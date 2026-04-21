@@ -42,7 +42,9 @@ build_compose_stack() {
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.base.yml")
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.gui.yml")
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.mqtt.yml")
-  COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.gps.yml")
+  if [[ "${HARDWARE_BACKEND:-mowgli}" != "mavros" ]]; then
+    COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.gps.yml")
+  fi
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.watchtower.yml")
 
   # Foxglove bridge is controlled via the ENABLE_FOXGLOVE env var passed
