@@ -1,0 +1,25 @@
+services:
+  gnss_ublox:
+    container_name: gnss_ublox
+    image: ${MOWGLI_ROS2_IMAGE}
+
+    network_mode: host
+    ipc: host
+    privileged: true
+
+    volumes:
+      - /dev:/dev
+      - ./config/mowgli:/config/mowgli
+      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+
+    command: >
+      ros2 launch mowgli_bringup ublox_gnss.launch.py
+      ublox_device_family:=${GPS_PROTOCOL:-F9P}
+      ublox_frame_id:=gps_link
+      ublox_device_serial_string:=${GPS_DEBUG_ENABLED:-}
+
+    restart: unless-stopped

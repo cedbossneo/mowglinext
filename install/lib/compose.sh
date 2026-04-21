@@ -39,6 +39,7 @@ ensure_default_configs() {
 build_compose_stack() {
   COMPOSE_FILES=()
 
+<<<<<<< HEAD
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.base.yml")
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.gui.yml")
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.mqtt.yml")
@@ -46,6 +47,15 @@ build_compose_stack() {
     COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.gps.yml")
   fi
   COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.watchtower.yml")
+=======
+  COMPOSE_FILES+=("compose/docker-compose.base.yml")
+  COMPOSE_FILES+=("compose/docker-compose.gui.yml")
+  COMPOSE_FILES+=("compose/docker-compose.mqtt.yml")
+  # GNSS backend selection lives at the compose layer. For now the default
+  # stack keeps using docker-compose.gps.yml so existing compatibility behavior
+  # stays unchanged on feat/gps while backend-specific fragments converge later.
+  COMPOSE_FILES+=("compose/docker-compose.gps.yml")
+>>>>>>> feat/gps
 
   # Foxglove bridge is controlled via the ENABLE_FOXGLOVE env var passed
   # to the ROS2 container (see docker-compose.base.yml).  No separate
@@ -127,7 +137,12 @@ run_compose_stack() {
   info "Compose final : $FINAL_COMPOSE_FILE"
   info "Env file : $FINAL_ENV_FILE"
 
+  info "Pulling selected images..."
   docker compose -f "$FINAL_COMPOSE_FILE" --env-file "$FINAL_ENV_FILE" pull
+  echo ""
+  info "Starting stack..."
   docker compose -f "$FINAL_COMPOSE_FILE" --env-file "$FINAL_ENV_FILE" up -d
+  echo ""
+  info "Current containers:"
   docker compose -f "$FINAL_COMPOSE_FILE" --env-file "$FINAL_ENV_FILE" ps
 }
