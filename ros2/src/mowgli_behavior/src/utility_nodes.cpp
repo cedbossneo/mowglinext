@@ -119,6 +119,86 @@ void WaitForDuration::onHalted()
 }
 
 // ---------------------------------------------------------------------------
+// WaitForGpsFix
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus WaitForGpsFix::onStart()
+{
+  double timeout_sec = 20.0;
+  if (auto res = getInput<double>("timeout_sec"))
+  {
+    timeout_sec = res.value();
+  }
+  min_fix_type_ = 2;
+  if (auto res = getInput<int>("min_fix_type"))
+  {
+    min_fix_type_ = res.value();
+  }
+
+  timeout_ = std::chrono::duration<double>(timeout_sec);
+  start_time_ = std::chrono::steady_clock::now();
+
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  uint8_t current_fix = 0;
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    current_fix = ctx->gps_fix_type;
+  }
+
+  if (static_cast<int>(current_fix) >= min_fix_type_)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "WaitForGpsFix: already at fix_type=%u (>= %d), proceeding",
+                current_fix, min_fix_type_);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "WaitForGpsFix: waiting up to %.1fs for fix_type >= %d (current=%u)",
+              timeout_sec, min_fix_type_, current_fix);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus WaitForGpsFix::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  uint8_t current_fix = 0;
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    current_fix = ctx->gps_fix_type;
+  }
+
+  if (static_cast<int>(current_fix) >= min_fix_type_)
+  {
+    const auto waited = std::chrono::steady_clock::now() - start_time_;
+    const double waited_sec = std::chrono::duration<double>(waited).count();
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "WaitForGpsFix: fix_type=%u reached after %.1fs",
+                current_fix, waited_sec);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - start_time_;
+  if (elapsed >= timeout_)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "WaitForGpsFix: timeout after %.1fs (last fix_type=%u < %d) — "
+                "proceeding at degraded GPS quality",
+                std::chrono::duration<double>(timeout_).count(),
+                current_fix, min_fix_type_);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void WaitForGpsFix::onHalted()
+{
+  // Nothing to clean up.
+}
+
+// ---------------------------------------------------------------------------
 // SaveSlamMap (deprecated no-op stub — SLAM removed, no replacement yet)
 // ---------------------------------------------------------------------------
 

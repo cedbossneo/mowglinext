@@ -50,6 +50,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<ClearCostmap>("ClearCostmap");
   factory.registerNodeType<PublishHighLevelStatus>("PublishHighLevelStatus");
   factory.registerNodeType<WaitForDuration>("WaitForDuration");
+  factory.registerNodeType<WaitForGpsFix>("WaitForGpsFix");
   factory.registerNodeType<NavigateToPose>("NavigateToPose");
   factory.registerNodeType<SaveSlamMap>("SaveSlamMap");
   factory.registerNodeType<BackUp>("BackUp");

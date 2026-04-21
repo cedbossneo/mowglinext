@@ -90,6 +90,53 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// WaitForGpsFix
+// ---------------------------------------------------------------------------
+
+/// Stateful action that returns RUNNING until the GPS fix quality reaches at
+/// least `min_fix_type`, then returns SUCCESS. On `timeout_sec` elapsed
+/// without meeting the threshold it **still returns SUCCESS** and logs a
+/// warning — the intent is to let the robot start/resume mowing at degraded
+/// precision rather than freeze indefinitely at a partly-obstructed site.
+///
+/// Typical use: insert after BackUp (undock) and before the first
+/// TransitToStrip, to give the F9P a few seconds out from under the dock's
+/// metal canopy to re-acquire RTK before navigation starts.
+///
+/// Input ports:
+///   timeout_sec    (double, default 20.0) – max wait before proceeding.
+///   min_fix_type   (int,    default 2)    – BTContext gps_fix_type threshold:
+///                                           0=no/autonomous, 2=DGPS/SBAS,
+///                                           4=RTK Fixed, 5=RTK Float.
+class WaitForGpsFix : public BT::StatefulActionNode
+{
+public:
+  WaitForGpsFix(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+        BT::InputPort<double>("timeout_sec", 20.0,
+                              "Max seconds to wait before proceeding anyway"),
+        BT::InputPort<int>("min_fix_type", 2,
+                           "Min BtContext gps_fix_type (2=DGPS, 4=RTK Fixed)"),
+    };
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  std::chrono::steady_clock::time_point start_time_;
+  std::chrono::duration<double> timeout_{};
+  int min_fix_type_{2};
+};
+
+// ---------------------------------------------------------------------------
 // SaveSlamMap (deprecated no-op stub)
 // ---------------------------------------------------------------------------
 
