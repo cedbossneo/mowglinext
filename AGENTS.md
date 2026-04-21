@@ -57,24 +57,47 @@ These components:
 
 ---
 
-## Backend-specific install notes
+## Backend Consistency Rules (Strict)
 
-- `HARDWARE_BACKEND` is the source of truth for runtime behavior
-- All services that depend on backend selection should receive it explicitly
-- Backend switching must not require manual patching of Compose files
+These are hard constraints and must not be violated.
 
-Reviews must check:
-- that backend-specific services receive the correct environment variables
-- that enabling MAVROS does not leave services in inconsistent states
+- A service that is specific to the MAVROS backend must never default to `mowgli`.
+- A service that is specific to the Mowgli backend must never default to `mavros`.
+- Backend-specific services must not rely on implicit or fallback values for backend selection.
+- If `HARDWARE_BACKEND` is used, it must reflect the actual role of the service.
 
-## Critical definition
+### Invalid Patterns (must be flagged)
 
-A blocking issue is defined as:
-- something that prevents the installer from completing
-- something that prevents `docker compose config` from succeeding
-- something that prevents the stack from starting
+- `HARDWARE_BACKEND: ${HARDWARE_BACKEND:-mowgli}` inside a MAVROS service
+- `HARDWARE_BACKEND: ${HARDWARE_BACKEND:-mavros}` inside a Mowgli service
+- services whose behavior depends on backend but do not receive the variable
+- entrypoints that enforce a backend but receive a conflicting value
 
-Everything else must be classified as:
-- improvement
-- future work
-- or placeholder
+### Expected Behavior
+
+Switching `HARDWARE_BACKEND` in `.env` must:
+
+- fully switch the active backend
+- not require manual edits in Compose files
+- not leave partially active components from another backend
+
+### Source of Truth
+
+- `.env` is the only authoritative source for backend selection
+- Compose files must not redefine backend logic independently
+
+## GPS Backend Contract
+
+- GPS behavior depends on `HARDWARE_BACKEND`.
+- When `HARDWARE_BACKEND=mavros`:
+  - GPS is handled through Pixhawk/MAVROS
+  - direct GPS drivers (e.g. ublox, unicore) must not be started
+  - only the NTRIP / RTCM delivery path may be active if needed
+- When `HARDWARE_BACKEND=mowgli`:
+  - GPS is handled directly by the Mowgli stack
+  - a GPS backend selection (e.g. ublox, unicore) is valid
+- GPS backend selection must not be treated as global if `HARDWARE_BACKEND=mavros`.
+- Reviews must flag any configuration where MAVROS mode still enables a direct GPS driver path.
+
+- A service may receive `HARDWARE_BACKEND` only to disable itself or switch to the correct mode.
+- In MAVROS mode, GPS-related services must not fall back to legacy direct-GPS behavior.
