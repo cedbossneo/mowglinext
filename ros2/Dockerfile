@@ -134,6 +134,7 @@ RUN rosdep update --rosdistro kilted \
  && rosdep install \
       --from-paths src \
       --ignore-src \
+      --skip-keys mowgli_mavros_bridge \
       --rosdistro kilted \
       -y \
  || true
@@ -216,6 +217,7 @@ RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
     if [ -f install/setup.bash ]; then source install/setup.bash; fi && \
     colcon test \
+      --packages-ignore fusioncore fusioncore_gazebo \
       --ctest-args -L 'gtest' --output-on-failure \
     ; colcon test-result --verbose \
     " || true

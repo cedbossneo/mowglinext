@@ -207,7 +207,64 @@ check_gps() {
   step "Check: GPS"
 
   if [[ "${HARDWARE_BACKEND:-mowgli}" == "mavros" ]]; then
-    info "MAVROS backend: direct GPS container check skipped; GPS is handled through Pixhawk/NTRIP"
+    info "MAVROS backend: GPS is handled through Pixhawk/MAVROS"
+
+    local gps_status
+    gps_status="$(docker inspect -f '{{.State.Status}}' mowgli-gps 2>/dev/null || echo "missing")"
+    if [[ "$gps_status" == "running" ]]; then
+      fail "mowgli-gps is running in MAVROS mode"
+      add_issue "mowgli-gps must not run when HARDWARE_BACKEND=mavros. Regenerate docker/docker-compose.yaml and restart the stack."
+    else
+      info "Direct GPS container disabled (${gps_status})"
+    fi
+
+    local mavros_status
+    mavros_status="$(docker inspect -f '{{.State.Status}}' mowgli-mavros 2>/dev/null || echo "missing")"
+    if [[ "$mavros_status" != "running" ]]; then
+      fail "mowgli-mavros is ${mavros_status}"
+      add_issue "MAVROS backend selected but mowgli-mavros is not running. Check docker logs mowgli-mavros --tail 50."
+      return
+    fi
+    info "MAVROS container running"
+
+    local mavros_state
+    mavros_state="$(
+      docker exec mowgli-ros2 bash -lc \
+        "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /mavros/state --once 2>/dev/null" \
+        2>/dev/null || echo ""
+    )"
+    if [[ -z "$mavros_state" ]]; then
+      fail "No MAVROS state on /mavros/state"
+      add_issue "MAVROS is running but /mavros/state has no data. Check Pixhawk serial connection, MAVROS_PORT, MAVROS_BAUD, and docker logs mowgli-mavros --tail 50."
+    else
+      info "MAVROS state available on /mavros/state"
+    fi
+
+    local mavros_global
+    mavros_global="$(
+      docker exec mowgli-ros2 bash -lc \
+        "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && timeout 5 ros2 topic echo /mavros/global_position/global --once 2>/dev/null" \
+        2>/dev/null || echo ""
+    )"
+    if [[ -z "$mavros_global" ]]; then
+      fail "No MAVROS global position on /mavros/global_position/global"
+      add_issue "MAVROS is not publishing global GPS position. Check Pixhawk GPS lock and MAVROS global_position plugin."
+    else
+      info "MAVROS global position available"
+    fi
+
+    local rtcm_info
+    rtcm_info="$(
+      docker exec mowgli-ros2 bash -lc \
+        "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /rtcm 2>/dev/null" \
+        2>/dev/null || echo ""
+    )"
+    if echo "$rtcm_info" | grep -q "Publisher count: [1-9]"; then
+      info "RTCM topic has publisher(s)"
+    else
+      warn "No RTCM publisher detected on /rtcm"
+      add_issue "No RTCM publisher on /rtcm in MAVROS mode. Check mowgli-ntrip logs and NTRIP configuration."
+    fi
     return
   fi
 

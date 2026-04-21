@@ -20,6 +20,7 @@ services:
     privileged: true
     environment:
       <<: *ros2-env
+      HARDWARE_BACKEND: ${HARDWARE_BACKEND}
     volumes:
       - /dev:/dev
       - ./docker/config/mowgli:/config:ro
