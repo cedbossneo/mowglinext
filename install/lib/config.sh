@@ -4,7 +4,7 @@
 # ── Global configuration ────────────────────────────────────────────────────
 
 REPO_URL="https://github.com/mowglifrenchtouch/mowglinext.git"
-REPO_BRANCH="feat/mavros"
+REPO_BRANCH="mavrosdev"
 IMAGE_TAG="nightly"
 REPO_DIR="${MOWGLI_HOME:-$HOME/mowglinext}"
 DOCKER_SUBDIR="install"
