@@ -21,13 +21,13 @@ mowgli:
         chassis_width: 0.4
         coverage_xy_tolerance: 0.5
         datum_alt: 27
-        datum_lat: 48.87965
-        datum_lon: 2.1728173
+        datum_lat: 48.87965155
+        datum_lon: 2.17285422
         dock_approach_distance: 1
         dock_max_retries: 3
-        dock_pose_x: 0
-        dock_pose_y: 0
-        dock_pose_yaw: 4.17134
+        dock_pose_x: 0.179
+        dock_pose_y: 0.258
+        dock_pose_yaw: 3.8307   # -2.4525 rad / -140.52° — measured from /fusion/odom while docked (RTK Fixed σ=4 mm)
         dock_use_charger_detection: true
         emergency_stop_on_lift: true
         emergency_stop_on_tilt: true
