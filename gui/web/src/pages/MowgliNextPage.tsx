@@ -128,22 +128,22 @@ export const MowgliNextPage = () => {
     return (
       <div style={{display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 8}}>
         <style>{KEYFRAMES_CSS}</style>
-        <HeroCard data={heroData} {...heroActions}/>
+        <HeroCard data={heroData} compact {...heroActions}/>
 
         <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
-          <TileB icon={<IconBattery size={14}/>} label="Battery"
+          <TileB compact icon={<IconBattery size={12}/>} label="Battery"
                  value={Math.round(data.battery)} unit="%"
                  accent={colors.accent}
                  hint={data.charging ? 'charging' : `${data.vBattery.toFixed(1)} V`}/>
-          <TileB icon={<IconSignal size={14}/>} label="GPS"
+          <TileB compact icon={<IconSignal size={12}/>} label="GPS"
                  value={Math.round(data.gps)} unit="%"
                  accent={colors.sky} hint={gpsHint}/>
-          <TileB icon={<IconBlades size={14}/>} label="Blades"
+          <TileB compact icon={<IconBlades size={12}/>} label="Blades"
                  value={data.rpm > 0 ? Math.round(data.rpm) : 'off'}
                  unit={data.rpm > 0 ? 'rpm' : ''}
                  accent={colors.amber}
                  hint={`${data.current.toFixed(1)}A draw`}/>
-          <TileB icon={<IconThermo size={14}/>} label="Motor"
+          <TileB compact icon={<IconThermo size={12}/>} label="Motor"
                  value={data.motorTemp.toFixed(0)} unit="C"
                  accent={data.motorTemp > 50 ? colors.amber : colors.accent}
                  hint={`ESC ${data.escTemp.toFixed(0)} C`}/>

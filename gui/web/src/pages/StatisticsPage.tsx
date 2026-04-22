@@ -3,6 +3,7 @@ import {Table, Tag} from "antd";
 import {useApi} from "../hooks/useApi.ts";
 import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
+import {useIsMobile} from "../hooks/useIsMobile";
 import {CardB, Bar} from "../components/dashboard";
 
 interface MowingSession {
@@ -65,6 +66,7 @@ export const StatisticsPage = () => {
   const guiApi = useApi();
   const {snapshot} = useDiagnosticsSnapshot();
   const {colors} = useThemeMode();
+  const isMobile = useIsMobile();
 
   const [sessions, setSessions] = useState<MowingSession[]>([]);
   const [stats, setStats] = useState<SessionStats | null>(null);
@@ -115,10 +117,10 @@ export const StatisticsPage = () => {
       defaultSortOrder: "ascend" as const,
       render: (v: string) => <span style={{fontSize: 13}}>{formatDate(v)}</span>,
     },
-    {
+    ...(!isMobile ? [{
       title: "Duration", dataIndex: "duration_seconds", key: "duration",
       render: (v: number) => <span style={{fontSize: 13}}>{formatDuration(v)}</span>,
-    },
+    }] : []),
     {
       title: "Area", dataIndex: "area_name", key: "area_name",
       render: (v: string) => <span style={{fontSize: 13}}>{v || "--"}</span>,
@@ -126,7 +128,7 @@ export const StatisticsPage = () => {
     {
       title: "Coverage", dataIndex: "coverage_percent", key: "coverage",
       render: (v: number) => (
-        <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 8, minWidth: isMobile ? 60 : 80}}>
           <Bar value={v ?? 0} color={colors.accent} track="rgba(255,255,255,0.08)" height={6}/>
           <span style={{fontSize: 11, color: colors.textDim, whiteSpace: 'nowrap'}}>
             {Math.round(v ?? 0)}%
@@ -134,19 +136,19 @@ export const StatisticsPage = () => {
         </div>
       ),
     },
-    {
+    ...(!isMobile ? [{
       title: "Status", dataIndex: "status", key: "status",
       render: (v: string) => {
         const c = v === "completed" ? "success" : v === "aborted" ? "warning" : "error";
         return <Tag color={c}>{v ?? "--"}</Tag>;
       },
-    },
+    }] : []),
   ];
 
   return (
     <div style={{display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 8}}>
       {/* Hero stats */}
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12}}>
+      <div style={{display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12}}>
         {[
           {label: 'Total distance', value: formatDistance(stats?.total_distance_meters ?? 0), unit: formatDistanceUnit(stats?.total_distance_meters ?? 0), hint: 'since install', color: colors.accent},
           {label: 'Hours active', value: formatTotalHours(stats?.total_mowing_seconds ?? 0), unit: 'h', hint: `${stats?.total_sessions ?? 0} sessions`, color: colors.sky},
@@ -161,7 +163,7 @@ export const StatisticsPage = () => {
               {s.label}
             </div>
             <div style={{display: 'flex', alignItems: 'baseline', gap: 4}}>
-              <div style={{fontSize: 36, fontWeight: 700, color: s.color, letterSpacing: '-0.03em', lineHeight: 1}}>
+              <div style={{fontSize: isMobile ? 28 : 36, fontWeight: 700, color: s.color, letterSpacing: '-0.03em', lineHeight: 1}}>
                 {s.value}
               </div>
               {s.unit && <div style={{fontSize: 14, color: colors.textDim, fontWeight: 600}}>{s.unit}</div>}
@@ -179,12 +181,14 @@ export const StatisticsPage = () => {
             <div style={{fontSize: 11, color: colors.textMuted}}>Last 12 weeks (km)</div>
           </div>
         </div>
-        <div style={{display: 'flex', alignItems: 'flex-end', gap: 8, height: 180, paddingBottom: 20, position: 'relative'}}>
-          {[0.25, 0.5, 0.75].map(p => (
-            <div key={p} style={{position: 'absolute', left: 0, right: 0, bottom: 20 + p * 160, height: 1, background: colors.border}}/>
-          ))}
+        <div style={{display: 'flex', alignItems: 'flex-end', gap: isMobile ? 4 : 8, height: isMobile ? 120 : 180, paddingBottom: 20, position: 'relative'}}>
+          {[0.25, 0.5, 0.75].map(p => {
+            const chartH = isMobile ? 100 : 160;
+            return <div key={p} style={{position: 'absolute', left: 0, right: 0, bottom: 20 + p * chartH, height: 1, background: colors.border}}/>;
+          })}
           {weeklyBars.map((v, i) => {
-            const h = maxBar > 0 ? (v / maxBar) * 160 : 0;
+            const chartH = isMobile ? 100 : 160;
+            const h = maxBar > 0 ? (v / maxBar) * chartH : 0;
             const isLatest = i === weeklyBars.length - 1;
             return (
               <div key={i} style={{flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, position: 'relative'}}>
@@ -210,7 +214,7 @@ export const StatisticsPage = () => {
       </CardB>
 
       {/* Coverage + session history */}
-      <div style={{display: 'grid', gridTemplateColumns: coverage.length > 0 ? '1fr 1.4fr' : '1fr', gap: 14}}>
+      <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : (coverage.length > 0 ? '1fr 1.4fr' : '1fr'), gap: 14}}>
         {coverage.length > 0 && (
           <CardB>
             <div style={{fontSize: 14, fontWeight: 600, marginBottom: 14}}>Zone coverage</div>
