@@ -80,6 +80,11 @@ setup_env() {
   : "${MAVROS_TGT_SYSTEM:=1}"
   : "${MAVROS_TGT_COMPONENT:=1}"
 
+  # Si MAVROS → GNSS backend désactivé
+  if [[ "$HARDWARE_BACKEND" == "mavros" ]]; then
+    GNSS_BACKEND="disabled"
+  fi
+
   local enable_mavros="false"
   if [[ "$HARDWARE_BACKEND" == "mavros" ]]; then
     enable_mavros="true"
@@ -137,6 +142,7 @@ setup_env() {
   upsert_env_key "$env_file" "MAVROS_TGT_SYSTEM" "$MAVROS_TGT_SYSTEM"
   upsert_env_key "$env_file" "MAVROS_TGT_COMPONENT" "$MAVROS_TGT_COMPONENT"
   upsert_env_key "$env_file" "MAVROS_AUTOPILOT" "$MAVROS_AUTOPILOT"
-
+  
+  info "Backend selection : HARDWARE_BACKEND=$HARDWARE_BACKEND GNSS_BACKEND=$GNSS_BACKEND"
   info "Updated $env_file"
 }

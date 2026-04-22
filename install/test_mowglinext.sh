@@ -50,6 +50,8 @@ assert_not_empty() {
 
 # ── Source common helpers (needed by configure_* functions) ─────────────────
 source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/i18n.sh"
+load_locale
 
 # ���─ Sandbox ────────────────────────────────────────────────────────────────
 SANDBOX=$(mktemp -d)
@@ -130,6 +132,10 @@ echo "── configure_gps with preset tests ──"
 
 source "$SCRIPT_DIR/lib/gps.sh"
 
+pick_uart_port() {
+  REPLY="${1:-}"
+}
+
 # Test: GPS UBX-UART preset
 unset GPS_CONNECTION GPS_PROTOCOL GPS_PORT GPS_BAUD GPS_UART_DEVICE GPS_DEBUG_ENABLED GPS_UART_RULE GPS_DEBUG_UART_RULE 2>/dev/null || true
 PRESET_LOADED=true
@@ -167,6 +173,32 @@ configure_gps >/dev/null 2>&1
 assert_eq "GPS preset debug: debug uart rule set" \
   'KERNEL=="ttyS0", SYMLINK+="gps_debug", MODE="0666"' \
   "$GPS_DEBUG_UART_RULE"
+
+# Test: invalid GNSS backend preset is rejected
+unset GNSS_BACKEND GPS_CONNECTION GPS_PROTOCOL GPS_PORT GPS_BAUD GPS_UART_DEVICE GPS_DEBUG_ENABLED GPS_UART_RULE GPS_DEBUG_UART_RULE 2>/dev/null || true
+PRESET_LOADED=true
+GNSS_BACKEND=typo
+GPS_CONNECTION=usb
+GPS_PROTOCOL=UBX
+GPS_BAUD=460800
+GPS_DEBUG_ENABLED=false
+if configure_gps >/dev/null 2>&1; then
+  fail "GPS preset invalid GNSS_BACKEND rejected" "configure_gps unexpectedly succeeded"
+else
+  pass "GPS preset invalid GNSS_BACKEND rejected"
+fi
+
+# Test: invalid GNSS backend does not fall back to gps compose
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+INSTALL_DIR="$SCRIPT_DIR"
+source "$SCRIPT_DIR/lib/compose.sh"
+HARDWARE_BACKEND=mowgli
+GNSS_BACKEND=typo
+if build_compose_stack >/dev/null 2>&1; then
+  fail "Compose invalid GNSS_BACKEND rejected" "build_compose_stack unexpectedly succeeded"
+else
+  pass "Compose invalid GNSS_BACKEND rejected"
+fi
 
 # =============================================================================
 # Test 3: configure_lidar — preset mode (skips prompts)
@@ -318,7 +350,7 @@ confirm() {
 }
 
 # GPS with preset — should NOT prompt
-unset GPS_CONNECTION GPS_PROTOCOL GPS_PORT GPS_BAUD GPS_UART_DEVICE GPS_DEBUG_ENABLED GPS_UART_RULE GPS_DEBUG_UART_RULE 2>/dev/null || true
+unset GNSS_BACKEND GPS_CONNECTION GPS_PROTOCOL GPS_PORT GPS_BAUD GPS_UART_DEVICE GPS_DEBUG_ENABLED GPS_UART_RULE GPS_DEBUG_UART_RULE 2>/dev/null || true
 PRESET_LOADED=true
 GPS_CONNECTION=usb
 GPS_PROTOCOL=NMEA

@@ -58,8 +58,8 @@ build_compose_stack() {
         COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.unicore.yaml")
         ;;
       *)
-        warn "Unknown GNSS_BACKEND: ${GNSS_BACKEND:-unset}; falling back to gps"
-        COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.gps.yml")
+        error "Unknown GNSS_BACKEND: ${GNSS_BACKEND:-unset} (expected: gps, ublox, unicore)"
+        return 1
         ;;
     esac
   fi

@@ -9,12 +9,21 @@ configure_gps() {
   : "${GNSS_BACKEND:=gps}"
 
   # If preset values exist (from web composer or CLI), skip interactive prompts
-  if [[ "${PRESET_LOADED:-false}" == "true" && -n "${GPS_CONNECTION:-}" && -n "${GPS_PROTOCOL:-}" ]]; then
+  if [[ "${PRESET_LOADED:-false}" == "true" && -n "${GNSS_BACKEND:-}" && -n "${GPS_CONNECTION:-}" && -n "${GPS_PROTOCOL:-}" ]]; then
+    case "${GNSS_BACKEND}" in
+      gps|ublox|unicore) ;;
+      *)
+        error "Invalid GNSS_BACKEND preset: ${GNSS_BACKEND} (expected: gps, ublox, unicore)"
+        return 1
+        ;;
+    esac
+
     : "${GPS_PORT:=/dev/gps}"
     : "${GPS_DEBUG_ENABLED:=false}"
     : "${GPS_DEBUG_PORT:=/dev/gps_debug}"
     : "${GPS_DEBUG_BAUD:=115200}"
 
+    info "GNSS backend pre-configured: ${GNSS_BACKEND}"
     info "GPS pre-configured (skipping prompts)"
 
     # For UART connections, always let user confirm/change the port
@@ -27,6 +36,30 @@ configure_gps() {
       GPS_DEBUG_UART_DEVICE="$REPLY"
     fi
   else
+    echo ""
+    echo "Select GNSS backend:"
+    echo "  1) Generic GPS (legacy)"
+    echo "  2) u-blox (F9P)"
+    echo "  3) Unicore (UM98x)"
+    prompt "$MSG_CHOICE" "1"
+    local gnss_choice="$REPLY"
+
+    case "$gnss_choice" in
+      1)
+        GNSS_BACKEND="gps"
+        ;;
+      2)
+        GNSS_BACKEND="ublox"
+        ;;
+      3)
+        GNSS_BACKEND="unicore"
+        ;;
+      *)
+        error "Invalid GNSS backend choice"
+        return 1
+        ;;
+    esac
+
     # Defaults based on PCB / GUI-ready
     : "${GPS_PROTOCOL:=UBX}"
     : "${GPS_CONNECTION:=uart}"
