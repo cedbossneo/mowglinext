@@ -210,10 +210,10 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # Auto-enable the appropriate backend based on gnss_backend argument
     enable_ublox_condition = IfCondition(
-        PythonExpression([gnss_backend, " == 'ublox'"])
+        PythonExpression(["'", gnss_backend, "' == 'ublox'"])
     )
     enable_unicore_condition = IfCondition(
-        PythonExpression([gnss_backend, " == 'unicore'"])
+        PythonExpression(["'", gnss_backend, "' == 'unicore'"])
     )
 
     # ------------------------------------------------------------------
