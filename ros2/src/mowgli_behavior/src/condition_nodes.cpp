@@ -16,8 +16,15 @@
 #include "mowgli_behavior/condition_nodes.hpp"
 
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
+
+#include "tf2/exceptions.h"
+#include "tf2/time.hpp"
+#include "tf2_ros/buffer.h"
 
 namespace mowgli_behavior
 {
@@ -169,6 +176,17 @@ BT::NodeStatus IsBoundaryViolation::tick()
 }
 
 // ---------------------------------------------------------------------------
+// IsLethalBoundaryViolation
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsLethalBoundaryViolation::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  return ctx->lethal_boundary_violation ? BT::NodeStatus::SUCCESS
+                                        : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
 // IsNewRain
 // ---------------------------------------------------------------------------
 
@@ -265,6 +283,191 @@ BT::NodeStatus IsChargingProgressing::tick()
               current_battery);
   charger_failed_ = true;
   baseline_set_ = false;  // Reset for next charging session.
+  return BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
+// PreFlightCheck
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus PreFlightCheck::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  float min_battery = 20.0f;
+  int min_gps_fix_type = 2;
+  double tf_timeout = 0.5;
+  getInput<float>("min_battery", min_battery);
+  getInput<int>("min_gps_fix_type", min_gps_fix_type);
+  getInput<double>("tf_timeout_sec", tf_timeout);
+
+  std::vector<std::string> failures;
+
+  // ── 1. Emergency ─────────────────────────────────────────────────────────
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    if (ctx->latest_emergency.active_emergency || ctx->latest_emergency.latched_emergency)
+    {
+      failures.emplace_back("emergency=active");
+    }
+  }
+
+  // ── 2. Battery ───────────────────────────────────────────────────────────
+  float battery;
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    battery = ctx->battery_percent;
+  }
+  if (battery < min_battery)
+  {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "battery=%.1f%% (need >=%.1f%%)", battery, min_battery);
+    failures.emplace_back(buf);
+  }
+
+  // ── 3. GPS fix type ──────────────────────────────────────────────────────
+  uint8_t fix_type;
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    fix_type = ctx->gps_fix_type;
+  }
+  if (static_cast<int>(fix_type) < min_gps_fix_type)
+  {
+    const char* names[] = {"no-fix", "auto", "DGPS", "?", "RTK-fix", "RTK-float"};
+    const char* current = (fix_type < 6) ? names[fix_type] : "?";
+    char buf[80];
+    snprintf(buf, sizeof(buf), "gps_fix=%s (%u, need >=%d)",
+             current, fix_type, min_gps_fix_type);
+    failures.emplace_back(buf);
+  }
+
+  // ── 4. TF chain: map → base_footprint resolvable ─────────────────────────
+  try
+  {
+    ctx->tf_buffer->lookupTransform(
+        "map", "base_footprint", tf2::TimePointZero,
+        tf2::durationFromSec(tf_timeout));
+  }
+  catch (const tf2::TransformException& ex)
+  {
+    failures.emplace_back(std::string("tf(map->base_footprint)=") + ex.what());
+  }
+
+  // ── 5. Mowing area defined ───────────────────────────────────────────────
+  if (!coverage_client_)
+  {
+    coverage_client_ =
+        ctx->helper_node->create_client<mowgli_interfaces::srv::GetCoverageStatus>(
+            "/map_server_node/get_coverage_status");
+  }
+  if (!coverage_client_->service_is_ready())
+  {
+    failures.emplace_back("coverage-service-unavailable");
+  }
+  else
+  {
+    auto req = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
+    req->area_index = 0;
+    auto future = coverage_client_->async_send_request(req);
+    auto start = std::chrono::steady_clock::now();
+    bool ready = false;
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(1))
+    {
+      if (future.wait_for(std::chrono::milliseconds(20)) == std::future_status::ready)
+      {
+        ready = true;
+        break;
+      }
+    }
+    if (!ready)
+    {
+      failures.emplace_back("coverage-query-timeout");
+    }
+    else
+    {
+      auto resp = future.get();
+      if (!resp || !resp->success)
+      {
+        failures.emplace_back("no-mowing-area-defined");
+      }
+    }
+  }
+
+  // ── Verdict ──────────────────────────────────────────────────────────────
+  if (failures.empty())
+  {
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "PreFlightCheck PASS: battery=%.1f%% fix=%u area-ok tf-ok",
+                battery, fix_type);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  std::string all;
+  for (size_t i = 0; i < failures.size(); ++i)
+  {
+    if (i) all += ", ";
+    all += failures[i];
+  }
+  RCLCPP_WARN_THROTTLE(ctx->node->get_logger(), *ctx->node->get_clock(), 3000,
+                       "PreFlightCheck FAIL: %s", all.c_str());
+  return BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
+// Nav2Active
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus Nav2Active::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  double timeout_sec = 0.5;
+  if (auto res = getInput<double>("timeout_sec"))
+  {
+    timeout_sec = res.value();
+  }
+
+  if (!client_)
+  {
+    client_ = ctx->helper_node->create_client<std_srvs::srv::Trigger>(
+        "/lifecycle_manager_navigation/is_active");
+  }
+
+  // Don't block if lifecycle_manager_navigation hasn't come up yet — treat
+  // that the same as "not active". The retry loop above this node is
+  // responsible for waiting, not us.
+  if (!client_->service_is_ready())
+  {
+    RCLCPP_DEBUG(ctx->node->get_logger(),
+                 "Nav2Active: is_active service not available yet");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+  auto future = client_->async_send_request(req);
+
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::duration<double>(timeout_sec);
+  while (std::chrono::steady_clock::now() < deadline)
+  {
+    if (future.wait_for(std::chrono::milliseconds(20)) == std::future_status::ready)
+    {
+      auto resp = future.get();
+      if (resp && resp->success)
+      {
+        return BT::NodeStatus::SUCCESS;
+      }
+      RCLCPP_WARN_THROTTLE(ctx->node->get_logger(), *ctx->node->get_clock(), 3000,
+                           "Nav2Active: lifecycle_manager reports not-active "
+                           "(msg=%s)",
+                           resp ? resp->message.c_str() : "(null)");
+      return BT::NodeStatus::FAILURE;
+    }
+  }
+
+  RCLCPP_WARN_THROTTLE(ctx->node->get_logger(), *ctx->node->get_clock(), 3000,
+                       "Nav2Active: is_active call timed out after %.2fs",
+                       timeout_sec);
   return BT::NodeStatus::FAILURE;
 }
 

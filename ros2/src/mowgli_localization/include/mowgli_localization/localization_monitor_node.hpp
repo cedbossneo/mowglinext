@@ -24,16 +24,14 @@
  *
  * Localization modes (ordered best to worst):
  *
- *   "RTK_SLAM"        – RTK fixed + LiDAR SLAM active.   ~2 cm absolute.
- *   "SLAM_DOMINANT"   – RTK float + LiDAR SLAM active.   ~5–10 cm.
- *   "SLAM_ODOM"       – No GPS + LiDAR SLAM active.       ~10–20 cm relative.
- *   "GPS_ODOM"        – RTK fixed + no LiDAR.             Obstacle avoidance unavailable.
- *   "DEAD_RECKONING"  – All sources degraded / timed out.  Return to dock.
+ *   "RTK_FIXED"       – RTK fixed. ~2 cm absolute.
+ *   "RTK_FLOAT"       – RTK float / DGPS. ~5–20 cm.
+ *   "GPS_ONLY"        – Single / unaugmented GPS.
+ *   "DEAD_RECKONING"  – All sources degraded / timed out. Return to dock.
  *
  * Subscribed topics:
  *   /wheel_odom               nav_msgs/msg/Odometry       (wheel odometry alive-check)
  *   /gps/absolute_pose        mowgli_interfaces/msg/AbsolutePose
- *   /slam_toolbox/pose        geometry_msgs/msg/PoseWithCovarianceStamped
  *
  * Published topics:
  *   /localization/mode        std_msgs/msg/String   (latched, 10 Hz)
@@ -41,7 +39,6 @@
  *
  * Parameters:
  *   gps_timeout    (double, default 2.0 s) – declare GPS stale after this gap.
- *   lidar_timeout  (double, default 1.0 s) – declare LiDAR SLAM stale.
  *   pose_timeout   (double, default 0.5 s) – declare wheel odom stale.
  *   publish_rate   (double, default 10.0 Hz)
  */
@@ -52,7 +49,6 @@
 #include <memory>
 #include <string>
 
-#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -66,10 +62,9 @@ namespace mowgli_localization
 enum class LocalizationMode : int32_t
 {
   DEAD_RECKONING = 0,
-  GPS_ODOM = 1,
-  SLAM_ODOM = 2,
-  SLAM_DOMINANT = 3,
-  RTK_SLAM = 4,
+  GPS_ONLY = 1,
+  RTK_FLOAT = 2,
+  RTK_FIXED = 3,
 };
 
 class LocalizationMonitorNode : public rclcpp::Node
@@ -92,7 +87,6 @@ private:
   // ---------------------------------------------------------------------------
   void on_wheel_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
   void on_absolute_pose(mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg);
-  void on_slam_pose(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg);
 
   // ---------------------------------------------------------------------------
   // Timer callback – evaluates state and publishes
@@ -122,7 +116,6 @@ private:
   // Parameters
   // ---------------------------------------------------------------------------
   double gps_timeout_{2.0};
-  double lidar_timeout_{1.0};
   double pose_timeout_{0.5};
   double publish_rate_{10.0};
 
@@ -131,7 +124,6 @@ private:
   // ---------------------------------------------------------------------------
   rclcpp::Time last_wheel_odom_stamp_{0, 0, RCL_ROS_TIME};
   rclcpp::Time last_gps_stamp_{0, 0, RCL_ROS_TIME};
-  rclcpp::Time last_slam_stamp_{0, 0, RCL_ROS_TIME};
 
   /// True when the last GPS message carried an RTK-fixed or RTK-float flag.
   bool gps_rtk_active_{false};
@@ -146,7 +138,6 @@ private:
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr wheel_odom_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr abs_pose_sub_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr slam_pose_sub_;
 
   rclcpp::TimerBase::SharedPtr publish_timer_;
 };

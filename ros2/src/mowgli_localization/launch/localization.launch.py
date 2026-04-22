@@ -93,7 +93,6 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {
                 'gps_timeout': 2.0,
-                'lidar_timeout': 1.0,
                 'pose_timeout': 0.5,
                 'publish_rate': 10.0,
                 'use_sim_time': use_sim_time,

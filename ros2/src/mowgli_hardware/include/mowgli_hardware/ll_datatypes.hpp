@@ -130,17 +130,20 @@ struct LlUiEvent
  * @brief Wheel odometry packet sent by the STM32 (PACKET_ID_LL_ODOMETRY = 0x04).
  *
  * Sent every 20 ms when the drive motor controller responds with encoder data.
+ *
+ * Signed end-to-end: left_ticks/right_ticks carry direction in their sign
+ * (no separate direction byte). Per-wheel velocity is computed on the
+ * firmware side using the hardware-timer dt, so the host consumes it
+ * directly without dividing by a jittery packet-arrival interval.
  */
 struct LlOdometry
 {
   uint8_t type;  ///< Must equal PACKET_ID_LL_ODOMETRY
-  uint16_t dt_millis;  ///< Time delta since last packet [ms]
-  int32_t left_ticks;  ///< Cumulative left encoder ticks
-  int32_t right_ticks;  ///< Cumulative right encoder ticks
-  int16_t left_speed;  ///< Left wheel speed (raw motor unit)
-  int16_t right_speed;  ///< Right wheel speed (raw motor unit)
-  uint8_t left_direction;  ///< 0=stopped, 1=forward, 2=reverse
-  uint8_t right_direction;  ///< 0=stopped, 1=forward, 2=reverse
+  uint16_t dt_millis;  ///< Firmware-measured interval since last packet [ms]
+  int32_t left_ticks;  ///< Signed cumulative left encoder ticks
+  int32_t right_ticks;  ///< Signed cumulative right encoder ticks
+  int16_t left_velocity_mm_s;  ///< Signed left wheel velocity [mm/s]
+  int16_t right_velocity_mm_s;  ///< Signed right wheel velocity [mm/s]
   uint16_t crc;  ///< CRC-16 CCITT over all preceding bytes
 };
 
@@ -219,7 +222,7 @@ struct LlBladeStatus
 static_assert(sizeof(LlStatus) == 38u, "LlStatus layout mismatch");
 static_assert(sizeof(LlImu) == 41u, "LlImu layout mismatch");
 static_assert(sizeof(LlUiEvent) == 5u, "LlUiEvent layout mismatch");
-static_assert(sizeof(LlOdometry) == 19u, "LlOdometry layout mismatch");
+static_assert(sizeof(LlOdometry) == 17u, "LlOdometry layout mismatch");
 static_assert(sizeof(LlHeartbeat) == 5u, "LlHeartbeat layout mismatch");
 static_assert(sizeof(LlHighLevelState) == 5u, "LlHighLevelState layout mismatch");
 static_assert(sizeof(LlCmdVel) == 11u, "LlCmdVel layout mismatch");

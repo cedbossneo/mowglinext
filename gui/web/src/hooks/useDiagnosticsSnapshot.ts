@@ -32,21 +32,12 @@ export interface CrossChecks {
     overall_status: string; // "ok", "warn", "error"
 }
 
-export interface SlamInfo {
-    map_file_exists: boolean;
-    posegraph_size_bytes: number;
-    data_file_size_bytes: number;
-    last_modified: string;
-    map_path: string;
-}
-
 export interface DiagnosticsSnapshot {
     timestamp: string;
     containers: ContainerHealth[];
     system: { cpu_temperature: number };
     coverage: AreaCoverageInfo[];
     cross_checks: CrossChecks;
-    slam_info: SlamInfo;
 }
 
 export const useDiagnosticsSnapshot = () => {

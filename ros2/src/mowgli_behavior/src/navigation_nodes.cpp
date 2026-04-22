@@ -89,13 +89,16 @@ BT::NodeStatus StopMoving::tick()
 
   if (!pub_)
   {
-    pub_ = ctx->node->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+    pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>(
+        "/cmd_vel_emergency", 10);
   }
 
-  geometry_msgs::msg::Twist zero{};
+  geometry_msgs::msg::TwistStamped zero{};
+  zero.header.stamp = ctx->node->now();
+  zero.header.frame_id = "base_footprint";
   pub_->publish(zero);
 
-  RCLCPP_DEBUG(ctx->node->get_logger(), "StopMoving: published zero velocity");
+  RCLCPP_DEBUG(ctx->node->get_logger(), "StopMoving: published zero velocity on /cmd_vel_emergency");
 
   return BT::NodeStatus::SUCCESS;
 }

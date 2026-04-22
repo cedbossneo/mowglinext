@@ -71,18 +71,6 @@ def generate_launch_description() -> LaunchDescription:
         description="Serial port for the hardware bridge.",
     )
 
-    slam_arg = DeclareLaunchArgument(
-        "slam",
-        default_value="true",
-        description="Run slam_toolbox when true; skip when using a pre-built map.",
-    )
-
-    map_arg = DeclareLaunchArgument(
-        "map",
-        default_value="",
-        description="Absolute path to a pre-built map yaml file (used when slam=false).",
-    )
-
     enable_mqtt_arg = DeclareLaunchArgument(
         "enable_mqtt",
         default_value="false",
@@ -104,7 +92,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="Enable LiDAR-dependent nodes (SLAM, obstacle tracker, slam heading). Set to false for GPS-only operation.",
+        description="Enable LiDAR-dependent nodes (Kinematic-ICP drift correction, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
     )
 
     # ------------------------------------------------------------------
@@ -112,8 +100,6 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     use_sim_time = LaunchConfiguration("use_sim_time")
     serial_port = LaunchConfiguration("serial_port")
-    slam = LaunchConfiguration("slam")
-    map_yaml = LaunchConfiguration("map")
     enable_mqtt = LaunchConfiguration("enable_mqtt")
     enable_foxglove = LaunchConfiguration("enable_foxglove")
     foxglove_port = LaunchConfiguration("foxglove_port")
@@ -153,7 +139,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 2. navigation.launch.py — SLAM, dual EKF, Nav2
+    # 2. navigation.launch.py — FusionCore + Nav2 (+ optional Kinematic-ICP)
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -161,10 +147,6 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "use_sim_time": use_sim_time,
-            "slam": slam,
-            "map": map_yaml,
-            "slam_mode": "lifelong",
-            "map_file_name": "/ros2_ws/maps/garden_map",
             "use_lidar": use_lidar,
         }.items(),
     )
@@ -198,21 +180,13 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 5. Wheel odometry
-    # ------------------------------------------------------------------
-    wheel_track = float(robot_params.get("wheel_track", 0.325))
-    wheel_odometry_node = Node(
-        package="mowgli_localization",
-        executable="wheel_odometry_node",
-        name="wheel_odometry_node",
-        output="screen",
-        parameters=[
-            localization_params,
-            {"wheel_distance": wheel_track},
-            {"use_sim_time": use_sim_time},
-        ],
-    )
-
+    # Wheel odometry is produced directly by hardware_bridge on
+    # /wheel_odom (from the firmware's odom packet). The old
+    # mowgli_localization/wheel_odometry_node subscribed to /wheel_ticks
+    # and re-published /wheel_odom — but /wheel_ticks has no publisher
+    # on this branch, so that node was dead weight and a duplicate
+    # publisher for /wheel_odom. Keep the source in the package for now
+    # (disabled) and rely on hardware_bridge alone.
     # ------------------------------------------------------------------
     # 7a. NavSat → AbsolutePose converter (for GUI + BT)
     # FusionCore takes /gps/fix directly; this node converts to
@@ -242,6 +216,20 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             localization_params,
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 8b. IMU yaw calibration node (on-demand)
+    # Exposes /calibrate_imu_yaw_node/calibrate — idle until called.
+    # ------------------------------------------------------------------
+    calibrate_imu_yaw_node = Node(
+        package="mowgli_localization",
+        executable="calibrate_imu_yaw_node.py",
+        name="calibrate_imu_yaw_node",
+        output="screen",
+        parameters=[
             {"use_sim_time": use_sim_time},
         ],
     )
@@ -336,8 +324,6 @@ def generate_launch_description() -> LaunchDescription:
             # Arguments
             use_sim_time_arg,
             serial_port_arg,
-            slam_arg,
-            map_arg,
             enable_mqtt_arg,
             enable_foxglove_arg,
             foxglove_port_arg,
@@ -349,9 +335,9 @@ def generate_launch_description() -> LaunchDescription:
             behavior_tree_node,
             map_server_node,
             obstacle_tracker_node,
-            wheel_odometry_node,
             navsat_converter_node,  # publishes /gps/absolute_pose for GUI + BT
             localization_monitor_node,
+            calibrate_imu_yaw_node,
             diagnostics_node,
             mqtt_bridge_node,
             foxglove_bridge_node,

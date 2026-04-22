@@ -1,0 +1,77 @@
+# Kinematic-ICP parameters tuned for Mowgli's 2D LD19 LiDAR on a slow outdoor mower.
+#
+# Hardware context
+#   LD19: single-plane 360° scan, 455 pts/scan @ 10 Hz, rated 12 m but usable
+#   6-8 m outdoors. Native 2D mode (use_2d_lidar: true) injects the scan
+#   directly from a LaserScan topic — no external laserscan_to_pointcloud
+#   converter needed.
+#
+# Motion context
+#   Mower tops out at 0.3 m/s (mowing) / 0.2 m/s (transit), ~3 cm/frame at
+#   10 Hz. Kinematic-ICP uses the wheel-odom TF delta across the scan window
+#   as the ICP initial guess, which closes the lateral-drift hole that makes
+#   KISS-ICP hallucinate sideways motion on featureless grass. The kinematic
+#   prior also handles ZUPT implicitly: if the wheels report zero motion,
+#   the prior is identity and ICP won't pull the estimate away.
+#
+# Role in the stack
+#   Kinematic-ICP's output (`/kinematic_icp/lidar_odometry`) is finite-
+#   differenced by kinematic_icp_encoder_adapter.py into a body-frame twist
+#   and published on `/encoder2/odom` for FusionCore's UKF. Kinematic-ICP
+#   does NOT publish the `odom` TF — FusionCore owns that. The node still
+#   publishes its own lidar_odom frame (here named `odom_kicp`) which we
+#   isolate via publish_odom_tf=false anyway.
+
+/**:
+  ros__parameters:
+    # Trim below LD19's nominal range — returns past 6 m outdoors are
+    # dominated by haze, sun, and wind-moved foliage, which adds noise to
+    # the adaptive-threshold SSE.
+    max_range: 6.0
+    # Reject self-reflections off the chassis / wheel arches.
+    min_range: 0.4
+
+    # Voxel size + points per voxel.
+    # 2D scans are sparse (~455 pts over 270°). With voxel_size=1.0
+    # (upstream default aimed at dense 3D LiDAR) every voxel is nearly
+    # empty. 0.2 m gives reliable overlap across scans and averages wind
+    # wobble. In 2D every voxel only ever sees ~one horizontal slice of
+    # points, so 20 points/voxel is memory waste — 5 is enough.
+    voxel_size: 0.2
+    max_points_per_voxel: 5
+
+    # Correspondence threshold — Kinematic-ICP's adaptive threshold scales
+    # ICP's max-correspondence distance with observed model error. Keep
+    # adaptive on; fixed_threshold is the fallback if disabled.
+    use_adaptive_threshold: true
+    fixed_threshold: 0.3
+
+    # Registration
+    # Kinematic-ICP uses far fewer ICP iterations than KISS-ICP because the
+    # wheel-kinematic prior puts the initial guess very close to truth.
+    # 10 iterations × tighter convergence is typical upstream; keep defaults.
+    max_num_iterations: 10
+    convergence_criterion: 0.001
+    # ARM is CPU-bound with Nav2 + FusionCore running; single-threaded ICP
+    # is fine for 2D sparse clouds and leaves cores for controllers.
+    max_num_threads: 1
+
+    # Adaptive odometry regularisation — Kinematic-ICP uses the wheel
+    # prior as a soft constraint (penalty weight adapted from residuals).
+    # Keep adaptive on so the weight relaxes when ICP is confident and
+    # tightens when the scene is featureless.
+    use_adaptive_odometry_regularization: true
+    fixed_regularization: 0.0
+
+    # Motion Compensation
+    # LaserScan messages carry no per-point timestamps; deskew will silently
+    # fall through to identity when use_2d_lidar=true, but we set it off
+    # explicitly to make intent clear.
+    deskew: false
+
+    # Pose/twist covariance advertised on /kinematic_icp/lidar_odometry.
+    # Our adapter overrides the twist covariance it publishes on
+    # /encoder2/odom anyway, but the pose covariance here is what
+    # downstream consumers (rviz, metrics) see.
+    orientation_covariance: 0.1
+    position_covariance: 0.1

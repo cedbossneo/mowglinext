@@ -5,6 +5,8 @@ import {usePower} from "../hooks/usePower.ts";
 import {useGPS} from "../hooks/useGPS.ts";
 import {useSettings} from "../hooks/useSettings.ts";
 import {AbsolutePoseConstants} from "../types/ros.ts";
+import {computeBatteryPercent} from "../utils/battery.ts";
+import {restartMowgliNext} from "../utils/containers.ts";
 import {App, Badge, Dropdown, Modal, Space, Typography} from "antd";
 import {PoweroffOutlined, ReloadOutlined, DesktopOutlined, WifiOutlined} from "@ant-design/icons"
 import {stateRenderer} from "./utils.tsx";
@@ -72,19 +74,9 @@ export const MowerStatus = () => {
         return 0;
     })();
 
-    // Battery percent with fallback
-    const batteryPercent = (() => {
-        if (highLevelStatus.battery_percent != null && highLevelStatus.battery_percent > 0) {
-            return Math.round(highLevelStatus.battery_percent);
-        }
-        if (power.v_battery) {
-            const full = parseFloat(settings["battery_full_voltage"] ?? "28.5");
-            const empty = parseFloat(settings["battery_empty_voltage"] ?? "23.0");
-            const pct = ((power.v_battery - empty) / (full - empty)) * 100;
-            return Math.round(Math.max(0, Math.min(100, pct)));
-        }
-        return 0;
-    })();
+    const batteryPercent = computeBatteryPercent(
+        highLevelStatus.battery_percent, power.v_battery, settings,
+    );
 
     const isMowing = stateName === "MOWING" || stateName === "DOCKING" || stateName === "UNDOCKING";
 
@@ -102,18 +94,8 @@ export const MowerStatus = () => {
 
     const restartMowgli = async () => {
         try {
-            const res = await guiApi.containers.containersList();
-            if (res.error) throw new Error(res.error.error);
-            const container = res.data.containers?.find(
-                (c) => c.labels?.app === "mowglinext" || c.names?.includes("/mowglinext")
-            );
-            if (container?.id) {
-                const cmdRes = await guiApi.containers.containersCreate(container.id, "restart");
-                if (cmdRes.error) throw new Error(cmdRes.error.error);
-                notification.success({message: "Mowgli restarted"});
-            } else {
-                throw new Error("MowgliNext container not found");
-            }
+            await restartMowgliNext(guiApi);
+            notification.success({message: "Mowgli restarted"});
         } catch (e: any) {
             notification.error({message: "Failed to restart Mowgli", description: e.message});
         }

@@ -84,13 +84,13 @@ RMW_IMPLEMENTATION: rmw_fastrtps_cpp
 RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
 ```
 
-#### 3. SLAM as TF Authority
+#### 3. TF Authority
 
-AI may suggest having multiple nodes publish the same TF transforms. **Don't.** SLAM Toolbox is the sole TF authority for `map→odom` (20 Hz via scan matching). FusionCore publishes `odom→base_footprint` only.
+AI may suggest having multiple nodes publish the same TF transforms. **Don't.** `map→odom` is a static identity transform published once at launch (there is no SLAM back-end). FusionCore is the sole publisher of `odom→base_footprint` at 100 Hz. Kinematic-ICP (when enabled) publishes its own parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), which nothing else in the stack consumes — that isolation is what prevents K-ICP's output from feeding back into its own motion prior.
 
 #### 4. MPPI Controller for Coverage
 
-AI often suggests MPPI as "more advanced". For boustrophedon coverage paths with 0.18m swath spacing, MPPI's Euclidean nearest-point matching jumps between adjacent parallel swaths. We use RPP (Regulated Pure Pursuit) which tracks sequentially.
+AI often suggests MPPI as "more advanced". For boustrophedon coverage paths with 0.18 m swath spacing, MPPI's Euclidean nearest-point matching jumps between adjacent parallel swaths. Mowgli uses **RPP** (Regulated Pure Pursuit) for transit and **FTCController** (Follow-the-Carrot, 3-axis PID) for coverage swaths — the latter gives sub-10 mm lateral error along a strip.
 
 #### 5. Hallucinated ROS2 APIs
 

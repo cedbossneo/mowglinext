@@ -31,6 +31,21 @@ type AreaRecordingRes struct {
 	Polygon                   geometry.Polygon               `json:"polygon"`
 }
 
+// CalibrateImuYawReq for mowgli_interfaces/srv/CalibrateImuYaw request.
+type CalibrateImuYawReq struct {
+	DurationSec               float64                        `json:"duration_sec"`
+}
+
+// CalibrateImuYawRes for mowgli_interfaces/srv/CalibrateImuYaw response.
+type CalibrateImuYawRes struct {
+	Success                   bool                           `json:"success"`
+	Message                   string                         `json:"message"`
+	ImuYawRad                 float64                        `json:"imu_yaw_rad"`
+	ImuYawDeg                 float64                        `json:"imu_yaw_deg"`
+	SamplesUsed               int32                          `json:"samples_used"`
+	StdDevDeg                 float64                        `json:"std_dev_deg"`
+}
+
 // ClearMapReq for mowgli_interfaces/srv/ClearMap request (empty).
 type ClearMapReq struct{}
 

@@ -20,10 +20,9 @@
  *
  * Mode decision logic (evaluated every publish_rate_ Hz):
  *
- *   RTK_SLAM       ← GPS fresh AND rtk_fixed AND LiDAR fresh
- *   SLAM_DOMINANT  ← GPS fresh AND rtk_active (float) AND LiDAR fresh
- *   SLAM_ODOM      ← GPS stale AND LiDAR fresh
- *   GPS_ODOM       ← GPS fresh AND rtk_fixed AND LiDAR stale
+ *   RTK_FIXED      ← GPS fresh AND rtk_fixed
+ *   RTK_FLOAT      ← GPS fresh AND rtk_active (float or DGPS)
+ *   GPS_ONLY       ← GPS fresh (unaugmented)
  *   DEAD_RECKONING ← everything else
  *
  * The mode string is also logged at INFO level whenever it changes so the
@@ -39,6 +38,11 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "std_msgs/msg/string.hpp"
+
+// SLAM (Cartographer / slam_toolbox) subscription was removed with the
+// switch to the Kinematic-ICP drift-correction architecture. Localization
+// mode now reflects GPS quality only; LiDAR-based obstacle avoidance stays
+// active via collision_monitor + obstacle_tracker independently.
 
 namespace mowgli_localization
 {
@@ -58,10 +62,9 @@ LocalizationMonitorNode::LocalizationMonitorNode(const rclcpp::NodeOptions& opti
   create_timer();
 
   RCLCPP_INFO(get_logger(),
-              "LocalizationMonitorNode started — gps_timeout=%.1f s, lidar_timeout=%.1f s, "
+              "LocalizationMonitorNode started — gps_timeout=%.1f s, "
               "pose_timeout=%.1f s, publish_rate=%.1f Hz",
               gps_timeout_,
-              lidar_timeout_,
               pose_timeout_,
               publish_rate_);
 }
@@ -73,7 +76,6 @@ LocalizationMonitorNode::LocalizationMonitorNode(const rclcpp::NodeOptions& opti
 void LocalizationMonitorNode::declare_parameters()
 {
   gps_timeout_ = declare_parameter<double>("gps_timeout", 2.0);
-  lidar_timeout_ = declare_parameter<double>("lidar_timeout", 1.0);
   pose_timeout_ = declare_parameter<double>("pose_timeout", 0.5);
   publish_rate_ = declare_parameter<double>("publish_rate", 10.0);
 }
@@ -106,14 +108,6 @@ void LocalizationMonitorNode::create_subscribers()
       [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
       {
         on_absolute_pose(msg);
-      });
-
-  slam_pose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-      "/slam_toolbox/pose",
-      rclcpp::QoS(10),
-      [this](geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg)
-      {
-        on_slam_pose(msg);
       });
 }
 
@@ -148,12 +142,6 @@ void LocalizationMonitorNode::on_absolute_pose(
   gps_rtk_fixed_ = (msg->flags & Flags::FLAG_GPS_RTK_FIXED) != 0u;
   gps_rtk_active_ = gps_rtk_fixed_ || ((msg->flags & Flags::FLAG_GPS_RTK_FLOAT) != 0u) ||
                     ((msg->flags & Flags::FLAG_GPS_RTK) != 0u);
-}
-
-void LocalizationMonitorNode::on_slam_pose(
-    geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg)
-{
-  last_slam_stamp_ = msg->header.stamp;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,28 +179,22 @@ void LocalizationMonitorNode::on_publish_timer()
 LocalizationMode LocalizationMonitorNode::evaluate_mode() const
 {
   const bool gps_fresh = is_fresh(last_gps_stamp_, gps_timeout_);
-  const bool lidar_fresh = is_fresh(last_slam_stamp_, lidar_timeout_);
 
   // Ordered from best to worst; first matching rule wins.
 
-  if (gps_fresh && gps_rtk_fixed_ && lidar_fresh)
+  if (gps_fresh && gps_rtk_fixed_)
   {
-    return LocalizationMode::RTK_SLAM;
+    return LocalizationMode::RTK_FIXED;
   }
 
-  if (gps_fresh && gps_rtk_active_ && lidar_fresh)
+  if (gps_fresh && gps_rtk_active_)
   {
-    return LocalizationMode::SLAM_DOMINANT;
+    return LocalizationMode::RTK_FLOAT;
   }
 
-  if (!gps_fresh && lidar_fresh)
+  if (gps_fresh)
   {
-    return LocalizationMode::SLAM_ODOM;
-  }
-
-  if (gps_fresh && gps_rtk_fixed_ && !lidar_fresh)
-  {
-    return LocalizationMode::GPS_ODOM;
+    return LocalizationMode::GPS_ONLY;
   }
 
   return LocalizationMode::DEAD_RECKONING;
@@ -222,14 +204,12 @@ std::string LocalizationMonitorNode::mode_to_string(const LocalizationMode mode)
 {
   switch (mode)
   {
-    case LocalizationMode::RTK_SLAM:
-      return "RTK_SLAM";
-    case LocalizationMode::SLAM_DOMINANT:
-      return "SLAM_DOMINANT";
-    case LocalizationMode::SLAM_ODOM:
-      return "SLAM_ODOM";
-    case LocalizationMode::GPS_ODOM:
-      return "GPS_ODOM";
+    case LocalizationMode::RTK_FIXED:
+      return "RTK_FIXED";
+    case LocalizationMode::RTK_FLOAT:
+      return "RTK_FLOAT";
+    case LocalizationMode::GPS_ONLY:
+      return "GPS_ONLY";
     case LocalizationMode::DEAD_RECKONING:
       return "DEAD_RECKONING";
     default:

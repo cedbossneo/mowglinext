@@ -14,11 +14,19 @@ typedef struct
 } VECTOR;
 
 /*
- * conversions to ROS units
+ * Conversions to ROS units.
+ *
+ * RAD_PER_DEG was previously named RAD_PER_G; the "G" was short for
+ * "degrees" (°) but collided visually with the "g" used for gravity.
+ * Renamed to avoid confusion — the numeric value (π/180) is unchanged.
+ *
+ * T_PER_GAUSS is parenthesised with a float literal; the previous
+ * "1/10000" was integer division = 0, which silently zeroed any magnetometer
+ * conversion that precomputed the factor.
  */
-#define RAD_PER_G               0.01745             // convert °/sec to rad/sec
-#define MS2_PER_G               9.80665             // convert g to m/s^2 
-#define T_PER_GAUSS             1/10000             // convert Gauss to T
+#define RAD_PER_DEG             0.017453292519943295f  /* π/180: deg → rad */
+#define MS2_PER_G               9.80665f               /* g → m/s²        */
+#define T_PER_GAUSS             (1.0f / 10000.0f)      /* Gauss → Tesla   */
 
 /*
  * IMU functions that a compatible IMU needs to be able to provide

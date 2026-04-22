@@ -42,6 +42,7 @@ set(srv_files
   "srv/GetNextStrip.srv"
   "srv/GetCoverageStatus.srv"
   "srv/AreaRecording.srv"
+  "srv/CalibrateImuYaw.srv"
 )
 
 # Declare action files

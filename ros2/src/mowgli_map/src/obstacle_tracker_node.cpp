@@ -99,8 +99,8 @@ ObstacleTrackerNode::ObstacleTrackerNode(const rclcpp::NodeOptions& options)
         on_costmap(std::move(msg));
       });
 
-  // slam_toolbox publishes with a transient-local QoS so late subscribers
-  // receive the last map immediately on connect.
+  // map_server_node publishes with a transient-local QoS so late
+  // subscribers receive the last map immediately on connect.
   {
     rclcpp::QoS map_qos(rclcpp::KeepLast(1));
     map_qos.transient_local();

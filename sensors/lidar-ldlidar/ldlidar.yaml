@@ -1,0 +1,22 @@
+# LD19 rover parameters for Myzhar/ldrobot-lidar-ros2.
+# Overrides the driver's bundled params/ldlidar.yaml.
+ldlidar_node:
+  ros__parameters:
+    # Hardware
+    comm.serial_port: /dev/lidar        # udev symlink → /dev/ttyS1
+    comm.baudrate: 230400               # LD19/LD06 = 230400 baud
+    comm.timeout_msec: 1000
+
+    # Sensor config
+    lidar.model: LDLiDAR_LD19
+    lidar.rot_verse: CCW                # ROS convention
+    lidar.units: M                      # metres
+    lidar.frame_id: lidar_link
+    # Fixed beam count — THIS is the whole reason for switching drivers.
+    # slam_toolbox's Karto backend logs "expected N range readings" when
+    # the scan length varies; the upstream ldlidar_stl_ros2 jitters
+    # 499-503. `bins: 455` forces a fixed resampling.
+    lidar.bins: 455
+    lidar.range_min: 0.03
+    lidar.range_max: 15.0
+    lidar.enable_angle_crop: false

@@ -108,6 +108,12 @@ struct BTContext
   /// Set to true when the robot is outside all allowed polygons.
   bool boundary_violation{false};
 
+  /// Set to true when the robot is outside all allowed polygons by more
+  /// than lethal_boundary_margin_m. Escalates the BoundaryGuard from
+  /// "try to navigate back inside" to "emergency stop + wait for
+  /// operator" — blade/motors past this margin can do real damage.
+  bool lethal_boundary_violation{false};
+
   /// Current navigation mode: "precise" or "degraded"
   std::string current_nav_mode{"precise"};
 

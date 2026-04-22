@@ -34,6 +34,7 @@ export function ThemeProvider({children}: {children: React.ReactNode}) {
         try { localStorage.setItem(STORAGE_KEY, mode); } catch { /* ignore */ }
         document.documentElement.style.background = colors.bgBase;
         document.body.style.background = colors.bgBase;
+        document.body.style.fontFamily = "'Manrope', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
         const meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute('content', colors.bgBase);
     }, [mode, colors.bgBase]);

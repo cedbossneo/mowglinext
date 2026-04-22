@@ -31,9 +31,15 @@
 *******************************************************************************/
 #define WT901_ADDRESS 0x50
 
-#define WT901_G_FACTOR 16/32768
-#define WT901_DPS_FACTOR 2000.0f/32768.0f
-#define WT901_T_FACTOR 0.00000015f    
+// WT901 full-scale: ±16 g accel, ±2000 °/s gyro, int16 raw output.
+// Parenthesise and use float literals so the expression is self-contained.
+// The previous "16/32768" was integer division = 0; it only produced correct
+// readings in the existing call sites because C's left-to-right evaluation
+// order promoted to float before the /32768 hit. A refactor like
+// (WT901_G_FACTOR * MS2_PER_G) would collapse to 0. Fixed.
+#define WT901_G_FACTOR   (16.0f / 32768.0f)
+#define WT901_DPS_FACTOR (2000.0f / 32768.0f)
+#define WT901_T_FACTOR 0.00000015f
 
 #define DIO_MODE_AIN 0
 #define DIO_MODE_DIN 1
@@ -192,9 +198,9 @@ void WT901_ReadGyroRaw(float *x, float *y, float *z)
 
     SW_I2C_UTIL_Read_Multi(WT901_ADDRESS, GX, 6, (uint8_t*)&gyro_xyz);
     
-    *x = (float)(int16_t)(gyro_xyz[1] << 8 | gyro_xyz[0]) * WT901_DPS_FACTOR * RAD_PER_G;
-    *y = (float)(int16_t)(gyro_xyz[3] << 8 | gyro_xyz[2]) * WT901_DPS_FACTOR * RAD_PER_G;
-    *z = (float)(int16_t)(gyro_xyz[5] << 8 | gyro_xyz[4]) * WT901_DPS_FACTOR * RAD_PER_G;    
+    *x = (float)(int16_t)(gyro_xyz[1] << 8 | gyro_xyz[0]) * WT901_DPS_FACTOR * RAD_PER_DEG;
+    *y = (float)(int16_t)(gyro_xyz[3] << 8 | gyro_xyz[2]) * WT901_DPS_FACTOR * RAD_PER_DEG;
+    *z = (float)(int16_t)(gyro_xyz[5] << 8 | gyro_xyz[4]) * WT901_DPS_FACTOR * RAD_PER_DEG;    
 }
 
 /**

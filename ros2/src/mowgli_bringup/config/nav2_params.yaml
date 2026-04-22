@@ -16,7 +16,7 @@ bt_navigator:
     # Paths are injected by navigation.launch.py via RewrittenYaml — keep empty here.
     default_nav_to_pose_bt_xml: ""
     default_nav_through_poses_bt_xml: ""
-    # plugin_lib_names: auto-loaded in Jazzy — no manual list needed.
+    # plugin_lib_names: auto-loaded in Kilted — no manual list needed.
     enable_stamped_cmd_vel: true
 
 bt_navigator_navigate_through_poses_rclcpp_node:
@@ -34,10 +34,19 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     enable_stamped_cmd_vel: true
-    # Low frequency: slow motors overshoot/oscillate at higher rates.
-    # Old mowgli project used 1.0 Hz successfully.
-    controller_frequency: 2.0
-    min_x_velocity_threshold: 0.001
+    # 10 Hz: the controller must close its heading loop faster than the robot
+    # can drift off. At 0.3 m/s and 2 Hz the robot slides 15 cm between
+    # corrections — it overshoots into an S-curve. 10 Hz keeps each step <3 cm,
+    # which is well inside FTC's corridor.
+    controller_frequency: 10.0
+    # Default 0.30s causes "Costmap timed out waiting for update" error 107
+    # on ARM (local_costmap update gaps of 600ms+ at 5Hz, 2-3s under load).
+    # 5s gives headroom while we run local_costmap at 10Hz.
+    costmap_update_timeout: 5.0
+    # Motor static-friction deadband: PWM_PER_MPS=300 in firmware → 0.10 m/s
+    # = PWM 30. Anything below ~0.12 m/s buzzes without moving. Zero
+    # sub-deadband commands so the motors don't sit in the buzz zone.
+    min_x_velocity_threshold: 0.08
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 1.0
@@ -88,15 +97,25 @@ controller_server:
       transform_tolerance: 2.0
       # Larger lookahead = smoother turns, less oscillation
       use_velocity_scaled_lookahead_dist: true
-      min_approach_linear_velocity: 0.1
+      # Above the ~0.12 m/s motor deadband, otherwise RPP slows to a buzz
+      # that never reaches the goal.
+      min_approach_linear_velocity: 0.15
       approach_velocity_scaling_dist: 0.6
-      use_collision_detection: false
+      # RPP collision detection enabled: the local_costmap now carries an
+      # obstacle_layer, so RPP can slow/stop when the path is about to hit
+      # a real obstacle (not just the pre-planned path blindly).
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.5
       use_regulated_linear_velocity_scaling: true
       use_fixed_curvature_lookahead: false
       curvature_lookahead_dist: 0.6
       use_cost_regulated_linear_velocity_scaling: false
       regulated_linear_scaling_min_radius: 0.9
-      regulated_linear_scaling_min_speed: 0.10
+      # Above motor deadband (PWM_PER_MPS=300 → 0.12 m/s ~ PWM 36).
+      regulated_linear_scaling_min_speed: 0.15
+      # false: use_rotate_to_heading=true caused pivot oscillation at the
+      # rotation_shim hysteresis edge (±0.25 rad/s) on slam-toolbox-tuned.
+      # Keep arcs-only — RotationShimController handles initial heading.
       use_rotate_to_heading: false
       allow_reversing: false
       max_angular_vel: 0.8
@@ -133,8 +152,13 @@ controller_server:
       goal_timeout: 10.0
       max_follow_distance: 2.0
       forward_only: false            # allow reversing
-      # Obstacles — rely on collision_monitor, not costmap
-      check_obstacles: false
+      # Obstacles: check the local_costmap obstacle_layer for the next
+      # `obstacle_lookahead` path poses and abort the strip when one
+      # of them falls on a LETHAL cell. Previously disabled, which let
+      # the robot creep into walls at 30% speed behind collision_monitor.
+      check_obstacles: true
+      obstacle_lookahead: 5
+      obstacle_footprint: true
 
 # ---------------------------------------------------------------------------
 # Planner server
@@ -198,9 +222,15 @@ behavior_server:
     global_frame: odom
     robot_base_frame: base_footprint
     transform_tolerance: 0.5
-    simulate_ahead_time: 2.0
+    # 0.5s sim-ahead (at 0.15 m/s BackUp ≈ 7.5 cm) catches immediate
+    # collisions without aborting on phantom LETHAL cells 30-50 cm behind
+    # (often map→odom jump artefacts or dock residue). 2.0s refused every
+    # undock.
+    simulate_ahead_time: 0.5
     max_rotational_vel: 3.0
-    min_rotational_vel: 0.15
+    # 0.85 rad/s ≈ wheel vel 0.14 m/s per wheel (PWM 42 > deadband).
+    # Lower floor let Spin behavior dither at sub-deadband ω.
+    min_rotational_vel: 0.85
     rotational_acc_lim: 5.0
 
 # ---------------------------------------------------------------------------
@@ -227,20 +257,23 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    # Topic flow: controller_server → cmd_vel_nav → velocity_smoother →
-    #             cmd_vel_smoothed → collision_monitor → cmd_vel_monitored →
-    #             twist_mux → cmd_vel → hardware
-    input_topic: cmd_vel_nav
-    output_topic: cmd_vel_smoothed
+    # Pipeline topics are wired via launch-file remappings, not yaml
+    # (nav2_velocity_smoother doesn't expose input_topic/output_topic as
+    # parameters — only 'cmd_vel' and 'smoothed_cmd_vel' remap targets).
+    # See nav2_navigation_launch.py for the actual wiring.
     max_velocity: [0.3, 0.0, 0.8]
     min_velocity: [-0.3, 0.0, -1.0]
     # Higher acceleration to overcome grass resistance and static friction.
     # The robot needs a burst of power to start moving on thick terrain.
-    max_accel: [0.8, 0.0, 2.0]
-    max_decel: [-0.5, 0.0, -2.0]
+    # Angular accel 4.0 rad/s² — the smoother was a hidden ceiling that made
+    # short turns crawl even after bumping controller-side max_angular_accel.
+    max_accel: [0.8, 0.0, 4.0]
+    max_decel: [-0.5, 0.0, -4.0]
     odom_topic: /wheel_odom
     odom_duration: 0.1
-    deadband_velocity: [0.05, 0.0, 0.0]
+    # Match motor deadband (PWM ~40 of 300 → 0.13 m/s). Commanded vel below
+    # this is zeroed so the motors never sit in the buzz zone.
+    deadband_velocity: [0.13, 0.0, 0.0]
     velocity_timeout: 1.0
 
 # ---------------------------------------------------------------------------
@@ -250,8 +283,12 @@ global_costmap:
   global_costmap:
     ros__parameters:
       use_sim_time: false
-      update_frequency: 0.5
-      publish_frequency: 0.5
+      # 1 Hz (was 0.5 Hz): faster updates reduce the chance of Nav2
+      # controller_server seeing a stale global costmap during action start.
+      # Costmap is 30×30m @ 5cm → obstacle_layer raycast is the main cost,
+      # still under 100 ms on ARM so 1 Hz is safe.
+      update_frequency: 1.0
+      publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
       # TF tolerance: how stale a transform can be before the costmap rejects it.
@@ -259,6 +296,9 @@ global_costmap:
       # wrong cells, creating phantom obstacles.  SLAM init delay is handled by
       # wait_for_tf.py, not this parameter.
       transform_tolerance: 5.0
+      # Force periodic full publishes even when no obstacles change, so
+      # isCurrent() reliably flips true for the planner's waitForCurrent.
+      always_send_full_costmap: true
       # Footprint computed from mowgli_robot.yaml at launch time
       footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
@@ -272,17 +312,11 @@ global_costmap:
       rolling_window: true
       width: 30
       height: 30
-      # keepout_filter re-enabled: the keepout mask now includes a navigation
-      # margin (keepout_nav_margin param) so the robot can operate near the
-      # boundary edge without triggering "Start occupied".
-      # keepout_filter disabled: LETHAL outside mowing area blocks transit
-      # and docking routes. Boundary enforcement via coverage planner only.
+      # keepout_filter intentionally NOT loaded: marking the area outside
+      # the mowing polygon as LETHAL blocks transit and docking routes.
+      # Boundary enforcement is handled by the coverage planner via
+      # strip-level in-polygon clipping, not the costmap.
       plugins: ["obstacle_layer", "inflation_layer"]
-
-      keepout_filter:
-        plugin: "nav2_costmap_2d::KeepoutFilter"
-        enabled: true
-        filter_info_topic: "/costmap_filter_info"
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -292,7 +326,14 @@ global_costmap:
         observation_sources: scan
         scan:
           topic: /scan
-          max_obstacle_height: 2.0
+          # Raised from 2.0 to tolerate FusionCore Z drift (seen climbing to
+          # 70m+ over minutes when GPS Z is effectively ignored). Without this,
+          # all scans get filtered as "too high" and the obstacle_layer stays
+          # empty → global costmap blank → controller can't plan around real
+          # obstacles. 200m covers any realistic drift window; the LiDAR is a
+          # 2D planar sensor so height filtering only matters for multi-layer
+          # clouds, which we don't use.
+          max_obstacle_height: 200.0
           clearing: true
           marking: true
           data_type: "LaserScan"
@@ -316,10 +357,23 @@ local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: false
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      # Controller checks costmap freshness each cycle; if update_frequency
+      # is close to controller_frequency (5 Hz), timing jitter causes
+      # sporadic 'Costmap timed out' aborts. Bumped both to 10 Hz.
+      update_frequency: 10.0
+      publish_frequency: 10.0
       global_frame: odom
       robot_base_frame: base_footprint
+      # Raised from default 0.3s: on ARM the odom→base_footprint TF lookup
+      # occasionally exceeds 300ms of scheduler jitter, causing updateMap()
+      # to early-return without setting current_=true → controller_server's
+      # waitForCurrent times out every goal with error 107.
+      transform_tolerance: 5.0
+      # Force periodic full publishes. Without this (default false), the
+      # costmap only publishes when its map changes — but with only the
+      # inflation_layer and no obstacle source, the map rarely changes,
+      # so the publish thread stays idle and isCurrent() never flips true.
+      always_send_full_costmap: true
       footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
       rolling_window: true
@@ -331,11 +385,43 @@ local_costmap:
       # planner (swaths stay within the polygon) and the collision_monitor
       # (real LiDAR obstacles only). Speed filter also removed as it depends
       # on the same mask infrastructure.
-      # Local costmap: NO obstacle layer. Collision_monitor handles real-time
-      # obstacle avoidance (slow/stop polygons). The obstacle layer caused
-      # BackUp "Collision Ahead" failures at the dock — the dock structure
-      # is always visible to lidar and can't be cleared from the costmap.
-      plugins: ["inflation_layer"]
+      # Obstacle layer ENABLED so FTCController's obstacle lookahead
+      # (check_obstacles=true, obstacle_lookahead=5) can avoid LiDAR-seen
+      # obstacles on coverage paths. Collision_monitor alone (PolygonSlow
+      # at 30%) was letting the robot creep into walls during FollowStrip.
+      # observation_persistence=0 keeps the dock cleared when the robot
+      # drives away from it, so it doesn't block BackUp on the next cycle.
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_persistence: 0.0
+        observation_sources: scan
+        scan:
+          topic: /scan
+          # Large ceiling so FusionCore Z drift doesn't filter scans out.
+          max_obstacle_height: 200.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 6.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 4.0
+          # Blank returns within 0.65m: on this robot the charge port is in
+          # front, so the dock body sits just ahead of base_footprint
+          # (roughly chassis_center_x + chassis_length/2 ≈ 45 cm) when
+          # docked. Whether the robot is approaching forward to dock or
+          # BackUp-ing to undock, the dock structure is always within 65 cm.
+          # Without the blank, it would be marked LETHAL and the BackUp
+          # behavior's collision checker (via behavior_server →
+          # local_costmap/costmap_raw) would abort undock at error 714
+          # "Collision Ahead". 0.65 m covers the dock but still catches
+          # real obstacles (walls/fences always >0.65 m during mowing).
+          # observation_persistence=0 clears dock residue as the robot
+          # drives away, so this doesn't hurt post-undock navigation.
+          obstacle_min_range: 0.65
+          inf_is_valid: true
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -343,7 +429,9 @@ local_costmap:
         inflation_radius: 0.40
 
 # ---------------------------------------------------------------------------
-# Map server / AMCL (not used with slam_toolbox, kept for completeness)
+# Map server / AMCL (unused — map->odom is a static identity with
+# Kinematic-ICP drift correction feeding FusionCore's encoder2 slot;
+# kept for completeness / Nav2 lifecycle compatibility)
 # ---------------------------------------------------------------------------
 map_server:
   ros__parameters:
@@ -365,9 +453,17 @@ docking_server:
   ros__parameters:
     use_sim_time: false
     enable_stamped_cmd_vel: true
-    controller_frequency: 2.0
+    # 10 Hz (was 2 Hz): tighter approach control + faster polling of
+    # isDocked()/isCharging() so the robot stops within ~100 ms of the
+    # charging signal arriving rather than up to ~500 ms. Not high
+    # enough to starve Nav2/FusionCore on ARM.
+    controller_frequency: 10.0
     initial_perception_timeout: 5.0
-    wait_charge_timeout: 5.0
+    # Firmware sets STATUS_BIT_CHARGING only after its own ADC debounce
+    # (~2-3 s on this platform). 5 s barely covered that; 10 s gives a
+    # comfortable margin while still failing fast if physical contact
+    # never actually happens.
+    wait_charge_timeout: 10.0
     dock_approach_timeout: 30.0
     undock_linear_tolerance: 0.05
     undock_angular_tolerance: 0.1
@@ -387,10 +483,11 @@ docking_server:
       plugin: "opennav_docking::SimpleChargingDock"
       charging_threshold: 0.1
       # Geometric distance (m) from base_link to dock pose for isDocked().
-      # Must accommodate SLAM relocalization drift — lifelong SLAM can
-      # place the robot several metres from the configured dock pose
-      # after loading a saved map with heading mismatch.
-      docking_threshold: 0.5
+      # RTK-Fixed gives σ ~3 mm, so 0.05 m is a comfortable envelope
+      # covering antenna-lever-arm effects and short GPS glitches.
+      # (The earlier 0.5 m was a concession to lifelong-SLAM drift, which
+      # no longer applies — FusionCore is the sole localizer.)
+      docking_threshold: 0.05
       staging_x_offset: -1.0
       use_external_detection_pose: false
       use_battery_status: true
@@ -407,8 +504,8 @@ collision_monitor:
     enable_stamped_cmd_vel: true
     base_frame_id: base_footprint
     odom_frame_id: odom
-    cmd_vel_in_topic: cmd_vel_smoothed
-    cmd_vel_out_topic: cmd_vel_monitored
+    cmd_vel_in_topic: cmd_vel_nav
+    cmd_vel_out_topic: cmd_vel_safe
     state_topic: collision_monitor_state
     transform_tolerance: 0.2
     # Source timeout: how long before stale sensor data triggers a stop.
@@ -430,7 +527,10 @@ collision_monitor:
       points: "[[0.65, 0.35], [0.65, -0.35], [-0.25, -0.35], [-0.25, 0.35]]"
       action_type: "slowdown"
       slowdown_ratio: 0.3
-      min_points: 6
+      # 12 points (was 6) — the dock structure sits near the polygon
+      # boundary when charging, causing rapid slow/normal flapping at
+      # 10 Hz. Higher min_points adds hysteresis against that edge noise.
+      min_points: 12
       visualize: true
       polygon_pub_topic: "polygon_slow"
       enabled: true

@@ -138,10 +138,10 @@ void ICM45686_ReadGyroRaw(float *x, float *y, float *z)
     int16_t gx = (int16_t)(gyro_xyz[1] << 8 | gyro_xyz[0]);
     int16_t gy = (int16_t)(gyro_xyz[3] << 8 | gyro_xyz[2]);
     int16_t gz = (int16_t)(gyro_xyz[5] << 8 | gyro_xyz[4]);
-    /* deg/sec per LSB * RAD_PER_G (deg->rad) */
-    *x = gx * icm45686_deg_per_lsb * RAD_PER_G;
-    *y = gy * icm45686_deg_per_lsb * RAD_PER_G;
-    *z = gz * icm45686_deg_per_lsb * RAD_PER_G;
+    /* deg/sec per LSB * RAD_PER_DEG (deg->rad) */
+    *x = gx * icm45686_deg_per_lsb * RAD_PER_DEG;
+    *y = gy * icm45686_deg_per_lsb * RAD_PER_DEG;
+    *z = gz * icm45686_deg_per_lsb * RAD_PER_DEG;
   }
 }
 

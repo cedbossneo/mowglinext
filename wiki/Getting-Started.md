@@ -1,5 +1,7 @@
 # Getting Started
 
+> **Looking for the short version?** See [`docs/FIRST_BOOT.md`](https://github.com/cedbossneo/mowglinext/blob/main/docs/FIRST_BOOT.md) in the main repo for the docked-only post-install checklist (GUI open → RTK Fixed → IMU calibration → dock pose → record area → first autonomous mow).
+
 ## Hardware
 
 ### Compute Board
@@ -23,7 +25,7 @@ Any ARM64 SBC running Linux with Docker support:
 |--------|-------|------------|
 | RTK GPS | u-blox ZED-F9P (simpleRTK2B) | USB-CDC |
 | LiDAR | LDRobot LD19 | UART 230400 |
-| IMU | Pololu AltIMU-10 v5 | I2C (on STM32) |
+| IMU | WitMotion WT901 (6-axis gyro + accel) | I2C (on STM32) |
 
 ### Firmware Board
 
@@ -50,12 +52,13 @@ The fastest way to explore and develop MowgliNext — no local setup required:
 
 The devcontainer provides a complete ROS2 Kilted development environment:
 
-- Full Nav2 navigation stack, SLAM Toolbox, FusionCore (UKF sensor fusion)
+- Full Nav2 navigation stack, FusionCore (sole UKF localizer), Kinematic-ICP (optional LiDAR drift correction on a parallel TF tree)
 - Gazebo Harmonic simulation (headless)
-- B-RV coverage planner (mowgli_brv_planner)
+- Cell-based strip coverage planner (`map_server_node`) + FTCController for swath following
 - Foxglove Bridge + rosbridge for visualization
+- GUI stack (Go 1.24, Node 22, yarn) so `cd gui && go build` and `cd gui/web && yarn dev` work out of the box
+- Python linting (ruff, pre-commit), C++ linting (cppcheck, clang-format), gdb, htop
 - Claude Code CLI + GitHub CLI for AI-assisted development
-- clang-format, gdb, htop, and other dev tools
 - Auto-sourced ROS2 workspace
 
 **Forwarded ports:**

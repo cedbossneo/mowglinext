@@ -4,22 +4,28 @@ Complete guide to all configuration files and parameters in the Mowgli ROS2 syst
 
 This documentation is for ROS2 Kilted with Gazebo Harmonic.
 
+[CLAUDE.md](https://github.com/cedbossneo/mowglinext/blob/main/CLAUDE.md) is the authoritative short-form reference. If any section here contradicts it, CLAUDE.md wins.
+
 ## Overview
 
 Configuration is centralized in `src/mowgli_bringup/config/`:
 
 ```
 config/
-├── hardware_bridge.yaml      # Serial protocol parameters
-├── localization.yaml          # Dual EKF tuning
-├── nav2_params.yaml           # Navigation stack (planner, controller, costmap)
-├── coverage_planner.yaml      # B-RV coverage path planning parameters
-├── slam_toolbox.yaml          # SLAM parameters
-├── twist_mux.yaml             # Velocity multiplexer priorities
-├── foxglove_bridge.yaml       # Foxglove Studio visualization bridge
-├── obstacle_tracker.yaml      # LiDAR obstacle detection thresholds
-└── mowgli_robot.yaml          # Centralized robot config (exists but not fully wired)
+├── hardware_bridge.yaml          # Serial port, baud, publish rate, IMU cal sample count
+├── localization.yaml              # FusionCore UKF: IMU + GPS covariances, ZUPT, adaptive R,
+│                                  #   lever arms (imu_*, gnss.*), apply_lever_arm_pre_heading
+├── kinematic_icp.yaml             # Kinematic-ICP tuning (voxel, threshold, registration)
+│                                  #   for the 2D LD19 profile
+├── nav2_params.yaml               # Navigation stack with LiDAR (obstacle layer, FTCController, docking)
+├── nav2_params_no_lidar.yaml      # Navigation stack for GPS-only operation
+├── twist_mux.yaml                 # Velocity multiplexer priorities
+├── foxglove_bridge.yaml           # Foxglove Studio visualization bridge
+└── mowgli_robot.yaml              # Centralized robot config (bind-mounted from
+                                   #   install/config/mowgli at /ros2_ws/config/)
 ```
+
+There is **no** `slam_toolbox.yaml`, `ekf_*.yaml`, or `kiss_icp.yaml`. FusionCore (sole UKF localizer) is tuned through `localization.yaml`, and Kinematic-ICP (LiDAR drift correction on a parallel TF tree) is tuned through `kinematic_icp.yaml`.
 
 All YAML files use the ROS2 `ros__parameters` namespace convention. Parameters can be overridden via command-line:
 
@@ -245,10 +251,10 @@ The system uses **FusionCore**, a single Unscented Kalman Filter (UKF) that fuse
 - GPS NavSatFix (10-20 Hz directly from GPS driver)
 
 **Outputs:**
-- `/fusion/odom` (nav_msgs/Odometry) — fused state at 50 Hz
-- `/tf: odom → base_footprint` — transform at 50 Hz
+- `/fusion/odom` (nav_msgs/Odometry) — fused state at 100 Hz
+- `/tf: odom → base_footprint` — transform at 100 Hz
 
-**SLAM Toolbox** provides the `map → odom` transform (20 Hz) via scan matching. No feedback from SLAM into FusionCore.
+`map → odom` is a **static identity transform**, published once at launch by `tf2_ros static_transform_publisher` (no SLAM). FusionCore is the only node that publishes `odom → base_footprint`; Kinematic-ICP's output goes into FusionCore via `/encoder2/odom` and never as a TF.
 
 ### FusionCore Configuration
 
@@ -668,125 +674,62 @@ coverage_planner_node:
 
 ---
 
-## 5. slam_toolbox.yaml
+## 5. kinematic_icp.yaml
 
-**File:** `src/mowgli_bringup/config/slam_toolbox.yaml`
+**File:** `src/mowgli_bringup/config/kinematic_icp.yaml`
 
-**Purpose:** Configure SLAM (Simultaneous Localization and Mapping) for outdoor operation.
+**Purpose:** Tune the Kinematic-ICP (PRBonn 2024) LiDAR drift corrector for the LD19 2D LiDAR. The node runs on a parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), consumes `/scan_kicp` (a frame-relayed copy of `/scan`), and publishes `/kinematic_icp/lidar_odometry` which `kinematic_icp_encoder_adapter` finite-differences into `/encoder2/odom` for FusionCore's UKF.
 
 **Full Configuration:**
 
 ```yaml
-slam_toolbox:
+/**:
   ros__parameters:
-    # General
-    use_sim_time: false
-    mode: localization                    # or "mapping" for recording phase
+    # Trim below LD19's nominal range — returns past 6 m outdoors are
+    # dominated by haze, sun, and moving foliage.
+    max_range: 6.0
+    # Reject self-reflections off the chassis/wheels.
+    min_range: 0.4
 
-    # Frame setup
-    map_start_at_origin: false
-    map_frame: map
-    base_frame: base_link
-    odom_frame: odom
-    resolution: 0.05                      # 5 cm resolution
+    # Voxel size + points per voxel. 2D scans are sparse (~455 pts over 270°);
+    # 10 cm voxels see <=1 pt each and adjacent scans drop into different
+    # voxels from range jitter. 20 cm gives reliable overlap across scans
+    # and averages wind wobble. 5 points/voxel is enough for local plane
+    # fits in 2D.
+    voxel_size: 0.2
+    max_points_per_voxel: 5
 
-    # ─────────────────────────────────────────────────────────────
-    # Laser scan processing
-    # ─────────────────────────────────────────────────────────────
-    scan_topic: /scan
-    scan_queue_size: 10
+    # Adaptive correspondence threshold — scales with observed model error.
+    use_adaptive_threshold: true
+    fixed_threshold: 0.3
 
-    # Maximum range (ignore returns beyond this)
-    maximum_laser_range: 25.0             # m
+    # Registration
+    max_num_iterations: 100
+    convergence_criterion: 0.001
+    max_num_threads: 1                    # ARM CPU budget; Nav2 needs cores
 
-    # Angular range (typically full 360° or limited for efficiency)
-    minimum_scan_angle: -3.14             # rad (-180°)
-    maximum_scan_angle: 3.14              # rad (+180°)
+    use_adaptive_odometry_regularization: true
+    fixed_regularization: 0.0
 
-    # Minimum range (ignore returns closer than this, avoid self-reflection)
-    minimum_laser_range: 0.15             # m
+    # LaserScan has no per-point timestamps, so deskew is always off for 2D.
+    deskew: false
 
-    # ─────────────────────────────────────────────────────────────
-    # Motion model (for incremental updates)
-    # ─────────────────────────────────────────────────────────────
-    # SLAM uses odometry as motion prior; update if odometry drifts
-    transform_tolerance: 0.1              # seconds
-
-    # ─────────────────────────────────────────────────────────────
-    # Map update parameters
-    # ─────────────────────────────────────────────────────────────
-    # When to update the map (conservative for outdoor to avoid noise)
-    map_update_interval: 5.0              # seconds
-
-    # Minimum translation before new scan is added to map
-    minimum_travel_distance: 0.5          # m
-
-    # Minimum rotation before new scan is added to map
-    minimum_travel_heading: 0.5           # rad (~30°)
-
-    # ─────────────────────────────────────────────────────────────
-    # Loop closure: detecting when robot revisits a location
-    # ─────────────────────────────────────────────────────────────
-    enable_loop_closure: true
-
-    # Only close loops if robot is within this distance
-    loop_search_maximum_distance: 3.0     # m (conservative for small yards)
-
-    # Number of consecutive scans to form a "chain" before loop closure
-    loop_match_minimum_chain_size: 10     # scans (avoids spurious closures)
-
-    # Minimum loop closure match score (0.0–1.0, higher = more confident)
-    loop_match_minimum_response_fine: 0.1 # Fine scan matching threshold
-    loop_match_minimum_response_coarse: 0.05
-
-    # ─────────────────────────────────────────────────────────────
-    # Scan matching (registration of consecutive scans)
-    # ─────────────────────────────────────────────────────────────
-    # Determine pose delta between consecutive scans
-
-    # Correlation window (search area for matching)
-    correlation_search_space_dimension: 0.5  # m
-    correlation_search_space_resolution: 0.01 # m
-
-    # Search size for finer correlation
-    correlation_search_space_smear_deviation: 0.1 # m
-
-    # ─────────────────────────────────────────────────────────────
-    # Optimization: graph refinement (Pose Graph Optimization)
-    # ─────────────────────────────────────────────────────────────
-    enable_interactive_mode: false        # Don't use interactive SLAM
-
-    # Optimization parameters
-    do_loop_closure_optimization: true
-    do_scan_matching_optimization: true
-    optimization_angle_variance: 0.0349   # rad² (0.2° std dev)
-    optimization_translation_variance: 0.01 # m² (0.1 m std dev)
-
-    # ─────────────────────────────────────────────────────────────
-    # Output and visualization
-    # ─────────────────────────────────────────────────────────────
-    publish_pose_graph: true              # Publish pose graph for debug
-    publish_transform: true               # Publish map→odom TF
-    tf_buffer_duration: 30.0              # seconds (TF history for debugging)
+    # Reported on /kinematic_icp/lidar_odometry; the adapter overrides the
+    # twist covariance before republishing on /encoder2/odom.
+    orientation_covariance: 0.1
+    position_covariance: 0.1
 ```
 
-### Tuning for Outdoor Operation
+### Tuning notes
 
-**Challenge:** Grass, trees, and seasonal changes cause false loop closures.
+| Symptom | Try |
+|---------|-----|
+| Lots of "extrapolation into the future" TF warnings | Raise `wheel_odom_tf_node` `rebroadcast_hz` (default 50), or bump `tf_timeout` in the K-ICP launch file (default 0.1 s). |
+| K-ICP output drifts at rest | Voxel map may be accumulating wind-moved foliage. Lower `max_points_per_voxel` (3–4), or reduce `max_range`. |
+| K-ICP output over-corrects during turns | Increase `use_adaptive_odometry_regularization` weight by raising `fixed_regularization` and disabling `use_adaptive_odometry_regularization`. |
+| Encoder2 fixes rejected by FusionCore | Inspect Mahalanobis innovations (`fusioncore_node` logs). Usually means the scene is too feature-poor and K-ICP's twist is inconsistent with the wheel prior — reduce `voxel_size` or increase `fixed_regularization`. |
 
-**Conservative Settings (Recommended):**
-```yaml
-loop_search_maximum_distance: 2.0     # Stricter: only close very confident loops
-loop_match_minimum_chain_size: 15     # Require longer chains
-minimum_travel_distance: 1.0          # Don't add scans too frequently
-```
-
-**Aggressive Settings (Faster Mapping, Risk of Artifacts):**
-```yaml
-loop_search_maximum_distance: 5.0
-loop_match_minimum_chain_size: 5
-minimum_travel_distance: 0.2
-```
+See [`CLAUDE.md`](https://github.com/cedbossneo/mowglinext/blob/main/CLAUDE.md) invariant #1 for why K-ICP runs on a parallel TF tree rather than sharing FusionCore's frames (the short version: it prevents the corrector's output from feeding back into its own motion prior).
 
 ---
 

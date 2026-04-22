@@ -30,6 +30,13 @@
   <xacro:arg name="imu_x"     default="0.18"/>
   <xacro:arg name="imu_y"     default="0.0"/>
   <xacro:arg name="imu_z"     default="0.095"/>
+  <!-- Full 3-axis mounting rotation (roll, pitch, yaw) in radians.
+       yaw=only handles chip-Z ≡ robot-Z mounts. Upside-down, side-mounted,
+       or tilted installations require roll/pitch too. Firmware reports the
+       WT901's chip-native axes unchanged, so this URDF rotation is the
+       sole correction. -->
+  <xacro:arg name="imu_roll"  default="0.0"/>
+  <xacro:arg name="imu_pitch" default="0.0"/>
   <xacro:arg name="imu_yaw"   default="0.0"/>
 
   <xacro:arg name="gps_x"     default="0.3"/>
@@ -317,7 +324,8 @@
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="imu_link"/>
-    <origin xyz="$(arg imu_x) $(arg imu_y) $(arg imu_z)" rpy="0 0 $(arg imu_yaw)"/>
+    <origin xyz="$(arg imu_x) $(arg imu_y) $(arg imu_z)"
+            rpy="$(arg imu_roll) $(arg imu_pitch) $(arg imu_yaw)"/>
   </joint>
 
   <!-- ================================================================

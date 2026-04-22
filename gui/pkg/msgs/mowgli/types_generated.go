@@ -44,6 +44,8 @@ type Emergency struct {
 	Stamp                     geometry.Stamp                 `json:"stamp"`
 	ActiveEmergency           bool                           `json:"active_emergency"`
 	LatchedEmergency          bool                           `json:"latched_emergency"`
+	LiftWarning               bool                           `json:"lift_warning"`
+	LiftDurationSec           float32                        `json:"lift_duration_sec"`
 	Reason                    string                         `json:"reason"`
 }
 

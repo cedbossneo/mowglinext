@@ -25,7 +25,6 @@
 #include "mowgli_interfaces/srv/emergency_stop.hpp"
 #include "mowgli_interfaces/srv/mower_control.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "slam_toolbox/srv/serialize_pose_graph.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace mowgli_behavior
@@ -91,26 +90,28 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap
+// WaitForGpsFix
 // ---------------------------------------------------------------------------
 
-/// Calls /slam_toolbox/serialize_map to persist the current pose graph to
-/// disk.  Intended to run after mowing completes so the map survives container
-/// restarts.
+/// Stateful action that returns RUNNING until the GPS fix quality reaches at
+/// least `min_fix_type`, then returns SUCCESS. On `timeout_sec` elapsed
+/// without meeting the threshold it **still returns SUCCESS** and logs a
+/// warning — the intent is to let the robot start/resume mowing at degraded
+/// precision rather than freeze indefinitely at a partly-obstructed site.
+///
+/// Typical use: insert after BackUp (undock) and before the first
+/// TransitToStrip, to give the F9P a few seconds out from under the dock's
+/// metal canopy to re-acquire RTK before navigation starts.
 ///
 /// Input ports:
-///   map_path (string, default "/ros2_ws/maps/garden_map") – destination path
-///            without extension.  slam_toolbox appends .posegraph / .data.
-///
-/// Returns SUCCESS when the service call succeeds, FAILURE otherwise.  The
-/// node is synchronous: it blocks for up to 5 s waiting for the service
-/// response before declaring failure.
-class SaveSlamMap : public BT::StatefulActionNode
+///   timeout_sec    (double, default 20.0) – max wait before proceeding.
+///   min_fix_type   (int,    default 2)    – BTContext gps_fix_type threshold:
+///                                           0=no/autonomous, 2=DGPS/SBAS,
+///                                           4=RTK Fixed, 5=RTK Float.
+class WaitForGpsFix : public BT::StatefulActionNode
 {
 public:
-  using SerializeSrv = slam_toolbox::srv::SerializePoseGraph;
-
-  SaveSlamMap(const std::string& name, const BT::NodeConfig& config)
+  WaitForGpsFix(const std::string& name, const BT::NodeConfig& config)
       : BT::StatefulActionNode(name, config)
   {
   }
@@ -118,9 +119,11 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<std::string>("map_path",
-                                   "/ros2_ws/maps/garden_map",
-                                   "Destination path without extension for the pose graph files")};
+        BT::InputPort<double>("timeout_sec", 20.0,
+                              "Max seconds to wait before proceeding anyway"),
+        BT::InputPort<int>("min_fix_type", 2,
+                           "Min BtContext gps_fix_type (2=DGPS, 4=RTK Fixed)"),
+    };
   }
 
   BT::NodeStatus onStart() override;
@@ -128,8 +131,34 @@ public:
   void onHalted() override;
 
 private:
-  rclcpp::Client<SerializeSrv>::SharedPtr client_;
-  std::shared_future<SerializeSrv::Response::SharedPtr> response_future_;
+  std::chrono::steady_clock::time_point start_time_;
+  std::chrono::duration<double> timeout_{};
+  int min_fix_type_{2};
+};
+
+// ---------------------------------------------------------------------------
+// SaveSlamMap (deprecated no-op stub)
+// ---------------------------------------------------------------------------
+
+/// Deprecated no-op stub — SLAM (Cartographer / slam_toolbox) was removed
+/// with the switch to the Kinematic-ICP drift-correction architecture, and
+/// no replacement map-serialization hook is wired up yet. Kept so existing
+/// BT XML files continue to load; the tick logs a one-line notice and
+/// returns SUCCESS immediately.
+class SaveSlamMap : public BT::SyncActionNode
+{
+public:
+  SaveSlamMap(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {BT::InputPort<std::string>("map_path", "/ros2_ws/maps/garden_map", "Unused — kept for BT XML compatibility")};
+  }
+
+  BT::NodeStatus tick() override;
 };
 
 // ---------------------------------------------------------------------------

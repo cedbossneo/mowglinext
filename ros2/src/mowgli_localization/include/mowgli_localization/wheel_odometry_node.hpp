@@ -29,7 +29,7 @@
  *   /wheel_odom    nav_msgs/msg/Odometry
  *
  * Optionally published TF:
- *   odom → base_link  (disabled by default; let the EKF own this transform)
+ *   odom → base_footprint  (disabled by default; FusionCore owns this transform)
  *
  * Parameters:
  *   wheel_distance   (double, default 0.35 m)   – lateral distance between
@@ -37,7 +37,7 @@
  *   ticks_per_meter  (double, default 300.0)   – encoder ticks per metre of
  *                    wheel travel.
  *   publish_tf       (bool,   default false)     – when true the node also
- *                    broadcasts the odom → base_link TF.
+ *                    broadcasts the odom → base_footprint TF.
  */
 
 #pragma once
@@ -100,6 +100,10 @@ private:
   /// Cumulative tick counts from the previous message (RL = left, RR = right).
   uint32_t prev_ticks_left_{0};
   uint32_t prev_ticks_right_{0};
+
+  /// Wall-clock time of the previous tick message; used to compute the
+  /// real dt for the published twist instead of a hardcoded nominal.
+  rclcpp::Time last_tick_time_;
 
   /// Accumulated pose in the odom frame.
   double x_{0.0};

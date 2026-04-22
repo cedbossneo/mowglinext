@@ -15,6 +15,8 @@ import { useSettingsSchema } from "../hooks/useSettingsSchema.ts";
 import { useApi } from "../hooks/useApi.ts";
 import { RobotComponentEditor } from "../components/RobotComponentEditor.tsx";
 import { FlashBoardComponent } from "../components/FlashBoardComponent.tsx";
+import { MOWER_MODELS } from "../constants/mowerModels.ts";
+import { restartRos2, restartGui } from "../utils/containers.ts";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -91,103 +93,7 @@ type RobotModelStepProps = {
     onChange: (key: string, value: any) => void;
 };
 
-const MOWER_MODELS = [
-    {
-        value: "YardForce500",
-        label: "YardForce Classic 500",
-        description: "Most common model. 28V battery, 18cm blade, rear-wheel drive.",
-        tag: "Popular",
-        defaults: {
-            wheel_radius: 0.04475, wheel_track: 0.325, wheel_x_offset: 0.0,
-            blade_radius: 0.09, tool_width: 0.18, ticks_per_revolution: 1050,
-            battery_full_voltage: 28.5, battery_empty_voltage: 24.0,
-            battery_critical_voltage: 23.0,
-            gps_antenna_x: 0.3, gps_antenna_y: 0.0, gps_antenna_z: 0.2,
-            lidar_x: 0.38, imu_x: 0.18,
-            chassis_length: 0.54, chassis_width: 0.40, chassis_center_x: 0.18,
-        },
-    },
-    {
-        value: "YardForce500B",
-        label: "YardForce 500B",
-        description: "500 B variant with different blade motor UART and panel layout.",
-        defaults: {
-            wheel_radius: 0.04475, wheel_track: 0.325, wheel_x_offset: 0.0,
-            blade_radius: 0.09, tool_width: 0.18, ticks_per_revolution: 1050,
-            battery_full_voltage: 28.5, battery_empty_voltage: 24.0,
-            battery_critical_voltage: 23.0,
-            gps_antenna_x: 0.3, gps_antenna_y: 0.0, gps_antenna_z: 0.2,
-            lidar_x: 0.38, imu_x: 0.18,
-            chassis_length: 0.54, chassis_width: 0.40, chassis_center_x: 0.18,
-        },
-    },
-    {
-        value: "YardForceSA650",
-        label: "YardForce SA650",
-        description: "Larger model (570x390mm) with higher encoder resolution.",
-        defaults: {
-            wheel_radius: 0.04475, wheel_track: 0.325, wheel_x_offset: 0.0,
-            blade_radius: 0.09, tool_width: 0.18, ticks_per_revolution: 1050,
-            battery_full_voltage: 28.5, battery_empty_voltage: 24.0,
-            battery_critical_voltage: 23.0,
-            gps_antenna_x: 0.1, gps_antenna_y: 0.0, gps_antenna_z: 0.26,
-            lidar_x: 0.39, imu_x: 0.19,
-            chassis_length: 0.57, chassis_width: 0.39, chassis_height: 0.26,
-            chassis_center_x: 0.19,
-        },
-    },
-    {
-        value: "YardForce900ECO",
-        label: "YardForce 900 ECO",
-        description: "Same chassis as SA650 (570x390mm), larger battery.",
-        defaults: {
-            wheel_radius: 0.04475, wheel_track: 0.325, wheel_x_offset: 0.0,
-            blade_radius: 0.09, tool_width: 0.18, ticks_per_revolution: 1050,
-            battery_full_voltage: 28.5, battery_empty_voltage: 24.0,
-            battery_critical_voltage: 23.0,
-            gps_antenna_x: 0.3, gps_antenna_y: 0.0, gps_antenna_z: 0.26,
-            lidar_x: 0.39, imu_x: 0.19,
-            chassis_length: 0.57, chassis_width: 0.39, chassis_height: 0.26,
-            chassis_center_x: 0.19,
-        },
-    },
-    {
-        value: "LUV1000RI",
-        label: "YardForce LUV1000RI",
-        description: "574x400mm chassis, narrower wheelbase (0.285m), ultrasonic sensor.",
-        defaults: {
-            wheel_radius: 0.04475, wheel_track: 0.285, wheel_x_offset: 0.0,
-            blade_radius: 0.09, tool_width: 0.18, ticks_per_revolution: 1050,
-            battery_full_voltage: 28.5, battery_empty_voltage: 24.0,
-            battery_critical_voltage: 23.0,
-            gps_antenna_x: 0.3, gps_antenna_y: 0.0, gps_antenna_z: 0.28,
-            lidar_x: 0.39, imu_x: 0.19,
-            chassis_length: 0.574, chassis_width: 0.40, chassis_height: 0.282,
-            chassis_center_x: 0.19,
-        },
-    },
-    {
-        value: "Sabo",
-        label: "Sabo MOWiT 500F",
-        description: "Large professional mower (775x535mm), 32cm cutting width.",
-        defaults: {
-            wheel_radius: 0.04475, wheel_track: 0.45, wheel_x_offset: 0.0,
-            blade_radius: 0.16, tool_width: 0.32, ticks_per_revolution: 1050,
-            battery_full_voltage: 28.5, battery_empty_voltage: 21.0,
-            battery_critical_voltage: 20.0,
-            gps_antenna_x: 0.18, gps_antenna_y: 0.0, gps_antenna_z: 0.36,
-            lidar_x: 0.49, imu_x: 0.29,
-            chassis_length: 0.775, chassis_width: 0.535, chassis_height: 0.36,
-            chassis_center_x: 0.29,
-        },
-    },
-    {
-        value: "CUSTOM",
-        label: "Custom Robot",
-        description: "Manually configure all hardware parameters for a custom build.",
-        defaults: {},
-    },
-];
+// MOWER_MODELS imported from constants/mowerModels.ts
 
 const RobotModelStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
     const { colors } = useThemeMode();
@@ -564,22 +470,9 @@ const CompleteStep: React.FC = () => {
                 await fetch(`${base}/api/settings/status`, { method: 'POST' });
 
                 // Restart ROS2 container first (picks up new mowgli_robot.yaml)
-                const res = await guiApi.containers.containersList();
-                if (res.error) throw new Error(res.error.error);
-                const ros2 = res.data.containers?.find(
-                    (c) => c.names?.some((n) => n.includes("mowgli-ros2") || n.includes("ros2"))
-                );
-                if (ros2?.id) {
-                    await guiApi.containers.containersCreate(ros2.id, "restart");
-                }
-
+                await restartRos2(guiApi);
                 // Then restart GUI container
-                const gui = res.data.containers?.find(
-                    (c) => c.names?.some((n) => n.includes("mowgli-gui") || n.includes("gui"))
-                );
-                if (gui?.id) {
-                    await guiApi.containers.containersCreate(gui.id, "restart");
-                }
+                await restartGui(guiApi);
             } catch (e: any) {
                 setError(e.message);
             } finally {

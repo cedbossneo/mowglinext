@@ -42,9 +42,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Init FusionCore submodule
+      - name: Init FusionCore + Kinematic-ICP submodules
         working-directory: .
-        run: git submodule update --init ros2/src/fusioncore
+        run: git submodule update --init ros2/src/fusioncore ros2/src/kinematic_icp
 
       - name: Setup ROS2 ${{ matrix.ros_distro }}
         uses: ros-tooling/setup-ros@v0.7

@@ -4,6 +4,12 @@ import type {IJoystickUpdateEvent} from "react-joystick-component/build/lib/Joys
 
 const JOY_SEND_INTERVAL_MS = 100;
 const BLADE_KEEPALIVE_MS = 10000;
+// Teleop velocity caps — raw joystick values are in [-1, 1] (normalized by
+// react-joystick-component). Multiplied at this layer (before twist_mux) so
+// Nav2 autonomous speeds are unaffected. Tuned for precise manual control:
+// at 1.0 m/s the robot was too twitchy on grass.
+const MAX_LINEAR_MPS = 0.25;
+const MAX_ANGULAR_RAD_S = 0.6;
 
 interface UseManualModeOptions {
     mowerAction: (action: string, params: Record<string, unknown>) => () => Promise<void>;
@@ -66,9 +72,11 @@ export function useManualMode({mowerAction, joyStream}: UseManualModeOptions) {
     };
 
     const handleJoyMove = useCallback((event: IJoystickUpdateEvent) => {
+        const linear = (event.y ?? 0) * MAX_LINEAR_MPS;
+        const angular = (event.x ?? 0) * -1 * MAX_ANGULAR_RAD_S;
         const msg: TwistStamped = {
             header: {stamp: {sec: 0, nanosec: 0}, frame_id: ""},
-            twist: {linear: {x: event.y ?? 0, y: 0, z: 0}, angular: {z: (event.x ?? 0) * -1, x: 0, y: 0}},
+            twist: {linear: {x: linear, y: 0, z: 0}, angular: {z: angular, x: 0, y: 0}},
         };
         lastTwistRef.current = msg;
         joyStream.sendJsonMessage(msg);

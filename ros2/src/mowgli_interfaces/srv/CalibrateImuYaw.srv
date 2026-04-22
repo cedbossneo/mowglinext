@@ -1,0 +1,10 @@
+# Request
+float64 duration_sec    # 0 = default 30s
+---
+# Response
+bool success
+string message
+float64 imu_yaw_rad     # computed value
+float64 imu_yaw_deg     # same in degrees
+int32 samples_used      # valid samples used
+float64 std_dev_deg     # confidence (lower = more consistent)

@@ -1,0 +1,94 @@
+# ZED-F9P rover overrides for aussierobots/ublox_dgnss.
+#
+# The driver preloads defaults from f9p_ubx_config.toml (126 CFG items);
+# the values here override that TOML for the things that matter in a
+# rover + NTRIP configuration. Keys are the exact u-blox CFG-VALSET
+# identifiers that the driver exposes as ROS parameters.
+#
+# Driver auto-discovers the F9P by USB VID:PID (0x1546:0x01a9), so no
+# device path is needed.
+#
+# L5 signal (~1176 MHz, GPS L5 / Galileo E5a / BDS B2a / QZSS L5): NOT
+# SUPPORTED by the ZED-F9P. The F9P is a dual-band L1/L2 receiver only.
+# The driver's f9p_ubx_config.toml exposes exactly these GNSS signals:
+#   GPS   : L1CA, L2C
+#   GAL   : E1,   E5B
+#   GLO   : L1,   L2
+#   BDS   : B1,   B2
+#   QZSS  : L1CA, L2C, L1S
+#   SBAS  : L1CA
+# There are NO CFG_SIGNAL_*_L5_ENA keys for the F9P — those only exist
+# on the ZED-X20P (multi-band incl. L5 / E5a / B2a / NavIC). If L5 is
+# required, the hardware must be swapped to an X20P (and the driver
+# will need to load x20p_ubx_config.toml instead of f9p_ubx_config.toml).
+ublox_dgnss:
+  ros__parameters:
+    FRAME_ID: gps
+
+    # USB: accept UBX + NMEA + RTCM3 in (NTRIP injects RTCM3 via USB),
+    # publish UBX + NMEA out. RTCM3 out is off (we're a rover, not a base).
+    CFG_USBINPROT_NMEA: true
+    CFG_USBINPROT_UBX: true
+    CFG_USBINPROT_RTCM3X: true
+    CFG_USBOUTPROT_NMEA: true
+    CFG_USBOUTPROT_UBX: true
+    CFG_USBOUTPROT_RTCM3X: false
+
+    # 5 Hz nav rate (200 ms measurement period), solve every measurement.
+    # F9P can't quite sustain 8 Hz with 4 constellations enabled (observed
+    # ~7.86 Hz on /gps/fix) — dropping to 5 Hz gives deterministic output
+    # and more integration time per epoch, which helps ambiguity resolution
+    # and RTK Fixed holdover on weaker signals.
+    CFG_RATE_MEAS: 200
+    CFG_RATE_NAV: 1
+
+    # Dynamic model: 0 = portable (suitable for a ground robot).
+    CFG_NAVSPG_DYNMODEL: 0
+
+    # High-precision DGNSS mode:
+    #   2 = Float-only (default on many F9P images)
+    #   3 = Allow RTK Fixed when integer ambiguities resolve
+    # NOTE: "RTK Fixed only" is NOT a receiver mode — mode 3 means the F9P
+    # will produce Fixed whenever possible and fall back to Float otherwise.
+    # The driver's ublox_nav_sat_fix_hp_node does NOT inspect carrSoln:
+    # both Float and Fixed become sensor_msgs::NavSatStatus::STATUS_FIX
+    # (or STATUS_SBAS_FIX if diffSoln). There is no driver-side CFG to
+    # gate /gps/fix on Fixed-only. To watch fix quality, subscribe to
+    # /ubx_nav_status.carr_soln (0=none, 1=Float, 2=Fixed) — already
+    # published below via CFG_MSGOUT_UBX_NAV_STATUS_USB.
+    CFG_NAVHPG_DGNSSMODE: 3
+
+    # UBX messages on USB (0 = off, 1 = every nav epoch).
+    CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1   # high-precision LLH — needed by HP NavSatFix node
+    CFG_MSGOUT_UBX_NAV_STATUS_USB: 1     # fix type + carrSoln/diffSoln diagnostics
+    CFG_MSGOUT_UBX_NAV_COV_USB: 1        # covariance → NavSatFix.position_covariance
+    CFG_MSGOUT_UBX_NAV_PVT_USB: 1
+    CFG_MSGOUT_UBX_NAV_VELNED_USB: 1
+    CFG_MSGOUT_UBX_NAV_RELPOSNED_USB: 0  # 0 unless moving-base / dual-antenna
+    CFG_MSGOUT_UBX_RXM_RTCM_USB: 1       # correction ingestion counter
+
+    # NMEA GGA on USB — fed back to NTRIP client for VRS casters that
+    # need a client position to generate local corrections.
+    CFG_MSGOUT_NMEA_ID_GGA_USB: 1
+
+ublox_nav_sat_fix_hp:
+  ros__parameters:
+    FRAME_ID: gps
+    # Publish /gps/fix as RELIABLE. Cyclone DDS rejects the connection
+    # when a RELIABLE subscriber (fusioncore, rtabmap,
+    # navsat_to_absolute_pose) meets a BEST_EFFORT publisher, so none
+    # of those nodes were receiving GPS fixes — FusionCore pose drifts,
+    # BT PreFlightCheck times out, Nav2 plans from a wrong pose.
+    qos_overrides:
+      /gps/fix:
+        publisher:
+          reliability: reliable
+          durability: volatile
+          history: keep_last
+          depth: 10
+
+# NTRIP client: host / port / mountpoint / username / password are passed
+# at launch from mowgli_robot.yaml (see start_gps.sh).
+ntrip_client:
+  ros__parameters:
+    use_https: false

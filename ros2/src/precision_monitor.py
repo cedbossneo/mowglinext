@@ -2,16 +2,16 @@
 """
 precision_monitor.py — Real-time precision metrics publisher for Foxglove.
 
-Subscribes to wheel odometry, GPS, LiDAR, SLAM scan match, SLAM map, and
-cmd_vel, then publishes Float64 topics at ~2 Hz that can be plotted directly
-in Foxglove Studio Plot panels.
+Subscribes to wheel odometry, GPS, LiDAR, the OccupancyGrid published by
+our map_server_node, and cmd_vel, then publishes Float64 topics at ~2 Hz
+that can be plotted directly in Foxglove Studio Plot panels.
 
 Published topics:
   /precision/gps_error_m          — distance between GPS pose and wheel odom pose
   /precision/wheel_odom_speed     — wheel odom linear velocity magnitude (m/s)
   /precision/lidar_scan_count     — number of valid LiDAR points in current scan
   /precision/lidar_min_range      — closest obstacle distance (m)
-  /precision/slam_map_known_pct   — percentage of SLAM map cells that are known
+  /precision/map_known_pct        — percentage of OccupancyGrid cells that are known
   /precision/localization_quality — composite quality score 0–100
 
 Usage (inside the dev-sim container, after sourcing the workspace):
@@ -31,7 +31,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import PoseWithCovarianceStamped
-from sensor_msgs.msg import LaserScan, PointCloud2
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Float64
 
 
@@ -42,7 +42,7 @@ from std_msgs.msg import Float64
 #: Best-effort, shallow queue — for high-rate sensor topics.
 _SENSOR_QOS = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
 
-#: Reliable + transient-local — for latched map / SLAM topics.
+#: Reliable + transient-local — for the latched OccupancyGrid topic.
 _MAP_QOS = QoSProfile(
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
@@ -71,10 +71,10 @@ _SCAN_COUNT_PENALTY_THRESHOLD: int = 100
 #: Maximum LiDAR scan count penalty points.
 _SCAN_COUNT_MAX_PENALTY: float = 20.0
 
-#: SLAM map known percentage below this starts penalising the score.
+#: OccupancyGrid known percentage below this starts penalising the score.
 _MAP_KNOWN_PCT_PENALTY_THRESHOLD: float = 10.0
 
-#: Maximum SLAM map known percentage penalty points.
+#: Maximum OccupancyGrid known percentage penalty points.
 _MAP_KNOWN_MAX_PENALTY: float = 20.0
 
 #: Maximum wheel-speed penalty (robot stationary when cmd_vel says move).
@@ -116,13 +116,6 @@ class PrecisionMonitorNode(Node):
             self._on_scan,
             _SENSOR_QOS,
         )
-        # SLAM scan-match visualisation — PointCloud2, best-effort.
-        self.create_subscription(
-            PointCloud2,
-            "/slam_toolbox/scan_visualization",
-            self._on_slam_scan,
-            _SENSOR_QOS,
-        )
         self.create_subscription(
             OccupancyGrid,
             "/map",
@@ -142,7 +135,7 @@ class PrecisionMonitorNode(Node):
         self._pub_odom_speed = self._make_pub("/precision/wheel_odom_speed")
         self._pub_scan_count = self._make_pub("/precision/lidar_scan_count")
         self._pub_min_range = self._make_pub("/precision/lidar_min_range")
-        self._pub_map_known = self._make_pub("/precision/slam_map_known_pct")
+        self._pub_map_known = self._make_pub("/precision/map_known_pct")
         self._pub_quality = self._make_pub("/precision/localization_quality")
 
         # ── Publish timer — 2 Hz ─────────────────────────────────────────
@@ -160,11 +153,6 @@ class PrecisionMonitorNode(Node):
 
     def _on_scan(self, msg: LaserScan) -> None:
         self._scan = msg
-
-    def _on_slam_scan(self, _msg: PointCloud2) -> None:
-        # Received but not processed further — presence confirms SLAM is alive.
-        # Future: could compare point density to odom data if needed.
-        pass
 
     def _on_map(self, msg: OccupancyGrid) -> None:
         self._map = msg
@@ -231,7 +219,7 @@ class PrecisionMonitorNode(Node):
         Starts at 100 and subtracts penalties:
           - GPS error penalty:      up to 30 pts when error > 0.1 m
           - Scan count penalty:     up to 20 pts when count < 100 points
-          - SLAM map known penalty: up to 20 pts when known < 10 %
+          - Map known penalty:      up to 20 pts when known < 10 %
           - Speed mismatch penalty: up to 30 pts when robot is stationary
                                     but cmd_vel requests motion
         """
@@ -249,7 +237,7 @@ class PrecisionMonitorNode(Node):
             ratio = 1.0 - (scan_count / _SCAN_COUNT_PENALTY_THRESHOLD)
             score -= ratio * _SCAN_COUNT_MAX_PENALTY
 
-        # SLAM map known % penalty — linear from 0 at threshold to max at 0 %
+        # Map known % penalty — linear from 0 at threshold to max at 0 %
         if map_known_pct is not None and map_known_pct < _MAP_KNOWN_PCT_PENALTY_THRESHOLD:
             ratio = 1.0 - (map_known_pct / _MAP_KNOWN_PCT_PENALTY_THRESHOLD)
             score -= ratio * _MAP_KNOWN_MAX_PENALTY

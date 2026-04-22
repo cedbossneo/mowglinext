@@ -4,7 +4,7 @@
 
 <p align="center">
   Autonomous robot mower built on ROS2 Kilted — a fresh start from the ground up<br>
-  with LiDAR SLAM, RTK-GPS, behavior trees, and intelligent coverage planning.
+  with RTK-GPS sensor fusion, LiDAR drift correction, behavior trees, and intelligent coverage planning.
 </p>
 
 <p align="center">
@@ -28,10 +28,10 @@ MowgliNext has a fully functional autonomous mowing stack running on real hardwa
 | Component | Status | Details |
 |-----------|:------:|---------|
 | ROS2 Kilted | :white_check_mark: | Full stack on differential-drive mower, Cyclone DDS, multi-arch Docker |
-| SLAM Toolbox | :white_check_mark: | Lifelong mode for mapping and localization; zero-odom only when charging AND idle to prevent corruption during undock |
-| Dual EKF Localization | :white_check_mark: | `ekf_odom` (50 Hz, wheel + IMU) and `ekf_map` (20 Hz, GPS + SLAM heading); heading calibration from EKF TF on undock |
-| RTK-GPS | :white_check_mark: | u-blox F9P support with GPS degradation handling and wait-for-fix logic |
-| Nav2 Navigation | :white_check_mark: | RPP controller for transit paths |
+| FusionCore UKF | :white_check_mark: | Single 22D quaternion UKF @ 100 Hz fusing GPS + IMU + wheels (+ optional LiDAR twist). Sole localizer — `map==odom` static identity, FusionCore owns `odom→base_footprint` |
+| Kinematic-ICP drift correction | :white_check_mark: | PRBonn 2024, runs on a parallel TF tree (no feedback loop), feeds FusionCore its twist through the `encoder2` slot. Replaces earlier KISS-ICP — kinematic prior kills lateral hallucinations on featureless grass |
+| RTK-GPS | :white_check_mark: | u-blox F9P + CentipedeRTK NTRIP, σ ~3 mm when Fixed, antenna lever-arm applied from fix #1 (`gnss.apply_lever_arm_pre_heading=true`) |
+| Nav2 Navigation | :white_check_mark: | RPP controller for transit, FTCController for coverage swaths (< 10 mm lateral) |
 | Collision Monitor | :white_check_mark: | LiDAR-based real-time obstacle detection with 3-zone approach (stop, slow, approach) |
 | Obstacle Tracker | :white_check_mark: | DBSCAN clustering, persistence promotion, overlapping merge |
 
@@ -50,7 +50,7 @@ MowgliNext has a fully functional autonomous mowing stack running on real hardwa
 |-----------|:------:|---------|
 | Behavior Tree | :white_check_mark: | Full mowing cycle: undock, plan, mow, dock — BehaviorTree.CPP v4 |
 | Area Recording | :white_check_mark: | Drive the boundary to define mowing areas; Douglas-Peucker simplification, live trajectory preview |
-| Manual Mowing | :white_check_mark: | Dedicated teleop + blade mode with collision monitor, GPS, and SLAM still active |
+| Manual Mowing | :white_check_mark: | Dedicated teleop + blade mode with collision monitor, GPS, FusionCore, and Kinematic-ICP still active |
 | Emergency Auto-Reset | :white_check_mark: | Robot on dock auto-clears emergency. Firmware remains sole safety authority |
 | Rain detection | :white_check_mark: | Pause-and-wait behavior during rain, resume when clear |
 | Battery monitoring | :white_check_mark: | Low-battery dock with resume after charge (95% threshold) |
@@ -68,15 +68,28 @@ MowgliNext has a fully functional autonomous mowing stack running on real hardwa
 | Firmware | :white_check_mark: | STM32F103 for motor control, IMU, blade safety, battery |
 | Interactive Installer | :white_check_mark: | Shell-based with hardware presets, i18n, UART detection |
 
-### Planned
+### Planned — Coming Soon
 
 | Feature | Description |
 |---------|-------------|
 | Headland passes | Mow the perimeter outline before filling the interior |
 | 3D terrain handling | Slope-aware planning and speed adjustment |
-| Multi-zone mowing | Schedule and sequence multiple mowing areas |
+| Multi-zone scheduling | Time-window scheduling across multiple mowing areas (sequential execution already works) |
 | Improved obstacle shapes | Track obstacle contours beyond bounding circles |
-| Coverage checkpoint resume | Resume a mowing session after reboot or power loss |
+| Coverage checkpoint resume | Full resume-after-reboot (partial persistence via `mow_progress` grid already works) |
+| Visual BT tree live viewer | Live behavior-tree state in the GUI diagnostics page |
+| Fleet management | Multi-robot coordination |
+| Mobile app | On the shelf — PR #27 open, no ETA |
+
+### Not Planned / Removed
+
+| Item | Status | Reason |
+|---------|---------|---------|
+| Cartographer / slam_toolbox / rtabmap | :x: Removed | FusionCore + RTK anchoring is cm-accurate and needs no SLAM |
+| Dual EKF (robot_localization) | :x: Replaced | Single FusionCore UKF is the sole localizer |
+| KISS-ICP | :x: Replaced | Kinematic-ICP (same PRBonn team, wheeled-robot-specific) |
+| MPPI controller for coverage | :x: | Jumps between swaths — FTCController is the right tool |
+| Magnetometer-based heading | :x: | Uncalibrated on metal chassis; replaced with dock compass + GPS-track validation |
 
 ### Supported Hardware
 
@@ -115,7 +128,7 @@ Thank you, OpenMower team. You showed us what's possible.
 
 | Directory | Description |
 |-----------|-------------|
-| [`ros2/`](ros2/) | ROS2 stack: Nav2, SLAM Toolbox, behavior trees, coverage planner, hardware bridge |
+| [`ros2/`](ros2/) | ROS2 stack: Nav2, FusionCore UKF localizer, Kinematic-ICP, behavior trees, coverage planner, hardware bridge |
 | [`install/`](install/) | Interactive installer, hardware presets, modular Docker Compose configs |
 | [`docker/`](docker/) | Docker Compose deployment for manual setup, DDS config |
 | [`sensors/`](sensors/) | Dockerized sensor drivers (GPS, LiDAR) — one directory per model |
@@ -140,26 +153,28 @@ See the [Getting Started](https://github.com/cedbossneo/mowglinext/wiki/Getting-
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  GUI (React + Go)          :4006                │
-├─────────────────────────────────────────────────┤
-│  ROS2 Stack (Kilted)                             │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐│
-│  │ Nav2     │ │ SLAM     │ │ Behavior Tree    ││
-│  │ (navigate│ │ Toolbox  │ │ (main_tree.xml)  ││
-│  │  dock    │ │          │ │                  ││
-│  │  cover)  │ │          │ │                  ││
-│  └──────────┘ └──────────┘ └──────────────────┘│
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────┐│
-│  │ Coverage │ │ Localiz. │ │ Hardware Bridge  ││
-│  │ Planner  │ │ (GPS+EKF)│ │ (serial ↔ ROS2) ││
-│  │ (F2C v2) │ │          │ │                  ││
-│  └──────────┘ └──────────┘ └──────────────────┘│
-├──────────────────────┬──────────────────────────┤
-│  Sensors (Docker)    │  STM32 Firmware          │
-│  GPS (u-blox F9P)    │  Motor control           │
-│  LiDAR (LD19)        │  IMU, blade safety       │
-└──────────────────────┴──────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│  GUI (React + Go)          :4006                       │
+├────────────────────────────────────────────────────────┤
+│  ROS2 Stack (Kilted)                                    │
+│  ┌──────────┐ ┌──────────────┐ ┌───────────────────┐   │
+│  │ Nav2     │ │ FusionCore   │ │ Behavior Tree     │   │
+│  │ (RPP +   │ │ 22D UKF @    │ │ (BT.CPP v4,       │   │
+│  │  FTC +   │ │ 100 Hz  —    │ │  main_tree.xml)   │   │
+│  │  docking)│ │ sole localizer│ │                   │   │
+│  └──────────┘ └──────────────┘ └───────────────────┘   │
+│  ┌──────────┐ ┌──────────────┐ ┌───────────────────┐   │
+│  │ Coverage │ │ Kinematic-ICP│ │ Hardware Bridge   │   │
+│  │ Planner  │ │ (2D LiDAR,   │ │ (serial ↔ ROS2)   │   │
+│  │ (cell/   │ │  parallel TF │ │                   │   │
+│  │  strip)  │ │  tree)       │ │                   │   │
+│  └──────────┘ └──────────────┘ └───────────────────┘   │
+├──────────────────────┬─────────────────────────────────┤
+│  Sensors (Docker)    │  STM32 Firmware                 │
+│  GPS (u-blox F9P     │  Motor control                  │
+│       + NTRIP)       │  IMU (WT901), blade safety      │
+│  LiDAR (LD19)        │  Encoders, charger              │
+└──────────────────────┴─────────────────────────────────┘
 ```
 
 ## Documentation

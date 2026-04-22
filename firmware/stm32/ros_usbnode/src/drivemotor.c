@@ -92,6 +92,8 @@ int16_t prev_right_wheel_speed_val = 0;
 int16_t prev_left_wheel_speed_val = 0;
 uint32_t right_encoder_ticks = 0;
 uint32_t left_encoder_ticks = 0;
+int32_t  right_ticks_signed = 0;  /**< Cumulative SIGNED encoder ticks (polarity = direction) */
+int32_t  left_ticks_signed  = 0;
 int8_t left_direction = 0;
 int8_t right_direction = 0;
 uint16_t right_encoder_val = 0;
@@ -107,6 +109,16 @@ static uint8_t left_speed_req;
 static uint8_t right_speed_req;
 static uint8_t left_dir_req;
 static uint8_t right_dir_req;
+
+/* Motor static-friction deadband — below this PWM the motor sits in the
+ * buzz zone (current flowing but no rotation). When a nonzero velocity is
+ * commanded below the deadband, boost it to the deadband so the wheel
+ * either moves or is deliberately zero. Empirically PWM~30-35 on this
+ * drivetrain; 35 adds safety margin.
+ */
+#ifndef PWM_DEADBAND
+#define PWM_DEADBAND  35
+#endif
 
 /******************************************************************************
  * Function Prototypes
@@ -400,56 +412,150 @@ void DRIVEMOTOR_App_Rx(void)
         right_power = drivemotor_psReceivedData.u8_right_power;
 
         /*
-          Encoder value can reset to zero twice when changing direction
-          2nd reset occurs when the speed changes from zero to non-zero
-          something the ticks are holded until the next commands
-        */
-
+         * Motor-controller encoder quirk: the 16-bit encoder register can
+         * reset to 0 when the wheel's commanded direction changes (and again
+         * when the speed crosses from 0 to non-zero). Detect those events
+         * and restart the delta window so we don't register a massive phantom
+         * jump.
+         */
+        /*
+         * Direction-change fence: when `left_encoder_reset` is true the
+         * motor-controller PCB is in the middle of a direction/speed
+         * transient and its encoder register may or may not have been
+         * zeroed by the controller yet. Rather than GUESS (which the old
+         * `prev_left_encoder_val = 0` did, and failed catastrophically
+         * when the controller had NOT reset yet: delta_raw =
+         * current_encoder_val - 0 = tens of thousands of ticks
+         * mistakenly attributed to the new direction, producing
+         * ±1000 m/s bogus velocities downstream), we SYNC `prev` to
+         * whatever the current encoder value is. Delta for this one
+         * packet is then 0 — we concede up to ~21 ms of fine-grained
+         * odometry tracking during the transient, which at 0.5 m/s max
+         * is 10 mm — in exchange for never emitting a bogus tick-burst
+         * on direction change.
+         *
+         * Subsequent packets compute deltas against the post-transient
+         * baseline, so the rest of the trajectory is uncorrupted.
+         */
         left_wheel_speed_val = left_direction * drivemotor_psReceivedData.u8_left_speed;
-        if (left_direction == 0 || (left_direction != prev_left_direction) || (prev_left_wheel_speed_val == 0 && left_wheel_speed_val != 0))
+        const uint8_t left_encoder_reset =
+            (left_direction == 0) ||
+            (left_direction != prev_left_direction) ||
+            (prev_left_wheel_speed_val == 0 && left_wheel_speed_val != 0);
+        if (left_encoder_reset)
         {
-            prev_left_encoder_val = 0;
+            prev_left_encoder_val = left_encoder_val;  /* sync, not zero */
         }
-        left_encoder_ticks += abs(left_direction * (left_encoder_val - prev_left_encoder_val));
+
+        /* Encoder register wraps around 0xFFFF; the delta is computed as an
+         * unsigned subtraction (natural wrap handling) provided the wheel
+         * hasn't spun >32768 ticks in one 20 ms sample (~100 m/s — impossible
+         * for a mower).
+         */
+        const uint16_t left_delta_raw = left_encoder_val - prev_left_encoder_val;
+        /* Legacy cumulative counter (unsigned-abs) kept for any existing
+         * consumer that still expects monotonic positive ticks. New code
+         * should use left_ticks_signed. */
+        left_encoder_ticks += (uint32_t)left_delta_raw;
+        /* Signed cumulative count — polarity lives in the sign, no need for
+         * a separate direction byte downstream. */
+        left_ticks_signed += (int32_t)left_delta_raw * (int32_t)left_direction;
         prev_left_encoder_val = left_encoder_val;
         prev_left_wheel_speed_val = left_wheel_speed_val;
         prev_left_direction = left_direction;
 
+        /* Same fence for the right wheel — direction-change transient is
+         * per-wheel on a differential-drive platform (e.g. an in-place
+         * pivot has left and right transitions at different times). */
         right_wheel_speed_val = right_direction * drivemotor_psReceivedData.u8_right_speed;
-        if (right_direction == 0 || (right_direction != prev_right_direction) || (prev_right_wheel_speed_val == 0 && right_wheel_speed_val != 0))
+        const uint8_t right_encoder_reset =
+            (right_direction == 0) ||
+            (right_direction != prev_right_direction) ||
+            (prev_right_wheel_speed_val == 0 && right_wheel_speed_val != 0);
+        if (right_encoder_reset)
         {
-            prev_right_encoder_val = 0;
+            prev_right_encoder_val = right_encoder_val;  /* sync, not zero */
         }
-        right_encoder_ticks += abs(right_direction * (right_encoder_val - prev_right_encoder_val));
+        const uint16_t right_delta_raw = right_encoder_val - prev_right_encoder_val;
+        right_encoder_ticks += (uint32_t)right_delta_raw;
+        right_ticks_signed += (int32_t)right_delta_raw * (int32_t)right_direction;
         prev_right_encoder_val = right_encoder_val;
         prev_right_wheel_speed_val = right_wheel_speed_val;
         prev_right_direction = right_direction;
 
-        wheelTicks_handler(left_direction, right_direction, left_encoder_ticks, right_encoder_ticks, left_wheel_speed_val, right_wheel_speed_val);
+        wheelTicks_handler(left_ticks_signed, right_ticks_signed,
+                           left_wheel_speed_val, right_wheel_speed_val);
 
         drivemotors_eRxFlag = RX_WAIT; // ready for next message
     }
 }
 
-/// @brief Set drive motor speeds
-/// @param left_speed left motor speed byte
-/// @param right_speed right motor speed byte
-/// @param left_dir left motor direction bit
-/// @param right_dir  left motor direction bit
+/**
+ * @brief  Apply the motor static-friction deadband: zero stays zero, but
+ *         any non-zero command below the deadband is promoted to the
+ *         deadband with the same sign. This keeps the drivetrain out of
+ *         the buzz-and-don't-move zone.
+ */
+__STATIC_INLINE int16_t drivemotor_apply_deadband(int16_t pwm)
+{
+    if (pwm == 0)
+    {
+        return 0;
+    }
+    if (pwm > 0 && pwm <  PWM_DEADBAND) return  PWM_DEADBAND;
+    if (pwm < 0 && pwm > -PWM_DEADBAND) return -PWM_DEADBAND;
+    return pwm;
+}
+
+/**
+ * @brief  Set drive motor speeds from a signed PWM command per wheel.
+ *
+ * Single scalar per wheel encodes both magnitude and direction: positive =
+ * forward, negative = reverse, 0 = stop. The motor-controller PCB's legacy
+ * (|speed|, direction-bit) interface is produced internally by this function.
+ *
+ * The static-friction deadband is applied here; values below ±PWM_DEADBAND
+ * are promoted to ±PWM_DEADBAND (or left at 0). Saturates to int8_t range so
+ * the downstream 8-bit motor-controller field doesn't overflow.
+ *
+ * @param  left_pwm_signed   signed PWM command for the left wheel
+ * @param  right_pwm_signed  signed PWM command for the right wheel
+ */
+void DRIVEMOTOR_SetSpeedSigned(int16_t left_pwm_signed, int16_t right_pwm_signed)
+{
+    left_pwm_signed  = drivemotor_apply_deadband(left_pwm_signed);
+    right_pwm_signed = drivemotor_apply_deadband(right_pwm_signed);
+
+    /* Saturate to the 8-bit motor-controller magnitude. */
+    if (left_pwm_signed  >  255) left_pwm_signed  =  255;
+    if (left_pwm_signed  < -255) left_pwm_signed  = -255;
+    if (right_pwm_signed >  255) right_pwm_signed =  255;
+    if (right_pwm_signed < -255) right_pwm_signed = -255;
+
+    left_speed_req  = (uint8_t)(left_pwm_signed  < 0 ? -left_pwm_signed  : left_pwm_signed);
+    right_speed_req = (uint8_t)(right_pwm_signed < 0 ? -right_pwm_signed : right_pwm_signed);
+
+    /* Motor-controller convention: dir=1 → forward at |speed|, dir=0 →
+     * reverse at |speed| (or stop when |speed|=0). Only forward maps to
+     * a non-zero dir byte. */
+    left_dir_req  = (left_pwm_signed  > 0) ? 1 : 0;
+    right_dir_req = (right_pwm_signed > 0) ? 1 : 0;
+}
+
+/**
+ * @brief  Legacy 4-argument form kept as a thin shim over the signed API so
+ *         any caller that still uses `(speed, speed, dir, dir)` keeps
+ *         working. New code should call DRIVEMOTOR_SetSpeedSigned directly.
+ */
 void DRIVEMOTOR_SetSpeed(uint8_t left_speed, uint8_t right_speed, uint8_t left_dir, uint8_t right_dir)
 {
-    left_speed_req = left_speed;
-    right_speed_req = right_speed;
-    if(left_speed_req == 0 && right_speed_req ==  0)
-    {
-        left_dir_req = 0;
-        right_dir_req = 0;
-    }
-    else
-    {
-        left_dir_req = left_dir;
-        right_dir_req = right_dir;
-    }
+    const int16_t l_signed = left_dir  ? (int16_t)left_speed  : -(int16_t)left_speed;
+    const int16_t r_signed = right_dir ? (int16_t)right_speed : -(int16_t)right_speed;
+    /* If both speeds are 0, the deadband path passes 0 through unchanged,
+     * matching the old "0,0,0,0 == stop" contract. */
+    DRIVEMOTOR_SetSpeedSigned(
+        (left_speed  == 0) ? 0 : l_signed,
+        (right_speed == 0) ? 0 : r_signed);
 }
 
 /// @brief drive motor receive interrupt handler

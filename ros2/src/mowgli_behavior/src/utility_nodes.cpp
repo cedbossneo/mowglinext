@@ -119,79 +119,97 @@ void WaitForDuration::onHalted()
 }
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap
+// WaitForGpsFix
 // ---------------------------------------------------------------------------
 
-BT::NodeStatus SaveSlamMap::onStart()
+BT::NodeStatus WaitForGpsFix::onStart()
 {
+  double timeout_sec = 20.0;
+  if (auto res = getInput<double>("timeout_sec"))
+  {
+    timeout_sec = res.value();
+  }
+  min_fix_type_ = 2;
+  if (auto res = getInput<int>("min_fix_type"))
+  {
+    min_fix_type_ = res.value();
+  }
+
+  timeout_ = std::chrono::duration<double>(timeout_sec);
+  start_time_ = std::chrono::steady_clock::now();
+
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-
-  std::string map_path = "/ros2_ws/maps/garden_map";
-  if (auto res = getInput<std::string>("map_path"))
+  uint8_t current_fix = 0;
   {
-    map_path = res.value();
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    current_fix = ctx->gps_fix_type;
   }
 
-  // Lazily create the service client once.
-  if (!client_)
+  if (static_cast<int>(current_fix) >= min_fix_type_)
   {
-    client_ = ctx->node->create_client<SerializeSrv>("/slam_toolbox/serialize_map");
-  }
-
-  if (!client_->wait_for_service(std::chrono::seconds(5)))
-  {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "SaveSlamMap: /slam_toolbox/serialize_map not available — skipping save");
-    // Non-fatal: a missing service should not abort the post-mow sequence.
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "WaitForGpsFix: already at fix_type=%u (>= %d), proceeding",
+                current_fix, min_fix_type_);
     return BT::NodeStatus::SUCCESS;
   }
 
-  auto request = std::make_shared<SerializeSrv::Request>();
-  request->filename = map_path;
-
-  response_future_ = client_->async_send_request(request).future.share();
-
   RCLCPP_INFO(ctx->node->get_logger(),
-              "SaveSlamMap: serialize_map request sent (path='%s')",
-              map_path.c_str());
+              "WaitForGpsFix: waiting up to %.1fs for fix_type >= %d (current=%u)",
+              timeout_sec, min_fix_type_, current_fix);
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus WaitForGpsFix::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  uint8_t current_fix = 0;
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    current_fix = ctx->gps_fix_type;
+  }
+
+  if (static_cast<int>(current_fix) >= min_fix_type_)
+  {
+    const auto waited = std::chrono::steady_clock::now() - start_time_;
+    const double waited_sec = std::chrono::duration<double>(waited).count();
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "WaitForGpsFix: fix_type=%u reached after %.1fs",
+                current_fix, waited_sec);
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  const auto elapsed = std::chrono::steady_clock::now() - start_time_;
+  if (elapsed >= timeout_)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "WaitForGpsFix: timeout after %.1fs (last fix_type=%u < %d) — "
+                "proceeding at degraded GPS quality",
+                std::chrono::duration<double>(timeout_).count(),
+                current_fix, min_fix_type_);
+    return BT::NodeStatus::SUCCESS;
+  }
 
   return BT::NodeStatus::RUNNING;
 }
 
-BT::NodeStatus SaveSlamMap::onRunning()
+void WaitForGpsFix::onHalted()
 {
-  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-
-  if (response_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-  {
-    return BT::NodeStatus::RUNNING;
-  }
-
-  auto response = response_future_.get();
-  if (!response)
-  {
-    RCLCPP_ERROR(ctx->node->get_logger(), "SaveSlamMap: serialize_map returned null response");
-    return BT::NodeStatus::FAILURE;
-  }
-
-  // result == 0 means RESULT_SUCCESS in slam_toolbox.
-  if (response->result != 0)
-  {
-    RCLCPP_ERROR(ctx->node->get_logger(),
-                 "SaveSlamMap: serialize_map failed with result code %d",
-                 response->result);
-    return BT::NodeStatus::FAILURE;
-  }
-
-  RCLCPP_INFO(ctx->node->get_logger(), "SaveSlamMap: map saved successfully");
-  return BT::NodeStatus::SUCCESS;
+  // Nothing to clean up.
 }
 
-void SaveSlamMap::onHalted()
+// ---------------------------------------------------------------------------
+// SaveSlamMap (deprecated no-op stub — SLAM removed, no replacement yet)
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus SaveSlamMap::tick()
 {
-  // The future cannot be cancelled once sent; release the handle so the
-  // response is discarded if it arrives after the node is halted.
-  response_future_ = {};
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  RCLCPP_INFO_ONCE(ctx->node->get_logger(),
+                   "SaveSlamMap: map save not implemented (SLAM removed, "
+                   "Kinematic-ICP drift correction has no map serialization); "
+                   "returning SUCCESS.");
+  return BT::NodeStatus::SUCCESS;
 }
 
 // ---------------------------------------------------------------------------

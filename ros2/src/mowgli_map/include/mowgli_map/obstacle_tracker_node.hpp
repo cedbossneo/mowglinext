@@ -42,14 +42,14 @@ namespace mowgli_map
 
 /// @brief LiDAR-based obstacle tracker with transient/persistent classification.
 ///
-/// Subscribes to /scan (fast early detection) and /map (SLAM occupancy grid,
-/// primary source for full obstacle shapes).  For the scan path each valid range
-/// is transformed to the map frame via TF.  For the map path occupied cells are
-/// extracted directly in map frame, filtered to keep only cells that are at
-/// least map_obstacle_min_dist_from_boundary metres inside the map's occupied
-/// boundary region (to avoid treating the boundary edges themselves as
-/// obstacles), then clustered with DBSCAN.  Both paths feed the same
-/// associate_clusters() pipeline.
+/// Subscribes to /scan (fast early detection) and /map (OccupancyGrid
+/// published by our map_server_node from the mowing-area boundary).  For the
+/// scan path each valid range is transformed to the map frame via TF.  For
+/// the map path occupied cells are extracted directly in map frame, filtered
+/// to keep only cells that are at least map_obstacle_min_dist_from_boundary
+/// metres inside the map's occupied boundary region (to avoid treating the
+/// boundary edges themselves as obstacles), then clustered with DBSCAN.
+/// Both paths feed the same associate_clusters() pipeline.
 ///
 /// Outputs:
 ///   - obstacle_tracker/obstacles   (mowgli_interfaces/msg/ObstacleArray)
@@ -100,8 +100,9 @@ private:
   /// and associate clusters with existing tracked obstacles.
   void on_costmap(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg);
 
-  /// Extract occupied cells from the SLAM occupancy grid, filter by boundary
-  /// distance, cluster with DBSCAN, and associate clusters.  Primary source.
+  /// Extract occupied cells from the OccupancyGrid (published by
+  /// map_server_node), filter by boundary distance, cluster with DBSCAN,
+  /// and associate clusters.  Primary source.
   void on_map(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg);
 
   /// Promote/expire obstacles, then publish ObstacleArray and MarkerArray.
@@ -186,7 +187,7 @@ private:
   double publish_rate_{1.0};  ///< Timer frequency (Hz)
   std::string persistence_file_;  ///< Path for YAML save/load
   std::string map_frame_{"map"};
-  std::string map_topic_{"/map"};  ///< OccupancyGrid topic (slam_toolbox)
+  std::string map_topic_{"/map"};  ///< OccupancyGrid topic (from map_server_node)
   int occupied_threshold_{65};  ///< Cells >= this value are treated as occupied
   double map_obstacle_min_dist_from_boundary_{0.2};  ///< Min distance from boundary edge (m)
   double boundary_margin_{0.3};  ///< Reject clusters within this margin of boundary edge (m)

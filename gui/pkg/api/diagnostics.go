@@ -28,7 +28,6 @@ type DiagnosticsSnapshot struct {
 	System      SystemHealth       `json:"system"`
 	Coverage    []AreaCoverageInfo `json:"coverage"`
 	CrossChecks CrossChecks        `json:"cross_checks"`
-	SlamInfo    SlamInfo           `json:"slam_info"`
 }
 
 // ContainerHealth holds the health summary of a single Docker container.
@@ -71,15 +70,6 @@ type DockPoseCheck struct {
 	HasConfig     bool    `json:"has_config"`
 }
 
-// SlamInfo holds SLAM map file metadata.
-type SlamInfo struct {
-	MapFileExists    bool   `json:"map_file_exists"`
-	PosegraphSize    int64  `json:"posegraph_size_bytes"`
-	DataFileSize     int64  `json:"data_file_size_bytes"`
-	LastModified     string `json:"last_modified"`
-	MapPath          string `json:"map_path"`
-}
-
 // MowingSession represents a single mowing session stored in the DB.
 type MowingSession struct {
 	ID              string  `json:"id"`
@@ -110,10 +100,13 @@ func DiagnosticsRoutes(r *gin.RouterGroup, dockerProvider types.IDockerProvider,
 	group := r.Group("/diagnostics")
 	group.GET("/snapshot", getDiagnosticsSnapshot(dockerProvider, rosProvider, dbProvider))
 
-	// SLAM map tools
-	group.GET("/slam/info", getSlamInfo())
-	group.POST("/slam/save", postSlamSave(rosProvider))
-	group.POST("/slam/delete", postSlamDelete(rosProvider))
+	// Legacy SLAM endpoints — SLAM (Cartographer) was removed on the feat/kiss-icp
+	// branch. The occupancy grid is now published by map_server_node directly from
+	// recorded area polygons; there is no pbstream to save/delete. These stubs
+	// return 410 Gone so older GUI bundles calling them get a clear error.
+	group.GET("/slam/info", slamRemovedGone)
+	group.POST("/slam/save", slamRemovedGone)
+	group.POST("/slam/delete", slamRemovedGone)
 
 	// Mowing sessions
 	group.GET("/sessions", getSessions(dbProvider))
@@ -183,9 +176,6 @@ func getDiagnosticsSnapshot(dockerProvider types.IDockerProvider, rosProvider ty
 
 		// --- Cross-checks ---
 		snapshot.CrossChecks = buildCrossChecks(dbProvider)
-
-		// --- SLAM info ---
-		snapshot.SlamInfo = readSlamInfo("/ros2_ws/maps/garden_map")
 
 		c.JSON(http.StatusOK, snapshot)
 	}
@@ -270,95 +260,19 @@ func extractYAMLFloat(data map[string]interface{}, key string) float64 {
 	return 0
 }
 
-// readSlamInfo checks SLAM map files on disk.
-func readSlamInfo(basePath string) SlamInfo {
-	info := SlamInfo{MapPath: basePath}
-
-	pgPath := basePath + ".posegraph"
-	dataPath := basePath + ".data"
-
-	if stat, err := os.Stat(pgPath); err == nil {
-		info.MapFileExists = true
-		info.PosegraphSize = stat.Size()
-		info.LastModified = stat.ModTime().UTC().Format(time.RFC3339)
-	}
-
-	if stat, err := os.Stat(dataPath); err == nil {
-		info.DataFileSize = stat.Size()
-	}
-
-	return info
-}
-
 // ---------------------------------------------------------------------------
-// SLAM Map Tools
+// Legacy SLAM (Cartographer) stubs
 // ---------------------------------------------------------------------------
 
-// getSlamInfo returns SLAM map file metadata.
-func getSlamInfo() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		info := readSlamInfo("/ros2_ws/maps/garden_map")
-		c.JSON(http.StatusOK, info)
-	}
-}
-
-// postSlamSave triggers a SLAM map save via the slam_toolbox serialize service.
-func postSlamSave(rosProvider types.IRosProvider) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-		defer cancel()
-
-		// slam_toolbox SerializePoseGraph service
-		type SerializeReq struct {
-			Filename string `json:"filename"`
-		}
-		type SerializeRes struct {
-			Result int `json:"result"`
-		}
-
-		req := SerializeReq{Filename: "/ros2_ws/maps/garden_map"}
-		var res SerializeRes
-		if err := rosProvider.CallService(ctx, "/slam_toolbox/serialize_map", &req, &res, "slam_toolbox/srv/SerializePoseGraph"); err != nil {
-			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "Failed to save SLAM map: " + err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "SLAM map saved"})
-	}
-}
-
-// postSlamDelete deletes SLAM map files. Requires ROS2 container restart.
-func postSlamDelete(rosProvider types.IRosProvider) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		basePath := "/ros2_ws/maps/garden_map"
-		deleted := []string{}
-		errors := []string{}
-
-		for _, ext := range []string{".posegraph", ".data"} {
-			path := basePath + ext
-			if err := os.Remove(path); err == nil {
-				deleted = append(deleted, path)
-			} else if !os.IsNotExist(err) {
-				errors = append(errors, fmt.Sprintf("Failed to delete %s: %v", path, err))
-			}
-		}
-
-		if len(errors) > 0 {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"ok":      false,
-				"deleted": deleted,
-				"errors":  errors,
-				"message": "Some files could not be deleted. Restart ROS2 to start fresh mapping.",
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"ok":      true,
-			"deleted": deleted,
-			"message": "SLAM map deleted. Restart ROS2 container to start fresh mapping.",
-		})
-	}
+// slamRemovedGone returns a 410 Gone response for any legacy /diagnostics/slam/*
+// endpoint. SLAM was removed on the feat/kiss-icp branch: the occupancy grid
+// is published by map_server_node from recorded area polygons, so there is no
+// pbstream to save/delete. Older GUI bundles calling these endpoints will see
+// a clear error instead of a 404.
+func slamRemovedGone(c *gin.Context) {
+	c.JSON(http.StatusGone, ErrorResponse{
+		Error: "SLAM removed; occupancy grid is published by map_server_node from area polygons. No save needed.",
+	})
 }
 
 // ---------------------------------------------------------------------------

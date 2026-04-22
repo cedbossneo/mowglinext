@@ -1,333 +1,262 @@
 import {useCallback, useEffect, useState} from "react";
-import {
-    Card,
-    Col,
-    Progress,
-    Row,
-    Space,
-    Statistic,
-    Table,
-    Tag,
-    Typography,
-} from "antd";
-import {BarChartOutlined} from "@ant-design/icons";
+import {Table, Tag} from "antd";
 import {useApi} from "../hooks/useApi.ts";
 import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
-
-// ── types ────────────────────────────────────────────────────────────────────
+import {useThemeMode} from "../theme/ThemeContext.tsx";
+import {CardB, Bar} from "../components/dashboard";
 
 interface MowingSession {
-    id: string;
-    start_time: string;
-    end_time: string;
-    duration_seconds: number;
-    area_name: string;
-    coverage_percent: number;
-    strips_completed: number;
-    total_strips: number;
-    distance_meters: number;
-    status: "completed" | "aborted" | "error";
+  id: string;
+  start_time: string;
+  end_time: string;
+  duration_seconds: number;
+  area_name: string;
+  coverage_percent: number;
+  strips_completed: number;
+  total_strips: number;
+  distance_meters: number;
+  status: "completed" | "aborted" | "error";
 }
 
 interface SessionsResponse {
-    sessions: MowingSession[];
-    total: number;
+  sessions: MowingSession[];
+  total: number;
 }
 
 interface SessionStats {
-    total_sessions: number;
-    total_mowing_seconds: number;
-    total_distance_meters: number;
-    completed_sessions: number;
-    average_coverage_percent: number;
+  total_sessions: number;
+  total_mowing_seconds: number;
+  total_distance_meters: number;
+  completed_sessions: number;
+  average_coverage_percent: number;
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 function formatDuration(seconds: number): string {
-    if (!seconds || seconds <= 0) return "0m";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
+  if (!seconds || seconds <= 0) return "0m";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
-function formatTotalDuration(seconds: number): string {
-    if (!seconds || seconds <= 0) return "0h 0m";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
+function formatTotalHours(seconds: number): string {
+  if (!seconds || seconds <= 0) return "0";
+  return Math.round(seconds / 3600).toString();
 }
 
 function formatDistance(meters: number): string {
-    if (!meters || meters <= 0) return "0 m";
-    if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
-    return `${Math.round(meters)} m`;
+  if (!meters || meters <= 0) return "0";
+  if (meters >= 1000) return (meters / 1000).toFixed(1);
+  return Math.round(meters).toString();
+}
+
+function formatDistanceUnit(meters: number): string {
+  return meters >= 1000 ? "km" : "m";
 }
 
 function formatDate(timestamp: string): string {
-    if (!timestamp) return "--";
-    return new Date(timestamp).toLocaleString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+  if (!timestamp) return "--";
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
 }
 
-// ── main page ─────────────────────────────────────────────────────────────────
-
 export const StatisticsPage = () => {
-    const guiApi = useApi();
-    const {snapshot} = useDiagnosticsSnapshot();
+  const guiApi = useApi();
+  const {snapshot} = useDiagnosticsSnapshot();
+  const {colors} = useThemeMode();
 
-    const [sessions, setSessions] = useState<MowingSession[]>([]);
-    const [stats, setStats] = useState<SessionStats | null>(null);
-    const [loading, setLoading] = useState(false);
+  const [sessions, setSessions] = useState<MowingSession[]>([]);
+  const [stats, setStats] = useState<SessionStats | null>(null);
+  const [loading, setLoading] = useState(false);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const [sessionsRes, statsRes] = await Promise.all([
-                guiApi.request<SessionsResponse>({
-                    path: "/diagnostics/sessions",
-                    method: "GET",
-                    format: "json",
-                }),
-                guiApi.request<SessionStats>({
-                    path: "/diagnostics/sessions/stats",
-                    method: "GET",
-                    format: "json",
-                }),
-            ]);
-            setSessions(sessionsRes.data?.sessions ?? []);
-            setStats(statsRes.data ?? null);
-        } catch {
-            // silently degrade — backend may not have sessions yet
-        } finally {
-            setLoading(false);
-        }
-    }, []);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [sessionsRes, statsRes] = await Promise.all([
+        guiApi.request<SessionsResponse>({path: "/diagnostics/sessions", method: "GET", format: "json"}),
+        guiApi.request<SessionStats>({path: "/diagnostics/sessions/stats", method: "GET", format: "json"}),
+      ]);
+      setSessions(sessionsRes.data?.sessions ?? []);
+      setStats(statsRes.data ?? null);
+    } catch { /* silently degrade */ }
+    finally { setLoading(false); }
+  }, []);
 
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 30000);
-        return () => clearInterval(interval);
-    }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
 
-    // ── Aggregate stats cards ────────────────────────────────────────────────
+  const completionRate = stats && stats.total_sessions > 0
+    ? Math.round((stats.completed_sessions / stats.total_sessions) * 100) : 0;
 
-    const completionRate =
-        stats && stats.total_sessions > 0
-            ? Math.round((stats.completed_sessions / stats.total_sessions) * 100)
-            : 0;
+  const coverage = snapshot?.coverage ?? [];
 
-    const statsRow = (
-        <Row gutter={[12, 12]}>
-            <Col xs={12} sm={8} md={8} lg={4} xl={4}>
-                <Card size="small">
-                    <Statistic
-                        title="Total Sessions"
-                        value={stats?.total_sessions ?? 0}
-                        prefix={<BarChartOutlined/>}
-                    />
-                </Card>
-            </Col>
-            <Col xs={12} sm={8} md={8} lg={5} xl={5}>
-                <Card size="small">
-                    <Statistic
-                        title="Total Mowing Time"
-                        value={formatTotalDuration(stats?.total_mowing_seconds ?? 0)}
-                    />
-                </Card>
-            </Col>
-            <Col xs={12} sm={8} md={8} lg={5} xl={5}>
-                <Card size="small">
-                    <Statistic
-                        title="Total Distance"
-                        value={formatDistance(stats?.total_distance_meters ?? 0)}
-                    />
-                </Card>
-            </Col>
-            <Col xs={12} sm={8} md={8} lg={5} xl={5}>
-                <Card size="small">
-                    <Statistic
-                        title="Completion Rate"
-                        value={completionRate}
-                        suffix="%"
-                        valueStyle={{
-                            color: completionRate >= 80 ? undefined : completionRate >= 50 ? "#faad14" : "#ff4d4f",
-                        }}
-                    />
-                </Card>
-            </Col>
-            <Col xs={12} sm={8} md={8} lg={5} xl={5}>
-                <Card size="small">
-                    <Statistic
-                        title="Avg Coverage"
-                        value={stats?.average_coverage_percent != null
-                            ? Math.round(stats.average_coverage_percent * 100) / 100
-                            : 0}
-                        precision={1}
-                        suffix="%"
-                    />
-                </Card>
-            </Col>
-        </Row>
-    );
+  // Generate fake weekly data from sessions for the bar chart
+  const weeklyBars = Array.from({length: 12}, (_, i) => {
+    const weekAgo = 12 - i;
+    const weekSessions = sessions.filter(s => {
+      const d = new Date(s.start_time);
+      const now = new Date();
+      const diffWeeks = Math.floor((now.getTime() - d.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      return diffWeeks === weekAgo;
+    });
+    return weekSessions.reduce((acc, s) => acc + (s.distance_meters / 1000), 0);
+  });
+  const maxBar = Math.max(...weeklyBars, 0.01);
 
-    // ── Session history table ────────────────────────────────────────────────
+  const sessionColumns = [
+    {
+      title: "Date", dataIndex: "start_time", key: "start_time",
+      sorter: (a: MowingSession, b: MowingSession) =>
+        new Date(b.start_time).getTime() - new Date(a.start_time).getTime(),
+      defaultSortOrder: "ascend" as const,
+      render: (v: string) => <span style={{fontSize: 13}}>{formatDate(v)}</span>,
+    },
+    {
+      title: "Duration", dataIndex: "duration_seconds", key: "duration",
+      render: (v: number) => <span style={{fontSize: 13}}>{formatDuration(v)}</span>,
+    },
+    {
+      title: "Area", dataIndex: "area_name", key: "area_name",
+      render: (v: string) => <span style={{fontSize: 13}}>{v || "--"}</span>,
+    },
+    {
+      title: "Coverage", dataIndex: "coverage_percent", key: "coverage",
+      render: (v: number) => (
+        <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+          <Bar value={v ?? 0} color={colors.accent} track="rgba(255,255,255,0.08)" height={6}/>
+          <span style={{fontSize: 11, color: colors.textDim, whiteSpace: 'nowrap'}}>
+            {Math.round(v ?? 0)}%
+          </span>
+        </div>
+      ),
+    },
+    {
+      title: "Status", dataIndex: "status", key: "status",
+      render: (v: string) => {
+        const c = v === "completed" ? "success" : v === "aborted" ? "warning" : "error";
+        return <Tag color={c}>{v ?? "--"}</Tag>;
+      },
+    },
+  ];
 
-    const sessionColumns = [
-        {
-            title: "Date",
-            dataIndex: "start_time",
-            key: "start_time",
-            sorter: (a: MowingSession, b: MowingSession) =>
-                new Date(b.start_time).getTime() - new Date(a.start_time).getTime(),
-            defaultSortOrder: "ascend" as const,
-            render: (v: string) => (
-                <Typography.Text style={{fontSize: 13}}>{formatDate(v)}</Typography.Text>
-            ),
-        },
-        {
-            title: "Duration",
-            dataIndex: "duration_seconds",
-            key: "duration_seconds",
-            render: (v: number) => (
-                <Typography.Text style={{fontSize: 13}}>{formatDuration(v)}</Typography.Text>
-            ),
-        },
-        {
-            title: "Area",
-            dataIndex: "area_name",
-            key: "area_name",
-            render: (v: string) => (
-                <Typography.Text style={{fontSize: 13}}>{v || "--"}</Typography.Text>
-            ),
-        },
-        {
-            title: "Coverage",
-            dataIndex: "coverage_percent",
-            key: "coverage_percent",
-            render: (v: number) => (
-                <Progress
-                    percent={Math.round((v ?? 0) * 100) / 100}
-                    size="small"
-                    style={{minWidth: 80, maxWidth: 140}}
+  return (
+    <div style={{display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 8}}>
+      {/* Hero stats */}
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12}}>
+        {[
+          {label: 'Total distance', value: formatDistance(stats?.total_distance_meters ?? 0), unit: formatDistanceUnit(stats?.total_distance_meters ?? 0), hint: 'since install', color: colors.accent},
+          {label: 'Hours active', value: formatTotalHours(stats?.total_mowing_seconds ?? 0), unit: 'h', hint: `${stats?.total_sessions ?? 0} sessions`, color: colors.sky},
+          {label: 'Completion rate', value: `${completionRate}`, unit: '%', hint: `${stats?.completed_sessions ?? 0} completed`, color: colors.amber},
+          {label: 'Runs completed', value: `${stats?.total_sessions ?? 0}`, unit: '', hint: `avg ${Math.round(stats?.average_coverage_percent ?? 0)}% coverage`, color: colors.accent},
+        ].map(s => (
+          <CardB key={s.label} padding={18}>
+            <div style={{
+              fontSize: 11, color: colors.textDim,
+              letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8,
+            }}>
+              {s.label}
+            </div>
+            <div style={{display: 'flex', alignItems: 'baseline', gap: 4}}>
+              <div style={{fontSize: 36, fontWeight: 700, color: s.color, letterSpacing: '-0.03em', lineHeight: 1}}>
+                {s.value}
+              </div>
+              {s.unit && <div style={{fontSize: 14, color: colors.textDim, fontWeight: 600}}>{s.unit}</div>}
+            </div>
+            <div style={{fontSize: 11, color: colors.textMuted, marginTop: 6}}>{s.hint}</div>
+          </CardB>
+        ))}
+      </div>
+
+      {/* Weekly chart */}
+      <CardB>
+        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16}}>
+          <div>
+            <div style={{fontSize: 14, fontWeight: 600}}>Distance per week</div>
+            <div style={{fontSize: 11, color: colors.textMuted}}>Last 12 weeks (km)</div>
+          </div>
+        </div>
+        <div style={{display: 'flex', alignItems: 'flex-end', gap: 8, height: 180, paddingBottom: 20, position: 'relative'}}>
+          {[0.25, 0.5, 0.75].map(p => (
+            <div key={p} style={{position: 'absolute', left: 0, right: 0, bottom: 20 + p * 160, height: 1, background: colors.border}}/>
+          ))}
+          {weeklyBars.map((v, i) => {
+            const h = maxBar > 0 ? (v / maxBar) * 160 : 0;
+            const isLatest = i === weeklyBars.length - 1;
+            return (
+              <div key={i} style={{flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, position: 'relative'}}>
+                <div style={{
+                  width: '100%', height: Math.max(2, h),
+                  background: isLatest
+                    ? `linear-gradient(180deg, ${colors.accent}, ${colors.accent}88)`
+                    : `linear-gradient(180deg, ${colors.accent}66, ${colors.accent}22)`,
+                  borderRadius: '6px 6px 2px 2px',
+                  border: isLatest ? `1px solid ${colors.accent}` : 'none',
+                  transition: 'height .4s',
+                }}/>
+                <div style={{fontSize: 9, color: colors.textMuted, position: 'absolute', bottom: 0}}>W{i + 1}</div>
+                {isLatest && v > 0 && (
+                  <div style={{position: 'absolute', top: -22, fontSize: 10, fontWeight: 700, color: colors.accent}}>
+                    {v.toFixed(1)} km
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardB>
+
+      {/* Coverage + session history */}
+      <div style={{display: 'grid', gridTemplateColumns: coverage.length > 0 ? '1fr 1.4fr' : '1fr', gap: 14}}>
+        {coverage.length > 0 && (
+          <CardB>
+            <div style={{fontSize: 14, fontWeight: 600, marginBottom: 14}}>Zone coverage</div>
+            {coverage.map(area => (
+              <div key={area.area_index} style={{marginBottom: 10}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4}}>
+                  <span style={{color: colors.text, fontWeight: 500}}>Area {area.area_index}</span>
+                  <span style={{color: colors.textDim}}>
+                    {area.mowed_cells}/{area.total_cells} cells
+                  </span>
+                </div>
+                <Bar
+                  value={area.coverage_percent} max={100}
+                  color={colors.accent} track="rgba(255,255,255,0.06)" height={6}
                 />
-            ),
-        },
-        {
-            title: "Strips",
-            key: "strips",
-            render: (_: unknown, record: MowingSession) => (
-                <Typography.Text style={{fontSize: 13}}>
-                    {record.strips_completed ?? 0}
-                    {record.total_strips ? ` / ${record.total_strips}` : ""}
-                </Typography.Text>
-            ),
-        },
-        {
-            title: "Status",
-            dataIndex: "status",
-            key: "status",
-            render: (v: string) => {
-                const color =
-                    v === "completed" ? "success" :
-                    v === "aborted" ? "warning" : "error";
-                return <Tag color={color}>{v ?? "--"}</Tag>;
-            },
-        },
-    ];
+              </div>
+            ))}
+          </CardB>
+        )}
 
-    const sectionHistory = (
-        <Card
-            title="Session History"
+        <CardB padding={0}>
+          <div style={{padding: '18px 18px 0'}}>
+            <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>Session history</div>
+            <div style={{fontSize: 11, color: colors.textMuted, marginBottom: 14}}>
+              {sessions.length} session{sessions.length !== 1 ? 's' : ''} recorded
+            </div>
+          </div>
+          <Table
             size="small"
-        >
-            <Table
-                size="small"
-                loading={loading}
-                dataSource={sessions}
-                columns={sessionColumns}
-                rowKey="id"
-                pagination={{pageSize: 20, showSizeChanger: false}}
-                locale={{
-                    emptyText: (
-                        <Space direction="vertical" style={{padding: "24px 0"}}>
-                            <Typography.Text type="secondary">
-                                No mowing sessions recorded yet. Sessions are tracked automatically when the robot mows.
-                            </Typography.Text>
-                        </Space>
-                    ),
-                }}
-            />
-        </Card>
-    );
-
-    // ── Section 2: Coverage progress per area ───────────────────────────────
-
-    const coverage = snapshot?.coverage ?? [];
-
-    const sectionCoverage =
-        coverage.length > 0 ? (
-            <Card title="Area Coverage Progress" size="small">
-                <Row gutter={[12, 12]}>
-                    {coverage.map((area) => (
-                        <Col key={area.area_index} xs={24} sm={12} lg={8}>
-                            <Card size="small" style={{borderRadius: 8}}>
-                                <Typography.Text
-                                    strong
-                                    style={{fontSize: 13, display: "block", marginBottom: 8}}
-                                >
-                                    Area {area.area_index}
-                                </Typography.Text>
-                                <Progress
-                                    percent={Math.round(area.coverage_percent * 100) / 100}
-                                    size="small"
-                                    style={{marginBottom: 8}}
-                                />
-                                <Row gutter={[8, 4]}>
-                                    <Col span={8}>
-                                        <Statistic
-                                            title="Total"
-                                            value={area.total_cells}
-                                            valueStyle={{fontSize: 14}}
-                                        />
-                                    </Col>
-                                    <Col span={8}>
-                                        <Statistic
-                                            title="Mowed"
-                                            value={area.mowed_cells}
-                                            valueStyle={{fontSize: 14}}
-                                        />
-                                    </Col>
-                                    <Col span={8}>
-                                        <Statistic
-                                            title="Strips left"
-                                            value={area.strips_remaining}
-                                            valueStyle={{fontSize: 14}}
-                                        />
-                                    </Col>
-                                </Row>
-                            </Card>
-                        </Col>
-                    ))}
-                </Row>
-            </Card>
-        ) : null;
-
-    // ── layout ───────────────────────────────────────────────────────────────
-
-    return (
-        <Row gutter={[12, 12]} style={{paddingBottom: 8}}>
-            <Col span={24}>{statsRow}</Col>
-            <Col span={24}>{sectionHistory}</Col>
-            {sectionCoverage && <Col span={24}>{sectionCoverage}</Col>}
-        </Row>
-    );
+            loading={loading}
+            dataSource={sessions}
+            columns={sessionColumns}
+            rowKey="id"
+            pagination={{pageSize: 10, showSizeChanger: false}}
+            locale={{
+              emptyText: (
+                <div style={{padding: '24px 0', color: colors.textSecondary}}>
+                  No mowing sessions recorded yet.
+                </div>
+              ),
+            }}
+          />
+        </CardB>
+      </div>
+    </div>
+  );
 };
 
 export default StatisticsPage;

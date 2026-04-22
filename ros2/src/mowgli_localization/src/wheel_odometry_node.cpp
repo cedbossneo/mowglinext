@@ -37,8 +37,8 @@
  *   theta += d_theta
  *
  * Covariance notes:
- *   The EKF in localization.yaml consumes only vx and vyaw from this source
- *   (odom0_config), so pose covariance is intentionally large (we do not claim
+ *   FusionCore (the UKF in localization.yaml) consumes only vx and vyaw from
+ *   this source, so pose covariance is intentionally large (we do not claim
  *   accurate absolute position from dead-reckoning alone).  Twist covariance
  *   uses moderate values reflecting real encoder noise.
  */
@@ -134,9 +134,14 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   {
     prev_ticks_left_ = msg->wheel_ticks_rl;
     prev_ticks_right_ = msg->wheel_ticks_rr;
+    last_tick_time_   = now();
     first_tick_ = false;
     return;
   }
+
+  const rclcpp::Time tick_now = now();
+  const double dt_sec = (tick_now - last_tick_time_).seconds();
+  last_tick_time_ = tick_now;
 
   // ------------------------------------------------------------------
   // Compute signed tick deltas, respecting the direction flags.
@@ -182,8 +187,11 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
 
   nav_msgs::msg::Odometry odom;
   odom.header.stamp = stamp;
+  // REP-105: body frame is base_footprint; FusionCore owns odom->base_footprint.
+  // This node is kept for twist-only consumers; publish_tf defaults to false so
+  // the pose branch never competes with FusionCore.
   odom.header.frame_id = "odom";
-  odom.child_frame_id = "base_link";
+  odom.child_frame_id = "base_footprint";
 
   // Pose
   odom.pose.pose.position.x = x_;
@@ -192,8 +200,8 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   odom.pose.pose.orientation = yaw_to_quaternion(theta_);
 
   // Pose covariance (row-major 6×6: x y z roll pitch yaw).
-  // Large diagonal — we trust the EKF to own the absolute pose; we only
-  // contribute velocity information (odom0_config selects vx and vyaw).
+  // Large diagonal — we trust FusionCore to own the absolute pose; we only
+  // contribute velocity information (vx and vyaw) from the encoder stream.
   odom.pose.covariance[0] = 1e6;  // x  (untrusted — EKF uses velocity only)
   odom.pose.covariance[7] = 1e6;  // y  (untrusted — EKF uses velocity only)
   odom.pose.covariance[14] = 1e6;  // z  (irrelevant for 2D)
@@ -201,19 +209,23 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   odom.pose.covariance[28] = 1e6;  // pitch
   odom.pose.covariance[35] = 1e6;  // yaw (untrusted — EKF uses velocity only)
 
-  // Twist (velocities in body frame)
-  // Avoid division by zero: treat zero dt as zero velocity.
-  // The EKF does its own differentiation from consecutive poses when
-  // differential mode is on, but we publish a best-effort instantaneous v.
-  // Use a nominal dt based on the tick_factor field if available, otherwise
-  // assume 10 ms (the firmware typically sends at 100 Hz).
-  constexpr double kNominalDt = 0.01;
-  odom.twist.twist.linear.x = d_center / kNominalDt;
-  odom.twist.twist.angular.z = d_theta / kNominalDt;
+  // Twist (velocities in body frame) — derived from the real elapsed
+  // time between consecutive tick messages. Falling back to a hardcoded
+  // 10 ms (as the old code did) overstated the reported velocity by
+  // ~2x when the firmware actually publishes at ~47 Hz, which cascades
+  // into FusionCore as inflated position increments.
+  const double dt_safe = (dt_sec > 1e-3) ? dt_sec : 1e-3;
+  odom.twist.twist.linear.x = d_center / dt_safe;
+  odom.twist.twist.angular.z = d_theta / dt_safe;
 
   // Twist covariance
   odom.twist.covariance[0] = 1e-3;  // vx
-  odom.twist.covariance[7] = 1e6;  // vy  (non-holonomic: constrain later)
+  // Non-holonomic constraint: a differential-drive robot cannot slide
+  // sideways. Publish VY = 0 with a tight variance so FusionCore treats
+  // it as a hard "no lateral motion" measurement. Previously the
+  // variance was 1e6 ("unknown"), which let GPS + IMU noise pull the
+  // fused state into apparent lateral drift during outdoor runs.
+  odom.twist.covariance[7] = 1e-4;  // vy  (enforce VY = 0)
   odom.twist.covariance[14] = 1e6;  // vz
   odom.twist.covariance[21] = 1e6;  // vroll
   odom.twist.covariance[28] = 1e6;  // vpitch
@@ -229,7 +241,7 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
     geometry_msgs::msg::TransformStamped tf;
     tf.header.stamp = stamp;
     tf.header.frame_id = "odom";
-    tf.child_frame_id = "base_link";
+    tf.child_frame_id = "base_footprint";
 
     tf.transform.translation.x = x_;
     tf.transform.translation.y = y_;

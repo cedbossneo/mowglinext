@@ -327,13 +327,15 @@
           </button>
           <button class="composer-option" data-value="stl27l-uart">
             <span class="option-icon">🟡</span>
+            <span class="option-badge">Experimental</span>
             <span class="option-label">STL27L / UART</span>
-            <span class="option-desc">STL27L sensor</span>
+            <span class="option-desc">Driver is a stub — motion tests not run yet</span>
           </button>
           <button class="composer-option" data-value="stl27l-usb">
             <span class="option-icon">🟡</span>
+            <span class="option-badge">Experimental</span>
             <span class="option-label">STL27L / USB</span>
-            <span class="option-desc">STL27L via USB</span>
+            <span class="option-desc">Driver is a stub — motion tests not run yet</span>
           </button>
           <button class="composer-option" data-value="none">
             <span class="option-icon">❌</span>
@@ -345,8 +347,8 @@
 
       <!-- Rangefinders -->
       <div class="composer-group">
-        <h3>TF-Luna Rangefinders</h3>
-        <p class="composer-hint">Optional — for ground edge detection and front obstacle sensing</p>
+        <h3>TF-Luna Rangefinders <span class="option-badge">Experimental</span></h3>
+        <p class="composer-hint">Optional — for ground edge detection and front obstacle sensing. Drivers publish raw range today but are not yet wired into collision_monitor or the behavior tree.</p>
         <div class="composer-options" data-group="tfluna">
           <button class="composer-option active" data-value="none">
             <span class="option-icon">❌</span>
@@ -355,18 +357,21 @@
           </button>
           <button class="composer-option" data-value="front">
             <span class="option-icon">📏</span>
+            <span class="option-badge">Experimental</span>
             <span class="option-label">Front only</span>
-            <span class="option-desc">Front obstacle sensor</span>
+            <span class="option-desc">Front obstacle sensor — data publishes, not yet fused</span>
           </button>
           <button class="composer-option" data-value="edge">
             <span class="option-icon">📏</span>
+            <span class="option-badge">Experimental</span>
             <span class="option-label">Edge only</span>
-            <span class="option-desc">Ground edge detector</span>
+            <span class="option-desc">Ground edge detector — data publishes, not yet fused</span>
           </button>
           <button class="composer-option" data-value="both">
             <span class="option-icon">📏</span>
+            <span class="option-badge">Experimental</span>
             <span class="option-label">Front + Edge</span>
-            <span class="option-desc">Both sensors</span>
+            <span class="option-desc">Both sensors — data publishes, not yet fused</span>
           </button>
         </div>
       </div>

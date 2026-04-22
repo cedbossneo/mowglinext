@@ -1,3 +1,8 @@
 [submodule "ros2/src/fusioncore"]
 	path = ros2/src/fusioncore
 	url = https://github.com/cedbossneo/fusioncore.git
+	branch = mowgli/integration
+[submodule "ros2/src/kinematic_icp"]
+	path = ros2/src/kinematic_icp
+	url = https://github.com/PRBonn/kinematic-icp.git
+	branch = main

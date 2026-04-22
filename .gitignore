@@ -31,3 +31,9 @@ node_modules/
 *.key
 credentials.json
 .claude/worktrees
+
+# Mow-session monitor logs — committed selectively via `git add -f` for
+# golden / failure-case reference runs; default-ignored to avoid bloating
+# the repo with every development test.
+docker/logs/mow_sessions/*.jsonl
+!docker/logs/mow_sessions/.gitkeep

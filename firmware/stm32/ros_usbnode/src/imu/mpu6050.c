@@ -75,9 +75,9 @@ void MPU6050_ReadGyroRaw(float *x, float *y, float *z)
 
     SW_I2C_UTIL_Read_Multi(MPU6050_ADDRESS, MPU6050_GYRO_XOUT_H, 6, (uint8_t*)&gyro_xyz);
     
-    *x = (int16_t)(gyro_xyz[0] << 8 | gyro_xyz[1]) * MPU6050_DPS_FACTOR * RAD_PER_G;
-    *y = (int16_t)(gyro_xyz[2] << 8 | gyro_xyz[3]) * MPU6050_DPS_FACTOR * RAD_PER_G;
-    *z = (int16_t)(gyro_xyz[4] << 8 | gyro_xyz[5]) * MPU6050_DPS_FACTOR * RAD_PER_G;    
+    *x = (int16_t)(gyro_xyz[0] << 8 | gyro_xyz[1]) * MPU6050_DPS_FACTOR * RAD_PER_DEG;
+    *y = (int16_t)(gyro_xyz[2] << 8 | gyro_xyz[3]) * MPU6050_DPS_FACTOR * RAD_PER_DEG;
+    *z = (int16_t)(gyro_xyz[4] << 8 | gyro_xyz[5]) * MPU6050_DPS_FACTOR * RAD_PER_DEG;    
 }
 
 #endif

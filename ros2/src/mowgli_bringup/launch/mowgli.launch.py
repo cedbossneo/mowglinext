@@ -109,6 +109,8 @@ def generate_launch_description() -> LaunchDescription:
     imu_x     = str(robot_params.get("imu_x", 0.18))
     imu_y     = str(robot_params.get("imu_y", 0.0))
     imu_z     = str(robot_params.get("imu_z", 0.095))
+    imu_roll  = str(robot_params.get("imu_roll", 0.0))
+    imu_pitch = str(robot_params.get("imu_pitch", 0.0))
     imu_yaw   = str(robot_params.get("imu_yaw", 0.0))
     gps_x     = str(robot_params.get("gps_x", 0.3))
     gps_y     = str(robot_params.get("gps_y", 0.0))
@@ -148,6 +150,8 @@ def generate_launch_description() -> LaunchDescription:
             " imu_x:=", imu_x,
             " imu_y:=", imu_y,
             " imu_z:=", imu_z,
+            " imu_roll:=", imu_roll,
+            " imu_pitch:=", imu_pitch,
             " imu_yaw:=", imu_yaw,
             " gps_x:=", gps_x,
             " gps_y:=", gps_y,

@@ -34,7 +34,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -53,18 +53,6 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
-    slam_arg = DeclareLaunchArgument(
-        "slam",
-        default_value="True",
-        description="Run slam_toolbox when True.",
-    )
-
-    map_arg = DeclareLaunchArgument(
-        "map",
-        default_value="",
-        description="Absolute path to a pre-built map yaml file.",
-    )
-
     headless_arg = DeclareLaunchArgument(
         "headless",
         default_value="true",
@@ -86,8 +74,6 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
-    slam = LaunchConfiguration("slam")
-    map_yaml = LaunchConfiguration("map")
     headless = LaunchConfiguration("headless")
     use_rviz = LaunchConfiguration("use_rviz")
     simulate_gps_degradation = LaunchConfiguration("simulate_gps_degradation")
@@ -116,7 +102,9 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 2. Navigation stack — SLAM, dual EKF, Nav2
+    # 2. Navigation stack — FusionCore, static map->odom, Nav2
+    #    navigation.launch.py publishes a static identity map -> odom, so
+    #    no extra TF publisher is needed here.
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -124,30 +112,8 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "use_sim_time": "true",
-            "slam": slam,
-            "map": map_yaml,
             "use_ekf": "True",
-            "slam_mode": "lifelong",
-            "map_file_name": "/ros2_ws/maps/small_garden_map",
         }.items(),
-    )
-
-    # ------------------------------------------------------------------
-    # 2b. Static map→odom TF when SLAM is disabled
-    # ------------------------------------------------------------------
-    static_map_odom_tf = Node(
-        condition=UnlessCondition(slam),
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_map_odom_tf",
-        output="screen",
-        arguments=[
-            "--x", "0", "--y", "0", "--z", "0",
-            "--roll", "0", "--pitch", "0", "--yaw", "0",
-            "--frame-id", "map",
-            "--child-frame-id", "odom",
-        ],
-        parameters=[{"use_sim_time": True}],
     )
 
     # ------------------------------------------------------------------
@@ -275,15 +241,12 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             # Arguments
-            slam_arg,
-            map_arg,
             headless_arg,
             use_rviz_arg,
             gps_degradation_arg,
             # Subsystem includes
             simulation_launch,
             navigation_launch,
-            static_map_odom_tf,
             # Individual nodes
             behavior_tree_node,
             map_server_node,

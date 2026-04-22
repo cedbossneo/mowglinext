@@ -8,6 +8,7 @@ import {useGPS} from "../hooks/useGPS.ts";
 import {useSettings} from "../hooks/useSettings.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {AbsolutePoseConstants} from "../types/ros.ts";
+import {computeBatteryPercent, BATTERY_DEFAULTS} from "../utils/battery.ts";
 
 export function HighLevelStatusComponent() {
     const {colors} = useThemeMode();
@@ -25,19 +26,9 @@ export function HighLevelStatusComponent() {
     const isEmergency = highLevelStatus.emergency ?? emergency.active_emergency ?? false;
 
     // Derive battery percentage: prefer highLevelStatus, fall back to voltage-based estimate
-    const batteryPercent = (() => {
-        if (highLevelStatus.battery_percent != null && highLevelStatus.battery_percent > 0) {
-            return highLevelStatus.battery_percent;
-        }
-        // Estimate from voltage if highLevelStatus is unavailable
-        if (power.v_battery) {
-            const full = parseFloat(settings["battery_full_voltage"] ?? "28.5");
-            const empty = parseFloat(settings["battery_empty_voltage"] ?? "23.0");
-            const pct = ((power.v_battery - empty) / (full - empty)) * 100;
-            return Math.max(0, Math.min(100, pct));
-        }
-        return 0;
-    })();
+    const batteryPercent = computeBatteryPercent(
+        highLevelStatus.battery_percent, power.v_battery, settings,
+    );
 
     // Derive GPS quality: prefer highLevelStatus, fall back to GPS topic flags
     const gpsQuality = (() => {
@@ -66,8 +57,8 @@ export function HighLevelStatusComponent() {
             return "∞"
         }
         const capacity = (settings["battery_capacity_mah"] ?? "3000.0");
-        const full = (settings["battery_full_voltage"] ?? "28.5");
-        const empty = (settings["battery_empty_voltage"] ?? "23.0");
+        const full = (settings["battery_full_voltage"] ?? BATTERY_DEFAULTS.fullVoltage);
+        const empty = (settings["battery_empty_voltage"] ?? BATTERY_DEFAULTS.emptyVoltage);
         if (!capacity || !full || !empty) {
             return "∞"
         }

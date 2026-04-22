@@ -24,9 +24,10 @@
  * optional random position drift is injected to mimic real-world float/no-fix
  * behaviour.
  *
- * The inflated covariance causes robot_localization's EKF to down-weight (or
+ * The inflated covariance causes FusionCore's UKF to down-weight (or
  * effectively ignore) the GPS measurement, forcing the system to rely on
- * odometry and LiDAR SLAM -- exactly the scenario we want to validate.
+ * wheel odometry, IMU dead-reckoning, and Kinematic-ICP twist on the
+ * encoder2 slot -- exactly the scenario we want to validate.
  */
 
 #include "mowgli_simulation/gps_degradation_sim_node.hpp"

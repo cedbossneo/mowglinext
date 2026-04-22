@@ -49,34 +49,61 @@
       </Fallback>
 
       <!-- ================================================================
-           GUARD 2: Boundary violation (stop + back up if outside area)
-           BackUp failure is non-fatal — robot stays stopped either way.
+           GUARD 2: Two-tier boundary violation
+             * Lethal violation (outside area by more than
+               lethal_boundary_margin_m, default 0.5m in map_server_node):
+               blade + motors operating this far outside the authorised
+               zone can cause real damage — emergency stop, wait for
+               operator. No automatic recovery.
+             * Soft violation (outside area but within the margin):
+               attempt to navigate back to the known-inside dock pose.
+               If Nav2 can route us back, normal mowing resumes. If it
+               can't inside two attempts, escalate to the lethal path.
+           The old behaviour was "BackUp 1m up to 5 times", which pushed
+           the robot FURTHER along whatever direction it just crossed
+           into — today's run ended with the robot ~50 cm past the
+           east edge of the polygon, and each recovery BackUp drove it
+           another 30 cm in the same wrong direction.
            ================================================================ -->
       <Fallback name="BoundaryGuard">
         <Inverter><IsBoundaryViolation/></Inverter>
-        <Sequence name="BoundaryHandler">
+
+        <!-- Lethal path: stop immediately, latch -->
+        <Sequence name="LethalBoundaryHandler">
+          <IsLethalBoundaryViolation/>
           <SetMowerEnabled enabled="false"/>
           <StopMoving/>
-          <PublishHighLevelStatus state="0" state_name="BOUNDARY_VIOLATION"/>
-          <Fallback name="BoundaryRecoveryOrStop">
-            <!-- Try backing up max 5 times to get back inside boundary -->
-            <RetryUntilSuccessful num_attempts="5">
-              <Sequence name="BackUpAndCheck">
-                <Fallback name="BoundaryBackUpOrWait">
-                  <BackUp backup_dist="1.0" backup_speed="0.15"/>
-                  <AlwaysSuccess/>
-                </Fallback>
-                <WaitForDuration duration_sec="2.0"/>
-                <!-- Succeed only if back inside boundary -->
+          <PublishHighLevelStatus state="0" state_name="BOUNDARY_EMERGENCY_STOP"/>
+          <!-- Hold here forever — operator intervention required. A long
+               wait prevents the tree from re-ticking and potentially
+               re-issuing goals; the emergency status is visible in the
+               GUI so the user knows to recover manually. -->
+          <WaitForDuration duration_sec="3600.0"/>
+        </Sequence>
+
+        <!-- Soft path: stop, then route back to a known-inside pose -->
+        <Sequence name="SoftBoundaryHandler">
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="2" state_name="BOUNDARY_RECOVERY"/>
+          <Fallback name="RecoverOrEscalate">
+            <!-- Navigate back to the dock (guaranteed inside the area
+                 if operator configured dock_pose correctly). Two tries
+                 before escalating to lethal behaviour. -->
+            <RetryUntilSuccessful num_attempts="2" name="RecoveryRetry">
+              <Sequence name="NavigateBackInside">
+                <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
+                <!-- Succeed only if the DockRobot action actually put us
+                     back inside a defined area. -->
                 <Inverter><IsBoundaryViolation/></Inverter>
               </Sequence>
             </RetryUntilSuccessful>
-            <!-- All 5 attempts exhausted — emergency stop -->
-            <Sequence name="BoundaryEmergencyStop">
+            <!-- Recovery failed — treat as lethal going forward. -->
+            <Sequence name="EscalateToEmergency">
               <SetMowerEnabled enabled="false"/>
               <StopMoving/>
               <PublishHighLevelStatus state="0" state_name="BOUNDARY_EMERGENCY_STOP"/>
-              <AlwaysSuccess/>
+              <WaitForDuration duration_sec="3600.0"/>
             </Sequence>
           </Fallback>
         </Sequence>
@@ -128,6 +155,33 @@
         <Sequence name="MowingSequence">
           <IsCommand command="1"/>
 
+          <!-- Wait for Nav2 to be fully active. Polled check: finishes in
+               ~50 ms once the four lifecycle_manager_navigation nodes
+               (bt_navigator / controller / planner / behavior) are all
+               active; retries once per second for up to 60 s on ARM cold
+               boot. Previously this was a hardcoded 30 s sleep inside the
+               on-dock path only — which (a) wasted time when Nav2 was
+               already ready, and (b) let the off-dock path issue goals
+               into a half-up Nav2 stack, observed as bt_navigator stuck
+               inactive → instant NavigateToPose rejections → skip-cascade
+               drives the robot right out of the mowing area. -->
+          <PublishHighLevelStatus state="2" state_name="PREFLIGHT_CHECK"/>
+          <Fallback name="Nav2ReadyOrProceed">
+            <RetryUntilSuccessful num_attempts="60" name="Nav2ReadyPoll">
+              <Fallback>
+                <Nav2Active timeout_sec="0.5"/>
+                <Sequence>
+                  <WaitForDuration duration_sec="1.0"/>
+                  <AlwaysFailure/>
+                </Sequence>
+              </Fallback>
+            </RetryUntilSuccessful>
+            <!-- Timeout: proceed anyway with a warning. BoundaryGuard and
+                 the emergency latch still apply; we'd rather let the run
+                 fail fast at the first goal than freeze before starting. -->
+            <AlwaysSuccess/>
+          </Fallback>
+
           <!-- Undock: only if currently charging (on dock).
                If already undocked, skip entirely. -->
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
@@ -137,21 +191,24 @@
             <Inverter><IsCharging/></Inverter>
             <!-- On dock — wait for GPS, save map, then undock -->
             <Sequence name="UndockSequence">
-              <!-- Brief wait for GPS before undocking. Gives GPS time to
-                   get a fix and confirm SLAM/datum alignment. Times out
-                   after 30s to avoid blocking at docks with poor GPS. -->
-              <PublishHighLevelStatus state="2" state_name="WAITING_GPS"/>
-              <Fallback name="GPSWaitOrTimeout">
+              <!-- Comprehensive readiness gate before undocking: verifies
+                   GPS fix type, battery, TF chain, mowing area, coverage
+                   service — all in a single node with a clear failure log.
+                   Retry for up to 30s to allow transient issues (GPS not
+                   yet RTK, late-starting nodes) to resolve, then proceed
+                   anyway to not block indefinitely at low-GPS sites. -->
+              <PublishHighLevelStatus state="2" state_name="PREFLIGHT_CHECK"/>
+              <Fallback name="PreFlightOrTimeout">
                 <RetryUntilSuccessful num_attempts="30">
                   <Fallback>
-                    <IsGPSFixed/>
+                    <PreFlightCheck min_battery="20.0" min_gps_fix_type="2" tf_timeout_sec="0.5"/>
                     <Sequence>
                       <WaitForDuration duration_sec="1.0"/>
                       <AlwaysFailure/>
                     </Sequence>
                   </Fallback>
                 </RetryUntilSuccessful>
-                <!-- Timeout: proceed without RTK fix -->
+                <!-- Timeout: proceed with a warning in logs -->
                 <AlwaysSuccess/>
               </Fallback>
               <!-- Save SLAM map while docked with correct heading.
@@ -159,17 +216,25 @@
               <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
               <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
               <RecordUndockStart/>
-              <!-- Wait for Nav2 to fully activate on ARM. Retry ClearCostmap
-                   until it succeeds — this confirms costmap services are ready. -->
-              <!-- Wait for Nav2 to fully activate on ARM before clearing costmaps.
-                   30s is generous — lifecycle_manager typically takes 15-25s. -->
-              <WaitForDuration duration_sec="30.0"/>
+              <!-- Nav2 readiness is already guaranteed by the Nav2Active
+                   poll above UndockOrSkip; the old hardcoded 30 s sleep
+                   here is no longer needed. -->
               <ClearCostmap/>
               <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses
-                   off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="2.0" backup_speed="0.15"/>
+                   off the dock via Nav2 behavior_server.
+                   Distance trimmed from 2.0m to 1.0m after an observed
+                   boundary-violation: 2m put the robot ~0.3m past the
+                   east edge of a tight garden polygon. 1m gives the F9P
+                   enough displacement to calibrate undock heading while
+                   staying safely inside typical boundaries. -->
+              <BackUp backup_dist="1.0" backup_speed="0.20"/>
+              <!-- Wait for RTK Fixed after undock. The dock often has a
+                   metal canopy that attenuates GPS; once the robot is 2 m
+                   out the F9P should re-acquire quickly. Timeout proceeds
+                   anyway at degraded precision rather than freeze. -->
+              <WaitForGpsFix timeout_sec="20.0" min_fix_type="4"/>
               <!-- Compute heading from GPS displacement during undock -->
               <CalibrateHeadingFromUndock/>
               <!-- Clear costmaps again after undock — dock structure must be
@@ -243,7 +308,7 @@
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="1.5" backup_speed="0.15"/>
+              <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
                       <RecordResumeUndockFailure/>
                       <ClearCommand/>
@@ -291,7 +356,7 @@
                    uses geometric distance to dock pose which fails with
                    SLAM relocalization drift. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="1.5" backup_speed="0.15"/>
+              <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
                       <RecordResumeUndockFailure/>
                       <ClearCommand/>
@@ -329,7 +394,7 @@
                           <SetMowerEnabled enabled="false"/>
                           <StopMoving/>
                           <Fallback>
-                            <BackUp backup_dist="0.3" backup_speed="0.1"/>
+                            <BackUp backup_dist="0.3" backup_speed="0.2"/>
                             <AlwaysSuccess/>
                           </Fallback>
                           <ClearCostmap/>
@@ -375,30 +440,39 @@
 
         <!-- ============================================================
              c. Home (COMMAND_HOME = 2)
+             Wrapped in a ReactiveSequence with IsCommand(2) at the top:
+             if the user sends any other command (including 0 / cancel)
+             while DockRobot is mid-flight, the guard returns FAILURE and
+             the running action is halted via onHalted() — so the BT does
+             not hold the user hostage for up to ~5 min of dock retries.
+             The inner <Sequence> keeps memory semantics so StopMoving and
+             the other one-shot setup steps don't re-fire each tick.
              ============================================================ -->
-        <Sequence name="HomeSequence">
+        <ReactiveSequence name="HomeSequence">
           <IsCommand command="2"/>
-          <SetMowerEnabled enabled="false"/>
-          <StopMoving/>
-          <Fallback name="HomeOrAlreadyDocked">
-            <!-- Already on dock and charging? Skip navigation. -->
-            <IsCharging/>
-            <Sequence name="NavigateHome">
-              <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
-              <SaveObstacles/>
-              <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
-              <Fallback name="HomeNavOrStop">
-                <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
-                <Sequence>
-                  <PublishHighLevelStatus state="0" state_name="NAV_TO_DOCK_FAILED"/>
-                  <AlwaysSuccess/>
-                </Sequence>
-              </Fallback>
-            </Sequence>
-          </Fallback>
-          <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
-          <ClearCommand/>
-        </Sequence>
+          <Sequence name="HomeAction">
+            <SetMowerEnabled enabled="false"/>
+            <StopMoving/>
+            <Fallback name="HomeOrAlreadyDocked">
+              <!-- Already on dock and charging? Skip navigation. -->
+              <IsCharging/>
+              <Sequence name="NavigateHome">
+                <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
+                <SaveObstacles/>
+                <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
+                <Fallback name="HomeNavOrStop">
+                  <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
+                  <Sequence>
+                    <PublishHighLevelStatus state="0" state_name="NAV_TO_DOCK_FAILED"/>
+                    <AlwaysSuccess/>
+                  </Sequence>
+                </Fallback>
+              </Sequence>
+            </Fallback>
+            <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
+            <ClearCommand/>
+          </Sequence>
+        </ReactiveSequence>
 
         <!-- ============================================================
              d. Recording (COMMAND_S1 = 3 = COMMAND_RECORD_AREA)
@@ -424,8 +498,16 @@
         <!-- ============================================================
              e. Manual Mowing (COMMAND_MANUAL_MOW = 7)
              Teleop via /cmd_vel_teleop (twist_mux priority).
-             Blade is managed by GUI (fire-and-forget to firmware).
              Collision_monitor remains active. GPS/SLAM continues.
+
+             Blade is enabled here by the BT (not the GUI) because the
+             firmware forcibly zeroes target_blade_on_off whenever its
+             mirrored HL mode is IDLE/NULL (cpp_main.cpp on_hl_state).
+             The GUI used to send mow_enabled=1 immediately after
+             Command=7, but the firmware had not yet received the
+             MANUAL_MOWING mode update, so it zeroed the blade. Driving
+             the blade on AFTER PublishHighLevelStatus(4) guarantees the
+             firmware sees MANUAL_MOWING first, then the blade command.
 
              ReactiveSequence is used deliberately: on every tick it
              re-evaluates IsCommand from the first child, even while
@@ -433,11 +515,13 @@
              (command changes from 7 to 2), IsCommand returns FAILURE,
              the ReactiveSequence halts WaitForDuration and returns
              FAILURE, allowing the Fallback to select HomeSequence on
-             the very next tick.
+             the very next tick. On exit, the following sequence (Home
+             or Idle) calls SetMowerEnabled(false) which stops the blade.
              ============================================================ -->
         <ReactiveSequence name="ManualMowingSequence">
           <IsCommand command="7"/>
           <PublishHighLevelStatus state="4" state_name="MANUAL_MOWING"/>
+          <SetMowerEnabled enabled="true"/>
           <WaitForDuration duration_sec="0.5"/>
         </ReactiveSequence>
 

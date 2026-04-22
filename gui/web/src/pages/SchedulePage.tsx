@@ -1,392 +1,359 @@
-import {App, Button, Card, Checkbox, Col, Row, Select, Switch, TimePicker, Table, Space} from "antd";
-import {ClockCircleOutlined, DeleteOutlined, PlusOutlined, ExclamationCircleOutlined} from "@ant-design/icons";
+import {App, Select, Switch, TimePicker} from "antd";
 import {useCallback, useEffect, useRef, useState} from "react";
 import {useApi} from "../hooks/useApi.ts";
 import {useWS} from "../hooks/useWS.ts";
 import {Map as MapType} from "../types/ros.ts";
 import {useIsMobile} from "../hooks/useIsMobile";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
+import {CardB, BigBtnB, IconPlus, FONT} from "../components/dashboard";
 import dayjs from "dayjs";
 
 interface Schedule {
-    id: string;
-    area: number;
-    time: string;
-    daysOfWeek: number[];
-    enabled: boolean;
-    createdAt: string;
-    lastRun?: string;
+  id: string;
+  area: number;
+  time: string;
+  daysOfWeek: number[];
+  enabled: boolean;
+  createdAt: string;
+  lastRun?: string;
 }
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
 
 function areaLabel(index: number, name: string | undefined): string {
-    return name ? `${index + 1}. ${name}` : `Area ${index + 1}`;
+  return name ? `${index + 1}. ${name}` : `Area ${index + 1}`;
 }
 
 export const SchedulePage = () => {
-    const {colors} = useThemeMode();
-    const guiApi = useApi();
-    const {notification, modal} = App.useApp();
-    const isMobile = useIsMobile();
-    const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [workingAreas, setWorkingAreas] = useState<Array<string | undefined>>([]);
-    const fetchedRef = useRef(false);
+  const {colors} = useThemeMode();
+  const guiApi = useApi();
+  const {notification, modal} = App.useApp();
+  const isMobile = useIsMobile();
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [workingAreas, setWorkingAreas] = useState<Array<string | undefined>>([]);
+  const fetchedRef = useRef(false);
 
-    const mapStream = useWS<string>(
-        () => { console.log("SchedulePage: map stream closed"); },
-        () => { console.log("SchedulePage: map stream connected"); },
-        (data) => {
-            const parsed = JSON.parse(data) as MapType;
-            const names = (parsed.working_area ?? []).map((a) => a.name);
-            setWorkingAreas(names);
-        },
-    );
+  const mapStream = useWS<string>(
+    () => {},
+    () => {},
+    (data) => {
+      const parsed = JSON.parse(data) as MapType;
+      const names = (parsed.working_area ?? []).map((a) => a.name);
+      setWorkingAreas(names);
+    },
+  );
 
-    useEffect(() => {
-        mapStream.start("/api/mowglinext/subscribe/map");
-        return () => { mapStream.stop(); };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+  useEffect(() => {
+    mapStream.start("/api/mowglinext/subscribe/map");
+    return () => { mapStream.stop(); };
+  }, []);
 
-    const areaOptions = workingAreas.length > 0
-        ? workingAreas.map((name, index) => ({
-            label: areaLabel(index, name),
-            value: index,
-          }))
-        : Array.from({length: Math.max(1, schedules.reduce((max, s) => Math.max(max, s.area + 1), 1))}, (_, i) => ({
-            label: areaLabel(i, undefined),
-            value: i,
-          }));
+  const areaOptions = workingAreas.length > 0
+    ? workingAreas.map((name, index) => ({label: areaLabel(index, name), value: index}))
+    : Array.from({length: Math.max(1, schedules.reduce((max, s) => Math.max(max, s.area + 1), 1))}, (_, i) => ({
+        label: areaLabel(i, undefined), value: i,
+      }));
 
-    const fetchSchedules = useCallback(async () => {
-        try {
-            const response = await guiApi.request<{ schedules: Schedule[] }>({
-                path: "/schedules",
-                method: "GET",
-                format: "json",
-            });
-            setSchedules(response.data.schedules ?? []);
-        } catch {
-            notification.error({message: "Failed to load schedules"});
-        }
-    }, [guiApi, notification]);
-
-    useEffect(() => {
-        if (fetchedRef.current) return;
-        fetchedRef.current = true;
-        fetchSchedules();
-    }, [fetchSchedules]);
-
-    const handleCreate = async () => {
-        setLoading(true);
-        try {
-            await guiApi.request({
-                path: "/schedules",
-                method: "POST",
-                body: {
-                    area: 0,
-                    time: "09:00",
-                    daysOfWeek: [1, 2, 3, 4, 5],
-                    enabled: false,
-                },
-                format: "json",
-            });
-            await fetchSchedules();
-        } catch {
-            notification.error({message: "Failed to create schedule"});
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleUpdate = async (sched: Schedule) => {
-        try {
-            await guiApi.request({
-                path: `/schedules/${sched.id}`,
-                method: "PUT",
-                body: sched,
-                format: "json",
-            });
-            await fetchSchedules();
-        } catch {
-            notification.error({message: "Failed to update schedule"});
-        }
-    };
-
-    const handleDelete = async (id: string) => {
-        try {
-            await guiApi.request({
-                path: `/schedules/${id}`,
-                method: "DELETE",
-                format: "json",
-            });
-            await fetchSchedules();
-        } catch {
-            notification.error({message: "Failed to delete schedule"});
-        }
-    };
-
-    const confirmDelete = (id: string) => {
-        modal.confirm({
-            title: "Delete schedule",
-            icon: <ExclamationCircleOutlined/>,
-            content: "Are you sure you want to delete this schedule?",
-            okText: "Delete",
-            okType: "danger",
-            cancelText: "Cancel",
-            onOk: () => handleDelete(id),
-        });
-    };
-
-    const toggleDay = (sched: Schedule, day: number) => {
-        const days = sched.daysOfWeek.includes(day)
-            ? sched.daysOfWeek.filter(d => d !== day)
-            : [...sched.daysOfWeek, day];
-        handleUpdate({...sched, daysOfWeek: days});
-    };
-
-    // Mobile card-based layout — title comes from the page header, no duplicate
-    if (isMobile) {
-        return (
-            <div style={{display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 8}}>
-                <div style={{display: 'flex', justifyContent: 'flex-end'}}>
-                    <Button
-                        type="primary"
-                        icon={<PlusOutlined/>}
-                        onClick={handleCreate}
-                        loading={loading}
-                        size="large"
-                        style={{borderRadius: 12, height: 44, paddingInline: 24}}
-                    >
-                        Add Schedule
-                    </Button>
-                </div>
-
-                {schedules.length === 0 && (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: 32,
-                        color: colors.textSecondary,
-                        background: colors.bgCard,
-                        borderRadius: 12,
-                    }}>
-                        No schedules configured yet.
-                    </div>
-                )}
-
-                {schedules.map(sched => {
-                    const optionsWithCurrent = areaOptions.some((o) => o.value === sched.area)
-                        ? areaOptions
-                        : [...areaOptions, {label: areaLabel(sched.area, undefined), value: sched.area}];
-
-                    return (
-                        <div key={sched.id} style={{
-                            background: colors.bgCard,
-                            borderRadius: 12,
-                            padding: 16,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 12,
-                        }}>
-                            {/* Row 1: Switch + Area */}
-                            <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
-                                <Switch
-                                    checked={sched.enabled}
-                                    onChange={(checked) => handleUpdate({...sched, enabled: checked})}
-                                />
-                                <Select
-                                    value={sched.area}
-                                    size="small"
-                                    style={{flex: 1}}
-                                    options={optionsWithCurrent}
-                                    onChange={(val) => handleUpdate({...sched, area: val})}
-                                />
-                            </div>
-
-                            {/* Row 2: Time picker */}
-                            <TimePicker
-                                value={dayjs(sched.time, "HH:mm")}
-                                format="HH:mm"
-                                onChange={(val) => {
-                                    if (val) handleUpdate({...sched, time: val.format("HH:mm")});
-                                }}
-                                style={{width: '100%'}}
-                                size="large"
-                            />
-
-                            {/* Row 3: Day circle toggles */}
-                            <div style={{display: 'flex', gap: 6, justifyContent: 'space-between'}}>
-                                {DAY_LETTERS.map((letter, i) => {
-                                    const isActive = sched.daysOfWeek.includes(i);
-                                    return (
-                                        <button
-                                            key={i}
-                                            onClick={() => toggleDay(sched, i)}
-                                            style={{
-                                                width: 36,
-                                                height: 36,
-                                                borderRadius: '50%',
-                                                border: `1.5px solid ${isActive ? colors.primary : colors.border}`,
-                                                background: isActive ? colors.primaryBg : 'transparent',
-                                                color: isActive ? colors.primary : colors.textSecondary,
-                                                fontSize: 13,
-                                                fontWeight: 600,
-                                                cursor: 'pointer',
-                                                transition: 'all 0.15s',
-                                                padding: 0,
-                                            }}
-                                        >
-                                            {letter}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Row 4: Last run + delete */}
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                borderTop: `1px solid ${colors.borderSubtle}`,
-                                paddingTop: 8,
-                            }}>
-                                <span style={{fontSize: 12, color: colors.textSecondary}}>
-                                    Last: {sched.lastRun ? dayjs(sched.lastRun).format("YYYY-MM-DD HH:mm") : "Never"}
-                                </span>
-                                <Button
-                                    type="text"
-                                    danger
-                                    icon={<DeleteOutlined/>}
-                                    size="small"
-                                    onClick={() => confirmDelete(sched.id)}
-                                />
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        );
+  const fetchSchedules = useCallback(async () => {
+    try {
+      const response = await guiApi.request<{ schedules: Schedule[] }>({
+        path: "/schedules", method: "GET", format: "json",
+      });
+      setSchedules(response.data.schedules ?? []);
+    } catch {
+      notification.error({message: "Failed to load schedules"});
     }
+  }, [guiApi, notification]);
 
-    // Desktop table layout
-    const columns = [
-        {
-            title: "Enabled",
-            dataIndex: "enabled",
-            key: "enabled",
-            width: 80,
-            render: (enabled: boolean, record: Schedule) => (
-                <Switch
-                    checked={enabled}
-                    onChange={(checked) => handleUpdate({...record, enabled: checked})}
-                />
-            ),
-        },
-        {
-            title: "Time",
-            dataIndex: "time",
-            key: "time",
-            width: 120,
-            render: (time: string, record: Schedule) => (
-                <TimePicker
-                    value={dayjs(time, "HH:mm")}
-                    format="HH:mm"
-                    onChange={(val) => {
-                        if (val) handleUpdate({...record, time: val.format("HH:mm")});
-                    }}
-                    size="small"
-                />
-            ),
-        },
-        {
-            title: "Area",
-            dataIndex: "area",
-            key: "area",
-            width: 200,
-            render: (area: number, record: Schedule) => {
-                const optionsWithCurrent = areaOptions.some((o) => o.value === area)
-                    ? areaOptions
-                    : [...areaOptions, {label: areaLabel(area, undefined), value: area}];
-                return (
-                    <Select
-                        value={area}
-                        size="small"
-                        style={{width: "100%"}}
-                        options={optionsWithCurrent}
-                        onChange={(val) => handleUpdate({...record, area: val})}
-                    />
-                );
-            },
-        },
-        {
-            title: "Days",
-            dataIndex: "daysOfWeek",
-            key: "daysOfWeek",
-            render: (days: number[], record: Schedule) => (
-                <Checkbox.Group
-                    value={days}
-                    onChange={(checked) => handleUpdate({...record, daysOfWeek: checked as number[]})}
-                    options={DAYS.map((label, i) => ({label, value: i}))}
-                />
-            ),
-        },
-        {
-            title: "Last Run",
-            dataIndex: "lastRun",
-            key: "lastRun",
-            width: 160,
-            render: (lastRun: string | undefined) =>
-                lastRun ? dayjs(lastRun).format("YYYY-MM-DD HH:mm") : "Never",
-        },
-        {
-            title: "",
-            key: "actions",
-            width: 50,
-            render: (_: unknown, record: Schedule) => (
-                <Button
-                    type="text"
-                    danger
-                    icon={<DeleteOutlined/>}
-                    size="small"
-                    onClick={() => confirmDelete(record.id)}
-                />
-            ),
-        },
-    ];
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    fetchSchedules();
+  }, [fetchSchedules]);
 
+  const handleCreate = async () => {
+    setLoading(true);
+    try {
+      await guiApi.request({
+        path: "/schedules", method: "POST",
+        body: {area: 0, time: "09:00", daysOfWeek: [1, 2, 3, 4, 5], enabled: false},
+        format: "json",
+      });
+      await fetchSchedules();
+    } catch {
+      notification.error({message: "Failed to create schedule"});
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdate = async (sched: Schedule) => {
+    try {
+      await guiApi.request({path: `/schedules/${sched.id}`, method: "PUT", body: sched, format: "json"});
+      await fetchSchedules();
+    } catch {
+      notification.error({message: "Failed to update schedule"});
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await guiApi.request({path: `/schedules/${id}`, method: "DELETE", format: "json"});
+      await fetchSchedules();
+    } catch {
+      notification.error({message: "Failed to delete schedule"});
+    }
+  };
+
+  const confirmDelete = (id: string) => {
+    modal.confirm({
+      title: "Delete schedule",
+      content: "Are you sure you want to delete this schedule?",
+      okText: "Delete",
+      okType: "danger",
+      cancelText: "Cancel",
+      onOk: () => handleDelete(id),
+    });
+  };
+
+  const toggleDay = (sched: Schedule, day: number) => {
+    const days = sched.daysOfWeek.includes(day)
+      ? sched.daysOfWeek.filter(d => d !== day)
+      : [...sched.daysOfWeek, day];
+    handleUpdate({...sched, daysOfWeek: days});
+  };
+
+  // Color per schedule index
+  const schedColors = [colors.accent, colors.sky, colors.amber, colors.pink];
+
+  // Build grid runs from schedules for weekly view
+  const hours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+  const gridRuns = schedules.flatMap((sched, si) => {
+    const startH = parseInt(sched.time.split(':')[0]);
+    return sched.daysOfWeek
+      .filter(d => d >= 0 && d <= 6)
+      .map(dayIndex => ({
+        day: dayIndex === 0 ? 6 : dayIndex - 1, // convert Sun=0..Sat=6 to Mon=0..Sun=6
+        start: startH,
+        end: Math.min(startH + 1, 20),
+        zone: areaLabel(sched.area, workingAreas[sched.area]),
+        color: schedColors[si % schedColors.length],
+      }));
+  });
+
+  const activeCount = schedules.filter(s => s.enabled).length;
+
+  // Schedule card for each schedule (mobile + bottom section on desktop)
+  const scheduleCard = (sched: Schedule, idx: number) => {
+    const optionsWithCurrent = areaOptions.some((o) => o.value === sched.area)
+      ? areaOptions
+      : [...areaOptions, {label: areaLabel(sched.area, undefined), value: sched.area}];
+    const color = schedColors[idx % schedColors.length];
     return (
-        <Row gutter={[16, 16]}>
-            <Col span={24}>
-                <Card
-                    title={<Space><ClockCircleOutlined/> Mowing Schedules</Space>}
-                    size="small"
-                    extra={
-                        <Button
-                            type="primary"
-                            icon={<PlusOutlined/>}
-                            onClick={handleCreate}
-                            loading={loading}
-                        >
-                            Add Schedule
-                        </Button>
-                    }
-                >
-                    <Table
-                        dataSource={schedules}
-                        columns={columns}
-                        rowKey="id"
-                        pagination={false}
-                        size="small"
-                        scroll={{x: 600}}
-                        locale={{emptyText: "No schedules configured. Click 'Add Schedule' to create one."}}
-                    />
-                </Card>
-            </Col>
-        </Row>
+      <CardB key={sched.id} style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+          <div style={{width: 4, height: 32, borderRadius: 2, background: color}}/>
+          <Switch
+            checked={sched.enabled}
+            onChange={(checked) => handleUpdate({...sched, enabled: checked})}
+          />
+          <Select
+            value={sched.area}
+            size="small"
+            style={{flex: 1}}
+            options={optionsWithCurrent}
+            onChange={(val) => handleUpdate({...sched, area: val})}
+          />
+        </div>
+        <TimePicker
+          value={dayjs(sched.time, "HH:mm")}
+          format="HH:mm"
+          onChange={(val) => { if (val) handleUpdate({...sched, time: val.format("HH:mm")}); }}
+          style={{width: '100%'}}
+          size="large"
+        />
+        <div style={{display: 'flex', gap: 6, justifyContent: 'space-between'}}>
+          {DAY_LETTERS.map((letter, i) => {
+            const isActive = sched.daysOfWeek.includes(i);
+            return (
+              <button
+                key={i}
+                onClick={() => toggleDay(sched, i)}
+                style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  border: `1.5px solid ${isActive ? color : colors.border}`,
+                  background: isActive ? `${color}20` : 'transparent',
+                  color: isActive ? color : colors.textSecondary,
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.15s', padding: 0, fontFamily: FONT,
+                }}
+              >
+                {letter}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          borderTop: `1px solid ${colors.borderSubtle}`, paddingTop: 8,
+        }}>
+          <span style={{fontSize: 12, color: colors.textSecondary}}>
+            Last: {sched.lastRun ? dayjs(sched.lastRun).format("YYYY-MM-DD HH:mm") : "Never"}
+          </span>
+          <button
+            onClick={() => confirmDelete(sched.id)}
+            style={{
+              background: colors.dangerBg, color: colors.danger,
+              border: 'none', borderRadius: 8, padding: '6px 12px',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </CardB>
     );
+  };
+
+  if (isMobile) {
+    return (
+      <div style={{display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 8}}>
+        <div style={{display: 'flex', justifyContent: 'flex-end'}}>
+          <BigBtnB primary icon={<IconPlus size={14}/>} label="New run" onClick={handleCreate} disabled={loading}/>
+        </div>
+        {schedules.length === 0 && (
+          <CardB style={{textAlign: 'center', padding: 32, color: colors.textSecondary}}>
+            No schedules configured yet.
+          </CardB>
+        )}
+        {schedules.map((s, i) => scheduleCard(s, i))}
+      </div>
+    );
+  }
+
+  // Desktop: weekly grid + sub-cards
+  return (
+    <div style={{display: 'flex', flexDirection: 'column', gap: 16}}>
+      {/* Weekly grid */}
+      <CardB>
+        <div style={{display: 'grid', gridTemplateColumns: '48px repeat(7, 1fr)', gap: 6}}>
+          <div/>
+          {DAYS.map(d => (
+            <div key={d} style={{textAlign: 'center', fontSize: 11, color: colors.textDim, fontWeight: 600, padding: '2px 0 10px'}}>
+              <div>{d}</div>
+            </div>
+          ))}
+          {hours.map(h => (
+            <div key={h} style={{display: 'contents'}}>
+              <div style={{fontSize: 10, color: colors.textMuted, textAlign: 'right', paddingRight: 6, paddingTop: 2}}>
+                {h}:00
+              </div>
+              {DAYS.map((_, di) => {
+                const run = gridRuns.find(r => r.day === di && h >= r.start && h < r.end);
+                const isStart = run && run.start === h;
+                return (
+                  <div key={di} style={{
+                    minHeight: 32,
+                    background: run ? `${run.color}22` : 'rgba(255,255,255,0.02)',
+                    borderRadius: isStart ? '8px 8px 0 0' : (run && run.end - 1 === h ? '0 0 8px 8px' : 0),
+                    border: run ? `1px solid ${run.color}66` : `1px solid ${colors.border}`,
+                    borderBottom: run && run.end - 1 !== h ? 'none' : undefined,
+                    borderTop: run && !isStart ? 'none' : undefined,
+                    padding: isStart ? '6px 8px' : 0,
+                  }}>
+                    {isStart && (
+                      <>
+                        <div style={{fontSize: 11, fontWeight: 700, color: run.color, lineHeight: 1.1}}>{run.zone}</div>
+                        <div style={{fontSize: 10, color: colors.textDim, marginTop: 2}}>{run.start}:00 -- {run.end}:00</div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </CardB>
+
+      {/* Sub-cards */}
+      <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14}}>
+        <CardB>
+          <div style={{fontSize: 13, fontWeight: 600, marginBottom: 12}}>This week</div>
+          <div style={{display: 'flex', alignItems: 'baseline', gap: 6}}>
+            <div style={{fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em'}}>{activeCount}</div>
+            <div style={{fontSize: 12, color: colors.textDim}}>active schedules</div>
+          </div>
+          <div style={{display: 'flex', gap: 4, marginTop: 12}}>
+            {DAYS.map((d, i) => {
+              const has = gridRuns.some(r => r.day === i);
+              return (
+                <div key={i} style={{
+                  flex: 1, height: 24, borderRadius: 4,
+                  background: has ? colors.accent : 'rgba(255,255,255,0.06)',
+                  opacity: has ? 1 : 0.6,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 9, fontWeight: 700,
+                  color: has ? '#0a1a10' : colors.textMuted,
+                }}>
+                  {d[0]}
+                </div>
+              );
+            })}
+          </div>
+        </CardB>
+
+        <CardB>
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12}}>
+            <div style={{fontSize: 13, fontWeight: 600}}>Schedules</div>
+            <BigBtnB primary icon={<IconPlus size={14}/>} label="New run"
+                     onClick={handleCreate} disabled={loading}
+                     style={{padding: '8px 14px', fontSize: 12}}/>
+          </div>
+          <div style={{fontSize: 13, color: colors.textDim, lineHeight: 1.6}}>
+            {schedules.length === 0
+              ? 'No schedules yet. Create one to automate mowing.'
+              : `${schedules.length} schedule${schedules.length > 1 ? 's' : ''} configured.`}
+          </div>
+        </CardB>
+
+        <CardB>
+          <div style={{fontSize: 13, fontWeight: 600, marginBottom: 12}}>Rules</div>
+          {[
+            {k: 'Rain-aware', on: true, hint: 'pause if rain detected'},
+            {k: 'Auto-dock low', on: true, hint: 'return at <20% battery'},
+          ].map(r => (
+            <div key={r.k} style={{display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0'}}>
+              <div style={{
+                width: 28, height: 16, borderRadius: 100,
+                background: r.on ? colors.accent : 'rgba(255,255,255,0.12)',
+                position: 'relative', transition: 'background .2s', flexShrink: 0,
+              }}>
+                <div style={{
+                  position: 'absolute', top: 2,
+                  left: r.on ? 14 : 2,
+                  width: 12, height: 12, borderRadius: 6,
+                  background: '#fff', transition: 'left .2s',
+                }}/>
+              </div>
+              <div style={{flex: 1}}>
+                <div style={{fontSize: 12, fontWeight: 600}}>{r.k}</div>
+                <div style={{fontSize: 10, color: colors.textMuted}}>{r.hint}</div>
+              </div>
+            </div>
+          ))}
+        </CardB>
+      </div>
+
+      {/* Detailed schedule cards */}
+      {schedules.length > 0 && (
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14}}>
+          {schedules.map((s, i) => scheduleCard(s, i))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default SchedulePage;

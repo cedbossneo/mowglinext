@@ -103,10 +103,8 @@ TEST(OdometryPacket, FieldOffsetsAreCorrect)
   pkt.dt_millis = 0x1234;
   pkt.left_ticks = 0x11223344;
   pkt.right_ticks = -42;
-  pkt.left_speed = 100;
-  pkt.right_speed = -50;
-  pkt.left_direction = 1;
-  pkt.right_direction = 2;
+  pkt.left_velocity_mm_s = 250;    // signed — positive == forward
+  pkt.right_velocity_mm_s = -120;  // signed — negative == reverse
   pkt.crc = 0xABCD;
 
   // Verify offsets by examining raw bytes
@@ -130,25 +128,19 @@ TEST(OdometryPacket, FieldOffsetsAreCorrect)
   std::memcpy(&rt, raw + 7, sizeof(rt));
   EXPECT_EQ(rt, -42);
 
-  // left_speed at offset 11
-  int16_t ls;
-  std::memcpy(&ls, raw + 11, sizeof(ls));
-  EXPECT_EQ(ls, 100);
+  // left_velocity_mm_s at offset 11
+  int16_t lv;
+  std::memcpy(&lv, raw + 11, sizeof(lv));
+  EXPECT_EQ(lv, 250);
 
-  // right_speed at offset 13
-  int16_t rs;
-  std::memcpy(&rs, raw + 13, sizeof(rs));
-  EXPECT_EQ(rs, -50);
+  // right_velocity_mm_s at offset 13
+  int16_t rv;
+  std::memcpy(&rv, raw + 13, sizeof(rv));
+  EXPECT_EQ(rv, -120);
 
-  // left_direction at offset 15
-  EXPECT_EQ(raw[15], 1);
-
-  // right_direction at offset 16
-  EXPECT_EQ(raw[16], 2);
-
-  // crc at offset 17
+  // crc at offset 15
   uint16_t crc;
-  std::memcpy(&crc, raw + 17, sizeof(crc));
+  std::memcpy(&crc, raw + 15, sizeof(crc));
   EXPECT_EQ(crc, 0xABCD);
 }
 
@@ -198,10 +190,8 @@ TEST(ProtocolRoundtrip, OdometryPacket)
   pkt.dt_millis = 20;
   pkt.left_ticks = 15000;
   pkt.right_ticks = 14900;
-  pkt.left_speed = 42;
-  pkt.right_speed = -38;
-  pkt.left_direction = 1;
-  pkt.right_direction = 2;
+  pkt.left_velocity_mm_s  = 250;
+  pkt.right_velocity_mm_s = 240;
 
   roundtrip_struct(pkt);
 }
@@ -284,32 +274,37 @@ TEST(ProtocolRoundtrip, CmdVelPacket)
 }
 
 // ---------------------------------------------------------------------------
-// Odometry: direction encoding matches firmware convention
+// Odometry: direction now encoded in the sign of the signed fields. Positive
+// ticks/velocity = forward, negative = reverse, zero = stopped. Verifies the
+// polymorphism works (signed arithmetic, no dedicated direction byte).
 // ---------------------------------------------------------------------------
 
-TEST(OdometryPacket, DirectionEncoding)
+TEST(OdometryPacket, SignedDirectionEncoding)
 {
-  // 0 = stopped, 1 = forward, 2 = reverse
   LlOdometry pkt{};
   pkt.type = PACKET_ID_LL_ODOMETRY;
 
   // Forward
-  pkt.left_direction = 1;
-  pkt.right_direction = 1;
-  EXPECT_EQ(pkt.left_direction, 1);
-  EXPECT_EQ(pkt.right_direction, 1);
+  pkt.left_ticks = 100;
+  pkt.right_ticks = 100;
+  pkt.left_velocity_mm_s = 200;
+  pkt.right_velocity_mm_s = 200;
+  EXPECT_GT(pkt.left_ticks, 0);
+  EXPECT_GT(pkt.left_velocity_mm_s, 0);
 
   // Reverse
-  pkt.left_direction = 2;
-  pkt.right_direction = 2;
-  EXPECT_EQ(pkt.left_direction, 2);
-  EXPECT_EQ(pkt.right_direction, 2);
+  pkt.left_ticks = -100;
+  pkt.right_ticks = -100;
+  pkt.left_velocity_mm_s = -200;
+  pkt.right_velocity_mm_s = -200;
+  EXPECT_LT(pkt.left_ticks, 0);
+  EXPECT_LT(pkt.left_velocity_mm_s, 0);
 
-  // Stopped
-  pkt.left_direction = 0;
-  pkt.right_direction = 0;
-  EXPECT_EQ(pkt.left_direction, 0);
-  EXPECT_EQ(pkt.right_direction, 0);
+  // Stopped — ticks may be nonzero cumulative, but velocity must be zero
+  pkt.left_velocity_mm_s = 0;
+  pkt.right_velocity_mm_s = 0;
+  EXPECT_EQ(pkt.left_velocity_mm_s, 0);
+  EXPECT_EQ(pkt.right_velocity_mm_s, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,10 +318,8 @@ TEST(OdometryPacket, NegativeTicksRoundtrip)
   pkt.dt_millis = 20;
   pkt.left_ticks = -5000;
   pkt.right_ticks = -5100;
-  pkt.left_speed = -30;
-  pkt.right_speed = -28;
-  pkt.left_direction = 2;
-  pkt.right_direction = 2;
+  pkt.left_velocity_mm_s  = -180;
+  pkt.right_velocity_mm_s = -170;
 
   roundtrip_struct(pkt);
 }

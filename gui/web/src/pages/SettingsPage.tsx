@@ -1,57 +1,221 @@
-import { Col, Row } from "antd";
-import { SchemaSettingsComponent } from "../components/SchemaSettingsComponent.tsx";
+import { useCallback, useState } from "react";
+import { Alert, Badge, Button, Input, Spin, Typography } from "antd";
+import {
+    ReloadOutlined,
+    SaveOutlined,
+    SearchOutlined,
+    UndoOutlined,
+} from "@ant-design/icons";
 import { useApi } from "../hooks/useApi.ts";
 import { App } from "antd";
+import { useIsMobile } from "../hooks/useIsMobile.ts";
+import { useThemeMode } from "../theme/ThemeContext.tsx";
+import { SettingsSection, useSettingsManager } from "../hooks/useSettingsManager.ts";
+import { restartRos2 } from "../utils/containers.ts";
+import { SettingsNav } from "../components/settings/SettingsNav.tsx";
+import { HardwareSection } from "../components/settings/HardwareSection.tsx";
+import { PositioningSection } from "../components/settings/PositioningSection.tsx";
+import { SensorsSection } from "../components/settings/SensorsSection.tsx";
+import { MowingSection } from "../components/settings/MowingSection.tsx";
+import { DockingSection } from "../components/settings/DockingSection.tsx";
+import { BatterySection } from "../components/settings/BatterySection.tsx";
+import { SafetySection } from "../components/settings/SafetySection.tsx";
+import { NavigationSection } from "../components/settings/NavigationSection.tsx";
+import { RainSection } from "../components/settings/RainSection.tsx";
+import { AdvancedSection } from "../components/settings/AdvancedSection.tsx";
+
+const { Text } = Typography;
 
 export const SettingsPage = () => {
     const guiApi = useApi();
     const { notification } = App.useApp();
+    const isMobile = useIsMobile();
+    const { colors } = useThemeMode();
+    const [activeSection, setActiveSection] = useState<SettingsSection>("hardware");
 
-    const findContainer = async (match: (c: any) => boolean, label: string) => {
-        const res = await guiApi.containers.containersList();
-        if (res.error) throw new Error(res.error.error);
-        const container = res.data.containers?.find(match);
-        if (!container?.id) throw new Error(`${label} container not found`);
-        return container.id;
-    };
+    const {
+        sections,
+        values,
+        loading,
+        saving,
+        isDirty,
+        dirtyKeys,
+        restartRequired,
+        searchQuery,
+        advancedKeys,
+        setSearchQuery,
+        handleChange,
+        handleBulkChange,
+        isSectionDirty,
+        save,
+        revert,
+    } = useSettingsManager();
 
-    const restartMowgliNext = async () => {
+    const handleRestartRos2 = useCallback(async () => {
         try {
-            const id = await findContainer(
-                (c) => c.names?.some((n: string) => n.includes("ros2")),
-                "ROS2"
-            );
-            const res = await guiApi.containers.containersCreate(id, "restart");
-            if (res.error) throw new Error(res.error.error);
+            await restartRos2(guiApi);
             notification.success({ message: "ROS2 container restarted" });
         } catch (e: any) {
             notification.error({ message: "Failed to restart ROS2", description: e.message });
         }
-    };
+    }, [guiApi, notification]);
 
-    const restartGui = async () => {
-        try {
-            const id = await findContainer(
-                (c) => c.labels?.app === "gui" || c.names?.some((n: string) => n.includes("gui")),
-                "GUI"
-            );
-            const res = await guiApi.containers.containersCreate(id, "restart");
-            if (res.error) throw new Error(res.error.error);
-            notification.success({ message: "GUI restarted" });
-        } catch (e: any) {
-            notification.error({ message: "Failed to restart GUI", description: e.message });
+    const renderSection = () => {
+        switch (activeSection) {
+            case "hardware":
+                return <HardwareSection values={values} onChange={handleChange} onBulkChange={handleBulkChange} />;
+            case "positioning":
+                return <PositioningSection values={values} onChange={handleChange} />;
+            case "sensors":
+                return <SensorsSection values={values} onChange={handleChange} />;
+            case "mowing":
+                return <MowingSection values={values} onChange={handleChange} />;
+            case "docking":
+                return <DockingSection values={values} onChange={handleChange} />;
+            case "battery":
+                return <BatterySection values={values} onChange={handleChange} />;
+            case "safety":
+                return <SafetySection values={values} onChange={handleChange} />;
+            case "navigation":
+                return <NavigationSection values={values} onChange={handleChange} />;
+            case "rain":
+                return <RainSection values={values} onChange={handleChange} />;
+            case "advanced":
+                return <AdvancedSection values={values} advancedKeys={advancedKeys} onChange={handleChange} />;
+            default:
+                return null;
         }
     };
 
+    if (loading) {
+        return <Spin size="large" style={{ display: "block", margin: "100px auto" }} />;
+    }
+
+    const currentSectionMeta = sections.find((s) => s.id === activeSection);
+
     return (
-        <Row>
-            <Col span={24}>
-                <SchemaSettingsComponent
-                    onRestartOM={restartMowgliNext}
-                    onRestartGUI={restartGui}
-                />
-            </Col>
-        </Row>
+        <div style={{ height: isMobile ? "auto" : "calc(100vh - 64px)", display: "flex", flexDirection: "column" }}>
+            {/* Header bar */}
+            <div style={{
+                padding: isMobile ? "12px 12px 0" : "16px 24px 0",
+                flexShrink: 0,
+            }}>
+                {/* Search + save status */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                    <Input
+                        prefix={<SearchOutlined style={{ color: colors.muted }} />}
+                        placeholder="Search settings..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        allowClear
+                        size="small"
+                        style={{ maxWidth: 280 }}
+                    />
+                    <div style={{ flex: 1 }} />
+                    {isDirty && (
+                        <Badge count={dirtyKeys.size} size="small" offset={[-4, 0]}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>unsaved changes</Text>
+                        </Badge>
+                    )}
+                </div>
+
+                {/* Restart banner */}
+                {restartRequired && (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        message="Restart required to apply saved changes"
+                        action={
+                            <Button size="small" type="primary" icon={<ReloadOutlined />} onClick={handleRestartRos2}>
+                                Restart ROS2
+                            </Button>
+                        }
+                        style={{ marginBottom: 12 }}
+                    />
+                )}
+            </div>
+
+            {/* Main content */}
+            <div style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: isMobile ? "column" : "row",
+                overflow: "hidden",
+                minHeight: 0,
+            }}>
+                {/* Navigation */}
+                <div style={{
+                    width: isMobile ? "100%" : 200,
+                    flexShrink: 0,
+                    paddingLeft: isMobile ? 0 : 8,
+                    overflowX: isMobile ? "auto" : undefined,
+                    overflowY: isMobile ? undefined : "auto",
+                }}>
+                    <SettingsNav
+                        sections={sections}
+                        activeSection={activeSection}
+                        onSectionChange={setActiveSection}
+                        isSectionDirty={isSectionDirty}
+                    />
+                </div>
+
+                {/* Section content */}
+                <div style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    padding: isMobile ? "0 12px 120px" : "0 24px 120px 16px",
+                    minHeight: 0,
+                }}>
+                    {/* Section header */}
+                    {currentSectionMeta && (
+                        <div style={{ marginBottom: 16 }}>
+                            <Text strong style={{ fontSize: 16 }}>{currentSectionMeta.label}</Text>
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>{currentSectionMeta.description}</Text>
+                        </div>
+                    )}
+
+                    {renderSection()}
+                </div>
+            </div>
+
+            {/* Fixed save bar */}
+            <div style={{
+                position: "fixed",
+                bottom: isMobile ? "calc(56px + env(safe-area-inset-bottom, 0px))" : 0,
+                left: isMobile ? 0 : undefined,
+                right: 0,
+                padding: "10px 16px",
+                background: colors.bgCard,
+                borderTop: `1px solid ${colors.border}`,
+                zIndex: 50,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+            }}>
+                <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    onClick={save}
+                    loading={saving}
+                    disabled={!isDirty}
+                >
+                    {isDirty ? `Save (${dirtyKeys.size} changes)` : "Saved"}
+                </Button>
+                {isDirty && (
+                    <Button
+                        icon={<UndoOutlined />}
+                        onClick={revert}
+                    >
+                        Revert
+                    </Button>
+                )}
+                <div style={{ flex: 1 }} />
+                <Button icon={<ReloadOutlined />} onClick={handleRestartRos2} size="small">
+                    Restart ROS2
+                </Button>
+            </div>
+        </div>
     );
 };
 

@@ -134,9 +134,9 @@ void LSM6_ReadGyroRaw(float *x, float *y, float *z)
     uint8_t acked = SW_I2C_UTIL_Read_Multi(lsm6_address, LSM6_OUTX_L_G, 6, (uint8_t*)&gyro_xyz);
     
     if(acked) {
-      *x = (int16_t)(gyro_xyz[1] << 8 | gyro_xyz[0]) * LSM6_DPS_FACTOR * RAD_PER_G;
-      *y = (int16_t)(gyro_xyz[3] << 8 | gyro_xyz[2]) * LSM6_DPS_FACTOR * RAD_PER_G;
-      *z = (int16_t)(gyro_xyz[5] << 8 | gyro_xyz[4]) * LSM6_DPS_FACTOR * RAD_PER_G;    
+      *x = (int16_t)(gyro_xyz[1] << 8 | gyro_xyz[0]) * LSM6_DPS_FACTOR * RAD_PER_DEG;
+      *y = (int16_t)(gyro_xyz[3] << 8 | gyro_xyz[2]) * LSM6_DPS_FACTOR * RAD_PER_DEG;
+      *z = (int16_t)(gyro_xyz[5] << 8 | gyro_xyz[4]) * LSM6_DPS_FACTOR * RAD_PER_DEG;    
     }
 }
 

@@ -361,6 +361,9 @@ BT::NodeStatus GetNextUnmowedArea::tick()
   uint32_t max_areas = 20;
   getInput<uint32_t>("max_areas", max_areas);
 
+  uint32_t areas_queried = 0;
+  uint32_t areas_complete = 0;
+
   for (uint32_t i = 0; i < max_areas; ++i)
   {
     auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
@@ -386,17 +389,34 @@ BT::NodeStatus GetNextUnmowedArea::tick()
       }
       if (!completed)
       {
-        // Service call failed — no more areas exist at this index
-        break;
+        // Service call timed out. This is DIFFERENT from "no more areas";
+        // we must NOT conclude mowing is done. FAIL loudly so the BT can
+        // retry instead of falling through to the dock-return branch.
+        RCLCPP_ERROR(ctx->node->get_logger(),
+                     "GetNextUnmowedArea: get_coverage_status timed out for area %u after 2s — "
+                     "returning FAILURE (BT should retry, not assume mowing complete)",
+                     i);
+        return BT::NodeStatus::FAILURE;
       }
     }
 
     auto response = future.get();
     if (!response->success)
     {
-      // Area index out of range — no more areas
+      // Area index out of range — no more areas to check.
+      // If we haven't queried any area yet, this means map_server has no
+      // areas defined at all — distinct from "all areas mowed".
+      if (areas_queried == 0)
+      {
+        RCLCPP_WARN(ctx->node->get_logger(),
+                    "GetNextUnmowedArea: no mowing areas defined in map_server "
+                    "(first get_coverage_status returned success=false). "
+                    "Record an area via the GUI before starting mowing.");
+      }
       break;
     }
+
+    areas_queried++;
 
     if (response->strips_remaining > 0)
     {
@@ -411,13 +431,24 @@ BT::NodeStatus GetNextUnmowedArea::tick()
       return BT::NodeStatus::SUCCESS;
     }
 
+    areas_complete++;
     RCLCPP_INFO(ctx->node->get_logger(),
                 "GetNextUnmowedArea: area %u complete (%.1f%%)",
                 i,
                 response->coverage_percent);
   }
 
-  RCLCPP_INFO(ctx->node->get_logger(), "GetNextUnmowedArea: all areas complete");
+  if (areas_queried == 0)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "GetNextUnmowedArea: no areas to mow (none defined)");
+  }
+  else
+  {
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "GetNextUnmowedArea: all %u area(s) complete",
+                areas_complete);
+  }
   return BT::NodeStatus::FAILURE;
 }
 

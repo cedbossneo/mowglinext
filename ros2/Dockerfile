@@ -21,8 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-nav2-lifecycle-manager \
     ros-kilted-nav2-waypoint-follower \
     ros-kilted-nav2-velocity-smoother \
-    # SLAM (FusionCore is built from source in the workspace)
-    ros-kilted-slam-toolbox \
     # Motion control
     ros-kilted-twist-mux \
     # Behavior trees
@@ -168,6 +166,12 @@ RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
  && ln -sf fusioncore/fusioncore_ros  src/fusioncore_ros \
  && ln -sf fusioncore/compass_msgs    src/compass_msgs
 
+# kinematic_icp is a cpp+ros monorepo (cpp/, ros/). Unlike KISS-ICP it has no
+# top-level CMakeLists.txt, so colcon's recursive scan finds
+# kinematic_icp/ros/package.xml directly — no symlink needed. The ros
+# CMakeLists uses `${CMAKE_CURRENT_SOURCE_DIR}/../cpp/kinematic_icp` which
+# resolves correctly when colcon cds into the real source path.
+
 # Build all packages (mowgli_interfaces is already built and cached)
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
@@ -222,6 +226,11 @@ ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 COPY scripts/ros2_entrypoint.sh /ros2_entrypoint.sh
 RUN chmod +x /ros2_entrypoint.sh
 
+# Mow-session monitor — runs alongside the live stack to record a full
+# state timeline per mowing test (see CLAUDE.md "Mowing Session Monitoring").
+COPY scripts/mow_session_monitor.py /ros2_ws/scripts/mow_session_monitor.py
+RUN chmod +x /ros2_ws/scripts/mow_session_monitor.py
+
 ENTRYPOINT ["/ros2_entrypoint.sh"]
 CMD ["ros2", "launch", "mowgli_bringup", "mowgli.launch.py"]
 
@@ -253,6 +262,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy VNC startup script
 COPY scripts/start_vnc.sh /ros2_ws/scripts/start_vnc.sh
 RUN chmod +x /ros2_ws/scripts/start_vnc.sh
+
 
 # Copy Foxglove layout for easy import
 COPY foxglove/ /ros2_ws/foxglove/

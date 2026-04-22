@@ -59,6 +59,15 @@
 #include "mowgli_hardware/ll_datatypes.hpp"
 #include "mowgli_hardware/packet_handler.hpp"
 #include "mowgli_hardware/serial_port.hpp"
+
+// High-level mode constants — must match HighLevelStatus.msg and the
+// HL_MODE_* defines in firmware/mowgli_protocol.h. Declared locally to
+// avoid a brittle relative include of the firmware-shared header.
+static constexpr uint8_t HL_MODE_NULL           = 0u;  ///< Emergency / transitional
+static constexpr uint8_t HL_MODE_IDLE           = 1u;  ///< Docked or between missions
+static constexpr uint8_t HL_MODE_AUTONOMOUS     = 2u;  ///< Autonomous mowing
+static constexpr uint8_t HL_MODE_RECORDING      = 3u;  ///< Area recording
+static constexpr uint8_t HL_MODE_MANUAL_MOWING  = 4u;  ///< Manual teleop with blade
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
@@ -70,6 +79,7 @@
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "std_msgs/msg/header.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 namespace mowgli_hardware
 {
@@ -128,9 +138,12 @@ private:
     pub_emergency_ =
         create_publisher<mowgli_interfaces::msg::Emergency>("~/emergency", rclcpp::QoS(10));
     pub_power_ = create_publisher<mowgli_interfaces::msg::Power>("~/power", rclcpp::QoS(10));
-    pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::SensorDataQoS());
+    // RELIABLE, not SensorDataQoS — FusionCore subscribes RELIABLE and
+    // refuses BEST_EFFORT publishers with "incompatible QoS policy",
+    // which starved the filter of IMU/wheel data.
+    pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::QoS(10));
     pub_wheel_odom_ =
-        create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::SensorDataQoS());
+        create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
     pub_battery_state_ =
         create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", rclcpp::QoS(10));
     // Dock heading for FusionCore: while charging, publish dock yaw at
@@ -142,6 +155,10 @@ private:
                                             {
                                               publish_dock_heading();
                                             });
+
+    // FusionCore reset client: called on is_charging false→true transition
+    // to clear stale filter state before the wide-σ dock_heading anchors yaw.
+    fusion_reset_client_ = create_client<std_srvs::srv::Trigger>("/fusioncore_node/reset");
   }
 
   void create_subscribers()
@@ -363,6 +380,30 @@ private:
       is_charging_ = (pkt.status_bitmask & STATUS_BIT_CHARGING) != 0u;
       msg.is_charging = is_charging_;
 
+      // Dock heading anchor trigger: on charging transition, reset FusionCore
+      // and start the wide-σ dock_heading window so the Mahalanobis gate
+      // accepts the first heading update (lever arm gated on heading_validated).
+      if (is_charging_ && !was_charging)
+      {
+        charging_anchor_start_ = now();
+        charging_anchor_active_ = true;
+        if (fusion_reset_client_ && fusion_reset_client_->service_is_ready())
+        {
+          auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
+          fusion_reset_client_->async_send_request(req);
+          RCLCPP_INFO(get_logger(),
+                      "Charging transition: FusionCore reset + dock_heading "
+                      "anchor window (%.1fs) opened.",
+                      kChargingAnchorWindowSec);
+        }
+        else
+        {
+          RCLCPP_INFO(get_logger(),
+                      "Charging transition: anchor window opened (FusionCore "
+                      "reset service not ready; wide-σ heading alone).");
+        }
+      }
+
       // Start IMU calibration when charging and not already calibrating.
       // Triggers on: (1) dock transition, (2) first status packet if
       // already on dock at boot.
@@ -370,7 +411,7 @@ private:
       {
         imu_cal_collecting_ = true;
         imu_cal_count_ = 0;
-        imu_cal_sum_ax_ = imu_cal_sum_ay_ = 0.0;
+        imu_cal_sum_ax_ = imu_cal_sum_ay_ = imu_cal_sum_az_ = 0.0;
         imu_cal_sum_gx_ = imu_cal_sum_gy_ = imu_cal_sum_gz_ = 0.0;
         imu_cal_samples_ax_.clear();
         imu_cal_samples_ay_.clear();
@@ -388,7 +429,7 @@ private:
         imu_cal_ready_ = false;
         imu_cal_collecting_ = true;
         imu_cal_count_ = 0;
-        imu_cal_sum_ax_ = imu_cal_sum_ay_ = 0.0;
+        imu_cal_sum_ax_ = imu_cal_sum_ay_ = imu_cal_sum_az_ = 0.0;
         imu_cal_sum_gx_ = imu_cal_sum_gy_ = imu_cal_sum_gz_ = 0.0;
         imu_cal_samples_ax_.clear();
         imu_cal_samples_ay_.clear();
@@ -551,6 +592,7 @@ private:
 
     double ax = static_cast<double>(pkt.acceleration_mss[0]);
     double ay = static_cast<double>(pkt.acceleration_mss[1]);
+    double az = static_cast<double>(pkt.acceleration_mss[2]);
     double gx = static_cast<double>(pkt.gyro_rads[0]);
     double gy = static_cast<double>(pkt.gyro_rads[1]);
     double gz = static_cast<double>(pkt.gyro_rads[2]);
@@ -559,11 +601,13 @@ private:
     // offsets (mean) and covariances (variance). Same algorithm as firmware
     // IMU_CalibrateExternal() but run on the ROS2 side each time the robot
     // docks — catches residual drift the boot calibration missed.
-    // Accel Z is not calibrated (preserves gravity for sensor fusion).
+    // Accel Z is not calibrated (preserves gravity for sensor fusion), but
+    // we still sum it so we can report implied mounting pitch/roll.
     if (imu_cal_collecting_)
     {
       imu_cal_sum_ax_ += ax;
       imu_cal_sum_ay_ += ay;
+      imu_cal_sum_az_ += az;
       imu_cal_sum_gx_ += gx;
       imu_cal_sum_gy_ += gy;
       imu_cal_sum_gz_ += gz;
@@ -618,6 +662,32 @@ private:
                     imu_cal_cov_gx_,
                     imu_cal_cov_gy_,
                     imu_cal_cov_gz_);
+
+        // ---- Implied mounting pitch/roll from at-rest gravity vector ----
+        // At rest on a level dock, the chip accel reads [0, 0, g] in the
+        // *IMU* frame. If it reads non-zero on X/Y, either (a) the IMU is
+        // physically tilted relative to base_link (mounting error), or
+        // (b) the chip has a factory accel bias. Assuming the dock is
+        // level, the angular offsets below capture the combined effect,
+        // which you can feed into mowgli_robot.yaml as imu_pitch / imu_roll
+        // so the URDF base_link->imu_link rotation matches reality.
+        //   pitch (nose-down = +) = atan2(-ax_raw, az_raw)
+        //   roll  (right-down = +) = atan2( ay_raw, az_raw)
+        // Magnitudes ≫ ~1° warrant YAML correction; smaller values are
+        // likely chip bias and are already removed by this calibration
+        // for ax/ay on every future sample.
+        const double az_mean = imu_cal_sum_az_ / n;
+        const double a_mag = std::sqrt(imu_cal_offset_ax_ * imu_cal_offset_ax_ +
+                                       imu_cal_offset_ay_ * imu_cal_offset_ay_ +
+                                       az_mean * az_mean);
+        const double implied_pitch_deg = std::atan2(-imu_cal_offset_ax_, az_mean) * 180.0 / M_PI;
+        const double implied_roll_deg  = std::atan2( imu_cal_offset_ay_, az_mean) * 180.0 / M_PI;
+        RCLCPP_INFO(get_logger(),
+                    "Implied mounting tilt: pitch=%.3f°, roll=%.3f° "
+                    "(|accel|=%.3f m/s², az_mean=%.3f). "
+                    "If magnitudes exceed ~1° set imu_pitch / imu_roll in "
+                    "mowgli_robot.yaml and redeploy.",
+                    implied_pitch_deg, implied_roll_deg, a_mag, az_mean);
 
         // Free sample buffers
         imu_cal_samples_ax_.clear();
@@ -696,9 +766,14 @@ private:
     }
     msg.linear_acceleration_covariance[8] = 0.01;  // Z — uncalibrated default
 
-    // Gyro covariance: WT901 gyro z-axis severely under-reports yaw rate
-    // (~17% of actual). Set high yaw covariance so the EKF trusts wheel odom.
-    // Use calibrated values for roll/pitch rate if available.
+    // Gyro covariance: WT901 gyro_z is accurate to ~7% over-report on the
+    // ground-truth 90° CCW rotation test (2026-04-19). The legacy "17%
+    // under-report" claim predates the firmware scaling fixes
+    // (WT901_G_FACTOR float-correct, RAD_PER_DEG rename). We still keep a
+    // loose yaw floor because WT901 has ~0.01 rad/s bias drift that
+    // couples into heading if trusted too tightly. Calibrated values for
+    // roll/pitch rate are used directly (robot is planar, so those stay
+    // near zero and the calibration sum is a clean noise estimate).
     if (imu_cal_ready_)
     {
       msg.angular_velocity_covariance[0] = std::max(imu_cal_cov_gx_, 0.001);
@@ -726,15 +801,37 @@ private:
     // orientation quaternion as heading in ENU.
     // dock_yaw_ is compass heading; convert to ENU: yaw_enu = pi/2 - compass
     const double enu_yaw = M_PI / 2.0 - dock_yaw_;
+
+    // During the anchor window after a charging transition, publish with
+    // σ=π so FusionCore's Mahalanobis gate accepts the first heading update
+    // no matter how far the filter's initial yaw is from the dock. Without
+    // this, a filter that initialises at yaw≈0 would reject the true dock
+    // heading (~2.6 rad innovation ≫ 4σ at σ=0.1 rad) and heading_validated_
+    // would stay false, leaving the GPS lever arm disabled indefinitely.
+    double yaw_cov = 0.01;  // steady-state: σ ≈ 0.1 rad (~6°)
+    if (charging_anchor_active_)
+    {
+      const double elapsed = (now() - charging_anchor_start_).seconds();
+      if (elapsed < kChargingAnchorWindowSec)
+      {
+        yaw_cov = M_PI * M_PI;  // σ = π: any innovation passes
+      }
+      else
+      {
+        charging_anchor_active_ = false;
+        RCLCPP_INFO(get_logger(),
+                    "Dock heading anchor window closed; tightening σ to 0.1 rad.");
+      }
+    }
+
     auto msg = sensor_msgs::msg::Imu{};
     msg.header.stamp = now();
     msg.header.frame_id = "base_footprint";
     msg.orientation.z = std::sin(enu_yaw / 2.0);
     msg.orientation.w = std::cos(enu_yaw / 2.0);
-    // Tight yaw covariance — we know the dock heading from compass at install
     msg.orientation_covariance[0] = 0.01;  // roll
     msg.orientation_covariance[4] = 0.01;  // pitch
-    msg.orientation_covariance[8] = 0.01;  // yaw (~6° 1-sigma)
+    msg.orientation_covariance[8] = yaw_cov;
     pub_dock_heading_->publish(msg);
   }
 
@@ -766,80 +863,105 @@ private:
     LlOdometry pkt{};
     std::memcpy(&pkt, data, sizeof(LlOdometry));
 
-    const auto stamp = now();
-    const double dt_sec = static_cast<double>(pkt.dt_millis) / 1000.0;
-
-    // Debug: log raw tick values periodically
-    static int odom_debug_count = 0;
-    if (++odom_debug_count % 50 == 0)
-    {
-      RCLCPP_INFO(get_logger(),
-                  "Odom raw: L=%d R=%d dt=%u spd_L=%d spd_R=%d dir_L=%u dir_R=%u",
-                  pkt.left_ticks,
-                  pkt.right_ticks,
-                  pkt.dt_millis,
-                  pkt.left_speed,
-                  pkt.right_speed,
-                  pkt.left_direction,
-                  pkt.right_direction);
-    }
-
-    // Compute tick deltas since last packet.
-    // Tick counters are cumulative absolute (always increasing).
-    // The direction fields indicate forward (1) or reverse (2).
-    // Apply sign based on direction so differential kinematics work.
-    int32_t d_left = pkt.left_ticks - prev_left_ticks_;
+    // Signed tick deltas since last firmware packet (polarity = direction).
+    int32_t d_left  = pkt.left_ticks  - prev_left_ticks_;
     int32_t d_right = pkt.right_ticks - prev_right_ticks_;
-    if (pkt.left_direction == 2)
-      d_left = -d_left;  // reverse
-    if (pkt.right_direction == 2)
-      d_right = -d_right;  // reverse
-    prev_left_ticks_ = pkt.left_ticks;
+    prev_left_ticks_  = pkt.left_ticks;
     prev_right_ticks_ = pkt.right_ticks;
 
-    // Track whether wheels are stationary (for gyro bias compensation)
-    wheels_stationary_ = (d_left == 0 && d_right == 0);
-
-    // Skip the first packet (no valid delta yet)
     if (!odom_initialized_)
     {
       odom_initialized_ = true;
       return;
     }
 
-    // Convert ticks to metres (TICKS_PER_M = 300.0)
-    constexpr double kTicksPerMetre = 300.0;
-    constexpr double kWheelBase = 0.325;
-
-    const double d_left_m = static_cast<double>(d_left) / kTicksPerMetre;
-    const double d_right_m = static_cast<double>(d_right) / kTicksPerMetre;
-
-    // Differential drive kinematics
-    const double d_centre = (d_left_m + d_right_m) / 2.0;
-    const double d_theta = (d_right_m - d_left_m) / kWheelBase;
-
-    // Velocity (m/s, rad/s)
-    double vx = 0.0;
-    double vyaw = 0.0;
-    if (dt_sec > 0.001)
+    // Sanity-clamp to physically plausible deltas. Firmware packets arrive
+    // every ~21 ms; at a hard upper bound of 2 m/s the robot would move
+    // ~0.042 m = ~13 ticks per packet (TICKS_PER_M = 300). Anything above
+    // kTickSpikeLimit is a firmware glitch — typically the motor-controller
+    // PCB's encoder reset on direction change not happening in lockstep with
+    // the firmware's own prev_*_encoder_val reset, giving a phantom delta of
+    // ~tens-of-thousands-of-ticks (observed as 1000+ m/s velocity spikes in
+    // wheel_odom). Dropping the offending packet's delta is far safer than
+    // letting FusionCore integrate that into a position/yaw jump.
+    constexpr int32_t kTickSpikeLimit = 100;
+    if (std::abs(d_left) > kTickSpikeLimit || std::abs(d_right) > kTickSpikeLimit)
     {
-      vx = d_centre / dt_sec;
-      vyaw = d_theta / dt_sec;
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "Dropping wheel tick spike: dL=%d dR=%d (limit=%d). Likely a "
+          "direction-change encoder-reset mismatch from the motor controller.",
+          d_left, d_right, kTickSpikeLimit);
+      d_left = 0;
+      d_right = 0;
     }
+
+    // ----- Aggregate firmware packets into ~10 Hz wheel_odom publishes -----
+    // Firmware packets arrive at ~47 Hz (every ~21 ms). At slow speeds this
+    // gives only 0-3 ticks per window, so single-tick encoder noise (1 tick
+    // = ~167 mm/s over 21 ms!) gets amplified into phantom velocity spikes
+    // that FusionCore trusts thanks to the tight wheel covariance. Sum 5
+    // packets (~100 ms, ~15 ticks at 0.5 m/s) so the velocity denominator
+    // grows and single-tick noise collapses to ~7 % relative error.
+    odom_acc_delta_left_  += d_left;
+    odom_acc_delta_right_ += d_right;
+    odom_acc_dt_ms_       += pkt.dt_millis;
+
+    static constexpr uint32_t kAggregateMs = 100;
+    if (odom_acc_dt_ms_ < kAggregateMs)
+    {
+      return;
+    }
+
+    const auto stamp  = now();
+    const int32_t acc_d_left  = odom_acc_delta_left_;
+    const int32_t acc_d_right = odom_acc_delta_right_;
+    const uint32_t acc_dt_ms  = odom_acc_dt_ms_;
+    odom_acc_delta_left_  = 0;
+    odom_acc_delta_right_ = 0;
+    odom_acc_dt_ms_       = 0;
+
+    wheels_stationary_ = (acc_d_left == 0 && acc_d_right == 0);
+
+    // Debug: log the aggregated window periodically.
+    static int odom_debug_count = 0;
+    if (++odom_debug_count % 10 == 0)
+    {
+      RCLCPP_INFO(get_logger(),
+                  "Odom: acc_dL=%d acc_dR=%d acc_dt=%u ms  (cum L=%d R=%d)",
+                  acc_d_left, acc_d_right, acc_dt_ms,
+                  pkt.left_ticks, pkt.right_ticks);
+    }
+
+    constexpr double kWheelBase = 0.325;
+    constexpr double kTicksPerMetre = 300.0;
+    const double dt_sec = static_cast<double>(acc_dt_ms) / 1000.0;
+    const double d_left_m  = static_cast<double>(acc_d_left)  / kTicksPerMetre;
+    const double d_right_m = static_cast<double>(acc_d_right) / kTicksPerMetre;
+    double vx   = (d_left_m + d_right_m) * 0.5 / dt_sec;
+    double vyaw = (d_right_m - d_left_m) / kWheelBase / dt_sec;
 
     auto msg = nav_msgs::msg::Odometry{};
     msg.header.stamp = stamp;
     msg.header.frame_id = "odom";
     msg.child_frame_id = "base_link";
 
-    // When charging AND idle, the robot is mechanically fixed to the dock.
-    // Force zero velocity with very tight covariance so the EKF
-    // trusts this "not moving" signal over process noise drift.
-    // During undocking (current_mode_ != 0), the charger bit may still be
-    // set while the robot is backing off the contacts — don't zero odom
-    // or SLAM will see zero motion while LiDAR scans shift, corrupting
-    // the map.
-    const bool force_zero = is_charging_ && (current_mode_ == 0u);
+    // Force zero whenever the dock contacts are live. Charging current
+    // proves the robot is mechanically anchored to the dock — the motors
+    // cannot have moved it regardless of BT state. Previous narrower
+    // condition (charging AND mode ∈ {NULL, IDLE}) missed the transient
+    // RETURNING_HOME / end-of-mission states, during which the BT is
+    // still mode=AUTONOMOUS(2) but the robot has already re-docked and
+    // is physically stationary. Without the zero constraint, gyro_z
+    // bias (~0.01 rad/s on the WT901) integrates into fusion yaw at
+    // ~30°/min, which then corrupts FusionCore's heading estimate and
+    // manifests as a slowly-rotating robot icon while on the dock.
+    //
+    // Edge case: the charger bit can briefly stay high during a BackUp
+    // undock before the contacts separate. That moment is handled by
+    // the UndockRobot action, not by the wheel-odom path, so zeroing
+    // for those ~100 ms is harmless.
+    const bool force_zero = is_charging_;
     if (force_zero)
     {
       vx = 0.0;
@@ -849,15 +971,20 @@ private:
     msg.twist.twist.linear.x = vx;
     msg.twist.twist.angular.z = vyaw;
 
-    // Covariance: when docked and idle, very tight (certain we're not moving).
-    // When driving, loose (wheel slip on grass).
+    // Covariance: force_zero → very tight (we're certain we're not moving).
+    // Otherwise: linear vel σ = 0.1 m/s, yaw rate σ = 0.03 rad/s (tight
+    // wheel trust — calibrated drivetrain, dominated by grass slip ~3%).
     const double vel_var = force_zero ? 1e-6 : 0.01;
     msg.twist.covariance[0] = vel_var;  // vx variance
-    msg.twist.covariance[7] = 1e6;  // vy (no lateral) - very high = unknown
+    // Non-holonomic constraint: diff-drive can't slide sideways. Tight
+    // variance on VY=0 tells FusionCore to treat this as a hard constraint;
+    // leaving at 1e6 ("unknown") lets GPS+IMU noise accumulate as apparent
+    // lateral drift during outdoor runs.
+    msg.twist.covariance[7] = 1e-4;  // vy (enforce VY = 0)
     msg.twist.covariance[14] = 1e6;  // vz - unknown
     msg.twist.covariance[21] = 1e6;  // wx - unknown
     msg.twist.covariance[28] = 1e6;  // wy - unknown
-    msg.twist.covariance[35] = force_zero ? 1e-6 : 0.05;  // wz variance
+    msg.twist.covariance[35] = force_zero ? 1e-6 : 9e-4;  // wz variance
 
     pub_wheel_odom_->publish(msg);
   }
@@ -1040,6 +1167,15 @@ private:
   uint8_t current_mode_{0};
   uint8_t gps_quality_{0};
 
+  // Dock heading anchor: on is_charging false→true transition, reset FusionCore
+  // and publish dock_heading with wide σ=π for a short window so the filter's
+  // Mahalanobis gate accepts the first heading update. After the window,
+  // dock_heading narrows to the steady-state tight covariance.
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr fusion_reset_client_;
+  rclcpp::Time charging_anchor_start_;
+  bool charging_anchor_active_{false};
+  static constexpr double kChargingAnchorWindowSec = 5.0;
+
   // Blade motor state (updated from LlBladeStatus packets)
   bool blade_active_{false};
   float blade_rpm_{0.0f};
@@ -1051,13 +1187,19 @@ private:
   int32_t prev_right_ticks_{0};
   bool odom_initialized_{false};
   bool wheels_stationary_{true};
+  // Aggregation window: sum firmware packets (~21 ms) until we reach
+  // kAggregateMs (~100 ms) and publish one /wheel_odom at ~10 Hz. Widens
+  // the velocity denominator so single-tick encoder noise doesn't blow up.
+  int32_t  odom_acc_delta_left_{0};
+  int32_t  odom_acc_delta_right_{0};
+  uint32_t odom_acc_dt_ms_{0};
 
   // IMU calibration state (computed while docked and idle)
   int imu_cal_samples_{200};
   bool imu_cal_collecting_{false};
   bool imu_cal_ready_{false};
   int imu_cal_count_{0};
-  double imu_cal_sum_ax_{0.0}, imu_cal_sum_ay_{0.0};
+  double imu_cal_sum_ax_{0.0}, imu_cal_sum_ay_{0.0}, imu_cal_sum_az_{0.0};
   double imu_cal_sum_gx_{0.0}, imu_cal_sum_gy_{0.0}, imu_cal_sum_gz_{0.0};
   std::vector<double> imu_cal_samples_ax_, imu_cal_samples_ay_;
   std::vector<double> imu_cal_samples_gx_, imu_cal_samples_gy_, imu_cal_samples_gz_;

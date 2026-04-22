@@ -4,3 +4,11 @@ hardware_bridge:
     baud_rate: 115200
     heartbeat_rate: 4.0   # Hz – keep-alive messages sent to firmware
     publish_rate: 50.0    # Hz – sensor data published to ROS2 topics
+
+    # IMU boot-time / re-dock calibration sample count.
+    # Firmware publishes gyro+accel at ~48 Hz, so 1000 samples is ~20 s of
+    # collection. Raised from the hardware_bridge default (200 → ~4 s) because
+    # 4 s of MEMS integration sits in the noisy end of the Allan-variance
+    # curve — the residual bias stays elevated. 20 s puts us past the Allan
+    # minimum for the WT901, giving ~√5 ≈ 2.2× tighter gyro/accel offsets.
+    imu_cal_samples: 1000

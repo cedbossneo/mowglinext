@@ -2,7 +2,7 @@ name: ROS2 — Docker
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, 'feat/**']
     tags:
       - "v*.*.*"
     paths:
@@ -50,8 +50,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Init FusionCore submodule
-        run: git submodule update --init ros2/src/fusioncore
+      - name: Init FusionCore + Kinematic-ICP submodules
+        run: git submodule update --init ros2/src/fusioncore ros2/src/kinematic_icp
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

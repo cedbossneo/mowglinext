@@ -274,7 +274,8 @@ local_costmap:
         inflation_radius: 0.40
 
 # ---------------------------------------------------------------------------
-# Map server / AMCL (not used with slam_toolbox, kept for completeness)
+# Map server / AMCL (unused — map→odom is a static identity, no SLAM backend;
+# kept for completeness / Nav2 lifecycle compatibility)
 # ---------------------------------------------------------------------------
 map_server:
   ros__parameters:
@@ -295,9 +296,14 @@ map_saver:
 docking_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 50.0
+    # 10 Hz — match nav2_params.yaml. Faster polling of isDocked()/
+    # isCharging() so the robot stops within ~100 ms of the charging
+    # signal; still low enough to not starve Nav2 on ARM.
+    controller_frequency: 10.0
     initial_perception_timeout: 5.0
-    wait_charge_timeout: 5.0
+    # 10 s accommodates the ~2-3 s firmware ADC debounce on
+    # STATUS_BIT_CHARGING before /battery_state reflects charging.
+    wait_charge_timeout: 10.0
     dock_approach_timeout: 30.0
     undock_linear_tolerance: 0.05
     undock_angular_tolerance: 0.1

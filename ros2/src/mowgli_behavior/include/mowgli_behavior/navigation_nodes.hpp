@@ -21,7 +21,7 @@
 
 #include "behaviortree_cpp/behavior_tree.h"
 #include "behaviortree_cpp/bt_factory.h"
-#include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_behavior/bt_context.hpp"
 #include "nav2_msgs/action/back_up.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
@@ -36,7 +36,9 @@ namespace mowgli_behavior
 // StopMoving
 // ---------------------------------------------------------------------------
 
-/// Publishes a zero-velocity Twist to /cmd_vel to halt the robot immediately.
+/// Publishes zero velocity to /cmd_vel_emergency (twist_mux priority 100) to
+/// halt the robot immediately. Goes through twist_mux so it respects the
+/// priority ladder rather than racing with other publishers on /cmd_vel.
 class StopMoving : public BT::SyncActionNode
 {
 public:
@@ -53,7 +55,7 @@ public:
   BT::NodeStatus tick() override;
 
 private:
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pub_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_;
 };
 
 // ---------------------------------------------------------------------------

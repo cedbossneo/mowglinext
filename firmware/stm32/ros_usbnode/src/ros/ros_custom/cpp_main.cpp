@@ -62,10 +62,11 @@
 /* ---------------------------------------------------------------------------
  * Drive motor control state
  * ---------------------------------------------------------------------------*/
-static uint8_t left_speed  = 0;
-static uint8_t right_speed = 0;
-static uint8_t left_dir    = 0;
-static uint8_t right_dir   = 0;
+/* Signed per-wheel PWM commands. Positive = forward, negative = reverse,
+ * 0 = stop. Replaces the old (unsigned magnitude, direction bit) pair so
+ * "stop" has exactly one representation on each wheel. */
+static int16_t left_pwm_signed  = 0;
+static int16_t right_pwm_signed = 0;
 
 /* ---------------------------------------------------------------------------
  * Blade motor control state
@@ -150,27 +151,24 @@ static void on_cmd_vel(const uint8_t *data, size_t len)
         return;
     }
 
-    float l_fVx = pkt->linear_x;
-    float l_fVz = pkt->angular_z;
+    const float vx = pkt->linear_x;
+    const float wz = pkt->angular_z;
 
-    // Differential drive: convert twist to per-wheel speeds
-    float left_twist_mps  = -1.0f * l_fVz * WHEEL_BASE * 0.5f;
-    float right_twist_mps =  l_fVz * WHEEL_BASE * 0.5f;
+    /* Differential-drive inverse kinematics — per-wheel linear speed. */
+    float left_mps  = vx - wz * WHEEL_BASE * 0.5f;
+    float right_mps = vx + wz * WHEEL_BASE * 0.5f;
 
-    float left_mps  = l_fVx + left_twist_mps;
-    float right_mps = l_fVx + right_twist_mps;
+    if (left_mps  >  MAX_MPS) left_mps  =  MAX_MPS;
+    if (left_mps  < -MAX_MPS) left_mps  = -MAX_MPS;
+    if (right_mps >  MAX_MPS) right_mps =  MAX_MPS;
+    if (right_mps < -MAX_MPS) right_mps = -MAX_MPS;
 
-    // Clamp to MAX_MPS
-    if (left_mps > MAX_MPS)        left_mps = MAX_MPS;
-    else if (left_mps < -MAX_MPS)  left_mps = -MAX_MPS;
-    if (right_mps > MAX_MPS)       right_mps = MAX_MPS;
-    else if (right_mps < -MAX_MPS) right_mps = -MAX_MPS;
-
-    left_dir  = (left_mps >= 0) ? 1 : 0;
-    right_dir = (right_mps >= 0) ? 1 : 0;
-
-    left_speed  = (uint8_t)(fabsf(left_mps  * PWM_PER_MPS));
-    right_speed = (uint8_t)(fabsf(right_mps * PWM_PER_MPS));
+    /* Convert to signed PWM in one step. Sign is preserved end-to-end; the
+     * signed PWM carries both magnitude and direction. Deadband compensation
+     * happens inside DRIVEMOTOR_SetSpeedSigned() when it runs at the fixed
+     * motor-control cadence. */
+    left_pwm_signed  = (int16_t)(left_mps  * PWM_PER_MPS);
+    right_pwm_signed = (int16_t)(right_mps * PWM_PER_MPS);
 }
 
 static void on_hl_state(const uint8_t *data, size_t len)
@@ -218,8 +216,8 @@ static void on_hl_state(const uint8_t *data, size_t len)
         PANEL_Set_LED(PANEL_LED_6H, PANEL_LED_OFF);
         PANEL_Set_LED(PANEL_LED_8H, PANEL_LED_OFF);
         main_eOpenmowerStatus = OPENMOWER_STATUS_IDLE;
-        left_dir = right_dir = 1;
-        left_speed = right_speed = blade_on_off = target_blade_on_off = 0;
+        left_pwm_signed = right_pwm_signed = 0;
+        blade_on_off = target_blade_on_off = 0;
         break;
     }
 
@@ -295,15 +293,17 @@ extern "C" void motors_handler()
         blade_on_off = target_blade_on_off;
 
         if (Emergency_State()) {
-            DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+            DRIVEMOTOR_SetSpeedSigned(0, 0);
             blade_on_off = 0;
         } else {
-            uint32_t cmd_vel_age_ms = HAL_GetTick() - last_cmd_vel_tick;
+            const uint32_t cmd_vel_age_ms = HAL_GetTick() - last_cmd_vel_tick;
 
             if (cmd_vel_age_ms > 200u) {
-                DRIVEMOTOR_SetSpeed(0, 0, 0, 0);
+                /* Command-vel watchdog: zero motors if the host hasn't
+                 * sent a twist in 200 ms (Pi hang, USB glitch, etc). */
+                DRIVEMOTOR_SetSpeedSigned(0, 0);
             } else {
-                DRIVEMOTOR_SetSpeed(left_speed, right_speed, left_dir, right_dir);
+                DRIVEMOTOR_SetSpeedSigned(left_pwm_signed, right_pwm_signed);
             }
 
             if (cmd_vel_age_ms > 25000u) {
@@ -370,32 +370,61 @@ extern "C" void ultrasonic_handler(void)
 #endif
 
 /* ---------------------------------------------------------------------------
- * Wheel ticks handler — called from DRIVEMOTOR_App_Rx() every 20ms
- * Sends COBS odometry packet
+ * Wheel ticks handler — called from DRIVEMOTOR_App_Rx() every 20 ms.
+ *
+ * Builds the odometry packet from signed cumulative ticks. Per-wheel
+ * velocity is computed here (not on the Pi) because the firmware has the
+ * hardware-timer-accurate dt. All four quantities in the packet are
+ * signed; the host doesn't need a direction byte or to re-sign anything.
  * ---------------------------------------------------------------------------*/
 extern "C" void wheelTicks_handler(
-    int8_t  p_u8LeftDirection,
-    int8_t  p_u8RightDirection,
-    uint32_t p_u16LeftTicks,
-    uint32_t p_u16RightTicks,
-    int16_t p_s16LeftSpeed,
-    int16_t p_s16RightSpeed)
+    int32_t  p_s32LeftTicksSigned,
+    int32_t  p_s32RightTicksSigned,
+    int16_t  p_s16LeftSpeed,   /* currently unused — reserved for future telemetry */
+    int16_t  p_s16RightSpeed)
 {
-    uint32_t now_tick = HAL_GetTick();
-    uint16_t dt = (uint16_t)(now_tick - last_odom_tick);
+    (void)p_s16LeftSpeed;
+    (void)p_s16RightSpeed;
+
+    static int32_t prev_left_ticks  = 0;
+    static int32_t prev_right_ticks = 0;
+
+    const uint32_t now_tick = HAL_GetTick();
+    const uint16_t dt_ms    = (uint16_t)(now_tick - last_odom_tick);
     last_odom_tick = now_tick;
 
+    const int32_t delta_left  = p_s32LeftTicksSigned  - prev_left_ticks;
+    const int32_t delta_right = p_s32RightTicksSigned - prev_right_ticks;
+    prev_left_ticks  = p_s32LeftTicksSigned;
+    prev_right_ticks = p_s32RightTicksSigned;
+
+    /* Velocity: mm/s = (delta_ticks / TICKS_PER_M) * (1000 / dt_ms) * 1000
+     *                = delta_ticks * 1e6 / (TICKS_PER_M * dt_ms).
+     * TICKS_PER_M is 300, so the constant numerator (300 * dt_ms) stays
+     * comfortably inside int32 for any realistic dt. We still cast to
+     * int64 for the mul to be safe on large tick deltas.                  */
+    int16_t left_v_mm_s  = 0;
+    int16_t right_v_mm_s = 0;
+    if (dt_ms > 0)
+    {
+        const int64_t denom = (int64_t)TICKS_PER_M * (int64_t)dt_ms;
+        int64_t v_l = ((int64_t)delta_left  * 1000000LL) / denom;
+        int64_t v_r = ((int64_t)delta_right * 1000000LL) / denom;
+        if (v_l >  32767) v_l =  32767;
+        if (v_l < -32768) v_l = -32768;
+        if (v_r >  32767) v_r =  32767;
+        if (v_r < -32768) v_r = -32768;
+        left_v_mm_s  = (int16_t)v_l;
+        right_v_mm_s = (int16_t)v_r;
+    }
+
     pkt_odometry_t odom;
-    odom.type            = PKT_ID_ODOMETRY;
-    odom.dt_millis       = dt;
-    odom.left_ticks      = (int32_t)p_u16LeftTicks;
-    odom.right_ticks     = (int32_t)p_u16RightTicks;
-    odom.left_speed      = p_s16LeftSpeed;
-    odom.right_speed     = p_s16RightSpeed;
-    odom.left_direction  = (p_u8LeftDirection == -1)  ? 2u :
-                           (p_u8LeftDirection == 1)   ? 1u : 0u;
-    odom.right_direction = (p_u8RightDirection == -1) ? 2u :
-                           (p_u8RightDirection == 1)  ? 1u : 0u;
+    odom.type                 = PKT_ID_ODOMETRY;
+    odom.dt_millis            = dt_ms;
+    odom.left_ticks           = p_s32LeftTicksSigned;
+    odom.right_ticks          = p_s32RightTicksSigned;
+    odom.left_velocity_mm_s   = left_v_mm_s;
+    odom.right_velocity_mm_s  = right_v_mm_s;
 
     mowgli_comms_send_odometry(&odom);
 }
