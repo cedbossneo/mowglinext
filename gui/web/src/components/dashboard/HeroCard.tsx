@@ -1,6 +1,6 @@
 import {useThemeMode} from "../../theme/ThemeContext.tsx";
-import {CardB} from "./CardB.tsx";
-import {BigBtnB} from "./BigBtnB.tsx";
+import {DashCard} from "./Card.tsx";
+import {ActionButton} from "./ActionButton.tsx";
 import {StatePill} from "./StatePill.tsx";
 import {RadialGauge} from "./RadialGauge.tsx";
 import {Bar} from "./Bar.tsx";
@@ -40,7 +40,7 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
   // Critical: boundary violation or emergency
   if (critical) {
     return (
-      <CardB padding={compact ? 16 : 22} tone="danger" style={{
+      <DashCard padding={compact ? 16 : 22} tone="danger" style={{
         position: 'relative', overflow: 'hidden',
         animation: 'mn-bounds-glow 2.2s ease-in-out infinite',
       }}>
@@ -72,17 +72,17 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
         <div style={{display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap'}}>
           {state === 'BOUNDARY_VIOLATION' ? (
             <>
-              <BigBtnB primary icon={<IconHome size={16}/>} label="Send home" onClick={onHome}
+              <ActionButton primary icon={<IconHome size={16}/>} label="Send home" onClick={onHome}
                        style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
-              <BigBtnB label="Resume" icon={<IconPlay size={14}/>} onClick={onResumeFromBoundary}
+              <ActionButton label="Resume" icon={<IconPlay size={14}/>} onClick={onResumeFromBoundary}
                        style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
             </>
           ) : (
-            <BigBtnB primary icon={<IconAlert size={16}/>} label="Reset emergency" onClick={onResetEmergency}
+            <ActionButton primary icon={<IconAlert size={16}/>} label="Reset emergency" onClick={onResetEmergency}
                      style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
           )}
         </div>
-      </CardB>
+      </DashCard>
     );
   }
 
@@ -91,7 +91,7 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
     const etaMin = Math.max(1, Math.round((100 - data.battery) * 1.8));
     const gaugeSize = compact ? 90 : 120;
     return (
-      <CardB padding={compact ? 16 : 22} style={{
+      <DashCard padding={compact ? 16 : 22} style={{
         background: `linear-gradient(135deg, rgba(62,224,132,0.2), rgba(62,224,132,0.04))`,
         border: `1px solid rgba(62,224,132,0.3)`,
       }}>
@@ -147,7 +147,7 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
                   On the dock, pulling {data.current.toFixed(1)}A. I'll take over again once we hit 100%.
                 </div>
                 <div style={{display: 'flex', gap: 8, marginTop: 14}}>
-                  <BigBtnB label="Mow anyway" icon={<IconPlay size={14}/>} onClick={onStart}/>
+                  <ActionButton label="Mow anyway" icon={<IconPlay size={14}/>} onClick={onStart}/>
                 </div>
               </div>
             </>
@@ -155,18 +155,18 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
         </div>
         {compact && (
           <div style={{display: 'flex', gap: 8, marginTop: 12}}>
-            <BigBtnB label="Mow anyway" icon={<IconPlay size={14}/>} onClick={onStart}
+            <ActionButton label="Mow anyway" icon={<IconPlay size={14}/>} onClick={onStart}
                      style={{flex: 1, justifyContent: 'center'}}/>
           </div>
         )}
-      </CardB>
+      </DashCard>
     );
   }
 
   // Rain
   if (data.rain && (state === 'IDLE' || state === 'IDLE_DOCKED')) {
     return (
-      <CardB padding={compact ? 16 : 22} style={{
+      <DashCard padding={compact ? 16 : 22} style={{
         background: `linear-gradient(135deg, rgba(123,198,255,0.18), rgba(123,198,255,0.05))`,
         border: `1px solid rgba(123,198,255,0.3)`,
       }}>
@@ -197,17 +197,17 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
           </div>
         </div>
         <div style={{display: 'flex', gap: 8, marginTop: 12}}>
-          <BigBtnB label="Mow anyway" onClick={onStart}
+          <ActionButton label="Mow anyway" onClick={onStart}
                    style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
         </div>
-      </CardB>
+      </DashCard>
     );
   }
 
   // Low battery docking
   if (state === 'DOCKING' && data.battery < 20) {
     return (
-      <CardB padding={compact ? 16 : 22} style={{
+      <DashCard padding={compact ? 16 : 22} style={{
         background: `linear-gradient(135deg, rgba(255,197,103,0.22), rgba(255,197,103,0.05))`,
         border: `1px solid rgba(255,197,103,0.35)`,
       }}>
@@ -238,10 +238,10 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
           </div>
         </div>
         <div style={{display: 'flex', gap: 8, marginTop: 12}}>
-          <BigBtnB label="Keep mowing" onClick={onStart}
+          <ActionButton label="Keep mowing" onClick={onStart}
                    style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
         </div>
-      </CardB>
+      </DashCard>
     );
   }
 
@@ -262,7 +262,7 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
           : '';
 
     return (
-      <CardB padding={0} style={{
+      <DashCard padding={0} style={{
         overflow: 'hidden', position: 'relative',
         background: `linear-gradient(135deg, rgba(62,224,132,0.16), rgba(123,198,255,0.08))`,
         border: `1px solid ${colors.border}`,
@@ -297,26 +297,26 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
           )}
           <div style={{display: 'flex', gap: 8, marginTop: compact ? 12 : 18, flexWrap: 'wrap'}}>
             {(state === 'MOWING' || state === 'MANUAL_MOWING') && (
-              <BigBtnB label="Pause" icon={<IconPause size={14}/>} onClick={onPause}
+              <ActionButton label="Pause" icon={<IconPause size={14}/>} onClick={onPause}
                        style={compact ? {flex: 1, justifyContent: 'center', padding: '10px 14px'} : undefined}/>
             )}
             {state === 'DOCKING' && (
-              <BigBtnB label="Keep mowing" icon={<IconPlay size={14}/>} primary onClick={onStart}
+              <ActionButton label="Keep mowing" icon={<IconPlay size={14}/>} primary onClick={onStart}
                        style={compact ? {flex: 1, justifyContent: 'center', padding: '10px 14px'} : undefined}/>
             )}
-            <BigBtnB label="Home" icon={<IconHome size={14}/>} onClick={onHome}
+            <ActionButton label="Home" icon={<IconHome size={14}/>} onClick={onHome}
                      style={compact ? {flex: 1, justifyContent: 'center', padding: '10px 14px'} : undefined}/>
-            <BigBtnB icon={<IconAlert size={14}/>} danger onClick={onEmergency}
+            <ActionButton icon={<IconAlert size={14}/>} danger onClick={onEmergency}
                      style={{padding: compact ? '10px 14px' : '12px 14px'}}/>
           </div>
         </div>
-      </CardB>
+      </DashCard>
     );
   }
 
   // IDLE / IDLE_DOCKED (default)
   return (
-    <CardB padding={compact ? 16 : 22} style={{
+    <DashCard padding={compact ? 16 : 22} style={{
       background: `linear-gradient(135deg, rgba(123,198,255,0.14), rgba(62,224,132,0.06))`,
       border: `1px solid ${colors.border}`,
     }}>
@@ -370,11 +370,11 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
           </div>
         )}
         <div style={{display: 'flex', gap: 8, width: compact ? '100%' : undefined}}>
-          <BigBtnB label="Start mowing" primary icon={<IconPlay size={16}/>} onClick={onStart}
+          <ActionButton label="Start mowing" primary icon={<IconPlay size={16}/>} onClick={onStart}
                    style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
-          <BigBtnB icon={<IconAlert size={14}/>} danger onClick={onEmergency} style={{padding: '12px 14px'}}/>
+          <ActionButton icon={<IconAlert size={14}/>} danger onClick={onEmergency} style={{padding: '12px 14px'}}/>
         </div>
       </div>
-    </CardB>
+    </DashCard>
   );
 }

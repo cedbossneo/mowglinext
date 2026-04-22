@@ -1,7 +1,7 @@
 import type {CSSProperties, ReactNode} from "react";
 import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
-interface CardBProps {
+interface DashCardProps {
   children: ReactNode;
   style?: CSSProperties;
   tone?: 'accent' | 'danger';
@@ -9,7 +9,7 @@ interface CardBProps {
   onClick?: () => void;
 }
 
-export function CardB({children, style, tone, padding = 18, onClick}: CardBProps) {
+export function DashCard({children, style, tone, padding = 18, onClick}: DashCardProps) {
   const {colors} = useThemeMode();
   const bg = tone === 'accent'
     ? `linear-gradient(135deg, ${colors.accent}, ${colors.accent}aa)`

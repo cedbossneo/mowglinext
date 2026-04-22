@@ -4,7 +4,7 @@ import {useApi} from "../hooks/useApi.ts";
 import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useIsMobile} from "../hooks/useIsMobile";
-import {CardB, Bar} from "../components/dashboard";
+import {DashCard, Bar} from "../components/dashboard";
 
 interface MowingSession {
   id: string;
@@ -155,7 +155,7 @@ export const StatisticsPage = () => {
           {label: 'Completion rate', value: `${completionRate}`, unit: '%', hint: `${stats?.completed_sessions ?? 0} completed`, color: colors.amber},
           {label: 'Runs completed', value: `${stats?.total_sessions ?? 0}`, unit: '', hint: `avg ${Math.round(stats?.average_coverage_percent ?? 0)}% coverage`, color: colors.accent},
         ].map(s => (
-          <CardB key={s.label} padding={18}>
+          <DashCard key={s.label} padding={18}>
             <div style={{
               fontSize: 11, color: colors.textDim,
               letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: 8,
@@ -169,12 +169,12 @@ export const StatisticsPage = () => {
               {s.unit && <div style={{fontSize: 14, color: colors.textDim, fontWeight: 600}}>{s.unit}</div>}
             </div>
             <div style={{fontSize: 11, color: colors.textMuted, marginTop: 6}}>{s.hint}</div>
-          </CardB>
+          </DashCard>
         ))}
       </div>
 
       {/* Weekly chart */}
-      <CardB>
+      <DashCard>
         <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16}}>
           <div>
             <div style={{fontSize: 14, fontWeight: 600}}>Distance per week</div>
@@ -211,12 +211,12 @@ export const StatisticsPage = () => {
             );
           })}
         </div>
-      </CardB>
+      </DashCard>
 
       {/* Coverage + session history */}
       <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : (coverage.length > 0 ? '1fr 1.4fr' : '1fr'), gap: 14}}>
         {coverage.length > 0 && (
-          <CardB>
+          <DashCard>
             <div style={{fontSize: 14, fontWeight: 600, marginBottom: 14}}>Zone coverage</div>
             {coverage.map(area => (
               <div key={area.area_index} style={{marginBottom: 10}}>
@@ -232,10 +232,10 @@ export const StatisticsPage = () => {
                 />
               </div>
             ))}
-          </CardB>
+          </DashCard>
         )}
 
-        <CardB padding={0}>
+        <DashCard padding={0}>
           <div style={{padding: '18px 18px 0'}}>
             <div style={{fontSize: 14, fontWeight: 600, marginBottom: 4}}>Session history</div>
             <div style={{fontSize: 11, color: colors.textMuted, marginBottom: 14}}>
@@ -257,7 +257,7 @@ export const StatisticsPage = () => {
               ),
             }}
           />
-        </CardB>
+        </DashCard>
       </div>
     </div>
   );

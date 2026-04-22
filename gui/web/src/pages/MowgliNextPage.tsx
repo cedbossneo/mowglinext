@@ -11,7 +11,7 @@ import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {computeBatteryPercent} from "../utils/battery.ts";
 import {AbsolutePoseConstants} from "../types/ros.ts";
 import {
-  HeroCard, TileB, CardB,
+  HeroCard, DashTile, DashCard,
   IconBattery, IconSignal, IconBlades, IconThermo, IconSchedule, IconDiag,
   useTrail, KEYFRAMES_CSS,
 } from "../components/dashboard";
@@ -131,19 +131,19 @@ export const MowgliNextPage = () => {
         <HeroCard data={heroData} compact {...heroActions}/>
 
         <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
-          <TileB compact icon={<IconBattery size={12}/>} label="Battery"
+          <DashTile compact icon={<IconBattery size={12}/>} label="Battery"
                  value={Math.round(data.battery)} unit="%"
                  accent={colors.accent}
                  hint={data.charging ? 'charging' : `${data.vBattery.toFixed(1)} V`}/>
-          <TileB compact icon={<IconSignal size={12}/>} label="GPS"
+          <DashTile compact icon={<IconSignal size={12}/>} label="GPS"
                  value={Math.round(data.gps)} unit="%"
                  accent={colors.sky} hint={gpsHint}/>
-          <TileB compact icon={<IconBlades size={12}/>} label="Blades"
+          <DashTile compact icon={<IconBlades size={12}/>} label="Blades"
                  value={data.rpm > 0 ? Math.round(data.rpm) : 'off'}
                  unit={data.rpm > 0 ? 'rpm' : ''}
                  accent={colors.amber}
                  hint={`${data.current.toFixed(1)}A draw`}/>
-          <TileB compact icon={<IconThermo size={12}/>} label="Motor"
+          <DashTile compact icon={<IconThermo size={12}/>} label="Motor"
                  value={data.motorTemp.toFixed(0)} unit="C"
                  accent={data.motorTemp > 50 ? colors.amber : colors.accent}
                  hint={`ESC ${data.escTemp.toFixed(0)} C`}/>
@@ -181,20 +181,20 @@ export const MowgliNextPage = () => {
 
       {/* At-a-glance tiles */}
       <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12}}>
-        <TileB icon={<IconBattery size={16}/>} label="Battery"
+        <DashTile icon={<IconBattery size={16}/>} label="Battery"
                value={Math.round(data.battery)} unit="%"
                accent={colors.accent} trail={batteryTrail}
                hint={data.charging ? 'charging' : `${data.vBattery.toFixed(1)} V`}/>
-        <TileB icon={<IconSignal size={16}/>} label="GPS"
+        <DashTile icon={<IconSignal size={16}/>} label="GPS"
                value={Math.round(data.gps)} unit="%"
                accent={colors.sky} trail={gpsTrail}
                hint={gpsHint}/>
-        <TileB icon={<IconBlades size={16}/>} label="Blades"
+        <DashTile icon={<IconBlades size={16}/>} label="Blades"
                value={data.rpm > 0 ? Math.round(data.rpm) : 'off'}
                unit={data.rpm > 0 ? 'rpm' : ''}
                accent={colors.amber} trail={rpmTrail}
                hint={`${data.current.toFixed(1)}A draw`}/>
-        <TileB icon={<IconThermo size={16}/>} label="Motor"
+        <DashTile icon={<IconThermo size={16}/>} label="Motor"
                value={data.motorTemp.toFixed(0)} unit="C"
                accent={data.motorTemp > 50 ? colors.amber : colors.accent}
                trail={tempTrail}
@@ -204,7 +204,7 @@ export const MowgliNextPage = () => {
       {/* Bottom row: today + next up + health */}
       <div style={{display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: 14}}>
         {/* Today's work */}
-        <CardB>
+        <DashCard>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
             <div style={{fontSize: 14, fontWeight: 600}}>Today's work</div>
             <div style={{fontSize: 11, color: colors.textMuted}}>
@@ -225,10 +225,10 @@ export const MowgliNextPage = () => {
               <div style={{fontSize: 11, color: colors.textDim, marginTop: 2}}>active today</div>
             </div>
           </div>
-        </CardB>
+        </DashCard>
 
         {/* Next up */}
-        <CardB>
+        <DashCard>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
             <div style={{fontSize: 14, fontWeight: 600}}>Next up</div>
             <IconSchedule size={16}/>
@@ -236,10 +236,10 @@ export const MowgliNextPage = () => {
           <div style={{fontSize: 13, color: colors.textDim, lineHeight: 1.6}}>
             Check the Schedule page to set up automated mowing runs.
           </div>
-        </CardB>
+        </DashCard>
 
         {/* Health check */}
-        <CardB>
+        <DashCard>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14}}>
             <div style={{fontSize: 14, fontWeight: 600}}>Health check</div>
             <IconDiag size={16}/>
@@ -264,7 +264,7 @@ export const MowgliNextPage = () => {
               </div>
             ))}
           </div>
-        </CardB>
+        </DashCard>
       </div>
 
       {/* Sensors accordion */}

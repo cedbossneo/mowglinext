@@ -5,7 +5,7 @@ import {useWS} from "../hooks/useWS.ts";
 import {Map as MapType} from "../types/ros.ts";
 import {useIsMobile} from "../hooks/useIsMobile";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
-import {CardB, BigBtnB, IconPlus, FONT} from "../components/dashboard";
+import {DashCard, ActionButton, IconPlus, FONT} from "../components/dashboard";
 import dayjs from "dayjs";
 
 interface Schedule {
@@ -152,7 +152,7 @@ export const SchedulePage = () => {
       : [...areaOptions, {label: areaLabel(sched.area, undefined), value: sched.area}];
     const color = schedColors[idx % schedColors.length];
     return (
-      <CardB key={sched.id} style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+      <DashCard key={sched.id} style={{display: 'flex', flexDirection: 'column', gap: 12}}>
         <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
           <div style={{width: 4, height: 32, borderRadius: 2, background: color}}/>
           <Switch
@@ -213,7 +213,7 @@ export const SchedulePage = () => {
             Delete
           </button>
         </div>
-      </CardB>
+      </DashCard>
     );
   };
 
@@ -221,12 +221,12 @@ export const SchedulePage = () => {
     return (
       <div style={{display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 8}}>
         <div style={{display: 'flex', justifyContent: 'flex-end'}}>
-          <BigBtnB primary icon={<IconPlus size={14}/>} label="New run" onClick={handleCreate} disabled={loading}/>
+          <ActionButton primary icon={<IconPlus size={14}/>} label="New run" onClick={handleCreate} disabled={loading}/>
         </div>
         {schedules.length === 0 && (
-          <CardB style={{textAlign: 'center', padding: 32, color: colors.textSecondary}}>
+          <DashCard style={{textAlign: 'center', padding: 32, color: colors.textSecondary}}>
             No schedules configured yet.
-          </CardB>
+          </DashCard>
         )}
         {schedules.map((s, i) => scheduleCard(s, i))}
       </div>
@@ -237,7 +237,7 @@ export const SchedulePage = () => {
   return (
     <div style={{display: 'flex', flexDirection: 'column', gap: 16}}>
       {/* Weekly grid */}
-      <CardB>
+      <DashCard>
         <div style={{display: 'grid', gridTemplateColumns: '48px repeat(7, 1fr)', gap: 6}}>
           <div/>
           {DAYS.map(d => (
@@ -275,11 +275,11 @@ export const SchedulePage = () => {
             </div>
           ))}
         </div>
-      </CardB>
+      </DashCard>
 
       {/* Sub-cards */}
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14}}>
-        <CardB>
+        <DashCard>
           <div style={{fontSize: 13, fontWeight: 600, marginBottom: 12}}>This week</div>
           <div style={{display: 'flex', alignItems: 'baseline', gap: 6}}>
             <div style={{fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em'}}>{activeCount}</div>
@@ -302,12 +302,12 @@ export const SchedulePage = () => {
               );
             })}
           </div>
-        </CardB>
+        </DashCard>
 
-        <CardB>
+        <DashCard>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12}}>
             <div style={{fontSize: 13, fontWeight: 600}}>Schedules</div>
-            <BigBtnB primary icon={<IconPlus size={14}/>} label="New run"
+            <ActionButton primary icon={<IconPlus size={14}/>} label="New run"
                      onClick={handleCreate} disabled={loading}
                      style={{padding: '8px 14px', fontSize: 12}}/>
           </div>
@@ -316,9 +316,9 @@ export const SchedulePage = () => {
               ? 'No schedules yet. Create one to automate mowing.'
               : `${schedules.length} schedule${schedules.length > 1 ? 's' : ''} configured.`}
           </div>
-        </CardB>
+        </DashCard>
 
-        <CardB>
+        <DashCard>
           <div style={{fontSize: 13, fontWeight: 600, marginBottom: 12}}>Rules</div>
           {[
             {k: 'Rain-aware', on: true, hint: 'pause if rain detected'},
@@ -343,7 +343,7 @@ export const SchedulePage = () => {
               </div>
             </div>
           ))}
-        </CardB>
+        </DashCard>
       </div>
 
       {/* Detailed schedule cards */}
