@@ -1,9 +1,9 @@
 import type {ReactNode} from "react";
 import {useThemeMode} from "../../theme/ThemeContext.tsx";
-import {CardB} from "./CardB.tsx";
+import {DashCard} from "./Card.tsx";
 import {Sparkline} from "./Sparkline.tsx";
 
-interface TileBProps {
+interface DashTileProps {
   icon: ReactNode;
   label: string;
   value: string | number;
@@ -14,11 +14,11 @@ interface TileBProps {
   compact?: boolean;
 }
 
-export function TileB({icon, label, value, unit, accent, hint, trail, compact}: TileBProps) {
+export function DashTile({icon, label, value, unit, accent, hint, trail, compact}: DashTileProps) {
   const {colors} = useThemeMode();
   const tileAccent = accent ?? colors.accent;
   return (
-    <CardB padding={compact ? 12 : 18} style={{
+    <DashCard padding={compact ? 12 : 18} style={{
       display: 'flex', flexDirection: 'column',
       gap: compact ? 6 : 10, minHeight: compact ? 0 : 96,
     }}>
@@ -46,6 +46,6 @@ export function TileB({icon, label, value, unit, accent, hint, trail, compact}: 
         />
       )}
       {hint && <div style={{fontSize: compact ? 10 : 11, color: colors.textMuted}}>{hint}</div>}
-    </CardB>
+    </DashCard>
   );
 }

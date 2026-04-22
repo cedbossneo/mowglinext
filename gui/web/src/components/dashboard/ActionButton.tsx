@@ -2,7 +2,7 @@ import type {CSSProperties, ReactNode} from "react";
 import {useThemeMode} from "../../theme/ThemeContext.tsx";
 import {FONT} from "./constants.ts";
 
-interface BigBtnBProps {
+interface ActionButtonProps {
   label?: string;
   icon?: ReactNode;
   onClick?: () => void;
@@ -12,7 +12,7 @@ interface BigBtnBProps {
   disabled?: boolean;
 }
 
-export function BigBtnB({label, icon, onClick, primary, danger, style, disabled}: BigBtnBProps) {
+export function ActionButton({label, icon, onClick, primary, danger, style, disabled}: ActionButtonProps) {
   const {colors} = useThemeMode();
   const bg = primary ? colors.accent
     : danger ? 'rgba(255,107,107,0.14)'
