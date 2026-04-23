@@ -21,12 +21,18 @@ type CalibrateImuYawRequest struct {
 
 // CalibrateImuYawResponse mirrors the ROS service response 1:1.
 type CalibrateImuYawResponse struct {
-	Success     bool    `json:"success"`
-	Message     string  `json:"message"`
-	ImuYawRad   float64 `json:"imu_yaw_rad"`
-	ImuYawDeg   float64 `json:"imu_yaw_deg"`
-	SamplesUsed int32   `json:"samples_used"`
-	StdDevDeg   float64 `json:"std_dev_deg"`
+	Success               bool    `json:"success"`
+	Message               string  `json:"message"`
+	ImuYawRad             float64 `json:"imu_yaw_rad"`
+	ImuYawDeg             float64 `json:"imu_yaw_deg"`
+	SamplesUsed           int32   `json:"samples_used"`
+	StdDevDeg             float64 `json:"std_dev_deg"`
+	ImuPitchRad           float64 `json:"imu_pitch_rad"`
+	ImuPitchDeg           float64 `json:"imu_pitch_deg"`
+	ImuRollRad            float64 `json:"imu_roll_rad"`
+	ImuRollDeg            float64 `json:"imu_roll_deg"`
+	StationarySamplesUsed int32   `json:"stationary_samples_used"`
+	GravityMagMps2        float64 `json:"gravity_mag_mps2"`
 }
 
 // ---------------------------------------------------------------------------
@@ -85,12 +91,18 @@ func postCalibrateImuYaw(rosProvider types.IRosProvider) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, CalibrateImuYawResponse{
-			Success:     res.Success,
-			Message:     res.Message,
-			ImuYawRad:   res.ImuYawRad,
-			ImuYawDeg:   res.ImuYawDeg,
-			SamplesUsed: res.SamplesUsed,
-			StdDevDeg:   res.StdDevDeg,
+			Success:               res.Success,
+			Message:               res.Message,
+			ImuYawRad:             res.ImuYawRad,
+			ImuYawDeg:             res.ImuYawDeg,
+			SamplesUsed:           res.SamplesUsed,
+			StdDevDeg:             res.StdDevDeg,
+			ImuPitchRad:           res.ImuPitchRad,
+			ImuPitchDeg:           res.ImuPitchDeg,
+			ImuRollRad:            res.ImuRollRad,
+			ImuRollDeg:            res.ImuRollDeg,
+			StationarySamplesUsed: res.StationarySamplesUsed,
+			GravityMagMps2:        res.GravityMagMps2,
 		})
 	}
 }

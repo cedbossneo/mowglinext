@@ -5,7 +5,8 @@
 """
 calibrate_imu_yaw_node.py
 
-Autonomously estimates the IMU chip's mounting yaw relative to base_link.
+Autonomously estimates the IMU chip's mounting rotation relative to base_link
+(yaw from motion, pitch/roll from stationary gravity).
 
 The WT901 is physically mounted rotated around Z by `imu_yaw` relative to
 base_link. Pure rotation does not reveal this angle (gyro_z is invariant
@@ -14,6 +15,14 @@ in base_link +X DOES reveal it: accel observed in the chip frame is
     (a * cos(imu_yaw), -a * sin(imu_yaw), g)
 so for a non-zero body acceleration a,
     imu_yaw = atan2(-ay_chip, ax_chip)
+
+Mounting pitch/roll are independently observable from the gravity vector
+while the robot is perfectly still. With URDF rpy applied before imu_yaw,
+the chip-frame angles extracted here go directly into mowgli_robot.yaml:
+    imu_pitch = atan2(-ax_chip, az_chip)
+    imu_roll  = atan2( ay_chip, az_chip)
+(identical formula to hardware_bridge_node's per-dock tilt log, just
+averaged over the baseline + inter-cycle pauses of this drive).
 
 When the /calibrate service is invoked, this node DRIVES THE ROBOT itself:
 forward with a ramp-cruise-ramp profile, pause, then back to start. Users
@@ -70,6 +79,15 @@ class ImuYawCalibrator(Node):
     # so it can reference the chosen ramp speed.
     MIN_SAMPLES = 50
 
+    # Stationary detection for pitch/roll extraction: robot is considered
+    # still when BOTH wheel vx and wz are under these thresholds. The IMU
+    # at-rest accel then gives chip-frame gravity direction.
+    STATIONARY_VX_THRESHOLD = 0.01       # m/s
+    STATIONARY_WZ_THRESHOLD = 0.02       # rad/s
+    # 150 samples ≈ 3 s at 50 Hz. Baseline is 1.5 s plus the inter-cycle
+    # pauses contribute more, so we'll usually have ≥ 300 samples.
+    MIN_STATIONARY_SAMPLES = 150
+
     # --- Motion profile ---
     # Ramps drive signal strength: at cruise 0.5 m/s over a 0.5 s ramp the
     # peak body acceleration is 1.0 m/s², 2-3× the WT901's accel noise
@@ -118,7 +136,9 @@ class ImuYawCalibrator(Node):
 
         self._lock = threading.Lock()
         self._collecting = False
-        self._imu_samples: list[tuple[float, float, float]] = []
+        # IMU samples: (t, ax, ay, az). az is used for pitch/roll computation
+        # from gravity during stationary periods; ax/ay drive the yaw solve.
+        self._imu_samples: list[tuple[float, float, float, float]] = []
         self._odom_samples: list[tuple[float, float, float]] = []
 
         # Preflight state (latest values from safety topics).
@@ -188,7 +208,12 @@ class ImuYawCalibrator(Node):
         t = _stamp_to_float(msg.header.stamp)
         with self._lock:
             self._imu_samples.append(
-                (t, float(msg.linear_acceleration.x), float(msg.linear_acceleration.y))
+                (
+                    t,
+                    float(msg.linear_acceleration.x),
+                    float(msg.linear_acceleration.y),
+                    float(msg.linear_acceleration.z),
+                )
             )
 
     def _odom_cb(self, msg: Odometry) -> None:
@@ -445,6 +470,12 @@ class ImuYawCalibrator(Node):
         response.imu_yaw_deg = result["imu_yaw_deg"]
         response.samples_used = int(result["samples_used"])
         response.std_dev_deg = result["std_dev_deg"]
+        response.imu_pitch_rad = result["imu_pitch_rad"]
+        response.imu_pitch_deg = result["imu_pitch_deg"]
+        response.imu_roll_rad = result["imu_roll_rad"]
+        response.imu_roll_deg = result["imu_roll_deg"]
+        response.stationary_samples_used = int(result["stationary_samples_used"])
+        response.gravity_mag_mps2 = result["gravity_mag_mps2"]
 
         if response.success:
             self.get_logger().info(
@@ -452,6 +483,22 @@ class ImuYawCalibrator(Node):
                 f"({response.imu_yaw_deg:+.2f}°) from {response.samples_used} "
                 f"samples, stddev {response.std_dev_deg:.2f}°"
             )
+            if response.stationary_samples_used >= self.MIN_STATIONARY_SAMPLES:
+                self.get_logger().info(
+                    f"imu_pitch = {response.imu_pitch_rad:+.4f} rad "
+                    f"({response.imu_pitch_deg:+.2f}°), "
+                    f"imu_roll = {response.imu_roll_rad:+.4f} rad "
+                    f"({response.imu_roll_deg:+.2f}°) from "
+                    f"{response.stationary_samples_used} stationary samples "
+                    f"(|g|={response.gravity_mag_mps2:.3f} m/s²). "
+                    f"Promote to mowgli_robot.yaml if |pitch| or |roll| > 1°."
+                )
+            else:
+                self.get_logger().warn(
+                    f"Pitch/roll not computed: only "
+                    f"{response.stationary_samples_used} stationary IMU "
+                    f"samples (need ≥ {self.MIN_STATIONARY_SAMPLES})."
+                )
         else:
             self.get_logger().warn(f"Calibration failed: {response.message}")
 
@@ -463,7 +510,7 @@ class ImuYawCalibrator(Node):
 
     def _compute_imu_yaw(
         self,
-        imu_samples: list[tuple[float, float, float]],
+        imu_samples: list[tuple[float, float, float, float]],
         odom_samples: list[tuple[float, float, float]],
         baseline_count: int = 0,
     ) -> dict:
@@ -474,6 +521,12 @@ class ImuYawCalibrator(Node):
             "imu_yaw_deg": 0.0,
             "samples_used": 0,
             "std_dev_deg": 0.0,
+            "imu_pitch_rad": 0.0,
+            "imu_pitch_deg": 0.0,
+            "imu_roll_rad": 0.0,
+            "imu_roll_deg": 0.0,
+            "stationary_samples_used": 0,
+            "gravity_mag_mps2": 0.0,
         }
 
         # Split into baseline (stationary) and motion samples. The baseline
@@ -481,6 +534,7 @@ class ImuYawCalibrator(Node):
         # bias, which is subtracted from motion samples so we're reading
         # the MOTION-INDUCED horizontal accel only.
         baseline_ax = baseline_ay = 0.0
+        baseline_samples = imu_samples[:baseline_count] if baseline_count > 0 else []
         if baseline_count > 0 and len(imu_samples) > baseline_count:
             base = np.asarray(imu_samples[:baseline_count], dtype=np.float64)
             baseline_ax = float(np.mean(base[:, 1]))
@@ -591,10 +645,69 @@ class ImuYawCalibrator(Node):
             float(np.mean(np.cos(per_sample))),
             float(np.mean(np.sin(per_sample))),
         )
+        # ------------------------------------------------------------------
+        # Pitch / roll from stationary samples
+        # ------------------------------------------------------------------
+        # Use BOTH the initial baseline AND any IMU samples where wheel_vx
+        # and wz are effectively zero. At rest the chip-frame accel reads
+        # pure gravity rotated by the URDF (roll, pitch, yaw) mounting, so:
+        #   pitch = atan2(-ax_chip, az_chip)
+        #   roll  = atan2( ay_chip, az_chip)
+        # The URDF applies roll·pitch·yaw in order, meaning pitch/roll live
+        # in the chip frame (pre-yaw) — same formula as hardware_bridge's
+        # per-dock `Implied mounting tilt` log. The measurement is
+        # independent of the yaw solve above; they just share sample stream.
+        if len(baseline_samples) > 0:
+            base_np = np.asarray(baseline_samples, dtype=np.float64)
+            base_ax = base_np[:, 1]
+            base_ay = base_np[:, 2]
+            base_az = base_np[:, 3]
+        else:
+            base_ax = np.empty(0)
+            base_ay = np.empty(0)
+            base_az = np.empty(0)
+
+        # Any post-baseline sample whose wheel vx and wz are both below
+        # the stationary thresholds counts too. `wz_interp` already gives
+        # us wz; interpolate vx the same way.
+        vx_interp = odom_vx[left] + (odom_vx[right] - odom_vx[left]) * frac
+        still = (
+            (np.abs(vx_interp) < self.STATIONARY_VX_THRESHOLD)
+            & (np.abs(wz_interp) < self.STATIONARY_WZ_THRESHOLD)
+        )
+        still_ax = imu[still, 1]
+        still_ay = imu[still, 2]
+        still_az = imu[still, 3]
+
+        all_ax = np.concatenate([base_ax, still_ax])
+        all_ay = np.concatenate([base_ay, still_ay])
+        all_az = np.concatenate([base_az, still_az])
+        stationary_count = int(all_az.size)
+
+        pitch_rad = 0.0
+        roll_rad = 0.0
+        gravity_mag = 0.0
+        if stationary_count >= self.MIN_STATIONARY_SAMPLES:
+            mean_ax = float(np.mean(all_ax))
+            mean_ay = float(np.mean(all_ay))
+            mean_az = float(np.mean(all_az))
+            pitch_rad = math.atan2(-mean_ax, mean_az)
+            roll_rad = math.atan2(mean_ay, mean_az)
+            gravity_mag = math.sqrt(
+                mean_ax * mean_ax + mean_ay * mean_ay + mean_az * mean_az
+            )
+
         msg = (
             f"imu_yaw={math.degrees(imu_yaw_rad):+.2f}° from {valid_count} "
             f"samples (vector R={r_bar:.2f}, per-sample R={per_sample_r:.2f})."
         )
+        if stationary_count >= self.MIN_STATIONARY_SAMPLES:
+            msg += (
+                f" pitch={math.degrees(pitch_rad):+.2f}° "
+                f"roll={math.degrees(roll_rad):+.2f}° "
+                f"from {stationary_count} stationary samples "
+                f"(|g|={gravity_mag:.3f} m/s²)."
+            )
 
         return {
             "success": True,
@@ -603,6 +716,12 @@ class ImuYawCalibrator(Node):
             "imu_yaw_deg": math.degrees(imu_yaw_rad),
             "samples_used": valid_count,
             "std_dev_deg": math.degrees(std_rad),
+            "imu_pitch_rad": pitch_rad,
+            "imu_pitch_deg": math.degrees(pitch_rad),
+            "imu_roll_rad": roll_rad,
+            "imu_roll_deg": math.degrees(roll_rad),
+            "stationary_samples_used": stationary_count,
+            "gravity_mag_mps2": gravity_mag,
         }
 
 

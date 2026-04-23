@@ -42,8 +42,8 @@ mowgli:
         gps_y: 0
         gps_z: 0.2
         headland_width: 0.18
-        imu_pitch: 0
-        imu_roll: 0
+        imu_pitch: 0.00768    # +0.44° — median of 2 clean dock cals (hardware_bridge "Implied mounting tilt")
+        imu_roll: -0.03003    # -1.72° — same; roll is the real non-zero component (pitch was <1°)
         imu_x: 0.285
         imu_y: -0.17
         imu_yaw: -3.0718
