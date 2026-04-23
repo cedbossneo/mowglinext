@@ -1,7 +1,14 @@
   # -------------------------------------------------------------------------
-  # GPS — u-blox driver + NTRIP client (RTK corrections)
-  # Publishes /ublox_gps_node/fix (NavSatFix) on the ROS2 DDS bus.
-  # All config read from mowgli_robot.yaml (gps_port, gps_baudrate, ntrip_*).
+  # GNSS backend slot used by the current default GPS container.
+  #
+  # The common GNSS contract for backend-specific compose fragments is:
+  #   /gnss/fix          -> sensor_msgs/msg/NavSatFix
+  #   /gnss/azimuth      -> compass_msgs/msg/Azimuth
+  #   /gnss/diagnostics  -> diagnostic_msgs/msg/DiagnosticArray
+  #
+  # Current compatibility behavior remains unchanged here. This fragment still
+  # points at the existing GPS container while dedicated backend fragments can
+  # converge on the same external /gnss/* interface later.
   # -------------------------------------------------------------------------
 x-ros2-env: &ros2-env
   ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
@@ -20,10 +27,11 @@ services:
     privileged: true
     environment:
       <<: *ros2-env
+      HARDWARE_BACKEND: ${HARDWARE_BACKEND}
     volumes:
       - /dev:/dev
-      - ./config/mowgli:/config:ro
-      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+      - ./docker/config/mowgli:/config:ro
+      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
 
     restart: unless-stopped
     logging:
