@@ -42,8 +42,15 @@ ublox_dgnss:
     CFG_RATE_MEAS: 200
     CFG_RATE_NAV: 1
 
-    # Dynamic model: 0 = portable (suitable for a ground robot).
-    CFG_NAVSPG_DYNMODEL: 0
+    # Dynamic model: 10 = Mower (ZED-F9 specific, HPG 1.32+).
+    # Tuned for slow-moving ground robots with near-zero altitude change
+    # and regular rotation patterns. Tightens the receiver's internal
+    # Kalman motion model: stricter speed priors, less tolerant of big
+    # position jumps, better RTK-Fixed holdover across brief occlusions.
+    # Was 0 (Portable) — generic default, assumes moderate vehicle-scale
+    # dynamics and lets reported position drift more than a sub-metre
+    # mower can stomach.
+    CFG_NAVSPG_DYNMODEL: 10
 
     # High-precision DGNSS mode:
     #   2 = Float-only (default on many F9P images)
