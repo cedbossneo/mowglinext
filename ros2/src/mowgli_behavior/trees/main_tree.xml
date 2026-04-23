@@ -210,23 +210,34 @@
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
           <WaitForDuration duration_sec="1.0"/>
           <Fallback name="UndockOrSkip">
-            <!-- Already undocked: skip full undock sequence, but still do a
-                 short reverse so GPS-velocity heading can observe yaw before
-                 coverage starts. Without a dock reference, initial yaw is
-                 whatever the UKF had from last boot — potentially meters or
-                 radians off. A 0.3 m reverse at 0.2 m/s gives ~1.5 s of
-                 motion > 0.20 m/s (the velocity-heading gate), plenty for
-                 fusioncore to latch onto GPS-derived yaw. Reverse is handled
-                 correctly by the GPS-velocity-heading path (flips 180°
-                 based on body-frame VX sign). -->
-            <Sequence name="NotDockedCalibrate">
+            <!-- Not on dock: skip the full undock sequence. Do a short
+                 reverse if possible so velocity-heading can observe yaw,
+                 but always return SUCCESS — don't fall through to the
+                 1 m undock BackUp which assumes a dock-aligned start
+                 pose and pushes the robot in a fixed direction
+                 regardless of where it actually is. If the short BackUp
+                 fails (Nav2 abort, timeout, boundary refusal), we still
+                 proceed to coverage; velocity-heading will correct yaw
+                 from the mowing motion itself.
+                 Wrapping BackUp in a Fallback→AlwaysSuccess makes the
+                 whole NotDockedBranch non-failing. -->
+            <Sequence name="NotDockedBranch">
               <Inverter><IsCharging/></Inverter>
               <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
-              <BackUp backup_dist="0.3" backup_speed="0.20"/>
+              <Fallback>
+                <BackUp backup_dist="0.3" backup_speed="0.20"/>
+                <AlwaysSuccess/>
+              </Fallback>
               <WaitForDuration duration_sec="0.5"/>
             </Sequence>
-            <!-- On dock — wait for GPS, save map, then undock -->
+            <!-- On dock — wait for GPS, save map, then undock. IsCharging
+                 gate ensures we only run the docked-undock path when the
+                 robot is physically on the dock. Previously this branch
+                 could fire as a fallback when NotDockedBranch failed,
+                 which was dangerous — 1 m BackUp from a mid-polygon
+                 pose frequently pushed us outside the boundary. -->
             <Sequence name="UndockSequence">
+              <IsCharging/>
               <!-- Hard preflight gate — blocks until RTK Fixed (4) is
                    available, battery is OK, TF chain is healthy, and the
                    mowing/coverage services are up.
