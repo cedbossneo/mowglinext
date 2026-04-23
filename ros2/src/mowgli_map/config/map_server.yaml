@@ -11,9 +11,22 @@ map_server_node:
     publish_rate: 1.0
     # Navigation margin around area boundaries for keepout mask.
     # Cells outside the area but within this distance of the boundary
-    # edge are marked free (not lethal), preventing "Start occupied"
-    # when the robot is near the boundary.
-    keepout_nav_margin: 1.5
+    # edge are marked FREE (not lethal) in the keepout mask. Needed so
+    # the dock (often just outside the mowing polygon) can be reached
+    # and so the robot doesn't immediately self-reject as "Start
+    # occupied" when RTK drift puts it 10 cm past the edge.
+    #
+    # Previously 1.5 m — but that let Nav2's Smac planner route transit
+    # paths up to 1.5 m OUTSIDE the polygon during inter-strip turns.
+    # Combined with FTC tracking error, the robot would sit ~1 m past
+    # the polygon edge during corner-cutting, fire BoundaryGuard, and
+    # trigger emergency stop — even though the strip endpoints
+    # themselves respected strip_boundary_margin_m.
+    #
+    # 0.3 m: still covers non-RTK drift and dock approach (dock is
+    # typically within 0.2 m of polygon edge on a well-recorded site),
+    # but stops the planner from drafting big detours outside the area.
+    keepout_nav_margin: 0.3
 
     # Inner-boundary margin. Cells INSIDE a mowing area but within this
     # distance of the nearest edge are marked LETHAL in the keepout mask.
