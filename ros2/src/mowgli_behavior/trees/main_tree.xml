@@ -274,7 +274,14 @@
                    east edge of a tight garden polygon. 1m gives the F9P
                    enough displacement to calibrate undock heading while
                    staying safely inside typical boundaries. -->
-              <BackUp backup_dist="1.0" backup_speed="0.20"/>
+              <!-- 0.5 m (was 1.0 m and 2.0 m before). 1 m reversed the
+                   robot off the dock but also often far enough past the
+                   polygon edge that BoundaryGuard fired immediately.
+                   0.5 m gives the F9P ~2.5 s × 0.2 m/s of GPS
+                   displacement to calibrate yaw via velocity-heading
+                   while staying inside typical dock-adjacent polygon
+                   margins. -->
+              <BackUp backup_dist="0.5" backup_speed="0.20"/>
               <!-- Wait for RTK Fixed after undock. The dock often has a
                    metal canopy that attenuates GPS; once the robot is 2 m
                    out the F9P should re-acquire quickly. Timeout proceeds
