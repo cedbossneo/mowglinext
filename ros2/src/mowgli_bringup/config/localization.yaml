@@ -242,11 +242,12 @@ fusioncore_node:
     zupt.angular_threshold: 0.05
     zupt.noise_sigma: 0.01
 
-    # Non-holonomic constraint (VY=0 in body frame). Tighter sigma than
-    # the fusioncore default (0.02) to clamp the GPS+lever-arm-driven
-    # lateral leak more aggressively. Field session showed residual
-    # fus_vy = 5-14 cm/s with sigma_vy=0.02; 0.005 should pull it well
-    # below 5 cm/s. Too-tight can cause Cholesky instability when
-    # chained with other same-tick updates, but 0.005 has headroom.
+    # Non-holonomic constraint (VY=0 in body frame). σ=0.02 is the
+    # empirically stable sweet spot: tight enough to pull body-frame
+    # vy back toward 0 in <~0.2 s but loose enough that the UKF
+    # doesn't fight small GPS/lever-arm lateral components and
+    # oscillate. σ=0.005 was observed to produce visible pose
+    # "sliding" in Foxglove as the filter thrashed lateral state
+    # against GPS position updates.
     nonholonomic.enabled: true
-    nonholonomic.sigma_vy: 0.005
+    nonholonomic.sigma_vy: 0.02
