@@ -38,25 +38,38 @@ namespace mowgli_behavior
 // ---------------------------------------------------------------------------
 
 /// Publishes zero velocity to /cmd_vel_emergency (twist_mux priority 100) to
-/// halt the robot immediately. Goes through twist_mux so it respects the
-/// priority ladder rather than racing with other publishers on /cmd_vel.
-class StopMoving : public BT::SyncActionNode
+/// halt the robot. Publishes continuously for `duration_sec` so that twist_mux
+/// keeps the emergency channel latched and actively overrides any /cmd_vel_nav
+/// commands still coming from a RUNNING Nav2 action (e.g. when BT branches
+/// from TRANSIT into SkipStrip without first cancelling FollowPath). One-shot
+/// wasn't enough: field session showed the robot drifting 0.40 m after a
+/// supposed stop because FollowPath kept commanding forward velocity.
+///
+/// Input ports:
+///   duration_sec (double, default 0.5) — how long to stream zero velocity.
+class StopMoving : public BT::StatefulActionNode
 {
 public:
   StopMoving(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config)
+      : BT::StatefulActionNode(name, config)
   {
   }
 
   static BT::PortsList providedPorts()
   {
-    return {};
+    return {BT::InputPort<double>(
+        "duration_sec", 0.5, "Seconds to stream zero-velocity cmds (s)")};
   }
 
-  BT::NodeStatus tick() override;
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
 
 private:
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_;
+  rclcpp::Time start_time_;
+  double duration_sec_{0.5};
+  void publish_zero(const rclcpp::Node::SharedPtr& node);
 };
 
 // ---------------------------------------------------------------------------

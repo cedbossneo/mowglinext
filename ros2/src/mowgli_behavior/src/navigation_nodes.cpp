@@ -83,7 +83,15 @@ geometry_msgs::msg::PoseStamped parsePoseString(const std::string& pose_str,
 // StopMoving
 // ---------------------------------------------------------------------------
 
-BT::NodeStatus StopMoving::tick()
+void StopMoving::publish_zero(const rclcpp::Node::SharedPtr& node)
+{
+  geometry_msgs::msg::TwistStamped zero{};
+  zero.header.stamp = node->now();
+  zero.header.frame_id = "base_footprint";
+  pub_->publish(zero);
+}
+
+BT::NodeStatus StopMoving::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
@@ -93,14 +101,32 @@ BT::NodeStatus StopMoving::tick()
         "/cmd_vel_emergency", 10);
   }
 
-  geometry_msgs::msg::TwistStamped zero{};
-  zero.header.stamp = ctx->node->now();
-  zero.header.frame_id = "base_footprint";
-  pub_->publish(zero);
+  duration_sec_ = 0.5;
+  getInput("duration_sec", duration_sec_);
+  start_time_ = ctx->node->now();
 
-  RCLCPP_DEBUG(ctx->node->get_logger(), "StopMoving: published zero velocity on /cmd_vel_emergency");
+  publish_zero(ctx->node);
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "StopMoving: streaming zero velocity for %.2fs", duration_sec_);
+  return BT::NodeStatus::RUNNING;
+}
 
-  return BT::NodeStatus::SUCCESS;
+BT::NodeStatus StopMoving::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  publish_zero(ctx->node);
+
+  const double elapsed = (ctx->node->now() - start_time_).seconds();
+  if (elapsed >= duration_sec_)
+  {
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void StopMoving::onHalted()
+{
+  // Nothing to cancel — publisher is fire-and-forget.
 }
 
 // ---------------------------------------------------------------------------
