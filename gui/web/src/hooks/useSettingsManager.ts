@@ -41,7 +41,7 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
         icon: "global",
         description: "GPS datum, NTRIP corrections, protocol",
         keys: [
-            "datum_lat", "datum_lon", "gps_protocol", "gps_wait_after_undock_sec",
+            "datum_lat", "datum_lon", "datum_alt", "gps_protocol", "gps_wait_after_undock_sec",
             "gps_timeout_sec", "ntrip_enabled", "ntrip_host", "ntrip_port",
             "ntrip_user", "ntrip_password", "ntrip_mountpoint",
         ],
@@ -52,9 +52,9 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
         icon: "aim",
         description: "LiDAR, IMU, and GPS antenna placement on the robot",
         keys: [
-            "lidar_x", "lidar_y", "lidar_z", "lidar_yaw",
+            "lidar_enabled", "lidar_x", "lidar_y", "lidar_z", "lidar_yaw",
             "imu_x", "imu_y", "imu_z", "imu_yaw", "imu_pitch", "imu_roll",
-            "gps_antenna_x", "gps_antenna_y", "gps_antenna_z",
+            "gps_x", "gps_y", "gps_z",
             "use_lidar", "dock_pose_yaw",
         ],
     },
@@ -97,6 +97,7 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
         keys: [
             "motor_temp_high_c", "motor_temp_low_c", "emergency_stop_on_tilt",
             "emergency_stop_on_lift", "max_obstacle_avoidance_distance",
+            "lift_blade_resume_delay_sec", "lift_recovery_mode",
         ],
     },
     {
