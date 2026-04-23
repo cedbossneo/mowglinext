@@ -67,6 +67,8 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
       declare_parameter<double>("boundary_recovery_offset_m", 0.8);
   boundary_inner_margin_m_ =
       declare_parameter<double>("boundary_inner_margin_m", 0.3);
+  strip_boundary_margin_m_ =
+      declare_parameter<double>("strip_boundary_margin_m", 0.5);
 
   RCLCPP_INFO(get_logger(),
               "MapServerNode: resolution=%.3f m, size=%.1f×%.1f m, frame='%s'",
@@ -2192,8 +2194,13 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
 
   layout.mow_angle = 0.0;
 
-  // Inset boundary by headland (1 pass of mower_width)
-  double inset = mower_width_;
+  // Inset boundary by strip_boundary_margin_m_. Previously used
+  // mower_width_ (~0.18 m), but real FTC tracking error during transit
+  // exceeds 0.5 m — strip endpoints that close to the polygon edge get
+  // overshot and trigger boundary violations. A larger margin sacrifices
+  // a small strip of un-mowed perimeter for reliable inside-polygon
+  // coverage paths.
+  double inset = strip_boundary_margin_m_;
   double inner_min_x = min_x + inset;
   double inner_max_x = max_x - inset;
 

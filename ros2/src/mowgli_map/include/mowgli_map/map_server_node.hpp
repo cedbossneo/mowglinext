@@ -329,6 +329,16 @@ private:
   /// of ~0.7 m inside the polygon.
   double boundary_inner_margin_m_{0.3};
 
+  /// How far inside the polygon strip endpoints must sit. Applied when the
+  /// coverage planner generates strips: the axis-aligned bounding-box
+  /// y-intersections are shrunk by this value on both ends. Must cover the
+  /// controller's worst-case lateral tracking error — field test showed
+  /// ~0.5 m overshoot at 0.3 m/s transit, so default 0.5 m is the minimum
+  /// safe margin. Was previously hard-coded to mower_width_ (~0.18 m)
+  /// which let coverage paths land well past the polygon edge during
+  /// tracker overshoot.
+  double strip_boundary_margin_m_{0.5};
+
   // ── State ─────────────────────────────────────────────────────────────────
   grid_map::GridMap map_;
   mutable std::mutex map_mutex_;
