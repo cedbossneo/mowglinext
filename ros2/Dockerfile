@@ -180,7 +180,6 @@ RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
  && ln -sf fusioncore/fusioncore_ros  src/fusioncore_ros \
  && ln -sf fusioncore/compass_msgs    src/compass_msgs
 
-<<<<<<< HEAD
 # kinematic_icp is a cpp+ros monorepo (cpp/, ros/). Unlike KISS-ICP it has no
 # top-level CMakeLists.txt, so colcon's recursive scan finds
 # kinematic_icp/ros/package.xml directly — no symlink needed. The ros
@@ -188,9 +187,7 @@ RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
 # resolves correctly when colcon cds into the real source path.
 
 # Build all packages (mowgli_interfaces is already built and cached)
-=======
 # Check MAVROS installation
->>>>>>> mavrosdev
 RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
     echo '=== ROS env ===' && \

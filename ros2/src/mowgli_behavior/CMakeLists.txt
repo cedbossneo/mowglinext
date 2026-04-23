@@ -57,24 +57,6 @@ target_include_directories(behavior_tree_node PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-<<<<<<< HEAD
-ament_target_dependencies(behavior_tree_node
-  ament_index_cpp
-  rclcpp
-  rclcpp_action
-  behaviortree_cpp
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  nav2_msgs
-  nav_msgs
-  geometry_msgs
-  action_msgs
-  std_msgs
-  std_srvs
-  mowgli_interfaces
-  rcl_interfaces
-=======
 target_link_libraries(behavior_tree_node
   ${ament_index_cpp_TARGETS}
   ${rclcpp_TARGETS}
@@ -92,7 +74,6 @@ target_link_libraries(behavior_tree_node
   ${mowgli_interfaces_TARGETS}
   ${slam_toolbox_TARGETS}
   ${rcl_interfaces_TARGETS}
->>>>>>> mavrosdev
 )
 
 # ---------------------------------------------------------------------------
