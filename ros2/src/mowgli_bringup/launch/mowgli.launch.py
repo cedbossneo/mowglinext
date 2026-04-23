@@ -202,6 +202,7 @@ def generate_launch_description() -> LaunchDescription:
         # behavior_tree_node subscribes to /hardware_bridge/status etc.
         remappings=[
             ("~/imu/data_raw", "/imu/data"),
+            ("~/imu/mag_raw", "/imu/mag_raw"),
             ("~/wheel_odom", "/wheel_odom"),
             ("~/emergency", "/hardware_bridge/emergency"),
             ("~/power", "/hardware_bridge/power"),

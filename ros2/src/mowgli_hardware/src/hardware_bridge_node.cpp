@@ -78,6 +78,7 @@ static constexpr uint8_t HL_MODE_MANUAL_MOWING  = 4u;  ///< Manual teleop with b
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/magnetic_field.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -142,6 +143,13 @@ private:
     // refuses BEST_EFFORT publishers with "incompatible QoS policy",
     // which starved the filter of IMU/wheel data.
     pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::QoS(10));
+    // Diagnostic-only: raw magnetometer µT → Tesla. NOT fused anywhere
+    // (has_magnetometer=false in localization.yaml, firmware chassis
+    // distortion produces ~229° heading error on the WT901). Published
+    // so operators can inspect whether the chip is alive and see the
+    // local field distortion without reflashing firmware.
+    pub_mag_raw_ = create_publisher<sensor_msgs::msg::MagneticField>(
+        "~/imu/mag_raw", rclcpp::QoS(10));
     pub_wheel_odom_ =
         create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
     pub_battery_state_ =
@@ -789,6 +797,25 @@ private:
     }
 
     pub_imu_->publish(msg);
+
+    // Raw magnetometer on a diagnostic-only topic. Not fused anywhere —
+    // the chip sits inside a metal chassis so uncalibrated heading is
+    // ~229° off true north; this topic only lets an operator inspect the
+    // live field vector to check the sensor is alive or measure local
+    // distortion. µT on the wire → Tesla for sensor_msgs/MagneticField.
+    if (pub_mag_raw_->get_subscription_count() > 0)
+    {
+      sensor_msgs::msg::MagneticField mag_msg;
+      mag_msg.header.stamp = msg.header.stamp;
+      mag_msg.header.frame_id = "imu_link";
+      mag_msg.magnetic_field.x = pkt.mag_uT[0] * 1.0e-6;
+      mag_msg.magnetic_field.y = pkt.mag_uT[1] * 1.0e-6;
+      mag_msg.magnetic_field.z = pkt.mag_uT[2] * 1.0e-6;
+      // Covariance unknown (chip distortion is large and unmeasured).
+      // ROS convention: set the first element to -1.0 to signal "no data".
+      mag_msg.magnetic_field_covariance[0] = -1.0;
+      pub_mag_raw_->publish(mag_msg);
+    }
   }
 
   void publish_dock_heading()
@@ -1115,6 +1142,7 @@ private:
   rclcpp::Publisher<mowgli_interfaces::msg::Emergency>::SharedPtr pub_emergency_;
   rclcpp::Publisher<mowgli_interfaces::msg::Power>::SharedPtr pub_power_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_imu_;
+  rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr pub_mag_raw_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_state_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_dock_heading_;
