@@ -1258,30 +1258,40 @@ void MapServerNode::publish_keepout_mask()
     return;
   }
 
-  const int rows = map_.getSize()(0);
-  const int cols = map_.getSize()(1);
+  // grid_map: size(0) = cells along X, size(1) = cells along Y.
+  //   r=0 → X_max (decreasing), c=0 → Y_max (decreasing).
+  // OccupancyGrid: width = X cells, height = Y cells.
+  //   col=0 → X_min (at origin.x), row=0 → Y_min (at origin.y).
+  // Both flip + swap roles: the OccupancyGrid's (row, col) is the grid_map's
+  //   (cols - 1 - c, nx - 1 - r) mapping [mow_progress_to_occupancy_grid
+  //   pattern]. Previously this publisher had the dimensions swapped —
+  //   width/height set from the wrong grid_map axis — so every cell's
+  //   value landed at a 90°-rotated position, marking interior polygon
+  //   cells as lethal and breaking Smac planning with "Start occupied".
+  const int nx = map_.getSize()(0);  // cells along X
+  const int ny = map_.getSize()(1);  // cells along Y
   const float res = static_cast<float>(resolution_);
 
   nav_msgs::msg::OccupancyGrid mask;
   mask.header.stamp = now();
   mask.header.frame_id = map_frame_;
   mask.info.resolution = res;
-  mask.info.width = static_cast<uint32_t>(cols);
-  mask.info.height = static_cast<uint32_t>(rows);
-  mask.info.origin.position.x = map_.getPosition().x() - map_size_x_ * 0.5;
-  mask.info.origin.position.y = map_.getPosition().y() - map_size_y_ * 0.5;
+  mask.info.width = static_cast<uint32_t>(nx);
+  mask.info.height = static_cast<uint32_t>(ny);
+  mask.info.origin.position.x = map_.getPosition().x() - map_.getLength().x() * 0.5;
+  mask.info.origin.position.y = map_.getPosition().y() - map_.getLength().y() * 0.5;
   mask.info.origin.position.z = 0.0;
   mask.info.origin.orientation.w = 1.0;
-  mask.data.resize(static_cast<std::size_t>(rows * cols), 100);  // default: keepout
+  mask.data.resize(static_cast<std::size_t>(nx * ny), 100);  // default: keepout
 
   // A cell inside ANY area (mowing or navigation) is free (0).
   // A cell outside all areas but within keepout_nav_margin_ of any area
   // polygon edge is also free (0) — this prevents "Start occupied" when
   // the robot is near the boundary.
   // Cells beyond the margin stay 100 (keepout/lethal).
-  for (int r = 0; r < rows; ++r)
+  for (int r = 0; r < nx; ++r)
   {
-    for (int c = 0; c < cols; ++c)
+    for (int c = 0; c < ny; ++c)
     {
       grid_map::Position pos;
       const grid_map::Index idx(r, c);
@@ -1295,8 +1305,9 @@ void MapServerNode::publish_keepout_mask()
       pt.y = static_cast<float>(pos.y());
       pt.z = 0.0F;
 
-      const int og_row = rows - 1 - r;
-      const auto flat_idx = static_cast<std::size_t>(og_row * cols + c);
+      const int og_col = nx - 1 - r;  // grid_map r=0 (X_max) → OG col nx-1
+      const int og_row = ny - 1 - c;  // grid_map c=0 (Y_max) → OG row ny-1
+      const auto flat_idx = static_cast<std::size_t>(og_row * nx + og_col);
 
       bool inside_any = false;
       double inside_min_edge_dist = std::numeric_limits<double>::max();
@@ -1349,9 +1360,9 @@ void MapServerNode::publish_keepout_mask()
   }
 
   // Overlay obstacle polygons: cells inside any obstacle -> 100 (lethal).
-  for (int r = 0; r < rows; ++r)
+  for (int r = 0; r < nx; ++r)
   {
-    for (int c = 0; c < cols; ++c)
+    for (int c = 0; c < ny; ++c)
     {
       grid_map::Position pos;
       const grid_map::Index idx(r, c);
@@ -1369,8 +1380,9 @@ void MapServerNode::publish_keepout_mask()
       {
         if (point_in_polygon(pt, obs))
         {
-          const int og_row = rows - 1 - r;
-          mask.data[static_cast<std::size_t>(og_row * cols + c)] = 100;
+          const int og_col = nx - 1 - r;
+          const int og_row = ny - 1 - c;
+          mask.data[static_cast<std::size_t>(og_row * nx + og_col)] = 100;
           break;
         }
       }
@@ -1380,14 +1392,15 @@ void MapServerNode::publish_keepout_mask()
   // Overlay no-go zones from classification layer.
   const auto& cls = map_[std::string(layers::CLASSIFICATION)];
   const float no_go_val = static_cast<float>(CellType::NO_GO_ZONE);
-  for (int r = 0; r < rows; ++r)
+  for (int r = 0; r < nx; ++r)
   {
-    for (int c = 0; c < cols; ++c)
+    for (int c = 0; c < ny; ++c)
     {
       if (cls(r, c) == no_go_val)
       {
-        const int og_row = rows - 1 - r;
-        mask.data[static_cast<std::size_t>(og_row * cols + c)] = 100;
+        const int og_col = nx - 1 - r;
+        const int og_row = ny - 1 - c;
+        mask.data[static_cast<std::size_t>(og_row * nx + og_col)] = 100;
       }
     }
   }
@@ -1420,8 +1433,9 @@ void MapServerNode::publish_speed_mask()
     return;
   }
 
-  const int rows = map_.getSize()(0);
-  const int cols = map_.getSize()(1);
+  // See publish_keepout_mask for the X/Y→OccupancyGrid convention.
+  const int nx = map_.getSize()(0);  // cells along X
+  const int ny = map_.getSize()(1);  // cells along Y
   const float res = static_cast<float>(resolution_);
 
   const double headland_radius = mower_width_;
@@ -1430,13 +1444,13 @@ void MapServerNode::publish_speed_mask()
   mask.header.stamp = now();
   mask.header.frame_id = map_frame_;
   mask.info.resolution = res;
-  mask.info.width = static_cast<uint32_t>(cols);
-  mask.info.height = static_cast<uint32_t>(rows);
-  mask.info.origin.position.x = map_.getPosition().x() - map_size_x_ * 0.5;
-  mask.info.origin.position.y = map_.getPosition().y() - map_size_y_ * 0.5;
+  mask.info.width = static_cast<uint32_t>(nx);
+  mask.info.height = static_cast<uint32_t>(ny);
+  mask.info.origin.position.x = map_.getPosition().x() - map_.getLength().x() * 0.5;
+  mask.info.origin.position.y = map_.getPosition().y() - map_.getLength().y() * 0.5;
   mask.info.origin.position.z = 0.0;
   mask.info.origin.orientation.w = 1.0;
-  mask.data.resize(static_cast<std::size_t>(rows * cols), 0);  // default: full speed
+  mask.data.resize(static_cast<std::size_t>(nx * ny), 0);  // default: full speed
 
   for (const auto& area : areas_)
   {
@@ -1445,9 +1459,9 @@ void MapServerNode::publish_speed_mask()
     if (n < 3)
       continue;
 
-    for (int r = 0; r < rows; ++r)
+    for (int r = 0; r < nx; ++r)
     {
-      for (int c = 0; c < cols; ++c)
+      for (int c = 0; c < ny; ++c)
       {
         grid_map::Position pos;
         const grid_map::Index idx(r, c);
@@ -1503,8 +1517,9 @@ void MapServerNode::publish_speed_mask()
 
         if (min_dist_sq <= headland_radius * headland_radius)
         {
-          const int og_row = rows - 1 - r;
-          mask.data[static_cast<std::size_t>(og_row * cols + c)] = 50;
+          const int og_col = nx - 1 - r;
+          const int og_row = ny - 1 - c;
+          mask.data[static_cast<std::size_t>(og_row * nx + og_col)] = 50;
         }
       }
     }
