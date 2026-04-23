@@ -404,10 +404,15 @@
                           <PublishHighLevelStatus state="2" state_name="SKIP_STRIP"/>
                           <SetMowerEnabled enabled="false"/>
                           <StopMoving/>
-                          <Fallback>
-                            <BackUp backup_dist="0.3" backup_speed="0.2"/>
-                            <AlwaysSuccess/>
-                          </Fallback>
+                          <!-- Previously did a blind 0.3 m BackUp to 'unstick'
+                               the robot. But the backup direction is always
+                               body-x-negative, with no awareness of the
+                               mowing polygon — if the robot is near the
+                               boundary facing inward, the 30 cm reverse
+                               pushes it straight out of the area, straight
+                               into a boundary violation. ClearCostmap below
+                               is enough to let the next TransitToStrip
+                               replan from the current pose. -->
                           <ClearCostmap/>
                           <IncrementSkippedSwaths/>
                           <WaitForDuration duration_sec="2.0"/>
