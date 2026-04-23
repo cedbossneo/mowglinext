@@ -66,6 +66,11 @@
            another 30 cm in the same wrong direction.
            ================================================================ -->
       <Fallback name="BoundaryGuard">
+        <!-- Short-circuit while charging: the robot is physically on the
+             dock and cannot drive off, the blade is off, and non-RTK GPS
+             drift on idle can falsely put the reported pose outside the
+             polygon. No reason to run any boundary handler in that state. -->
+        <IsCharging/>
         <Inverter><IsBoundaryViolation/></Inverter>
 
         <!-- Lethal path: stop immediately, latch -->
