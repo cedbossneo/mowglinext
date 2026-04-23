@@ -86,11 +86,12 @@ type rawOdometry struct {
 }
 
 // ---------------------------------------------------------------------------
-// NavSatStatus → AbsolutePose Flags mapping
+// NavSatStatus → AbsolutePose Flags mapping (bitmask:
+//   FLAG_GPS_RTK=1, FLAG_GPS_RTK_FIXED=2, FLAG_GPS_RTK_FLOAT=4)
 //
 //	status == 2 (STATUS_GBAS_FIX)  → Flags = 3  (RTK | FIXED)
 //	status == 1 (STATUS_SBAS_FIX)  → Flags = 5  (RTK | FLOAT)
-//	status == 0 (STATUS_FIX)       → Flags = 2  (FIXED)
+//	status == 0 (STATUS_FIX)       → Flags = 1  (plain RTK/basic fix bit)
 //	status == -1 (STATUS_NO_FIX)   → Flags = 0
 // ---------------------------------------------------------------------------
 
@@ -101,7 +102,7 @@ func navSatStatusToFlags(status int8) uint16 {
 	case 1:
 		return 5
 	case 0:
-		return 2
+		return 1 // plain fix — only the FLAG_GPS_RTK base bit, NOT FIXED
 	default:
 		return 0
 	}
