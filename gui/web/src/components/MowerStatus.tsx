@@ -25,18 +25,25 @@ const pulseKeyframes = `
 }
 `;
 
+// Motion states → primary (active); resting states → warning;
+// everything else (emergencies, unknown) → danger.
+const MOTION_STATES = new Set([
+    "MOWING", "TRANSIT", "UNDOCKING", "RETURNING_HOME", "MANUAL_MOWING",
+    "RESUMING_AFTER_RAIN", "RESUMING_UNDOCKING", "BOUNDARY_RECOVERY",
+    "LOW_BATTERY_DOCKING", "CRITICAL_BATTERY_DOCKING", "RAIN_DETECTED_DOCKING",
+    "COVERAGE_FAILED_DOCKING", "SKIP_STRIP", "PREFLIGHT_CHECK",
+    "CALIBRATING_HEADING", "RECORDING",
+]);
+const RESTING_STATES = new Set([
+    "IDLE", "IDLE_DOCKED", "CHARGING", "MOWING_COMPLETE",
+    "RECORDING_COMPLETE", "RAIN_WAITING", "RAIN_TIMEOUT",
+]);
+
 const statusColor = (state: string | undefined, colors: {primary: string; warning: string; danger: string}): string => {
-    switch (state) {
-        case "MOWING":
-        case "DOCKING":
-        case "UNDOCKING":
-            return colors.primary;
-        case "IDLE":
-        case "CHARGING":
-            return colors.warning;
-        default:
-            return colors.danger;
-    }
+    if (!state) return colors.danger;
+    if (MOTION_STATES.has(state)) return colors.primary;
+    if (RESTING_STATES.has(state)) return colors.warning;
+    return colors.danger;
 };
 
 export const MowerStatus = () => {
@@ -78,7 +85,9 @@ export const MowerStatus = () => {
         highLevelStatus.battery_percent, power.v_battery, settings,
     );
 
-    const isMowing = stateName === "MOWING" || stateName === "DOCKING" || stateName === "UNDOCKING";
+    const isMowing = stateName === "MOWING" || stateName === "TRANSIT" ||
+        stateName === "UNDOCKING" || stateName === "RETURNING_HOME" ||
+        stateName === "MANUAL_MOWING";
 
     const pulseAnimation = isEmergency
         ? 'mowerPulseRed 1.5s ease-in-out infinite'
