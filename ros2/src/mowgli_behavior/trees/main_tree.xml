@@ -65,7 +65,12 @@
            east edge of the polygon, and each recovery BackUp drove it
            another 30 cm in the same wrong direction.
            ================================================================ -->
-      <Fallback name="BoundaryGuard">
+      <!-- ReactiveFallback re-evaluates from child 0 every tick, so
+           IsCharging becoming true mid-wait (e.g. operator redocks the
+           robot) aborts the in-progress lethal WaitForDuration and
+           releases the guard. A plain Fallback would stick on the
+           RUNNING child and never re-check charging. -->
+      <ReactiveFallback name="BoundaryGuard">
         <!-- Short-circuit while charging: the robot is physically on the
              dock and cannot drive off, the blade is off, and non-RTK GPS
              drift on idle can falsely put the reported pose outside the
@@ -115,7 +120,7 @@
             </Sequence>
           </Fallback>
         </Sequence>
-      </Fallback>
+      </ReactiveFallback>
 
       <!-- ================================================================
            GUARD 3: GPS quality adaptation (reactive)
