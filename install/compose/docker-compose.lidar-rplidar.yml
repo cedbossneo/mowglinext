@@ -28,7 +28,7 @@ services:
       topic_name:=/scan
     volumes:
       - /dev:/dev
-      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
+      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     restart: unless-stopped
     logging:
       driver: json-file
