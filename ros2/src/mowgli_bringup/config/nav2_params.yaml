@@ -84,10 +84,13 @@ controller_server:
       # Small errors are handled by RPP driving in an arc.
       angular_dist_threshold: 1.0
       forward_sampling_distance: 0.5
-      # Slow rotation — motors can't handle fast angular commands.
-      # Old mowgli project used max_cmd_vel_ang=3.2 but at 1Hz.
-      rotate_to_heading_angular_vel: 0.5
-      max_angular_accel: 0.5
+      # Softer rotation: at ω>0.4 rad/s the GPS antenna (30 cm forward of
+      # base_link) traces a fast circle, and any yaw-estimate lag leaks
+      # into lever-arm error → visible lateral 'slide' in the map frame.
+      # 0.3 rad/s rotation + 0.3 rad/s² accel keeps pose integration
+      # coherent. Pairs with fusioncore's non-holonomic VY=0 constraint.
+      rotate_to_heading_angular_vel: 0.3
+      max_angular_accel: 0.3
       # RPP parameters — tuned for slow differential drive motors
       desired_linear_vel: 0.3
       lookahead_dist: 0.6
@@ -118,8 +121,17 @@ controller_server:
       # Keep arcs-only — RotationShimController handles initial heading.
       use_rotate_to_heading: false
       allow_reversing: false
-      max_angular_vel: 0.8
+      # 0.4 rad/s caps the RPP arc curvature. At 0.3 m/s linear this
+      # gives a minimum turning radius of ~0.75 m — enough to plan around
+      # obstacles while keeping the GPS antenna tangential speed under
+      # the 'fast rotation breaks the UKF' threshold. Old value 0.8 was
+      # the root cause of the lateral-slide artefact during transit.
+      max_angular_vel: 0.4
       max_robot_pose_search_dist: 2.0
+      # Scale linear velocity down when the tracker has high lateral /
+      # angular error — drops to min_approach_linear_velocity when the
+      # path curvature is under regulated_linear_scaling_min_radius.
+      # Already on via use_regulated_linear_velocity_scaling above.
 
     # Follow-the-Carrot controller for coverage mowing.
     # PID-based with rotate-in-place state machine — designed for diff-drive.
@@ -144,9 +156,13 @@ controller_server:
       kp_ang: 2.0
       ki_ang: 0.0
       kd_ang: 0.0
-      # Limits
+      # Limits — cap angular command at 1.0 rad/s (was 3.0). The UKF
+      # becomes lossy above ~0.5 rad/s because GPS+lever-arm correction
+      # lags the yaw estimate, so commanding 3 rad/s just feeds garbage
+      # into the body-frame lateral state. FTC's PID still hits min
+      # turning radii with 1 rad/s at 0.3 m/s.
       max_cmd_vel_speed: 0.5
-      max_cmd_vel_ang: 3.0
+      max_cmd_vel_ang: 1.0
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
       goal_timeout: 10.0
