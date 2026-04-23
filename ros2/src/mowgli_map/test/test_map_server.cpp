@@ -396,6 +396,7 @@ TEST_F(CoverageCellsTest, MowedCellPositionMatchesWorldPosition)
   // Mow at a specific known location
   const double mow_x = 2.0, mow_y = 1.0;
   const double mower_r = node_->mower_width() / 2.0;  // 0.1m
+  (void)mower_r;  // Not used in this test
   node_->mark_mowed(mow_x, mow_y);
 
   std::lock_guard<std::mutex> lock(node_->map_mutex());

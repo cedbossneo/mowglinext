@@ -1,0 +1,6 @@
+hardware_bridge:
+  ros__parameters:
+    serial_port: "/dev/mowgli"
+    baud_rate: 115200
+    heartbeat_rate: 4.0   # Hz – keep-alive messages sent to firmware
+    publish_rate: 50.0    # Hz – sensor data published to ROS2 topics

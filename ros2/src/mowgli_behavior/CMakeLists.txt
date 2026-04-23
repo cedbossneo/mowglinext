@@ -57,6 +57,7 @@ target_include_directories(behavior_tree_node PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
+<<<<<<< HEAD
 ament_target_dependencies(behavior_tree_node
   ament_index_cpp
   rclcpp
@@ -73,6 +74,25 @@ ament_target_dependencies(behavior_tree_node
   std_srvs
   mowgli_interfaces
   rcl_interfaces
+=======
+target_link_libraries(behavior_tree_node
+  ${ament_index_cpp_TARGETS}
+  ${rclcpp_TARGETS}
+  ${rclcpp_action_TARGETS}
+  ${behaviortree_cpp_TARGETS}
+  ${tf2_TARGETS}
+  ${tf2_ros_TARGETS}
+  ${tf2_geometry_msgs_TARGETS}
+  ${nav2_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${action_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
+  ${mowgli_interfaces_TARGETS}
+  ${slam_toolbox_TARGETS}
+  ${rcl_interfaces_TARGETS}
+>>>>>>> mavrosdev
 )
 
 # ---------------------------------------------------------------------------
@@ -116,7 +136,11 @@ if(BUILD_TESTING)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   )
-
+# NOTE:
+# Kept ament_target_dependencies() here because test_recording_nodes is created
+# via ament_add_gtest(), which already uses target_link_libraries() with the
+# plain signature internally. Replacing this with keyword-signature
+# target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_recording_nodes
     rclcpp
     geometry_msgs

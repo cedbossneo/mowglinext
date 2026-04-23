@@ -48,11 +48,14 @@
 
   <!-- Mowgli packages -->
   <exec_depend>mowgli_hardware</exec_depend>
+  <exec_depend>mowgli_mavros_bridge</exec_depend>
   <exec_depend>mowgli_interfaces</exec_depend>
   <exec_depend>mowgli_behavior</exec_depend>
   <exec_depend>mowgli_map</exec_depend>
   <exec_depend>mowgli_localization</exec_depend>
   <exec_depend>mowgli_monitoring</exec_depend>
+  <exec_depend>ublox_dgnss_node</exec_depend>
+  <exec_depend>ublox_nav_sat_fix_hp_node</exec_depend>
 
   <!-- GUI bridge (optional at runtime, declared for rosdep resolution) -->
   <exec_depend>foxglove_bridge</exec_depend>

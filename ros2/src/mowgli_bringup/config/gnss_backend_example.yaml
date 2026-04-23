@@ -1,0 +1,7 @@
+gnss_backend:
+  ros__parameters:
+    port: /dev/gps
+    baudrate: 921600
+    frame_id: gnss
+    data_timeout_sec: 1.0
+    reconnect_interval_sec: 1.0

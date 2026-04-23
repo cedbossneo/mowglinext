@@ -42,6 +42,16 @@ if(BUILD_TESTING)
     TIMEOUT 60
   )
 
+  # Backend-swap compatibility: the public hardware topics must stay identical
+  # for both hardware backends exposed by mowgli.launch.py.
+  add_launch_test(test/test_mowgli_launch_topics_mowgli.launch.py
+    TIMEOUT 60
+  )
+
+  add_launch_test(test/test_mowgli_launch_topics_mavros.launch.py
+    TIMEOUT 60
+  )
+
 endif()
 
 ament_package()

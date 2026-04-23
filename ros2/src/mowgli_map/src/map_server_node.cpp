@@ -1279,6 +1279,7 @@ void MapServerNode::publish_keepout_mask()
           double dist = point_to_polygon_distance(static_cast<double>(pt.x),
                                                   static_cast<double>(pt.y),
                                                   area.polygon);
+
           if (dist <= keepout_nav_margin_)
           {
             within_margin = true;

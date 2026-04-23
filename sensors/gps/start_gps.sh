@@ -30,6 +30,12 @@ NTRIP_USER=$(parse_yaml ntrip_user)
 NTRIP_PASSWORD=$(parse_yaml ntrip_password)
 NTRIP_MOUNTPOINT=$(parse_yaml ntrip_mountpoint)
 NTRIP_ENABLED="${NTRIP_ENABLED:-false}"
+HARDWARE_BACKEND="${HARDWARE_BACKEND:-mowgli}"
+
+if [ "$HARDWARE_BACKEND" = "mavros" ]; then
+  echo "[start_gps.sh] HARDWARE_BACKEND=mavros, direct GPS driver is disabled"
+  exit 0
+fi
 
 set +u
 source /opt/ros/kilted/setup.bash
