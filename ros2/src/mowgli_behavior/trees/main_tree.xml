@@ -210,8 +210,21 @@
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
           <WaitForDuration duration_sec="1.0"/>
           <Fallback name="UndockOrSkip">
-            <!-- Already undocked? Skip. -->
-            <Inverter><IsCharging/></Inverter>
+            <!-- Already undocked: skip full undock sequence, but still do a
+                 short reverse so GPS-velocity heading can observe yaw before
+                 coverage starts. Without a dock reference, initial yaw is
+                 whatever the UKF had from last boot — potentially meters or
+                 radians off. A 0.3 m reverse at 0.2 m/s gives ~1.5 s of
+                 motion > 0.20 m/s (the velocity-heading gate), plenty for
+                 fusioncore to latch onto GPS-derived yaw. Reverse is handled
+                 correctly by the GPS-velocity-heading path (flips 180°
+                 based on body-frame VX sign). -->
+            <Sequence name="NotDockedCalibrate">
+              <Inverter><IsCharging/></Inverter>
+              <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
+              <BackUp backup_dist="0.3" backup_speed="0.20"/>
+              <WaitForDuration duration_sec="0.5"/>
+            </Sequence>
             <!-- On dock — wait for GPS, save map, then undock -->
             <Sequence name="UndockSequence">
               <!-- Hard preflight gate — blocks until RTK Fixed (4) is
