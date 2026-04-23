@@ -65,6 +65,8 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   lethal_boundary_margin_m_ = declare_parameter<double>("lethal_boundary_margin_m", 0.5);
   boundary_recovery_offset_m_ =
       declare_parameter<double>("boundary_recovery_offset_m", 0.8);
+  boundary_inner_margin_m_ =
+      declare_parameter<double>("boundary_inner_margin_m", 0.3);
 
   RCLCPP_INFO(get_logger(),
               "MapServerNode: resolution=%.3f m, size=%.1f×%.1f m, frame='%s'",
@@ -1295,27 +1297,49 @@ void MapServerNode::publish_keepout_mask()
       const auto flat_idx = static_cast<std::size_t>(og_row * cols + c);
 
       bool inside_any = false;
-      bool within_margin = false;
+      double inside_min_edge_dist = std::numeric_limits<double>::max();
+      bool within_outside_margin = false;
       for (const auto& area : areas_)
       {
         if (point_in_polygon(pt, area.polygon))
         {
           inside_any = true;
-          break;
+          if (boundary_inner_margin_m_ > 0.0)
+          {
+            double d = point_to_polygon_distance(static_cast<double>(pt.x),
+                                                 static_cast<double>(pt.y),
+                                                 area.polygon);
+            if (d < inside_min_edge_dist)
+            {
+              inside_min_edge_dist = d;
+            }
+          }
+          // Keep scanning other polygons — a cell can be inside A but near the
+          // edge of B. We want the nearest edge distance overall.
+          continue;
         }
-        if (!within_margin && keepout_nav_margin_ > 0.0)
+        if (!within_outside_margin && keepout_nav_margin_ > 0.0)
         {
           double dist = point_to_polygon_distance(static_cast<double>(pt.x),
                                                   static_cast<double>(pt.y),
                                                   area.polygon);
           if (dist <= keepout_nav_margin_)
           {
-            within_margin = true;
+            within_outside_margin = true;
           }
         }
       }
 
-      if (inside_any || within_margin)
+      // Shrunk-polygon rule: cells inside a mowing area but within
+      // boundary_inner_margin_m_ of the nearest edge become LETHAL in the
+      // keepout mask. Effect: the Smac planner never drafts a path that
+      // comes within that margin of the polygon edge, giving the FTC
+      // controller room to track without spilling over. Combined with
+      // inflation_layer, the total soft-wall is ~ margin + inflation_radius.
+      bool inner_buffer = inside_any && boundary_inner_margin_m_ > 0.0 &&
+                          inside_min_edge_dist < boundary_inner_margin_m_;
+
+      if ((inside_any || within_outside_margin) && !inner_buffer)
       {
         mask.data[flat_idx] = 0;
       }

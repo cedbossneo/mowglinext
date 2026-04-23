@@ -321,6 +321,14 @@ private:
   /// jitter doesn't immediately cross the boundary again.
   double boundary_recovery_offset_m_{0.8};
 
+  /// Cells inside a mowing area but within this distance of the polygon edge
+  /// are marked LETHAL in the keepout mask, so the Smac planner keeps the
+  /// transit/coverage path that much away from the real boundary. This gives
+  /// the FTC controller room to track without overshooting past the edge.
+  /// Default 0.3 m — pairs with inflation_radius 0.4 m for a total soft-wall
+  /// of ~0.7 m inside the polygon.
+  double boundary_inner_margin_m_{0.3};
+
   // ── State ─────────────────────────────────────────────────────────────────
   grid_map::GridMap map_;
   mutable std::mutex map_mutex_;
