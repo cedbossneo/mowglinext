@@ -240,30 +240,25 @@ private:
     // refuses BEST_EFFORT publishers with "incompatible QoS policy",
     // which starved the filter of IMU/wheel data.
     pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::QoS(10));
-    // Diagnostic-only: raw magnetometer µT → Tesla. NOT fused anywhere
-    // (has_magnetometer=false in localization.yaml, firmware chassis
-    // distortion produces ~229° heading error on the WT901). Published
-    // so operators can inspect whether the chip is alive and see the
-    // local field distortion without reflashing firmware.
+    // Raw magnetometer µT → Tesla for mag_yaw_publisher (calibration
+    // gated on /ros2_ws/maps/mag_calibration.yaml). Also used
+    // diagnostically to inspect the chip and see chassis distortion.
     pub_mag_raw_ = create_publisher<sensor_msgs::msg::MagneticField>(
         "~/imu/mag_raw", rclcpp::QoS(10));
     pub_wheel_odom_ =
         create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
     pub_battery_state_ =
         create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", rclcpp::QoS(10));
-    // Dock heading for FusionCore: while charging, publish dock yaw at
-    // 1 Hz so FusionCore has a heading anchor. Remapped to /gnss/heading
-    // in mowgli.launch.py. Stops automatically when robot undocks.
+    // Dock heading: publish dock_yaw at 1 Hz while charging so
+    // dock_yaw_to_set_pose.py (robot_localization helper) can bridge it
+    // into ekf_map/ekf_odom set_pose. Remapped to /gnss/heading in
+    // mowgli.launch.py. Stops automatically when the robot undocks.
     pub_dock_heading_ = create_publisher<sensor_msgs::msg::Imu>("~/dock_heading", rclcpp::QoS(10));
     timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
                                             [this]()
                                             {
                                               publish_dock_heading();
                                             });
-
-    // FusionCore reset client: called on is_charging false→true transition
-    // to clear stale filter state before the wide-σ dock_heading anchors yaw.
-    fusion_reset_client_ = create_client<std_srvs::srv::Trigger>("/fusioncore_node/reset");
   }
 
   void create_subscribers()
@@ -485,28 +480,19 @@ private:
       is_charging_ = (pkt.status_bitmask & STATUS_BIT_CHARGING) != 0u;
       msg.is_charging = is_charging_;
 
-      // Dock heading anchor trigger: on charging transition, reset FusionCore
-      // and start the wide-σ dock_heading window so the Mahalanobis gate
-      // accepts the first heading update (lever arm gated on heading_validated).
+      // Dock heading anchor trigger: on charging transition, start the
+      // wide-σ dock_heading window so dock_yaw_to_set_pose picks up the
+      // current heading. The robot_localization stack does not require a
+      // filter reset — set_pose on both EKFs is issued by
+      // dock_yaw_to_set_pose when it sees the rising edge.
       if (is_charging_ && !was_charging)
       {
         charging_anchor_start_ = now();
         charging_anchor_active_ = true;
-        if (fusion_reset_client_ && fusion_reset_client_->service_is_ready())
-        {
-          auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-          fusion_reset_client_->async_send_request(req);
-          RCLCPP_INFO(get_logger(),
-                      "Charging transition: FusionCore reset + dock_heading "
-                      "anchor window (%.1fs) opened.",
-                      kChargingAnchorWindowSec);
-        }
-        else
-        {
-          RCLCPP_INFO(get_logger(),
-                      "Charging transition: anchor window opened (FusionCore "
-                      "reset service not ready; wide-σ heading alone).");
-        }
+        RCLCPP_INFO(get_logger(),
+                    "Charging transition: dock_heading anchor window "
+                    "(%.1fs) opened.",
+                    kChargingAnchorWindowSec);
       }
 
       // Start IMU calibration when charging and not already calibrating.
@@ -1443,11 +1429,9 @@ private:
   uint8_t current_mode_{0};
   uint8_t gps_quality_{0};
 
-  // Dock heading anchor: on is_charging false→true transition, reset FusionCore
-  // and publish dock_heading with wide σ=π for a short window so the filter's
-  // Mahalanobis gate accepts the first heading update. After the window,
-  // dock_heading narrows to the steady-state tight covariance.
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr fusion_reset_client_;
+  // Dock heading anchor: on is_charging false→true transition, publish
+  // dock_heading with wide σ=π for a short window so dock_yaw_to_set_pose
+  // has time to grab a sample before it narrows to the steady-state σ.
   rclcpp::Time charging_anchor_start_;
   bool charging_anchor_active_{false};
   static constexpr double kChargingAnchorWindowSec = 5.0;
