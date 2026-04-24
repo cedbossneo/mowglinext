@@ -150,13 +150,7 @@ static int8_t  right_pulse_sign = 0;
 #define PWM_DEADBAND  35
 #endif
 #ifndef PWM_CHOP_MIN_ON_TICKS
-/* 120 ms (12 × 10 ms) — empirically the lower edge of reliable
- * start-up torque on the YardForce brushed-DC drivetrain. 50 ms was
- * too short (measured 110% wheel slip during a 90° rotation test:
- * wheels spun but chassis barely rotated). 120 ms lets the motor
- * reach steady-state speed and the tyre bite into grass before the
- * next off window. */
-#define PWM_CHOP_MIN_ON_TICKS  12
+#define PWM_CHOP_MIN_ON_TICKS  5
 #endif
 
 /******************************************************************************
