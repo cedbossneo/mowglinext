@@ -11,6 +11,13 @@ bt_navigator:
     odom_topic: /wheel_odom
     bt_loop_duration: 10
     default_server_timeout: 60
+    # Default is 1.0 s — observed on ARM that planner_server / controller_server
+    # finish lifecycle transition to active before bt_navigator but their
+    # action servers (compute_path_to_pose / follow_path) are not fully
+    # registered in the DDS graph yet, so bt_navigator's BT creation fails
+    # with "action server not available" and lifecycle_manager aborts
+    # bring-up. 10 s is cheap insurance; it only waits longer on startup.
+    wait_for_service_timeout: 10000
     # Custom Nav2 BT that adds GoalCheckerSelector (required when multiple
     # goal_checker_plugins are configured in controller_server).
     # Paths are injected by navigation.launch.py via RewrittenYaml — keep empty here.

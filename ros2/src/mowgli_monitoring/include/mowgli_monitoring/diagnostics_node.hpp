@@ -27,7 +27,7 @@
  *   - LiDAR             (freshness of /scan)
  *   - GPS               (/gps/fix quality + satellite count)
  *   - Odometry          (freshness of /wheel_odom)
- *   - FusionCore        (/fusion/odom: rate, position, orientation, z-drift, flat check)
+ *   - EKF Map           (/odometry/filtered_map: rate, position, orientation, z-drift, flat check)
  *   - Motors            (ESC temperatures from /status)
  */
 
