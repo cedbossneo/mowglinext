@@ -257,14 +257,21 @@ fusioncore_node:
     nonholonomic.enabled: true
     nonholonomic.sigma_vy: 0.02
 
-    # GPS-velocity heading DISABLED — at low speed (vx < ~0.25 m/s)
-    # the lever-arm correction (ω·lever_arm) is comparable to the
-    # forward-motion signal, so any small UKF ω estimate error
-    # produces wildly wrong yaw measurements. Field session
-    # 2026-04-23 showed 7 yaw jumps >30° in one run, each during
-    # vx = 0.09-0.20 m/s motion. The heading observation then pulls
-    # the UKF yaw in the wrong direction, lidar scans land in the
-    # wrong map cells, costmap gets phantom obstacles, controller
-    # oscillates. Need a more robust gate (e.g. require body_vx
-    # >> ω·lever) before re-enabling.
-    gnss.velocity_heading.enabled: false
+    # GPS-velocity heading RE-ENABLED 2026-04-24 with robust gating in
+    # fusioncore (commit 927267f): the previously-declared `max_wz` param
+    # is now actually enforced, plus a new "body_vx > 3·|ω·lever|" gate
+    # prevents the lever-arm correction from dominating the heading
+    # measurement. Together these kill the 30°-yaw-jump failure mode that
+    # was observed at vx=0.09-0.20 m/s in the 2026-04-23 field session.
+    #
+    # Tuning (conservative):
+    #   min_speed 0.20    — robot must be moving faster than Float noise
+    #   max_wz    0.20    — reject fusion during turns (below default 0.30)
+    #                        because yaw commanded during rotation is
+    #                        precisely the bad-observation regime
+    #   sigma     0.20    — loose σ; GPS-track heading is a slow anchor
+    #                        not a high-bandwidth observation
+    gnss.velocity_heading.enabled: true
+    gnss.velocity_heading.min_speed: 0.20
+    gnss.velocity_heading.max_wz: 0.20
+    gnss.velocity_heading.sigma: 0.20
