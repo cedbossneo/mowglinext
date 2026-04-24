@@ -930,19 +930,35 @@ export const DiagnosticsPage = () => {
                 </Card>
             </Col>
             <Col xs={24} lg={12}>
-                <Card title="Wheel Ticks" size="small">
+                <Card title="Wheel Odometry" size="small">
                     <Row gutter={[12, 8]}>
                         <Col span={12}>
-                            <Statistic title="Rear Left" value={wheelTicks.wheel_ticks_rl}/>
+                            <Statistic
+                                title="Linear Vel (m/s)"
+                                value={(wheelTicks as any).linear_velocity_x}
+                                precision={3}
+                            />
                         </Col>
                         <Col span={12}>
-                            <Statistic title="Rear Right" value={wheelTicks.wheel_ticks_rr}/>
+                            <Statistic
+                                title="Angular Vel (rad/s)"
+                                value={(wheelTicks as any).angular_velocity_z}
+                                precision={3}
+                            />
                         </Col>
                         <Col span={12}>
-                            <Statistic title="RL Direction" value={wheelTicks.wheel_direction_rl}/>
+                            <Statistic
+                                title="Pose X (m)"
+                                value={(wheelTicks as any).pose_x}
+                                precision={3}
+                            />
                         </Col>
                         <Col span={12}>
-                            <Statistic title="RR Direction" value={wheelTicks.wheel_direction_rr}/>
+                            <Statistic
+                                title="Pose Y (m)"
+                                value={(wheelTicks as any).pose_y}
+                                precision={3}
+                            />
                         </Col>
                     </Row>
                 </Card>

@@ -182,25 +182,40 @@ func adaptPose(raw []byte) ([]byte, error) {
 	return json.Marshal(pose)
 }
 
-// adaptTicks converts a nav_msgs/Odometry payload (snake_case JSON) into an
-// mowgli.WheelTick JSON payload (snake_case via json tags).
-// nav_msgs/Odometry does not carry raw tick data, so all tick fields are
-// zero. This is an acceptable transitional state while a dedicated
-// wheel-tick topic is wired up.
+// adaptTicks converts a nav_msgs/Odometry payload (snake_case JSON) from
+// /wheel_odom into a JSON payload the Diagnostics "Wheel Odometry" card can
+// display. The legacy WheelTick message carried cumulative per-wheel tick
+// counts, but the hardware bridge no longer publishes those — it publishes
+// a fused nav_msgs/Odometry with body-frame twist. We surface that twist
+// (linear.x, angular.z) so the GUI shows live motion instead of zeros.
+// Legacy tick fields are preserved (and left at zero) for backwards
+// compatibility with older frontend code paths that still reference them.
 func adaptTicks(raw []byte) ([]byte, error) {
 	var odom rawOdometry
 	if err := json.Unmarshal(raw, &odom); err != nil {
 		return nil, err
 	}
 
-	ticks := mowgli.WheelTick{
-		Stamp: geometry.Stamp{
-			Sec:     odom.Header.Stamp.Sec,
-			Nanosec: odom.Header.Stamp.Nanosec,
+	// Anonymous struct: extend mowgli.WheelTick with body-frame twist fields
+	// that the frontend reads. Zero legacy tick counts are still emitted.
+	payload := struct {
+		mowgli.WheelTick
+		LinearVelocityX  float64 `json:"linear_velocity_x"`
+		AngularVelocityZ float64 `json:"angular_velocity_z"`
+		PoseX            float64 `json:"pose_x"`
+		PoseY            float64 `json:"pose_y"`
+	}{
+		WheelTick: mowgli.WheelTick{
+			Stamp: geometry.Stamp{
+				Sec:     odom.Header.Stamp.Sec,
+				Nanosec: odom.Header.Stamp.Nanosec,
+			},
 		},
-		// All tick counters remain zero – nav_msgs/Odometry does not expose
-		// per-wheel tick counts. The frontend treats zero ticks as a no-op.
+		LinearVelocityX:  odom.Twist.Twist.Linear.X,
+		AngularVelocityZ: odom.Twist.Twist.Angular.Z,
+		PoseX:            odom.Pose.Pose.Position.X,
+		PoseY:            odom.Pose.Pose.Position.Y,
 	}
 
-	return json.Marshal(ticks)
+	return json.Marshal(payload)
 }
