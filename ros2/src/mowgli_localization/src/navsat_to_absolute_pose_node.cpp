@@ -42,6 +42,9 @@
 #include <cmath>
 #include <sstream>
 
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/LinearMath/Quaternion.h"
+
 namespace mowgli_localization
 {
 
@@ -66,6 +69,12 @@ NavSatToAbsolutePoseNode::NavSatToAbsolutePoseNode(const rclcpp::NodeOptions& op
   create_publishers();
   create_subscribers();
   create_services();
+
+  // TF listener for lever-arm resolution. base_footprint→gps_link comes
+  // from the URDF (static); map→base_footprint comes from ekf_map (or
+  // fusioncore, or whatever owns that edge) and gives us current yaw.
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   RCLCPP_INFO(get_logger(),
               "NavSatToAbsolutePoseNode started — datum: [%.7f, %.7f]",
@@ -236,21 +245,84 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
 
   pose_pub_->publish(out);
 
-  // Standard-msg twin for robot_localization consumption. Same pose,
-  // same covariance diagonal built from position_accuracy; frame_id=map
-  // matches what ekf_map expects for pose0 absolute-pose input.
+  // Resolve the GPS lever arm once from TF (URDF static). Retry silently
+  // every fix until TF is up — no log noise if ros2 is still booting.
+  if (!lever_arm_known_)
+  {
+    try
+    {
+      auto tf = tf_buffer_->lookupTransform(
+          "base_footprint", "gps_link", tf2::TimePointZero);
+      lever_arm_x_ = tf.transform.translation.x;
+      lever_arm_y_ = tf.transform.translation.y;
+      lever_arm_known_ = true;
+      RCLCPP_INFO(get_logger(),
+                  "GPS lever arm resolved from TF base_footprint→gps_link: "
+                  "(%.3f, %.3f) m",
+                  lever_arm_x_, lever_arm_y_);
+    }
+    catch (const tf2::TransformException&)
+    {
+      // Not yet available; will retry next fix.
+    }
+  }
+
+  // Look up the current map→base_footprint TF to get yaw at this fix.
+  // If not yet available (e.g. ekf_map hasn't converged), fall back to
+  // publishing the raw antenna position — this matches the legacy
+  // /gps/absolute_pose behavior exactly, so no worse than before.
+  double base_x = east;
+  double base_y = north;
+  bool lever_arm_applied = false;
+  if (lever_arm_known_)
+  {
+    try
+    {
+      auto tf = tf_buffer_->lookupTransform(
+          "map", "base_footprint", tf2::TimePointZero);
+      tf2::Quaternion q(
+          tf.transform.rotation.x,
+          tf.transform.rotation.y,
+          tf.transform.rotation.z,
+          tf.transform.rotation.w);
+      double roll, pitch, yaw;
+      tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+      // antenna_enu = base_enu + R(yaw) · lever_arm_body
+      // → base_enu = antenna_enu - R(yaw) · lever_arm_body
+      const double cy = std::cos(yaw);
+      const double sy = std::sin(yaw);
+      const double delta_x = cy * lever_arm_x_ - sy * lever_arm_y_;
+      const double delta_y = sy * lever_arm_x_ + cy * lever_arm_y_;
+      base_x = east - delta_x;
+      base_y = north - delta_y;
+      lever_arm_applied = true;
+    }
+    catch (const tf2::TransformException&)
+    {
+      // map→base_footprint TF not yet published; keep raw antenna pos.
+    }
+  }
+
+  // Standard-msg twin for robot_localization consumption. Pose is the
+  // BASE FRAME position (antenna minus lever arm rotated by current yaw).
+  // Covariance diagonal built from position_accuracy; frame_id=map so
+  // ekf_map honors it correctly.
   geometry_msgs::msg::PoseWithCovarianceStamped twin;
   twin.header.stamp = out.header.stamp;
   twin.header.frame_id = "map";
-  twin.pose.pose = out.pose.pose;
+  twin.pose.pose.position.x = base_x;
+  twin.pose.pose.position.y = base_y;
+  twin.pose.pose.position.z = msg->altitude;
+  twin.pose.pose.orientation.w = 1.0;
   const double var_xy = static_cast<double>(out.position_accuracy) * out.position_accuracy;
   twin.pose.covariance[0]  = var_xy;                  // x variance
   twin.pose.covariance[7]  = var_xy;                  // y variance
-  twin.pose.covariance[14] = var_xy * 4.0;            // z — looser, we do two_d_mode anyway
+  twin.pose.covariance[14] = var_xy * 4.0;            // z — looser, two_d_mode ignores
   twin.pose.covariance[21] = 1.0e3;                   // roll — "unknown"
   twin.pose.covariance[28] = 1.0e3;                   // pitch — "unknown"
-  twin.pose.covariance[35] = 1.0e3;                   // yaw  — "unknown" (no GPS heading)
+  twin.pose.covariance[35] = 1.0e3;                   // yaw  — "unknown"
   pose_cov_pub_->publish(twin);
+  (void)lever_arm_applied;  // silence unused var if logs are disabled
 }
 
 // ---------------------------------------------------------------------------
