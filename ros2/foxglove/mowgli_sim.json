@@ -97,6 +97,23 @@
         },
         "/wheel_odom": {
           "visible": false
+        },
+        "/odometry/filtered_map": {
+          "visible": true,
+          "type": "arrow",
+          "color": "#ff66ff",
+          "arrowScale": [0.8, 0.15, 0.15]
+        },
+        "/odometry/filtered": {
+          "visible": false,
+          "type": "arrow",
+          "color": "#aa00ff",
+          "arrowScale": [0.6, 0.1, 0.1]
+        },
+        "/gps/pose_cov": {
+          "visible": false,
+          "type": "axis",
+          "axisScale": 0.5
         }
       },
       "publish": {
@@ -334,6 +351,78 @@
       "xAxisVal": "timestamp",
       "title": "Wheel Odometry vs Commanded",
       "yAxisMin": -0.1
+    },
+    "Plot!heading_sources": {
+      "paths": [
+        {
+          "value": "/imu/cog_heading.orientation.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "COG qz",
+          "color": "#e67e22",
+          "showLine": true
+        },
+        {
+          "value": "/imu/mag_yaw.orientation.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "Mag qz",
+          "color": "#1abc9c",
+          "showLine": true
+        },
+        {
+          "value": "/odometry/filtered_map.pose.pose.orientation.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "Filter (map) qz",
+          "color": "#9b59b6",
+          "showLine": true
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "title": "Heading sources (quaternion z)"
+    },
+    "Plot!filtered_odometry": {
+      "paths": [
+        {
+          "value": "/odometry/filtered_map.pose.pose.position.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "filtered_map X",
+          "color": "#9b59b6",
+          "showLine": true
+        },
+        {
+          "value": "/odometry/filtered_map.pose.pose.position.y",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "filtered_map Y",
+          "color": "#ff66ff",
+          "showLine": true
+        },
+        {
+          "value": "/odometry/filtered.twist.twist.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "filtered (odom) vx",
+          "color": "#2ecc71",
+          "showLine": true
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "title": "ekf_map / ekf_odom"
     }
   },
   "globalVariables": {},
