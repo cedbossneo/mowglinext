@@ -70,6 +70,16 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   strip_boundary_margin_m_ =
       declare_parameter<double>("strip_boundary_margin_m", 0.5);
 
+  // Dock approach corridor — extends the no-mow zone in front of the dock
+  // so coverage strips stop before the 1.5 m straight-line alignment that
+  // opennav_docking needs for the final approach. Length is measured from
+  // dock_pose in the -X direction (dock local frame, same direction as
+  // staging_x_offset). Width is symmetric around the approach axis.
+  dock_approach_corridor_length_m_ =
+      declare_parameter<double>("dock_approach_corridor_length_m", 1.5);
+  dock_approach_corridor_half_width_m_ =
+      declare_parameter<double>("dock_approach_corridor_half_width_m", 0.40);
+
   RCLCPP_INFO(get_logger(),
               "MapServerNode: resolution=%.3f m, size=%.1f×%.1f m, frame='%s'",
               resolution_,
@@ -308,10 +318,18 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     docking_pose_pub_->publish(pose_msg);
 
     // Store dock exclusion polygon — used to mark dock cells as NO_GO_ZONE
-    // in the classification layer so strips are not planned through the dock.
-    // The dock footprint is the robot chassis + 15cm margin on each side.
-    const double dock_half_length = 0.45;  // (0.60 chassis + 0.30 margin) / 2
-    const double dock_half_width = 0.35;   // (0.40 chassis + 0.30 margin) / 2
+    // in the classification layer so strips are not planned through the dock
+    // NOR through the straight-line approach corridor that opennav_docking
+    // needs for the final 1.5 m alignment. Rectangle in dock local frame:
+    //   +X (into dock structure): dock_forward (covers robot when docked)
+    //   -X (approach corridor)  : dock_approach_corridor_length_m_
+    //   ±Y                      : dock_approach_corridor_half_width_m_
+    // This is asymmetric — the robot must stay out of the approach lane so
+    // it always reaches staging pose with the correct heading, but we still
+    // cover the dock structure itself.
+    const double dock_forward = 0.45;  // +X extent into dock (was symmetric)
+    const double approach_back = dock_approach_corridor_length_m_;
+    const double half_width = dock_approach_corridor_half_width_m_;
     const double d_x = docking_pose_.position.x;
     const double d_y = docking_pose_.position.y;
     const double d_yaw = 2.0 * std::atan2(docking_pose_.orientation.z,
@@ -319,10 +337,10 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     const double cy = std::cos(d_yaw);
     const double sy = std::sin(d_yaw);
     const double corners[][2] = {
-        {dock_half_length, dock_half_width},
-        {dock_half_length, -dock_half_width},
-        {-dock_half_length, -dock_half_width},
-        {-dock_half_length, dock_half_width},
+        { dock_forward,  half_width},
+        { dock_forward, -half_width},
+        {-approach_back, -half_width},
+        {-approach_back,  half_width},
     };
     for (const auto& c : corners)
     {
@@ -335,9 +353,10 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     dock_exclusion_polygon_.points.push_back(dock_exclusion_polygon_.points.front());
     has_dock_exclusion_ = true;
     RCLCPP_INFO(get_logger(),
-                "Dock exclusion zone: (%.2f, %.2f) yaw=%.2f, %.1fx%.1fm",
+                "Dock exclusion zone (with approach corridor): pose=(%.2f, %.2f) "
+                "yaw=%.2f, forward=%.2fm, approach=%.2fm, half_width=%.2fm",
                 d_x, d_y, d_yaw,
-                dock_half_length * 2, dock_half_width * 2);
+                dock_forward, approach_back, half_width);
   }
 
   // ── Publish timer ────────────────────────────────────────────────────────
