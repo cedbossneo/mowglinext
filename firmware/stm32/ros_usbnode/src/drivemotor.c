@@ -110,11 +110,28 @@ static uint8_t right_speed_req;
 static uint8_t left_dir_req;
 static uint8_t right_dir_req;
 
+/* Raw signed PWM as last received from the cmd_vel handler. Below the
+ * static-friction deadband these values are preserved (no boost) — the
+ * chopper in DRIVEMOTOR_App_10ms() expands them into an on/off duty
+ * cycle at the 100 Hz motor-control tick rate, so the AVERAGE wheel
+ * speed matches the commanded sub-deadband value instead of snapping
+ * to the deadband floor. Fixes the "wz overshoots by 2.5× at low
+ * angular rates" bug observed in Voie C diagnostics 2026-04-24:
+ * firmware used to promote wz=0.30 rad/s → PWM=14 → PWM=35 (2.5x) →
+ * actual rotation 0.72 rad/s regardless of command. */
+static int16_t left_pwm_cmd_raw  = 0;
+static int16_t right_pwm_cmd_raw = 0;
+/* Bresenham DDA accumulators for the sub-deadband chopper. Ticks as long
+ * as |cmd| < PWM_DEADBAND; self-reset when cmd = 0 or ≥ deadband. */
+static int16_t left_chop_acc  = 0;
+static int16_t right_chop_acc = 0;
+
 /* Motor static-friction deadband — below this PWM the motor sits in the
- * buzz zone (current flowing but no rotation). When a nonzero velocity is
- * commanded below the deadband, boost it to the deadband so the wheel
- * either moves or is deliberately zero. Empirically PWM~30-35 on this
- * drivetrain; 35 adds safety margin.
+ * buzz zone (current flowing but no rotation). The chopper promotes
+ * sub-deadband commands to ±PWM_DEADBAND for SOME of the 10 ms ticks
+ * (duty cycle = |cmd| / PWM_DEADBAND) and leaves the wheel coasting
+ * for the rest, giving a true proportional average speed. Empirically
+ * PWM~30-35 on this drivetrain; 35 adds safety margin.
  */
 #ifndef PWM_DEADBAND
 #define PWM_DEADBAND  35
@@ -272,6 +289,20 @@ void DRIVEMOTOR_App_10ms(void)
 
         /* prepare to receive the message before to launch the command */
         HAL_UART_Receive_DMA(&DRIVEMOTORS_USART_Handler, (uint8_t *)&drivemotor_psReceivedData, sizeof(DRIVEMOTORS_data_t));
+
+        /* Chop sub-deadband magnitudes into a pulse train so the average
+         * speed matches the commanded value. Call exactly once per tick.
+         * Commands ≥ PWM_DEADBAND pass through unchanged. */
+        {
+            int16_t left_effective  = drivemotor_deadband_chop(left_pwm_cmd_raw,  &left_chop_acc);
+            int16_t right_effective = drivemotor_deadband_chop(right_pwm_cmd_raw, &right_chop_acc);
+            left_speed_req  = (uint8_t)(left_effective  < 0 ? -left_effective  : left_effective);
+            right_speed_req = (uint8_t)(right_effective < 0 ? -right_effective : right_effective);
+            /* Motor-controller convention: dir=1 → forward at |speed|,
+             * dir=0 → reverse at |speed| (or stop when |speed|=0). */
+            left_dir_req  = (left_effective  > 0) ? 1 : 0;
+            right_dir_req = (right_effective > 0) ? 1 : 0;
+        }
 
         drivemotor_prepareMsg(left_speed_req, right_speed_req, left_dir_req, right_dir_req);
         /* error State*/
@@ -491,55 +522,60 @@ void DRIVEMOTOR_App_Rx(void)
 }
 
 /**
- * @brief  Apply the motor static-friction deadband: zero stays zero, but
- *         any non-zero command below the deadband is promoted to the
- *         deadband with the same sign. This keeps the drivetrain out of
- *         the buzz-and-don't-move zone.
+ * @brief  Sub-deadband chopper: when |cmd| is below PWM_DEADBAND but
+ *         non-zero, turn it into an on/off pulse train at the 100 Hz
+ *         motor-control tick rate with duty cycle = |cmd| / PWM_DEADBAND,
+ *         so the time-average wheel output matches the commanded speed
+ *         instead of snapping to the deadband floor. Uses a Bresenham-
+ *         style DDA accumulator for exact long-term average.
+ *
+ *         Above the deadband the command passes through unchanged and
+ *         the accumulator is reset (so a transition |cmd| ≥ deadband
+ *         → |cmd| < deadband does not carry stale phase).
+ *
+ *         Must be called EXACTLY ONCE per 10 ms tick per wheel, right
+ *         before the message is queued to the motor controller.
  */
-__STATIC_INLINE int16_t drivemotor_apply_deadband(int16_t pwm)
+__STATIC_INLINE int16_t drivemotor_deadband_chop(int16_t pwm, int16_t *acc)
 {
-    if (pwm == 0)
-    {
-        return 0;
+    if (pwm == 0) { *acc = 0; return 0; }
+    int16_t abs_pwm = (pwm > 0) ? pwm : -pwm;
+    if (abs_pwm >= PWM_DEADBAND) { *acc = 0; return pwm; }
+    /* Sub-deadband: integrate commanded magnitude; emit ±PWM_DEADBAND
+     * when we've accumulated one deadband's worth, else zero. */
+    *acc += abs_pwm;
+    if (*acc >= PWM_DEADBAND) {
+        *acc -= PWM_DEADBAND;
+        return (pwm > 0) ? PWM_DEADBAND : -PWM_DEADBAND;
     }
-    if (pwm > 0 && pwm <  PWM_DEADBAND) return  PWM_DEADBAND;
-    if (pwm < 0 && pwm > -PWM_DEADBAND) return -PWM_DEADBAND;
-    return pwm;
+    return 0;
 }
 
 /**
- * @brief  Set drive motor speeds from a signed PWM command per wheel.
+ * @brief  Store the signed PWM command from the cmd_vel handler. The
+ *         stored value is kept RAW (no deadband promotion); the chopper
+ *         in DRIVEMOTOR_App_10ms() converts sub-deadband magnitudes
+ *         into a duty-cycled pulse train at the motor-control tick rate.
  *
- * Single scalar per wheel encodes both magnitude and direction: positive =
- * forward, negative = reverse, 0 = stop. The motor-controller PCB's legacy
- * (|speed|, direction-bit) interface is produced internally by this function.
+ *         Single scalar per wheel encodes both magnitude and direction:
+ *         positive = forward, negative = reverse, 0 = stop.
  *
- * The static-friction deadband is applied here; values below ±PWM_DEADBAND
- * are promoted to ±PWM_DEADBAND (or left at 0). Saturates to int8_t range so
- * the downstream 8-bit motor-controller field doesn't overflow.
+ *         Saturates to ±255 so the downstream 8-bit motor-controller
+ *         magnitude field can't overflow.
  *
  * @param  left_pwm_signed   signed PWM command for the left wheel
  * @param  right_pwm_signed  signed PWM command for the right wheel
  */
 void DRIVEMOTOR_SetSpeedSigned(int16_t left_pwm_signed, int16_t right_pwm_signed)
 {
-    left_pwm_signed  = drivemotor_apply_deadband(left_pwm_signed);
-    right_pwm_signed = drivemotor_apply_deadband(right_pwm_signed);
-
     /* Saturate to the 8-bit motor-controller magnitude. */
     if (left_pwm_signed  >  255) left_pwm_signed  =  255;
     if (left_pwm_signed  < -255) left_pwm_signed  = -255;
     if (right_pwm_signed >  255) right_pwm_signed =  255;
     if (right_pwm_signed < -255) right_pwm_signed = -255;
 
-    left_speed_req  = (uint8_t)(left_pwm_signed  < 0 ? -left_pwm_signed  : left_pwm_signed);
-    right_speed_req = (uint8_t)(right_pwm_signed < 0 ? -right_pwm_signed : right_pwm_signed);
-
-    /* Motor-controller convention: dir=1 → forward at |speed|, dir=0 →
-     * reverse at |speed| (or stop when |speed|=0). Only forward maps to
-     * a non-zero dir byte. */
-    left_dir_req  = (left_pwm_signed  > 0) ? 1 : 0;
-    right_dir_req = (right_pwm_signed > 0) ? 1 : 0;
+    left_pwm_cmd_raw  = left_pwm_signed;
+    right_pwm_cmd_raw = right_pwm_signed;
 }
 
 /**
