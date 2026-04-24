@@ -14,7 +14,6 @@
 
 #include <atomic>
 #include <cstdio>
-#include <curl/curl.h>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -28,25 +27,30 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "rtcm_msgs/msg/message.hpp"
+#include <curl/curl.h>
 
 namespace ublox_dgnss
 {
 
 struct CurlHandle
 {
-  CURL * handle;
-  CurlHandle()
-  : handle(curl_easy_init()) {}
-  ~CurlHandle() {curl_easy_cleanup(handle);}
+  CURL *handle;
+  CurlHandle() : handle(curl_easy_init())
+  {
+  }
+  ~CurlHandle()
+  {
+    curl_easy_cleanup(handle);
+  }
 };
 
 class NTRIPClientNode : public rclcpp::Node
 {
 public:
   NTRIP_CLIENT_NODE_PUBLIC
-  explicit NTRIPClientNode(const rclcpp::NodeOptions & options)
-  : Node("ntrip_client", rclcpp::NodeOptions(options)),
-    curl_handle_(std::make_shared<CurlHandle>())
+  explicit NTRIPClientNode(const rclcpp::NodeOptions &options)
+      : Node("ntrip_client", rclcpp::NodeOptions(options)),
+        curl_handle_(std::make_shared<CurlHandle>())
   {
     RCLCPP_INFO(get_logger(), "starting %s", get_name());
 
@@ -78,7 +82,7 @@ public:
     pending_maxage_conn_ = maxage_conn_;
 
     parameters_callback_handle_ = add_on_set_parameters_callback(
-      std::bind(&NTRIPClientNode::on_set_parameters_callback, this, std::placeholders::_1));
+        std::bind(&NTRIPClientNode::on_set_parameters_callback, this, std::placeholders::_1));
 
     RCLCPP_INFO(get_logger(), "ntrip connection url: '%s'", connection_url().c_str());
 
@@ -88,7 +92,8 @@ public:
 
     constexpr int desired_count = 10;
     auto handle = curl_handle_->handle;
-    if (handle != nullptr) {
+    if (handle != nullptr)
+    {
       curl_easy_setopt(handle, CURLOPT_HTTP09_ALLOWED, true);
       curl_easy_setopt(handle, CURLOPT_USERAGENT, "NTRIP ros2/ublox_dgnss");
       curl_easy_setopt(handle, CURLOPT_FAILONERROR, true);
@@ -107,7 +112,8 @@ public:
   ~NTRIPClientNode() override
   {
     streaming_exit_.store(true);
-    if (streaming_thread_.joinable()) {
+    if (streaming_thread_.joinable())
+    {
       streaming_thread_.join();
     }
     curl_handle_.reset();
@@ -123,45 +129,64 @@ private:
   }
 
   rcl_interfaces::msg::SetParametersResult on_set_parameters_callback(
-    const std::vector<rclcpp::Parameter> & parameters)
+      const std::vector<rclcpp::Parameter> &parameters)
   {
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
 
     std::lock_guard<std::mutex> lock(params_mutex_);
-    for (const auto & param : parameters) {
-      const auto & name = param.get_name();
-      if (name == "use_https") {
+    for (const auto &param : parameters)
+    {
+      const auto &name = param.get_name();
+      if (name == "use_https")
+      {
         pending_use_https_ = param.as_bool();
-      } else if (name == "host") {
-        if (param.as_string().empty()) {
+      }
+      else if (name == "host")
+      {
+        if (param.as_string().empty())
+        {
           result.successful = false;
           result.reason = "host cannot be empty";
           return result;
         }
         pending_host_ = param.as_string();
-      } else if (name == "port") {
+      }
+      else if (name == "port")
+      {
         const auto port = param.as_int();
-        if (port < 1 || port > 65535) {
+        if (port < 1 || port > 65535)
+        {
           result.successful = false;
           result.reason = "port must be between 1 and 65535";
           return result;
         }
         pending_port_ = static_cast<int>(port);
-      } else if (name == "mountpoint") {
-        if (param.as_string().empty()) {
+      }
+      else if (name == "mountpoint")
+      {
+        if (param.as_string().empty())
+        {
           result.successful = false;
           result.reason = "mountpoint cannot be empty";
           return result;
         }
         pending_mountpoint_ = param.as_string();
-      } else if (name == "username") {
+      }
+      else if (name == "username")
+      {
         pending_username_ = param.as_string();
-      } else if (name == "password") {
+      }
+      else if (name == "password")
+      {
         pending_password_ = param.as_string();
-      } else if (name == "log_level") {
+      }
+      else if (name == "log_level")
+      {
         pending_log_level_ = param.as_string();
-      } else if (name == "maxage_conn") {
+      }
+      else if (name == "maxage_conn")
+      {
         pending_maxage_conn_ = param.as_int();
       }
     }
@@ -183,18 +208,21 @@ private:
     curl_easy_setopt(handle, CURLOPT_MAXAGE_CONN, maxage_conn_);
   }
 
-  static size_t write_callback(char * ptr, size_t size, size_t nmemb, void * userdata)
+  static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata)
   {
-    auto * node = reinterpret_cast<NTRIPClientNode *>(userdata);
+    auto *node = reinterpret_cast<NTRIPClientNode *>(userdata);
 
     std::stringstream hex_stream;
     hex_stream << std::hex << std::setfill('0');
-    for (size_t i = 0; i < size * nmemb; ++i) {
+    for (size_t i = 0; i < size * nmemb; ++i)
+    {
       hex_stream << std::setw(2) << static_cast<int>(static_cast<unsigned char>(ptr[i]));
     }
-    RCLCPP_DEBUG(
-      node->get_logger(), "Received size: %ld nmemb: %ld data: %s",
-      size, nmemb, hex_stream.str().c_str());
+    RCLCPP_DEBUG(node->get_logger(),
+                 "Received size: %ld nmemb: %ld data: %s",
+                 size,
+                 nmemb,
+                 hex_stream.str().c_str());
 
     auto message = std::make_unique<rtcm_msgs::msg::Message>();
     message->header.stamp = node->get_clock()->now();
@@ -206,7 +234,8 @@ private:
 
     int desired_count;
     curl_easy_getinfo(node->curl_handle_->handle, CURLINFO_PRIVATE, &desired_count);
-    if (node->record_count_ >= desired_count) {
+    if (node->record_count_ >= desired_count)
+    {
       node->record_count_ = 0;
       node->desired_count_reached_ = true;
       return size * nmemb - 1;
@@ -217,11 +246,13 @@ private:
 
   void do_streaming()
   {
-    while (!streaming_exit_.load()) {
+    while (!streaming_exit_.load())
+    {
       desired_count_reached_ = false;
       const CURLcode res = curl_easy_perform(curl_handle_->handle);
 
-      if (reconfigure_needed_.load()) {
+      if (reconfigure_needed_.load())
+      {
         std::lock_guard<std::mutex> lock(params_mutex_);
         use_https_ = pending_use_https_;
         host_ = pending_host_;
@@ -237,26 +268,30 @@ private:
         continue;
       }
 
-      if (res == CURLE_OK) {
+      if (res == CURLE_OK)
+      {
         continue;
       }
 
-      if (desired_count_reached_) {
+      if (desired_count_reached_)
+      {
         RCLCPP_DEBUG(get_logger(), "Processed desired count...");
         rclcpp::sleep_for(std::chrono::milliseconds(100));
         continue;
       }
 
-      char * effective_url = nullptr;
+      char *effective_url = nullptr;
       curl_easy_getinfo(curl_handle_->handle, CURLINFO_EFFECTIVE_URL, &effective_url);
       long response_code = 0;
       curl_easy_getinfo(curl_handle_->handle, CURLINFO_RESPONSE_CODE, &response_code);
 
-      RCLCPP_ERROR(
-        get_logger(), "Failed to perform streaming request for URL: %s",
-        effective_url != nullptr ? effective_url : "(unknown)");
+      RCLCPP_ERROR(get_logger(),
+                   "Failed to perform streaming request for URL: %s",
+                   effective_url != nullptr ? effective_url : "(unknown)");
       RCLCPP_ERROR(get_logger(), "Response code: %ld", response_code);
-      RCLCPP_ERROR(get_logger(), "Failed to perform streaming request: %s", curl_easy_strerror(res));
+      RCLCPP_ERROR(get_logger(),
+                   "Failed to perform streaming request: %s",
+                   curl_easy_strerror(res));
       rclcpp::sleep_for(std::chrono::seconds(1));
     }
   }

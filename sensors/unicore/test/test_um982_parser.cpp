@@ -2,12 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "mowgli_unicore_gnss/um982_parser.hpp"
-
-#include <gtest/gtest.h>
-
 #include <cstdio>
 #include <string>
+
+#include "mowgli_unicore_gnss/um982_parser.hpp"
+#include <gtest/gtest.h>
 
 namespace mowgli_unicore_gnss
 {
@@ -58,8 +57,8 @@ std::string make_unicore(std::string payload)
 TEST(Um982Parser, ParsesGgaFix)
 {
   Um982Parser parser;
-  const auto parsed = parser.parse_line(
-    make_nmea("GNGGA,123519,4807.038,N,01131.000,E,4,12,0.8,545.4,M,46.9,M,,"));
+  const auto parsed =
+      parser.parse_line(make_nmea("GNGGA,123519,4807.038,N,01131.000,E,4,12,0.8,545.4,M,46.9,M,,"));
 
   ASSERT_TRUE(parsed.has_value());
   ASSERT_TRUE(parsed->fix.has_value());
@@ -92,7 +91,7 @@ TEST(Um982Parser, ParsesPvtslnaFix)
 {
   Um982Parser parser;
   const auto parsed = parser.parse_line(make_unicore(
-    "PVTSLNA,foo,bar,baz,0,0,0,0,0,0,101.25,48.12345678901,2.34567890123,0.30,0.10,0.20"));
+      "PVTSLNA,foo,bar,baz,0,0,0,0,0,0,101.25,48.12345678901,2.34567890123,0.30,0.10,0.20"));
 
   ASSERT_TRUE(parsed.has_value());
   ASSERT_TRUE(parsed->fix.has_value());
@@ -110,8 +109,7 @@ TEST(Um982Parser, ParsesPvtslnaFix)
 TEST(Um982Parser, ParsesBestnavaVelocity)
 {
   Um982Parser parser;
-  const auto parsed = parser.parse_line(
-    make_unicore("BESTNAVA,foo,bar,3.5,90.0,-0.4,0.2,0.1"));
+  const auto parsed = parser.parse_line(make_unicore("BESTNAVA,foo,bar,3.5,90.0,-0.4,0.2,0.1"));
 
   ASSERT_TRUE(parsed.has_value());
   ASSERT_TRUE(parsed->velocity.has_value());

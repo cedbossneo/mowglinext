@@ -78,9 +78,10 @@ private:
   static std::string trim(std::string_view text);
   static bool parse_double(std::string_view field, double& value);
   static bool parse_int(std::string_view field, int& value);
-  static bool parse_latlon(
-    std::string_view value_field, std::string_view hemi_field, bool is_latitude,
-    double& degrees);
+  static bool parse_latlon(std::string_view value_field,
+                           std::string_view hemi_field,
+                           bool is_latitude,
+                           double& degrees);
 
   static std::optional<ParsedSentence> parse_gga(const std::vector<std::string_view>& fields);
   static std::optional<ParsedSentence> parse_hdt(const std::vector<std::string_view>& fields);

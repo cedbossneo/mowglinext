@@ -141,7 +141,7 @@ bool Um982Parser::validate_nmea_checksum(std::string_view line)
 
   char* end = nullptr;
   const auto received = static_cast<unsigned long>(
-    std::strtoul(std::string(line.substr(star + 1U, 2U)).c_str(), &end, 16));
+      std::strtoul(std::string(line.substr(star + 1U, 2U)).c_str(), &end, 16));
   return end != nullptr && *end == '\0' && checksum == static_cast<uint8_t>(received);
 }
 
@@ -161,7 +161,7 @@ bool Um982Parser::validate_unicore_crc(std::string_view line)
   const uint32_t calculated = crc32_unicore(line.substr(1U, star - 1U));
   char* end = nullptr;
   const uint32_t received = static_cast<uint32_t>(
-    std::strtoul(std::string(line.substr(star + 1U, 8U)).c_str(), &end, 16));
+      std::strtoul(std::string(line.substr(star + 1U, 8U)).c_str(), &end, 16));
   return end != nullptr && *end == '\0' && calculated == received;
 }
 
@@ -229,8 +229,10 @@ bool Um982Parser::parse_int(std::string_view field, int& value)
   return true;
 }
 
-bool Um982Parser::parse_latlon(
-  std::string_view value_field, std::string_view hemi_field, bool is_latitude, double& degrees)
+bool Um982Parser::parse_latlon(std::string_view value_field,
+                               std::string_view hemi_field,
+                               bool is_latitude,
+                               double& degrees)
 {
   double raw = 0.0;
   if (!parse_double(value_field, raw))
@@ -329,8 +331,7 @@ std::optional<ParsedSentence> Um982Parser::parse_hpr(const std::vector<std::stri
   double heading = 0.0;
   double pitch = 0.0;
   double roll = 0.0;
-  if (!parse_double(fields[2], heading) ||
-      !parse_double(fields[3], pitch) ||
+  if (!parse_double(fields[2], heading) || !parse_double(fields[3], pitch) ||
       !parse_double(fields[4], roll))
   {
     return std::nullopt;
@@ -347,7 +348,8 @@ std::optional<ParsedSentence> Um982Parser::parse_hpr(const std::vector<std::stri
   return sentence;
 }
 
-std::optional<ParsedSentence> Um982Parser::parse_pvtslna(const std::vector<std::string_view>& fields)
+std::optional<ParsedSentence> Um982Parser::parse_pvtslna(
+    const std::vector<std::string_view>& fields)
 {
   if (fields.size() <= kPvtslnaLongitudeStdIndex)
   {
@@ -387,7 +389,8 @@ std::optional<ParsedSentence> Um982Parser::parse_pvtslna(const std::vector<std::
   return sentence;
 }
 
-std::optional<ParsedSentence> Um982Parser::parse_bestnava(const std::vector<std::string_view>& fields)
+std::optional<ParsedSentence> Um982Parser::parse_bestnava(
+    const std::vector<std::string_view>& fields)
 {
   if (fields.size() < 6U)
   {

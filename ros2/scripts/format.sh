@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Format all C++ files in ros2/src/ using the project .clang-format config.
+# Format all C++ files in ros2/src/ and sensors/unicore/ using the project
+# .clang-format config.
 # Usage: ./ros2/scripts/format.sh [--check]
 #   --check   Dry-run mode: exit 1 if any file needs formatting (CI mode)
 #
@@ -23,8 +24,14 @@ if [ "$MAJOR" != "$REQUIRED_MAJOR" ]; then
   echo "         Install matching version: pip install clang-format==18.1.8"
 fi
 
-FILES=$(find "${ROS2_DIR}/src/" \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
-  -not -path "*/opennav_coverage/*")
+FILES=$(
+  find "${ROS2_DIR}/src/" \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+    -not -path "*/opennav_coverage/*" \
+    -print
+  find "${ROS2_DIR}/../sensors/unicore" \
+    \( -path "*/build/*" -o -path "*/install/*" -o -path "*/ntrip_client_node.backup_permissions_*/*" \) -prune -o \
+    \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print
+)
 
 if [ -z "$FILES" ]; then
   echo "No C++ files found."

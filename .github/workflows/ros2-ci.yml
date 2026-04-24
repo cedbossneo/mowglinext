@@ -128,9 +128,15 @@ jobs:
 
       - name: Check formatting
         run: |
-          FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
-            -not -path "*/opennav_coverage/*" \
-            -not -path "*/fusioncore/*")
+          FILES=$( \
+            find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
+              -not -path "*/opennav_coverage/*" \
+              -not -path "*/fusioncore/*" \
+              -print; \
+            find sensors/unicore \
+              \( -path "*/build/*" -o -path "*/install/*" -o -path "*/ntrip_client_node.backup_permissions_*/*" \) -prune -o \
+              \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print
+          )
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0

@@ -16,7 +16,7 @@ namespace mowgli_unicore_gnss
 {
 
 SerialPort::SerialPort(std::string device, int baudrate)
-: device_(std::move(device)), baudrate_(baudrate)
+    : device_(std::move(device)), baudrate_(baudrate)
 {
 }
 
@@ -26,7 +26,7 @@ SerialPort::~SerialPort()
 }
 
 SerialPort::SerialPort(SerialPort&& other) noexcept
-: device_(std::move(other.device_)), baudrate_(other.baudrate_), fd_(other.fd_)
+    : device_(std::move(other.device_)), baudrate_(other.baudrate_), fd_(other.fd_)
 {
   other.fd_ = -1;
 }
@@ -64,9 +64,7 @@ bool SerialPort::open()
     return false;
   }
 
-  struct termios tty
-  {
-  };
+  struct termios tty{};
 
   if (::tcgetattr(fd_, &tty) != 0)
   {
@@ -75,16 +73,15 @@ bool SerialPort::open()
     return false;
   }
 
-  tty.c_iflag &= ~(static_cast<tcflag_t>(IXON) | static_cast<tcflag_t>(IXOFF) |
-                   static_cast<tcflag_t>(IXANY) | static_cast<tcflag_t>(ICRNL) |
-                   static_cast<tcflag_t>(INLCR) | static_cast<tcflag_t>(IGNCR) |
-                   static_cast<tcflag_t>(ISTRIP) | static_cast<tcflag_t>(INPCK) |
-                   static_cast<tcflag_t>(IGNBRK));
+  tty.c_iflag &= ~(
+      static_cast<tcflag_t>(IXON) | static_cast<tcflag_t>(IXOFF) | static_cast<tcflag_t>(IXANY) |
+      static_cast<tcflag_t>(ICRNL) | static_cast<tcflag_t>(INLCR) | static_cast<tcflag_t>(IGNCR) |
+      static_cast<tcflag_t>(ISTRIP) | static_cast<tcflag_t>(INPCK) | static_cast<tcflag_t>(IGNBRK));
   tty.c_oflag = 0;
   tty.c_cflag &= ~(static_cast<tcflag_t>(PARENB) | static_cast<tcflag_t>(CSTOPB) |
                    static_cast<tcflag_t>(CSIZE) | static_cast<tcflag_t>(CRTSCTS));
-  tty.c_cflag |= static_cast<tcflag_t>(CS8) | static_cast<tcflag_t>(CREAD) |
-                 static_cast<tcflag_t>(CLOCAL);
+  tty.c_cflag |=
+      static_cast<tcflag_t>(CS8) | static_cast<tcflag_t>(CREAD) | static_cast<tcflag_t>(CLOCAL);
   tty.c_lflag &= ~(static_cast<tcflag_t>(ECHO) | static_cast<tcflag_t>(ECHOE) |
                    static_cast<tcflag_t>(ECHONL) | static_cast<tcflag_t>(ICANON) |
                    static_cast<tcflag_t>(ISIG) | static_cast<tcflag_t>(IEXTEN));
@@ -195,9 +192,7 @@ bool SerialPort::wait_writable(int timeout_ms) const
     return false;
   }
 
-  struct pollfd poll_fd
-  {
-  };
+  struct pollfd poll_fd{};
   poll_fd.fd = fd_;
   poll_fd.events = POLLOUT;
 

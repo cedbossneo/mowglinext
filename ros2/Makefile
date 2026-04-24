@@ -163,11 +163,17 @@ lint:
 	  | xargs cpplint --quiet
 
 format:
-	find src/ -path src/fusioncore -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print \
+	( \
+	  find src/ -path src/fusioncore -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print; \
+	  find ../sensors/unicore \( -path "*/build/*" -o -path "*/install/*" -o -path "*/ntrip_client_node.backup_permissions_*/*" \) -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print \
+	) \
 	  | xargs clang-format -i -style=file
 
 format-check:
-	find src/ -path src/fusioncore -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print \
+	( \
+	  find src/ -path src/fusioncore -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print; \
+	  find ../sensors/unicore \( -path "*/build/*" -o -path "*/install/*" -o -path "*/ntrip_client_node.backup_permissions_*/*" \) -prune -o \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) -print \
+	) \
 	  | xargs clang-format --dry-run --Werror -style=file
 
 # ─── Deployment ────────────────────────────────────────────────────────────────

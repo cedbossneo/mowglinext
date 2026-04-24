@@ -21,31 +21,31 @@ extern "C"
 #endif
 
 #if defined _WIN32 || defined __CYGWIN__
-  #ifdef __GNUC__
-    #define NTRIP_CLIENT_NODE_EXPORT __attribute__ ((dllexport))
-    #define NTRIP_CLIENT_NODE_IMPORT __attribute__ ((dllimport))
-  #else
-    #define NTRIP_CLIENT_NODE_EXPORT __declspec(dllexport)
-    #define NTRIP_CLIENT_NODE_IMPORT __declspec(dllimport)
-  #endif
-  #ifdef NTRIP_CLIENT_NODE_BUILDING_DLL
-    #define NTRIP_CLIENT_NODE_PUBLIC NTRIP_CLIENT_NODE_EXPORT
-  #else
-    #define NTRIP_CLIENT_NODE_PUBLIC NTRIP_CLIENT_NODE_IMPORT
-  #endif
-  #define NTRIP_CLIENT_NODE_PUBLIC_TYPE NTRIP_CLIENT_NODE_PUBLIC
-  #define NTRIP_CLIENT_NODE_LOCAL
+#ifdef __GNUC__
+#define NTRIP_CLIENT_NODE_EXPORT __attribute__((dllexport))
+#define NTRIP_CLIENT_NODE_IMPORT __attribute__((dllimport))
 #else
-  #define NTRIP_CLIENT_NODE_EXPORT __attribute__ ((visibility("default")))
-  #define NTRIP_CLIENT_NODE_IMPORT
-  #if __GNUC__ >= 4
-    #define NTRIP_CLIENT_NODE_PUBLIC __attribute__ ((visibility("default")))
-    #define NTRIP_CLIENT_NODE_LOCAL  __attribute__ ((visibility("hidden")))
-  #else
-    #define NTRIP_CLIENT_NODE_PUBLIC
-    #define NTRIP_CLIENT_NODE_LOCAL
-  #endif
-  #define NTRIP_CLIENT_NODE_PUBLIC_TYPE
+#define NTRIP_CLIENT_NODE_EXPORT __declspec(dllexport)
+#define NTRIP_CLIENT_NODE_IMPORT __declspec(dllimport)
+#endif
+#ifdef NTRIP_CLIENT_NODE_BUILDING_DLL
+#define NTRIP_CLIENT_NODE_PUBLIC NTRIP_CLIENT_NODE_EXPORT
+#else
+#define NTRIP_CLIENT_NODE_PUBLIC NTRIP_CLIENT_NODE_IMPORT
+#endif
+#define NTRIP_CLIENT_NODE_PUBLIC_TYPE NTRIP_CLIENT_NODE_PUBLIC
+#define NTRIP_CLIENT_NODE_LOCAL
+#else
+#define NTRIP_CLIENT_NODE_EXPORT __attribute__((visibility("default")))
+#define NTRIP_CLIENT_NODE_IMPORT
+#if __GNUC__ >= 4
+#define NTRIP_CLIENT_NODE_PUBLIC __attribute__((visibility("default")))
+#define NTRIP_CLIENT_NODE_LOCAL __attribute__((visibility("hidden")))
+#else
+#define NTRIP_CLIENT_NODE_PUBLIC
+#define NTRIP_CLIENT_NODE_LOCAL
+#endif
+#define NTRIP_CLIENT_NODE_PUBLIC_TYPE
 #endif
 
 #ifdef __cplusplus
