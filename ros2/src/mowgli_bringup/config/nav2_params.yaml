@@ -90,11 +90,12 @@ controller_server:
       angular_dist_threshold: 1.0
       forward_sampling_distance: 0.5
       # Restored 2026-04-24 after firmware deadband fix eliminated the
-      # lever-arm slide (the reason these were ever lowered). The motor
-      # response is ~0.47× at wz=0.3 and ~0.87× at wz=0.6+, so a commanded
-      # 0.8 rad/s yields ~0.7 rad/s physical = 40°/s — brisk enough that
-      # RotationShim transitions in 4-5 s instead of 20+ s, but still
-      # under the 1.0 rad/s cap where the UKF response starts lagging.
+      # lever-arm slide (the reason these were ever lowered). The user
+      # explicitly called out that the pre-fix 0.3 values were "tourne
+      # tout doucement" unusable. Keep 0.8 here — the oscillation
+      # observed during live mow was caused by the aggressive PID combo
+      # (kp_ang=4 + kd_ang=0.5), not by the rotation rate. PID now back
+      # to milder 2.5 + 0.0 (see below).
       rotate_to_heading_angular_vel: 0.8
       max_angular_accel: 1.0
       # RPP parameters — tuned for slow differential drive motors
@@ -156,24 +157,21 @@ controller_server:
       kp_lon: 2.0
       ki_lon: 0.0
       kd_lon: 0.0
-      # PID lateral — kp bumped 2.0 → 3.0 post firmware deadband fix
-      # (2026-04-24). The PAC5210 underreacts ~0.5× at low wz so effective
-      # correction gain is already halved at small lat errors; compensating
-      # with a higher kp keeps the strip-tracking loop snappy enough that
-      # wheel-slip-on-grass drift gets caught before 5 cm lateral offset
-      # accumulates.
-      kp_lat: 3.0
+      # PID lateral — kp=2.0 (original). A bump to 3.0 was attempted on
+      # 2026-04-24 post firmware-deadband-fix; in combination with the more
+      # aggressive kp_ang/kd_ang it caused visible oscillation during a
+      # live mow, so reverted to 2.0 (confirmed stable live before stop).
+      kp_lat: 2.0
       ki_lat: 0.0
       kd_lat: 0.0
-      # PID angular — kp bumped 2.0 → 4.0 post firmware deadband fix.
-      # The motor response curve measured on 2026-04-24 is 0.47× at wz=0.3,
-      # 0.87× at wz=0.6. With kp=2.0, a 10° yaw error produced wz_cmd=0.35
-      # → actual 0.16 rad/s → 10° correction took 600 ms (~18 cm travelled).
-      # kp=4.0 halves that to 300 ms (9 cm). kd_ang=0.5 damps any
-      # oscillation that higher kp might coax out.
-      kp_ang: 4.0
+      # PID angular — kp=2.5, kd=0.0 (mild bump from original 2.0). The
+      # 4.0 + kd=0.5 combo tried on 2026-04-24 caused the controller to
+      # amplify GPS-noise-induced yaw measurement jitter, producing
+      # physical vibration during live mow. 2.5 sans kd keeps snappy
+      # tracking without the derivative kick.
+      kp_ang: 2.5
       ki_ang: 0.0
-      kd_ang: 0.5
+      kd_ang: 0.0
       # Limits — cap angular command at 1.0 rad/s (was 3.0). The UKF
       # becomes lossy above ~0.5 rad/s because GPS+lever-arm correction
       # lags the yaw estimate, so commanding 3 rad/s just feeds garbage
