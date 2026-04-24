@@ -65,8 +65,13 @@ class CogToImu(Node):
     def __init__(self) -> None:
         super().__init__("cog_to_imu")
 
-        self._min_speed = self.declare_parameter("min_speed_ms", 0.30).value
-        self._min_fwd_wheel = self.declare_parameter("min_forward_wheel_ms", 0.10).value
+        # Lowered 2026-04-24 after first live test: the Nav2 cap is 0.25 m/s,
+        # FTC coverage runs at 0.20 m/s, so 0.30 m/s never fired (139/151
+        # samples rejected for speed). 0.15 m/s gives per-sample σ_yaw ~20°
+        # (capped at max_yaw_variance below), still useful to bleed gyro
+        # drift even if not tight.
+        self._min_speed = self.declare_parameter("min_speed_ms", 0.15).value
+        self._min_fwd_wheel = self.declare_parameter("min_forward_wheel_ms", 0.05).value
         self._max_pos_accuracy = self.declare_parameter("max_pos_accuracy_m", 0.05).value
         self._min_dt = self.declare_parameter("min_sample_dt_s", 0.05).value
         self._max_dt = self.declare_parameter("max_sample_dt_s", 0.50).value
