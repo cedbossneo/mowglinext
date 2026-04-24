@@ -3,7 +3,6 @@
 ARG UM982_REPO=https://github.com/mowglifrenchtouch/UM982Driver.git
 ARG UM982_REF=mowgli
 
-# ─── Builder ────────────────────────────────────────────────────────────────
 FROM ros:kilted-ros-base AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -13,7 +12,10 @@ ARG UM982_REF
 ENV CCACHE_DIR=/root/.ccache
 ENV PATH="/usr/lib/ccache:${PATH}"
 
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       git \
       ccache \
@@ -40,10 +42,9 @@ WORKDIR /ws
 RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     . /opt/ros/kilted/setup.sh \
  && colcon build --merge-install \
-      --base-paths \
-        src/um982_driver/compass_msgs \
-        src/um982_driver/ntrip_client_node \
-        src/um982_driver \
+      --base-paths src/um982_driver/compass_msgs \
+                   src/um982_driver/ntrip_client_node \
+                   src/um982_driver \
       --packages-up-to ntrip_client_node mowgli_unicore_gnss \
       --cmake-args \
         -DCMAKE_BUILD_TYPE=Release \
@@ -52,12 +53,14 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         -Wno-dev \
  && rm -rf /ws/build /ws/log /ws/src
 
-# ─── Runtime ────────────────────────────────────────────────────────────────
 FROM ros:kilted-ros-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
       libcurl4 \
       ros-kilted-diagnostic-msgs \
