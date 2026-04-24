@@ -315,12 +315,13 @@ global_costmap:
   global_costmap:
     ros__parameters:
       use_sim_time: false
-      # 1 Hz (was 0.5 Hz): faster updates reduce the chance of Nav2
-      # controller_server seeing a stale global costmap during action start.
-      # Costmap is 30×30m @ 5cm → obstacle_layer raycast is the main cost,
-      # still under 100 ms on ARM so 1 Hz is safe.
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      # 2 Hz after the 2026-04-24 shrink from 30×30 to 20×20 m (160 k cells
+      # vs 360 k). Previously capped at 1 Hz because obstacle_layer raycast
+      # over the larger grid ate ARM CPU; the 44 % smaller grid gives
+      # enough headroom to double both the update and publish rates, which
+      # roughly halves the costmap-contributed Foxglove visual lag.
+      update_frequency: 2.0
+      publish_frequency: 2.0
       global_frame: map
       robot_base_frame: base_footprint
       # TF tolerance: how stale a transform can be before the costmap rejects
