@@ -50,6 +50,13 @@ type CalibrateImuYawRes struct {
 	ImuRollDeg                float64                        `json:"imu_roll_deg"`
 	StationarySamplesUsed     int32                          `json:"stationary_samples_used"`
 	GravityMagMps2            float64                        `json:"gravity_mag_mps2"`
+	DockValid                 bool                           `json:"dock_valid"`
+	DockPoseX                 float64                        `json:"dock_pose_x"`
+	DockPoseY                 float64                        `json:"dock_pose_y"`
+	DockPoseYawRad            float64                        `json:"dock_pose_yaw_rad"`
+	DockPoseYawDeg            float64                        `json:"dock_pose_yaw_deg"`
+	DockYawSigmaDeg           float64                        `json:"dock_yaw_sigma_deg"`
+	DockUndockDisplacementM   float64                        `json:"dock_undock_displacement_m"`
 }
 
 // ClearMapReq for mowgli_interfaces/srv/ClearMap request (empty).
