@@ -173,7 +173,7 @@
           "type": "number",
           "title": "GPS Antenna Offset X",
           "default": 0.3,
-          "description": "Body-frame forward offset of GPS antenna from base_footprint (metres). Used by FusionCore lever-arm correction."
+          "description": "Body-frame forward offset of GPS antenna from base_footprint (metres). Used by navsat_transform (robot_localization) for lever-arm correction."
         },
         "gps_y": {
           "type": "number",
@@ -208,7 +208,7 @@
         "datum_alt": {
           "type": "number",
           "title": "Datum Altitude",
-          "description": "Map origin altitude (WGS84 ellipsoidal, metres) — site-specific; no default. Used by FusionCore for lever-arm altitude bias."
+          "description": "Map origin altitude (WGS84 ellipsoidal, metres) — site-specific; no default. Used by navsat_transform (robot_localization) as the altitude reference."
         },
         "gps_protocol": {
           "type": "string",
@@ -482,7 +482,7 @@
           "title": "SLAM Mode",
           "enum": ["lifelong", "mapping", "localization"],
           "default": "lifelong",
-          "description": "SLAM toolbox operating mode. FusionCore is the primary localizer; this is advisory for optional pose-graph backends."
+          "description": "Legacy SLAM toolbox operating mode. Unused — robot_localization (dual-EKF) is the primary localizer and there is no SLAM backend. Kept for config backward compatibility."
         },
         "map_save_on_dock": {
           "type": "boolean",
