@@ -13,8 +13,8 @@ Why this node exists:
   The current stack seeds yaw once per session (dock_yaw / undock BackUp /
   SeedYawFromMotion), then relies on pure gyro integration. Over a multi-
   minute mow that drifts by several degrees — enough for the Smac planner
-  to start targeting strips slightly off-axis. FusionCore had a native
-  velocity_heading mode for this; robot_localization does not.
+  to start targeting strips slightly off-axis. This node fills that gap
+  for robot_localization without needing a custom EKF fork.
 
 Design:
   Input : /gps/absolute_pose (already projected to map-frame ENU, carries

@@ -71,8 +71,9 @@ NavSatToAbsolutePoseNode::NavSatToAbsolutePoseNode(const rclcpp::NodeOptions& op
   create_services();
 
   // TF listener for lever-arm resolution. base_footprint→gps_link comes
-  // from the URDF (static); map→base_footprint comes from ekf_map (or
-  // fusioncore, or whatever owns that edge) and gives us current yaw.
+  // from the URDF (static); map→base_footprint comes from ekf_map_node
+  // (composed through ekf_odom_node's odom→base_footprint) and gives us
+  // current yaw.
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 

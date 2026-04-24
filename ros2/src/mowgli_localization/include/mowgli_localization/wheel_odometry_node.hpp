@@ -20,7 +20,7 @@
  *
  * Subscribes to raw wheel tick counts from the STM32 firmware and integrates
  * them into a nav_msgs/msg/Odometry message suitable for consumption by the
- * FusionCore UKF.
+ * robot_localization EKF nodes.
  *
  * Subscribed topics:
  *   /wheel_ticks   mowgli_interfaces/msg/WheelTick
@@ -29,7 +29,7 @@
  *   /wheel_odom    nav_msgs/msg/Odometry
  *
  * Optionally published TF:
- *   odom → base_footprint  (disabled by default; FusionCore owns this transform)
+ *   odom → base_footprint  (disabled by default; ekf_odom_node owns this transform)
  *
  * Parameters:
  *   wheel_distance   (double, default 0.35 m)   – lateral distance between

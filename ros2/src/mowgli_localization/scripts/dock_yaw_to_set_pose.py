@@ -18,11 +18,9 @@ backend.
 Why:
   The global EKF (ekf_map_node) has no absolute heading reference at boot —
   the IMU has no magnetometer and navsat_transform only feeds position, not
-  yaw. Under the old FusionCore backend the /gnss/heading topic was
-  consumed directly by the filter; with robot_localization that consumer no
-  longer exists, so without this node the filter yaw stays random until the
-  robot has driven far enough for GPS position innovations to correct it
-  indirectly.
+  yaw. Without this bridge the filter yaw stays random until the robot has
+  driven far enough for GPS position innovations (or /imu/cog_heading) to
+  correct it indirectly.
 
 Semantics:
   Fires once per docking event (rising edge of is_charging, plus one firing

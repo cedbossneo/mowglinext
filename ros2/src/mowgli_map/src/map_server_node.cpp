@@ -183,7 +183,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
         on_mower_status(std::move(msg));
       });
 
-  auto odom_topic = declare_parameter<std::string>("odom_topic", "/fusion/odom");
+  auto odom_topic = declare_parameter<std::string>("odom_topic", "/odometry/filtered_map");
   odom_sub_ =
       create_subscription<nav_msgs::msg::Odometry>(odom_topic,
                                                    rclcpp::QoS(1),
