@@ -92,11 +92,13 @@ controller_server:
       # Restored 2026-04-24 after firmware deadband fix eliminated the
       # lever-arm slide (the reason these were ever lowered). The user
       # explicitly called out that the pre-fix 0.3 values were "tourne
-      # tout doucement" unusable. Keep 0.8 here — the oscillation
-      # observed during live mow was caused by the aggressive PID combo
-      # (kp_ang=4 + kd_ang=0.5), not by the rotation rate. PID now back
-      # to milder 2.5 + 0.0 (see below).
-      rotate_to_heading_angular_vel: 0.8
+      # tout doucement" unusable. 0.5 rad/s (was 0.8) matches the
+      # in-place turn rate OpenMower's PerimeterDocking uses
+      # (ANGULAR_SPEED 0.5 in PerimeterDocking.cpp) and the mowgli
+      # docking_ftc_local_planner max_cmd_vel_ang of 0.5. 0.8 was
+      # 60% above both reference stacks and contributed to the
+      # "erratic rotations" reported on 2026-04-24.
+      rotate_to_heading_angular_vel: 0.5
       max_angular_accel: 1.0
       # RPP parameters — tuned for slow differential drive motors
       desired_linear_vel: 0.2
@@ -147,11 +149,17 @@ controller_server:
     # PRE_ROTATE -> FOLLOWING -> WAITING_FOR_GOAL_APPROACH -> POST_ROTATE
     FollowCoveragePath:
       plugin: "mowgli_nav2_plugins/FTCController"
-      speed_fast: 0.3              # carrot speed when far from path (m/s)
+      speed_fast: 0.20             # carrot speed when far from path (m/s)
       speed_fast_threshold: 0.5    # distance threshold for fast/slow (m)
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
-      speed_slow: 0.2             # carrot speed when close/turning (m/s)
-      speed_angular: 60.0          # rotation speed for in-place turns (deg/s)
+      speed_slow: 0.12             # carrot speed when close/turning (m/s)
+      speed_angular: 45.0          # rotation speed for in-place turns (deg/s)
+                                   # Matches OpenMower ftc_local_planner.yaml
+                                   # (45°/s). Previously 60°/s — 33% higher
+                                   # than both OM (45) and mowgli (40), and
+                                   # clipping against max_cmd_vel_ang=1.0 rad/s
+                                   # (60°/s = 1.05 rad/s > cap) → saturation
+                                   # that showed up as erratic tracking.
       acceleration: 1.0            # carrot acceleration (m/s²) — higher to overcome grass
       # PID longitudinal
       kp_lon: 2.0
@@ -177,8 +185,18 @@ controller_server:
       # lags the yaw estimate, so commanding 3 rad/s just feeds garbage
       # into the body-frame lateral state. FTC's PID still hits min
       # turning radii with 1 rad/s at 0.3 m/s.
-      max_cmd_vel_speed: 0.3
-      max_cmd_vel_ang: 1.0
+      # Ceilings bumped above the active targets so the FTC PID has
+      # headroom for correction without saturating:
+      #   * speed_fast (target) 0.20 m/s, cap 0.35 → 75% headroom
+      #   * speed_angular 0.79 rad/s (45°/s), cap 1.5 → ~90% headroom
+      # Both reference stacks sit cap ≈ 4–5× target (OM: 1.0/0.4,
+      # mowgli: 0.4/0.3, 3.1/0.79 rad/s). Our previous 0.20/1.0 had
+      # zero headroom — every correction had to first fight its own
+      # ceiling before steering, which looked like "erratic" to the
+      # operator. Smoother still enforces the hard global cap
+      # (0.25 m/s, 0.8 rad/s) so nothing reaches the motors uncapped.
+      max_cmd_vel_speed: 0.35
+      max_cmd_vel_ang: 1.5
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
       goal_timeout: 10.0
