@@ -99,7 +99,7 @@ controller_server:
       rotate_to_heading_angular_vel: 0.8
       max_angular_accel: 1.0
       # RPP parameters — tuned for slow differential drive motors
-      desired_linear_vel: 0.3
+      desired_linear_vel: 0.2
       lookahead_dist: 0.6
       min_lookahead_dist: 0.3
       max_lookahead_dist: 1.0
@@ -147,10 +147,10 @@ controller_server:
     # PRE_ROTATE -> FOLLOWING -> WAITING_FOR_GOAL_APPROACH -> POST_ROTATE
     FollowCoveragePath:
       plugin: "mowgli_nav2_plugins/FTCController"
-      speed_fast: 0.5              # carrot speed when far from path (m/s)
+      speed_fast: 0.3              # carrot speed when far from path (m/s)
       speed_fast_threshold: 0.5    # distance threshold for fast/slow (m)
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
-      speed_slow: 0.3             # carrot speed when close/turning (m/s)
+      speed_slow: 0.2             # carrot speed when close/turning (m/s)
       speed_angular: 60.0          # rotation speed for in-place turns (deg/s)
       acceleration: 1.0            # carrot acceleration (m/s²) — higher to overcome grass
       # PID longitudinal
@@ -177,7 +177,7 @@ controller_server:
       # lags the yaw estimate, so commanding 3 rad/s just feeds garbage
       # into the body-frame lateral state. FTC's PID still hits min
       # turning radii with 1 rad/s at 0.3 m/s.
-      max_cmd_vel_speed: 0.5
+      max_cmd_vel_speed: 0.3
       max_cmd_vel_ang: 1.0
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
@@ -293,8 +293,8 @@ velocity_smoother:
     # (nav2_velocity_smoother doesn't expose input_topic/output_topic as
     # parameters — only 'cmd_vel' and 'smoothed_cmd_vel' remap targets).
     # See nav2_navigation_launch.py for the actual wiring.
-    max_velocity: [0.3, 0.0, 0.8]
-    min_velocity: [-0.3, 0.0, -1.0]
+    max_velocity: [0.25, 0.0, 0.8]
+    min_velocity: [-0.25, 0.0, -1.0]
     # Higher acceleration to overcome grass resistance and static friction.
     # The robot needs a burst of power to start moving on thick terrain.
     # Angular accel 4.0 rad/s² — the smoother was a hidden ceiling that made

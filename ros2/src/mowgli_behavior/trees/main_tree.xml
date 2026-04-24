@@ -219,6 +219,14 @@
               <Inverter><IsCharging/></Inverter>
               <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
               <SeedYawFromMotion distance_m="1.0" speed_ms="0.2" timeout_sec="30.0"/>
+              <!-- Drop stale obstacle marks projected during the pre-seed
+                   forward drive: while the EKF yaw was random the scans
+                   went into the costmap at the wrong orientation, and
+                   obstacle_layer has observation_persistence=0 but only
+                   clears via raytracing as the robot moves past. Clearing
+                   now guarantees Nav2 sees a fresh view once the seed has
+                   landed. -->
+              <ClearCostmap/>
             </Sequence>
             <!-- On dock — wait for GPS, save map, then undock. IsCharging
                  gate ensures we only run the docked-undock path when the
