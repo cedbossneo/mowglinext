@@ -65,20 +65,23 @@ class CogToImu(Node):
     def __init__(self) -> None:
         super().__init__("cog_to_imu")
 
-        # Lowered 2026-04-24 after first live test: the Nav2 cap is 0.25 m/s,
-        # FTC coverage runs at 0.20 m/s, so 0.30 m/s never fired (139/151
-        # samples rejected for speed). 0.15 m/s gives per-sample σ_yaw ~20°
-        # (capped at max_yaw_variance below), still useful to bleed gyro
-        # drift even if not tight.
-        self._min_speed = self.declare_parameter("min_speed_ms", 0.15).value
+        # OpenMower-style adaptive-covariance fusion: we NEVER reject a
+        # sample for being slow. Instead σ_yaw grows with 1/displacement
+        # so low-speed samples have near-zero weight in the EKF, matching
+        # the natural signal-to-noise. The only gate is direction: we
+        # still skip reverse motion because atan2(dy, dx) flips by π and
+        # would corrupt the yaw observation.
         self._min_fwd_wheel = self.declare_parameter("min_forward_wheel_ms", 0.05).value
         self._max_pos_accuracy = self.declare_parameter("max_pos_accuracy_m", 0.05).value
         self._min_dt = self.declare_parameter("min_sample_dt_s", 0.05).value
         self._max_dt = self.declare_parameter("max_sample_dt_s", 0.50).value
-        # Fallback ceiling on yaw covariance. Even with tight σ_pos, very
-        # small displacements inflate the analytic σ_yaw — cap so the EKF
-        # still gets a usable correction at low speed.
-        self._max_yaw_var = self.declare_parameter("max_yaw_variance", 0.05).value
+        # Hard ceiling on published yaw variance — a 100% σ_yaw (~180°
+        # equivalent) update adds no information but also does no harm.
+        # Keep a cap so pathological samples cannot blow up the filter
+        # numerics. Also a hard FLOOR of σ ≥ 0.5° (from GPS noise) to
+        # avoid over-trusting any single fix pair.
+        self._max_yaw_var = self.declare_parameter("max_yaw_variance", 3.0).value
+        self._min_yaw_var = self.declare_parameter("min_yaw_variance", 7.6e-5).value
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -94,19 +97,19 @@ class CogToImu(Node):
         self._prev: tuple[float, float, float, float] | None = None  # (t, x, y, pos_acc)
         self._wheel_vx = 0.0
         self._published = 0
-        self._rejected_speed = 0
         self._rejected_reverse = 0
         self._rejected_accuracy = 0
         self._rejected_fix = 0
+        self._rejected_displacement = 0
 
         # Log stats periodically so we can see whether the node is
         # actually contributing to the filter.
         self.create_timer(30.0, self._log_stats)
 
         self.get_logger().info(
-            "cog_to_imu started — publish /imu/cog_heading when "
-            "RTK-Fixed & speed > {:.2f} m/s & wheel fwd > {:.2f} m/s".format(
-                self._min_speed, self._min_fwd_wheel))
+            "cog_to_imu started — publish /imu/cog_heading on every "
+            "RTK-Fixed sample with forward wheel > {:.2f} m/s (adaptive "
+            "covariance, no hard speed gate)".format(self._min_fwd_wheel))
 
     def _on_wheel(self, msg: Odometry) -> None:
         self._wheel_vx = msg.twist.twist.linear.x
@@ -140,11 +143,14 @@ class CogToImu(Node):
         dx = x - x0
         dy = y - y0
         displacement = math.hypot(dx, dy)
-        speed = displacement / dt
         self._prev = (t, x, y, pos_acc)
 
-        if speed < self._min_speed:
-            self._rejected_speed += 1
+        # Skip pathologically short displacements — atan2(0, 0) returns
+        # 0 which would be a fake yaw. This is a noise-floor rejection,
+        # NOT a speed gate: at 3 mm RTK noise, a displacement of 5 mm
+        # has σ_yaw ≈ 60° which is fine, but 0 mm is useless.
+        if displacement < 0.005:
+            self._rejected_displacement += 1
             return
 
         if self._wheel_vx < self._min_fwd_wheel:
@@ -154,11 +160,16 @@ class CogToImu(Node):
             return
 
         yaw = math.atan2(dy, dx)
-        # σ_yaw ≈ atan2(2σ_pos, displacement). The factor 2 accounts for
-        # independent noise on both endpoints.
+        # σ_yaw ≈ atan2(2σ_pos, displacement). Factor 2 accounts for
+        # independent noise on both endpoints. At displacement → 0 this
+        # approaches π/2 (no info), which matches OpenMower's vector
+        # fusion intuition: low-speed samples contribute almost nothing.
         sigma_pos = math.hypot(pos_acc, pa0)
         sigma_yaw = math.atan2(2.0 * sigma_pos, max(displacement, 1e-3))
-        yaw_var = min(sigma_yaw * sigma_yaw, self._max_yaw_var)
+        yaw_var = max(
+            self._min_yaw_var,
+            min(sigma_yaw * sigma_yaw, self._max_yaw_var),
+        )
 
         self._publish_imu(msg.header.stamp, yaw, yaw_var)
         self._published += 1
@@ -183,17 +194,17 @@ class CogToImu(Node):
     def _log_stats(self) -> None:
         self.get_logger().info(
             "cog_to_imu stats: published={}, rejected fix={} accuracy={} "
-            "speed={} reverse={}".format(
+            "reverse={} displacement={}".format(
                 self._published,
                 self._rejected_fix,
                 self._rejected_accuracy,
-                self._rejected_speed,
-                self._rejected_reverse))
+                self._rejected_reverse,
+                self._rejected_displacement))
         self._published = 0
         self._rejected_fix = 0
         self._rejected_accuracy = 0
-        self._rejected_speed = 0
         self._rejected_reverse = 0
+        self._rejected_displacement = 0
 
 
 def main() -> None:
