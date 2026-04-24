@@ -95,6 +95,13 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable LiDAR-dependent nodes (Kinematic-ICP drift correction, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
     )
 
+    localization_backend_arg = DeclareLaunchArgument(
+        "localization_backend",
+        default_value="fusioncore",
+        choices=["fusioncore", "robot_localization"],
+        description="Fusion stack: fusioncore (default) or robot_localization (dual EKF, OpenMower-style).",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
@@ -104,6 +111,7 @@ def generate_launch_description() -> LaunchDescription:
     enable_foxglove = LaunchConfiguration("enable_foxglove")
     foxglove_port = LaunchConfiguration("foxglove_port")
     use_lidar = LaunchConfiguration("use_lidar")
+    localization_backend = LaunchConfiguration("localization_backend")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -148,6 +156,7 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             "use_sim_time": use_sim_time,
             "use_lidar": use_lidar,
+            "localization_backend": localization_backend,
         }.items(),
     )
 
@@ -328,6 +337,7 @@ def generate_launch_description() -> LaunchDescription:
             enable_foxglove_arg,
             foxglove_port_arg,
             use_lidar_arg,
+            localization_backend_arg,
             # Subsystem includes
             mowgli_launch,
             navigation_launch,
