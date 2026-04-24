@@ -89,13 +89,14 @@ controller_server:
       # Small errors are handled by RPP driving in an arc.
       angular_dist_threshold: 1.0
       forward_sampling_distance: 0.5
-      # Softer rotation: at ω>0.4 rad/s the GPS antenna (30 cm forward of
-      # base_link) traces a fast circle, and any yaw-estimate lag leaks
-      # into lever-arm error → visible lateral 'slide' in the map frame.
-      # 0.3 rad/s rotation + 0.3 rad/s² accel keeps pose integration
-      # coherent. Pairs with fusioncore's non-holonomic VY=0 constraint.
-      rotate_to_heading_angular_vel: 0.3
-      max_angular_accel: 0.3
+      # Restored 2026-04-24 after firmware deadband fix eliminated the
+      # lever-arm slide (the reason these were ever lowered). The motor
+      # response is ~0.47× at wz=0.3 and ~0.87× at wz=0.6+, so a commanded
+      # 0.8 rad/s yields ~0.7 rad/s physical = 40°/s — brisk enough that
+      # RotationShim transitions in 4-5 s instead of 20+ s, but still
+      # under the 1.0 rad/s cap where the UKF response starts lagging.
+      rotate_to_heading_angular_vel: 0.8
+      max_angular_accel: 1.0
       # RPP parameters — tuned for slow differential drive motors
       desired_linear_vel: 0.3
       lookahead_dist: 0.6
@@ -126,12 +127,14 @@ controller_server:
       # Keep arcs-only — RotationShimController handles initial heading.
       use_rotate_to_heading: false
       allow_reversing: false
-      # 0.4 rad/s caps the RPP arc curvature. At 0.3 m/s linear this
-      # gives a minimum turning radius of ~0.75 m — enough to plan around
-      # obstacles while keeping the GPS antenna tangential speed under
-      # the 'fast rotation breaks the UKF' threshold. Old value 0.8 was
-      # the root cause of the lateral-slide artefact during transit.
-      max_angular_vel: 0.4
+      # Restored 2026-04-24 from 0.4 to 0.8 after firmware deadband fix.
+      # The "lateral-slide artefact during transit" attributed to 0.8 in
+      # the previous comment was actually the 2.5× overshoot from the
+      # deadband; now that the firmware passes PWM through unchanged,
+      # 0.8 rad/s ω cap is safe. At 0.3 m/s linear this gives a minimum
+      # turn radius of ~0.375 m — plenty for obstacle avoidance during
+      # transit without extra-tight arc constraints.
+      max_angular_vel: 0.8
       max_robot_pose_search_dist: 2.0
       # Scale linear velocity down when the tracker has high lateral /
       # angular error — drops to min_approach_linear_velocity when the
