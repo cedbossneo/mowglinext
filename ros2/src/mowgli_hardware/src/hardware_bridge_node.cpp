@@ -140,6 +140,13 @@ private:
     // the same 20 s sample collection used on dock. Lets the robot recover
     // from boot-without-previous-calibration without requiring a dock.
     imu_cal_auto_rest_sec_ = declare_parameter<double>("imu_cal_auto_rest_sec", 15.0);
+    // Periodic recalibration while docked: temperature drifts between a
+    // morning dock session and afternoon mowing, so bias drift accumulates
+    // (Voie C Test 2026-04-24 measured ~0.003 rad/s residual after dock cal,
+    // → 7°/min of yaw drift during mowing). Re-running the cal every N
+    // seconds while the robot is stationary on dock keeps the offsets
+    // fresh for temperature. Set to 0 to disable.
+    imu_cal_periodic_recal_sec_ = declare_parameter<double>("imu_cal_periodic_recal_sec", 600.0);
 
     RCLCPP_INFO(get_logger(),
                 "Parameters: serial_port=%s baud_rate=%d heartbeat_rate=%.1f Hz "
@@ -439,6 +446,23 @@ private:
       {
         start_imu_calibration(was_charging ? "on dock (boot)" : "dock transition");
       }
+
+      // Periodic recalibration while docked. The motor-controller chip's
+      // temperature shifts between a morning charge and afternoon mowing;
+      // bias drifts accordingly (measured ~0.003 rad/s residual → 7°/min
+      // yaw-integration error). While the robot sits stationary on dock,
+      // refresh the cal every imu_cal_periodic_recal_sec_ seconds so the
+      // offsets match current-temperature.
+      if (is_charging_ && imu_cal_ready_ && !imu_cal_collecting_ && wheels_stationary_
+          && imu_cal_periodic_recal_sec_ > 0.0
+          && imu_cal_last_completed_.nanoseconds() > 0)
+      {
+        const double age_sec = (now() - imu_cal_last_completed_).seconds();
+        if (age_sec >= imu_cal_periodic_recal_sec_)
+        {
+          start_imu_calibration("periodic recal while docked");
+        }
+      }
       msg.rain_detected = (pkt.status_bitmask & STATUS_BIT_RAIN) != 0u;
       msg.sound_module_available = (pkt.status_bitmask & STATUS_BIT_SOUND_AVAIL) != 0u;
       msg.sound_module_busy = (pkt.status_bitmask & STATUS_BIT_SOUND_BUSY) != 0u;
@@ -673,6 +697,7 @@ private:
     imu_cal_count_ = n;
     imu_cal_ready_ = true;
     imu_cal_loaded_from_file_ = true;
+    imu_cal_last_completed_ = now();  // grace period before periodic recal fires
     const double age_hours = (static_cast<double>(std::time(nullptr)) - static_cast<double>(ts)) / 3600.0;
     RCLCPP_INFO(get_logger(),
                 "Loaded IMU calibration from %s (%.1f h old, %d samples) — "
@@ -800,6 +825,7 @@ private:
 
         imu_cal_collecting_ = false;
         imu_cal_ready_ = true;
+        imu_cal_last_completed_ = now();
         RCLCPP_INFO(get_logger(),
                     "IMU calibration complete (%d samples) — "
                     "accel offset [%.4f, %.4f] m/s², "
@@ -1377,7 +1403,9 @@ private:
   int imu_cal_samples_{200};
   std::string imu_cal_persist_path_{"/ros2_ws/maps/imu_calibration.txt"};
   double imu_cal_auto_rest_sec_{15.0};
+  double imu_cal_periodic_recal_sec_{600.0};  // 0 disables; default 10 min
   rclcpp::Time imu_cal_at_rest_since_{};   // default-constructed (nanoseconds=0) = "not at rest yet"
+  rclcpp::Time imu_cal_last_completed_{};  // when the last successful cal finished
   bool imu_cal_loaded_from_file_{false};
   bool imu_cal_collecting_{false};
   bool imu_cal_ready_{false};
