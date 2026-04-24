@@ -159,7 +159,6 @@
           <StopMoving/>
           <PublishHighLevelStatus state="1" state_name="CRITICAL_BATTERY_DOCKING"/>
           <SaveObstacles/>
-          <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <Fallback name="CriticalNavOrStop">
             <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
             <!-- Docking failed — stay stopped, battery is critical -->
@@ -258,7 +257,6 @@
               </RetryUntilSuccessful>
               <!-- Save SLAM map while docked with correct heading.
                    If undock flips heading, restart loads this good map. -->
-              <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
               <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
               <RecordUndockStart/>
               <!-- Nav2 readiness is already guaranteed by the Nav2Active
@@ -330,7 +328,6 @@
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
                   <PublishHighLevelStatus state="1" state_name="RAIN_DETECTED_DOCKING"/>
-                  <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <Fallback name="RainNavOrStay">
                     <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                     <AlwaysSuccess/>
@@ -378,7 +375,6 @@
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
                   <PublishHighLevelStatus state="1" state_name="LOW_BATTERY_DOCKING"/>
-                  <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <PublishHighLevelStatus state="1" state_name="CHARGING"/>
                   <Fallback name="ChargeOrAbort">
@@ -470,7 +466,6 @@
             <!-- Coverage failed — dock gracefully -->
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
-              <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
               <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
               <Fallback name="FailedCoverageNavOrStop">
                 <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
@@ -489,7 +484,6 @@
           <SetMowerEnabled enabled="false"/>
           <PublishHighLevelStatus state="1" state_name="MOWING_COMPLETE"/>
           <SaveObstacles/>
-          <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
           <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
           <ClearCommand/>
@@ -524,7 +518,6 @@
               <Sequence name="NavigateHome">
                 <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
                 <SaveObstacles/>
-                <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                 <Fallback name="HomeNavOrStop">
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <Sequence>

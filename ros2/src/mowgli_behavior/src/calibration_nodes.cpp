@@ -78,10 +78,9 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
               pose_y,
               heading * 180.0 / M_PI);
 
-  // In lifelong mode, do NOT reset SLAM — the accumulated posegraph is
-  // valuable and scan matching will naturally correct any small drift.
-  // Just clear costmaps to remove stale obstacle marks from the docking
-  // area that may have been projected with slightly different TF.
+  // Clear costmaps to remove stale obstacle marks around the dock — the
+  // pre-undock view includes the dock frame itself and any neighbour
+  // furniture that will now be behind the robot.
   for (const auto& svc : {"/global_costmap/clear_entirely_global_costmap",
                           "/local_costmap/clear_entirely_local_costmap"})
   {

@@ -199,20 +199,6 @@ void WaitForGpsFix::onHalted()
 }
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap (deprecated no-op stub — SLAM removed, no replacement yet)
-// ---------------------------------------------------------------------------
-
-BT::NodeStatus SaveSlamMap::tick()
-{
-  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-  RCLCPP_INFO_ONCE(ctx->node->get_logger(),
-                   "SaveSlamMap: map save not implemented (SLAM removed, "
-                   "Kinematic-ICP drift correction has no map serialization); "
-                   "returning SUCCESS.");
-  return BT::NodeStatus::SUCCESS;
-}
-
-// ---------------------------------------------------------------------------
 // SaveObstacles
 // ---------------------------------------------------------------------------
 

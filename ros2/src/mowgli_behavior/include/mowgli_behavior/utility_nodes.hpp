@@ -137,31 +137,6 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// SaveSlamMap (deprecated no-op stub)
-// ---------------------------------------------------------------------------
-
-/// Deprecated no-op stub — SLAM (Cartographer / slam_toolbox) was removed
-/// with the switch to the Kinematic-ICP drift-correction architecture, and
-/// no replacement map-serialization hook is wired up yet. Kept so existing
-/// BT XML files continue to load; the tick logs a one-line notice and
-/// returns SUCCESS immediately.
-class SaveSlamMap : public BT::SyncActionNode
-{
-public:
-  SaveSlamMap(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config)
-  {
-  }
-
-  static BT::PortsList providedPorts()
-  {
-    return {BT::InputPort<std::string>("map_path", "/ros2_ws/maps/garden_map", "Unused — kept for BT XML compatibility")};
-  }
-
-  BT::NodeStatus tick() override;
-};
-
-// ---------------------------------------------------------------------------
 // SaveObstacles
 // ---------------------------------------------------------------------------
 
