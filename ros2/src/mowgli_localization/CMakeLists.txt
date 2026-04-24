@@ -18,6 +18,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ---------------------------------------------------------------------------
 
 find_package(ament_cmake        REQUIRED)
+find_package(diagnostic_msgs    REQUIRED)
 find_package(rclcpp             REQUIRED)
 find_package(nav_msgs           REQUIRED)
 find_package(geometry_msgs      REQUIRED)
@@ -28,6 +29,7 @@ find_package(tf2                REQUIRED)
 find_package(tf2_ros            REQUIRED)
 find_package(tf2_geometry_msgs  REQUIRED)
 find_package(mowgli_interfaces  REQUIRED)
+find_package(ublox_ubx_msgs     REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Common include directory macro
@@ -48,14 +50,14 @@ add_executable(wheel_odometry_node
 
 target_include_directories(wheel_odometry_node PUBLIC ${INCLUDE_DIR})
 
-ament_target_dependencies(wheel_odometry_node
-  rclcpp
-  nav_msgs
-  geometry_msgs
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  mowgli_interfaces
+target_link_libraries(wheel_odometry_node
+  ${rclcpp_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${tf2_TARGETS}
+  ${tf2_ros_TARGETS}
+  ${tf2_geometry_msgs_TARGETS}
+  ${mowgli_interfaces_TARGETS}
 )
 
 # ---------------------------------------------------------------------------
@@ -68,12 +70,12 @@ add_executable(navsat_to_absolute_pose_node
 
 target_include_directories(navsat_to_absolute_pose_node PUBLIC ${INCLUDE_DIR})
 
-ament_target_dependencies(navsat_to_absolute_pose_node
-  rclcpp
-  sensor_msgs
-  geometry_msgs
-  std_srvs
-  mowgli_interfaces
+target_link_libraries(navsat_to_absolute_pose_node
+  ${rclcpp_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${std_srvs_TARGETS}
+  ${mowgli_interfaces_TARGETS}
 )
 
 # ---------------------------------------------------------------------------
@@ -86,12 +88,48 @@ add_executable(localization_monitor_node
 
 target_include_directories(localization_monitor_node PUBLIC ${INCLUDE_DIR})
 
-ament_target_dependencies(localization_monitor_node
+target_link_libraries(localization_monitor_node
+  ${rclcpp_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${mowgli_interfaces_TARGETS}
+)
+
+# ---------------------------------------------------------------------------
+# Executable: gps_slam_corrector_node
+# ---------------------------------------------------------------------------
+
+add_executable(gps_slam_corrector_node
+  src/gps_slam_corrector_node.cpp
+)
+
+target_include_directories(gps_slam_corrector_node PUBLIC ${INCLUDE_DIR})
+
+ament_target_dependencies(gps_slam_corrector_node
   rclcpp
-  nav_msgs
+  sensor_msgs
   geometry_msgs
-  std_msgs
-  mowgli_interfaces
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+
+# ---------------------------------------------------------------------------
+# Executable: ublox_gnss_adapter_node
+# ---------------------------------------------------------------------------
+
+add_executable(ublox_gnss_adapter_node
+  src/ublox_gnss_adapter_node.cpp
+)
+
+target_include_directories(ublox_gnss_adapter_node PUBLIC ${INCLUDE_DIR})
+
+ament_target_dependencies(ublox_gnss_adapter_node
+  diagnostic_msgs
+  rclcpp
+  sensor_msgs
+  ublox_ubx_msgs
 )
 
 # ---------------------------------------------------------------------------
@@ -108,6 +146,8 @@ install(
     wheel_odometry_node
     navsat_to_absolute_pose_node
     localization_monitor_node
+#    gps_slam_corrector_node
+    ublox_gnss_adapter_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -121,16 +161,6 @@ install(
 install(
   DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
-)
-
-# Python nodes (installed executable, run via `ros2 run mowgli_localization ...`)
-install(
-  PROGRAMS
-    scripts/calibrate_imu_yaw_node.py
-    scripts/kinematic_icp_encoder_adapter.py
-    scripts/kinematic_icp_scan_frame_relay.py
-    scripts/wheel_odom_tf_node.py
-  DESTINATION lib/${PROJECT_NAME}
 )
 
 # ---------------------------------------------------------------------------
@@ -163,6 +193,7 @@ endif()
 ament_export_include_directories(include)
 ament_export_dependencies(
   rclcpp
+  diagnostic_msgs
   nav_msgs
   geometry_msgs
   sensor_msgs
@@ -171,6 +202,7 @@ ament_export_dependencies(
   tf2_ros
   tf2_geometry_msgs
   mowgli_interfaces
+  ublox_ubx_msgs
 )
 
 ament_package()

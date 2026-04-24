@@ -54,20 +54,20 @@ target_include_directories(${PROJECT_NAME}
     ${EIGEN3_INCLUDE_DIRS}
 )
 
-ament_target_dependencies(${PROJECT_NAME}
-  rclcpp
-  rclcpp_lifecycle
-  nav2_core
-  nav2_costmap_2d
-  nav2_util
-  nav_msgs
-  geometry_msgs
-  pluginlib
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  tf2_eigen
-  visualization_msgs
+target_link_libraries(${PROJECT_NAME}
+  ${rclcpp_TARGETS}
+  ${rclcpp_lifecycle_TARGETS}
+  ${nav2_core_TARGETS}
+  ${nav2_costmap_2d_TARGETS}
+  ${nav2_util_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${pluginlib_TARGETS}
+  ${tf2_TARGETS}
+  ${tf2_ros_TARGETS}
+  ${tf2_geometry_msgs_TARGETS}
+  ${tf2_eigen_TARGETS}
+  ${visualization_msgs_TARGETS}
 )
 
 # pluginlib needs the export macro defined.

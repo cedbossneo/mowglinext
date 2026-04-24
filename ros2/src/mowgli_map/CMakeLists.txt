@@ -46,6 +46,7 @@ add_library(mowgli_map_lib STATIC
 target_include_directories(mowgli_map_lib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${grid_map_ros_INCLUDE_DIRS}
 )
 
 ament_target_dependencies(mowgli_map_lib
@@ -77,16 +78,16 @@ target_include_directories(mowgli_obstacle_tracker_lib PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(mowgli_obstacle_tracker_lib
-  rclcpp
-  std_srvs
-  nav_msgs
-  geometry_msgs
-  sensor_msgs
-  visualization_msgs
-  mowgli_interfaces
-  tf2_ros
-  tf2_geometry_msgs
+target_link_libraries(mowgli_obstacle_tracker_lib
+  ${rclcpp_TARGETS}
+  ${std_srvs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${visualization_msgs_TARGETS}
+  ${mowgli_interfaces_TARGETS}
+  ${tf2_ros_TARGETS}
+  ${tf2_geometry_msgs_TARGETS}
 )
 
 # ---------------------------------------------------------------------------
@@ -170,6 +171,10 @@ if(BUILD_TESTING)
     mowgli_map_lib
   )
 
+  # Kept ament_target_dependencies() for this gtest target because
+  # ament_add_gtest() already uses target_link_libraries() with the plain
+  # signature internally. Migrating this block to keyword-signature
+  # target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_map_server
     rclcpp
     grid_map_core
@@ -188,6 +193,10 @@ if(BUILD_TESTING)
     mowgli_obstacle_tracker_lib
   )
 
+  # Kept ament_target_dependencies() for this gtest target because
+  # ament_add_gtest() already uses target_link_libraries() with the plain
+  # signature internally. Migrating this block to keyword-signature
+  # target_link_libraries(PUBLIC ...) causes a CMake signature conflict.
   ament_target_dependencies(test_obstacle_tracker
     rclcpp
     std_srvs

@@ -50,6 +50,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-tf2-ros \
     ros-kilted-tf2-eigen \
     ros-kilted-tf2-geometry-msgs \
+    # ── MavROS (for PX4 SITL) ──
+    ros-kilted-mavros \
+    ros-kilted-mavros-msgs \
+    ros-kilted-mavros-extras \
     # ── Grid map ──
     ros-kilted-grid-map-core \
     ros-kilted-grid-map-ros \

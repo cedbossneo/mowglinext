@@ -10,8 +10,10 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-mavros \
+    ros-kilted-mavros-msgs \
     ros-kilted-mavros-extras \
     ros-kilted-rmw-cyclonedds-cpp \
+    wget \
  && rm -rf /var/lib/apt/lists/*
 
 # Install GeographicLib datasets required by MAVROS
@@ -24,5 +26,4 @@ COPY ros2_entrypoint.sh /ros2_entrypoint.sh
 RUN chmod +x /ros2_entrypoint.sh
 
 ENTRYPOINT ["/ros2_entrypoint.sh"]
-CMD ["ros2", "launch", "mavros", "px4.launch", \
-     "fcu_url:=/dev/ttyUSB0:921600"]
+CMD []

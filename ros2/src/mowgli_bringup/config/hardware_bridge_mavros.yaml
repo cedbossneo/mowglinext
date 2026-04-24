@@ -1,0 +1,18 @@
+hardware_bridge:
+  ros__parameters:
+    status_publish_rate_hz: 10.0
+
+    # Provisional until Pixhawk wiring and validation are complete.
+    manual_control_enabled: false
+    manual_control_linear_scale: 1000.0
+    manual_control_yaw_scale: 1000.0
+
+    # Blade output path via Pixhawk is not validated yet.
+    blade_control_enabled: false
+
+    # Charge feedback through Pixhawk remains provisional.
+    charging_feedback_enabled: false
+
+    # Emergency requests are sent asynchronously to MAVROS.
+    emergency_mode: "HOLD"
+    emergency_disarm: true

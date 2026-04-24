@@ -61,14 +61,14 @@ target_link_libraries(hardware_bridge_node
   mowgli_hardware_core
 )
 
-ament_target_dependencies(hardware_bridge_node
-  rclcpp
-  std_msgs
-  std_srvs
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  mowgli_interfaces
+target_link_libraries(hardware_bridge_node
+  ${rclcpp_TARGETS}
+  ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${mowgli_interfaces_TARGETS}
 )
 
 # ---------------------------------------------------------------------------

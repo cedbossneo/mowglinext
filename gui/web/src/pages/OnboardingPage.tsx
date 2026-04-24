@@ -12,9 +12,11 @@ import {
 import { useThemeMode } from "../theme/ThemeContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useSettingsSchema } from "../hooks/useSettingsSchema.ts";
+import { useBackendSettings } from "../hooks/useBackendSettings.ts";
 import { useApi } from "../hooks/useApi.ts";
 import { RobotComponentEditor } from "../components/RobotComponentEditor.tsx";
 import { FlashBoardComponent } from "../components/FlashBoardComponent.tsx";
+import { BackendSettingsCard } from "../components/BackendSettingsCard.tsx";
 import { MOWER_MODELS } from "../constants/mowerModels.ts";
 import { restartRos2, restartGui } from "../utils/containers.ts";
 
@@ -91,11 +93,13 @@ const WelcomeStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
 type RobotModelStepProps = {
     values: Record<string, any>;
     onChange: (key: string, value: any) => void;
+    backendValues?: { HARDWARE_BACKEND: "mowgli" | "mavros"; MAVROS_AUTOPILOT: "ardupilot" | "px4" };
+    onBackendChange?: (key: "HARDWARE_BACKEND" | "MAVROS_AUTOPILOT", value: "mowgli" | "mavros" | "ardupilot" | "px4") => void;
 };
 
 // MOWER_MODELS imported from constants/mowerModels.ts
 
-const RobotModelStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
+const RobotModelStep: React.FC<RobotModelStepProps> = ({ values, onChange, backendValues, onBackendChange }) => {
     const { colors } = useThemeMode();
     const selectedModel = values.mower_model || "YardForce500";
 
@@ -152,6 +156,16 @@ const RobotModelStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => 
                     );
                 })}
             </Row>
+
+            {backendValues && onBackendChange && (
+                <>
+                    <Divider />
+                    <BackendSettingsCard
+                        values={backendValues}
+                        onChange={onBackendChange}
+                    />
+                </>
+            )}
 
             {selectedModel === "CUSTOM" && (
                 <>
@@ -552,8 +566,13 @@ const OnboardingWizard: React.FC = () => {
     const { colors } = useThemeMode();
     const isMobile = useIsMobile();
     const { values: savedValues, saveValues, loading } = useSettingsSchema();
+    const {
+        values: savedBackendValues,
+        saveValues: saveBackendValues,
+    } = useBackendSettings();
     const [currentStep, setCurrentStep] = useState(0);
     const [localValues, setLocalValues] = useState<Record<string, any>>({});
+    const [backendValues, setBackendValues] = useState(savedBackendValues);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -562,19 +581,36 @@ const OnboardingWizard: React.FC = () => {
         }
     }, [savedValues]);
 
+    useEffect(() => {
+        setBackendValues(savedBackendValues);
+    }, [savedBackendValues]);
+
     const handleChange = useCallback((key: string, value: any) => {
         setLocalValues((prev) => ({ ...prev, [key]: value }));
     }, []);
+
+    const handleBackendChange = useCallback(
+        (
+            key: "HARDWARE_BACKEND" | "MAVROS_AUTOPILOT",
+            value: "mowgli" | "mavros" | "ardupilot" | "px4",
+        ) => {
+            setBackendValues((prev) => ({ ...prev, [key]: value }));
+        },
+        [],
+    );
 
     const handleNext = useCallback(async () => {
         // Save settings when leaving config steps (1, 2, 3)
         if (currentStep >= 1 && currentStep <= 3) {
             setSaving(true);
-            await saveValues(localValues);
+            await Promise.all([
+                saveValues(localValues),
+                currentStep === 1 ? saveBackendValues(backendValues, { silent: true }) : Promise.resolve(),
+            ]);
             setSaving(false);
         }
         setCurrentStep((s) => Math.min(s + 1, STEP_TITLES.length - 1));
-    }, [currentStep, localValues, saveValues]);
+    }, [backendValues, currentStep, localValues, saveBackendValues, saveValues]);
 
     const handlePrev = useCallback(() => {
         setCurrentStep((s) => Math.max(s - 1, 0));
@@ -610,7 +646,14 @@ const OnboardingWizard: React.FC = () => {
                 }}
             >
                 {currentStep === 0 && <WelcomeStep onNext={handleNext} />}
-                {currentStep === 1 && <RobotModelStep values={localValues} onChange={handleChange} />}
+                {currentStep === 1 && (
+                    <RobotModelStep
+                        values={localValues}
+                        onChange={handleChange}
+                        backendValues={backendValues}
+                        onBackendChange={handleBackendChange}
+                    />
+                )}
                 {currentStep === 2 && <GpsStep values={localValues} onChange={handleChange} />}
                 {currentStep === 3 && <SensorStep values={localValues} onChange={handleChange} />}
                 {currentStep === 4 && <FirmwareStep onNext={handleNext} />}

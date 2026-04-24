@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Input, Spin, Typography } from "antd";
 import {
     ReloadOutlined,
@@ -8,6 +8,7 @@ import {
 } from "@ant-design/icons";
 import { useApi } from "../hooks/useApi.ts";
 import { App } from "antd";
+import { useBackendSettings } from "../hooks/useBackendSettings.ts";
 import { useIsMobile } from "../hooks/useIsMobile.ts";
 import { useThemeMode } from "../theme/ThemeContext.tsx";
 import { SettingsSection, useSettingsManager } from "../hooks/useSettingsManager.ts";
@@ -23,6 +24,7 @@ import { SafetySection } from "../components/settings/SafetySection.tsx";
 import { NavigationSection } from "../components/settings/NavigationSection.tsx";
 import { RainSection } from "../components/settings/RainSection.tsx";
 import { AdvancedSection } from "../components/settings/AdvancedSection.tsx";
+import { BackendSettingsCard } from "../components/BackendSettingsCard.tsx";
 
 const { Text } = Typography;
 
@@ -32,6 +34,16 @@ export const SettingsPage = () => {
     const isMobile = useIsMobile();
     const { colors } = useThemeMode();
     const [activeSection, setActiveSection] = useState<SettingsSection>("hardware");
+    const {
+        values: backendValues,
+        saveValues: saveBackendValues,
+        loading: backendLoading,
+    } = useBackendSettings();
+    const [localBackendValues, setLocalBackendValues] = useState(backendValues);
+
+    useEffect(() => {
+        setLocalBackendValues(backendValues);
+    }, [backendValues]);
 
     const {
         sections,
@@ -60,10 +72,27 @@ export const SettingsPage = () => {
         }
     }, [guiApi, notification]);
 
+    const handleBackendChange = (
+        key: "HARDWARE_BACKEND" | "MAVROS_AUTOPILOT",
+        value: "mowgli" | "mavros" | "ardupilot" | "px4",
+    ) => {
+        setLocalBackendValues((prev) => ({ ...prev, [key]: value }));
+    };
+
     const renderSection = () => {
         switch (activeSection) {
             case "hardware":
-                return <HardwareSection values={values} onChange={handleChange} onBulkChange={handleBulkChange} />;
+                return (
+                    <>
+                        <BackendSettingsCard
+                            values={localBackendValues}
+                            onChange={handleBackendChange}
+                            onSave={() => saveBackendValues(localBackendValues)}
+                            loading={backendLoading}
+                        />
+                        <HardwareSection values={values} onChange={handleChange} onBulkChange={handleBulkChange} />
+                    </>
+                );
             case "positioning":
                 return <PositioningSection values={values} onChange={handleChange} />;
             case "sensors":

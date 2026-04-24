@@ -30,6 +30,15 @@ Brings up all subsystems:
   8. Diagnostics               — mowgli_monitoring
   9. MQTT bridge (optional)   — mowgli_monitoring
   10. foxglove_bridge — WebSocket bridge for GUI and Foxglove Studio
+
+GNSS backend selection:
+  - gps      — legacy/direct GPS path
+  - ublox    — u-blox GNSS backend
+  - unicore  — Unicore GNSS backend
+
+Hardware backend selection:
+  - mowgli   — direct Mowgli hardware bridge
+  - mavros   — Pixhawk/MAVROS backend
 """
 
 import os
@@ -43,7 +52,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -71,10 +80,76 @@ def generate_launch_description() -> LaunchDescription:
         description="Serial port for the hardware bridge.",
     )
 
+    hardware_backend_arg = DeclareLaunchArgument(
+        "hardware_backend",
+        default_value=EnvironmentVariable("HARDWARE_BACKEND", default_value="mowgli"),
+        description="Hardware backend: 'mowgli' or 'mavros'.",
+    )
+
     enable_mqtt_arg = DeclareLaunchArgument(
         "enable_mqtt",
         default_value="false",
         description="Launch the MQTT bridge node when true.",
+    )
+
+    gnss_backend_arg = DeclareLaunchArgument(
+        "gnss_backend",
+        default_value="none",
+        description="GNSS backend to use: 'ublox', 'unicore', or 'none'.",
+    )
+
+    enable_ublox_gnss_arg = DeclareLaunchArgument(
+        "enable_ublox_gnss",
+        default_value="false",
+        description="Launch the minimal u-blox GNSS V1 backend when true.",
+    )
+
+    ublox_device_family_arg = DeclareLaunchArgument(
+        "ublox_device_family",
+        default_value="F9P",
+        description="u-blox device family: F9P, F9R, or X20P.",
+    )
+
+    ublox_device_serial_string_arg = DeclareLaunchArgument(
+        "ublox_device_serial_string",
+        default_value="",
+        description="Optional USB serial string to select a specific u-blox receiver.",
+    )
+
+    ublox_frame_id_arg = DeclareLaunchArgument(
+        "ublox_frame_id",
+        default_value="gps_link",
+        description="Frame ID reported by the u-blox backend.",
+    )
+
+    ublox_config_file_arg = DeclareLaunchArgument(
+        "ublox_config_file",
+        default_value="",
+        description="Optional explicit u-blox TOML config file path.",
+    )
+
+    enable_unicore_gnss_arg = DeclareLaunchArgument(
+        "enable_unicore_gnss",
+        default_value="false",
+        description="Launch the Unicore UM982 GNSS backend when true.",
+    )
+
+    unicore_serial_port_arg = DeclareLaunchArgument(
+        "unicore_serial_port",
+        default_value="/dev/ttyUSB0",
+        description="Serial port for Unicore UM982 GNSS receiver.",
+    )
+
+    unicore_baudrate_arg = DeclareLaunchArgument(
+        "unicore_baudrate",
+        default_value="921600",
+        description="Baudrate for Unicore UM982 serial communication.",
+    )
+
+    unicore_frame_id_arg = DeclareLaunchArgument(
+        "unicore_frame_id",
+        default_value="gnss",
+        description="Frame ID reported by the Unicore backend.",
     )
 
     enable_foxglove_arg = DeclareLaunchArgument(
@@ -100,10 +175,32 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     use_sim_time = LaunchConfiguration("use_sim_time")
     serial_port = LaunchConfiguration("serial_port")
+    hardware_backend = LaunchConfiguration("hardware_backend")
     enable_mqtt = LaunchConfiguration("enable_mqtt")
+    enable_ublox_gnss = LaunchConfiguration("enable_ublox_gnss")
+    ublox_device_family = LaunchConfiguration("ublox_device_family")
+    ublox_device_serial_string = LaunchConfiguration("ublox_device_serial_string")
+    ublox_frame_id = LaunchConfiguration("ublox_frame_id")
+    ublox_config_file = LaunchConfiguration("ublox_config_file")
+    enable_unicore_gnss = LaunchConfiguration("enable_unicore_gnss")
+    unicore_serial_port = LaunchConfiguration("unicore_serial_port")
+    unicore_baudrate = LaunchConfiguration("unicore_baudrate")
+    unicore_frame_id = LaunchConfiguration("unicore_frame_id")
+    gnss_backend = LaunchConfiguration("gnss_backend")
     enable_foxglove = LaunchConfiguration("enable_foxglove")
     foxglove_port = LaunchConfiguration("foxglove_port")
     use_lidar = LaunchConfiguration("use_lidar")
+
+    # ------------------------------------------------------------------
+    # GNSS backend selection logic
+    # ------------------------------------------------------------------
+    # Auto-enable the appropriate backend based on gnss_backend argument
+    enable_ublox_condition = IfCondition(
+        PythonExpression(["'", gnss_backend, "' == 'ublox'"])
+    )
+    enable_unicore_condition = IfCondition(
+        PythonExpression(["'", gnss_backend, "' == 'unicore'"])
+    )
 
     # ------------------------------------------------------------------
     # Config paths
@@ -135,6 +232,37 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             "use_sim_time": use_sim_time,
             "serial_port": serial_port,
+            "hardware_backend": hardware_backend,
+        }.items(),
+    )
+
+    # ------------------------------------------------------------------
+    # 1b. Optional u-blox GNSS backend — vendor driver behind Mowgli adapter
+    # ------------------------------------------------------------------
+    ublox_gnss_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(bringup_dir, "launch", "ublox_gnss.launch.py")
+        ),
+        condition=enable_ublox_condition,
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "ublox_device_family": ublox_device_family,
+            "ublox_device_serial_string": ublox_device_serial_string,
+            "ublox_frame_id": ublox_frame_id,
+            "ublox_config_file": ublox_config_file,
+        }.items(),
+    )
+
+    unicore_gnss_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(bringup_dir, "launch", "unicore_gnss.launch.py")
+        ),
+        condition=enable_unicore_condition,
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "unicore_serial_port": unicore_serial_port,
+            "unicore_baudrate": unicore_baudrate,
+            "unicore_frame_id": unicore_frame_id,
         }.items(),
     )
 
@@ -324,12 +452,25 @@ def generate_launch_description() -> LaunchDescription:
             # Arguments
             use_sim_time_arg,
             serial_port_arg,
+            hardware_backend_arg,
             enable_mqtt_arg,
+            gnss_backend_arg,
+            enable_ublox_gnss_arg,
+            ublox_device_family_arg,
+            ublox_device_serial_string_arg,
+            ublox_frame_id_arg,
+            ublox_config_file_arg,
+            enable_unicore_gnss_arg,
+            unicore_serial_port_arg,
+            unicore_baudrate_arg,
+            unicore_frame_id_arg,
             enable_foxglove_arg,
             foxglove_port_arg,
             use_lidar_arg,
             # Subsystem includes
             mowgli_launch,
+            ublox_gnss_launch,
+            unicore_gnss_launch,
             navigation_launch,
             # Individual nodes
             behavior_tree_node,

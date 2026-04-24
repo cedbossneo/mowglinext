@@ -28,10 +28,10 @@ target_include_directories(gps_degradation_sim_node
     $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(gps_degradation_sim_node
-  rclcpp
-  geometry_msgs
-  std_msgs
+target_link_libraries(gps_degradation_sim_node
+  ${rclcpp_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${std_msgs_TARGETS}
 )
 
 # ---------------------------------------------------------------------------
@@ -47,10 +47,10 @@ target_include_directories(navsat_to_pose_node
     $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(navsat_to_pose_node
-  rclcpp
-  geometry_msgs
-  sensor_msgs
+target_link_libraries(navsat_to_pose_node
+  ${rclcpp_TARGETS}
+  ${geometry_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
 )
 
 # ---------------------------------------------------------------------------
@@ -66,11 +66,11 @@ target_include_directories(fake_hardware_bridge_node
     $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(fake_hardware_bridge_node
-  rclcpp
-  mowgli_interfaces
-  nav_msgs
-  sensor_msgs
+target_link_libraries(fake_hardware_bridge_node
+  ${rclcpp_TARGETS}
+  ${mowgli_interfaces_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
 )
 
 install(TARGETS

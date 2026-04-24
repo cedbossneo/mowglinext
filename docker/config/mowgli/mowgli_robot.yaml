@@ -6,10 +6,10 @@ mowgli:
     ros__parameters:
         automatic_mode: 0
         battery_critical_percent: 10
-        battery_critical_voltage: 23
-        battery_empty_voltage: 24
+        battery_critical_voltage: 22.5
+        battery_empty_voltage: 23
         battery_full_percent: 95
-        battery_full_voltage: 28.5
+        battery_full_voltage: 29.0
         battery_low_percent: 20
         blade_radius: 0.09
         coverage_xy_tolerance: 0.5
@@ -53,8 +53,8 @@ mowgli:
         mowing_enabled: true
         mowing_speed: 0.3
         ntrip_enabled: true
-        ntrip_host: caster.centipede.fr
-        ntrip_mountpoint: OUIL
+        ntrip_host: crtk.net
+        ntrip_mountpoint: NEAR
         ntrip_password: centipede
         ntrip_port: 2101
         ntrip_user: centipede

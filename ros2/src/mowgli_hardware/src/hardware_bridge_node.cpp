@@ -134,22 +134,24 @@ private:
 
   void create_publishers()
   {
-    pub_status_ = create_publisher<mowgli_interfaces::msg::Status>("~/status", rclcpp::QoS(10));
+    pub_status_ =
+        create_publisher<mowgli_interfaces::msg::Status>("~/status", rclcpp::SystemDefaultsQoS());
     pub_emergency_ =
-        create_publisher<mowgli_interfaces::msg::Emergency>("~/emergency", rclcpp::QoS(10));
-    pub_power_ = create_publisher<mowgli_interfaces::msg::Power>("~/power", rclcpp::QoS(10));
-    // RELIABLE, not SensorDataQoS — FusionCore subscribes RELIABLE and
-    // refuses BEST_EFFORT publishers with "incompatible QoS policy",
-    // which starved the filter of IMU/wheel data.
-    pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::QoS(10));
+        create_publisher<mowgli_interfaces::msg::Emergency>("~/emergency",
+                                                            rclcpp::SystemDefaultsQoS());
+    pub_power_ =
+        create_publisher<mowgli_interfaces::msg::Power>("~/power", rclcpp::SystemDefaultsQoS());
+    pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::SensorDataQoS());
     pub_wheel_odom_ =
-        create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
+        create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::SystemDefaultsQoS());
     pub_battery_state_ =
-        create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", rclcpp::QoS(10));
-    // Dock heading for FusionCore: while charging, publish dock yaw at
-    // 1 Hz so FusionCore has a heading anchor. Remapped to /gnss/heading
-    // in mowgli.launch.py. Stops automatically when robot undocks.
-    pub_dock_heading_ = create_publisher<sensor_msgs::msg::Imu>("~/dock_heading", rclcpp::QoS(10));
+        create_publisher<sensor_msgs::msg::BatteryState>("/battery_state",
+                                                         rclcpp::SystemDefaultsQoS());
+    // Dock heading for FusionCore: while charging, publish dock yaw on
+    // /gnss/heading at 1 Hz so FusionCore has a heading anchor.
+    // Stops automatically when robot undocks (GPS velocity takes over).
+    pub_dock_heading_ =
+        create_publisher<sensor_msgs::msg::Imu>("/gnss/heading", rclcpp::SystemDefaultsQoS());
     timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
                                             [this]()
                                             {
