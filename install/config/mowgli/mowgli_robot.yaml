@@ -21,13 +21,13 @@ mowgli:
         chassis_width: 0.4
         coverage_xy_tolerance: 0.5
         datum_alt: 70
-        datum_lat: 48.87965155
-        datum_lon: 2.17285422
+        datum_lat: 48.87964988
+        datum_lon: 2.17281321
         dock_approach_distance: 1
         dock_max_retries: 3
-        dock_pose_x: 0.179
-        dock_pose_y: 0.258
-        dock_pose_yaw: 3.8307   # -2.4525 rad / -140.52° — measured from /fusion/odom while docked (RTK Fixed σ=4 mm)
+        dock_pose_x: 0
+        dock_pose_y: 0
+        dock_pose_yaw: 3.8307
         dock_use_charger_detection: true
         emergency_stop_on_lift: true
         emergency_stop_on_tilt: true
@@ -42,11 +42,11 @@ mowgli:
         gps_y: 0
         gps_z: 0.2
         headland_width: 0.18
-        imu_pitch: 0.00768    # +0.44° — median of 2 clean dock cals (hardware_bridge "Implied mounting tilt")
-        imu_roll: -0.03003    # -1.72° — same; roll is the real non-zero component (pitch was <1°)
+        imu_pitch: -0.002857317037019718
+        imu_roll: 0.010526236043029748
         imu_x: 0.285
         imu_y: -0.17
-        imu_yaw: -3.0718
+        imu_yaw: 2.8410264041692064
         imu_z: 0.095
         lidar_enabled: true
         lidar_x: 0
@@ -86,6 +86,7 @@ mowgli:
         transit_speed: 0.4
         undock_distance: 1.5
         undock_speed: 0.15
+        use_lidar: true
         wheel_radius: 0.04475
         wheel_track: 0.325
         wheel_width: 0.04
