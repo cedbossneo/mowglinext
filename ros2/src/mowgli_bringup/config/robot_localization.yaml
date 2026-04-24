@@ -1,0 +1,219 @@
+# ---------------------------------------------------------------------------
+# robot_localization — alternative fusion stack, OpenMower-style
+# Three cooperating nodes:
+#
+#   ekf_odom_node         wheels + IMU gyro → odom → base_footprint
+#   navsat_transform_node /gps/fix + /odometry/filtered + /imu/data → /odometry/gps
+#                         (map-frame position derived from GPS, yaw seeded
+#                         from IMU orientation — not used here since our
+#                         IMU has no magnetometer; datum-based)
+#   ekf_map_node          same inputs as ekf_odom + /odometry/gps → map → odom
+#
+# Why 2 EKFs instead of 1: the "odom" frame stays continuous and drift-free
+# locally (safe reference for Nav2 local_costmap, collision_monitor), while
+# the "map" frame gets the jumpy GPS corrections. Canonical REP-105.
+#
+# Migration notes 2026-04-24:
+#   - FusionCore's 22D UKF would not collapse σ_xy below ~30 cm even under
+#     RTK-Fixed σ=5 mm; every Nav2 path got "start occupied" and the dock-
+#     return bug was the filter drifting 2 m during transit.
+#   - Our custom features in the FusionCore fork have robot_localization
+#     equivalents:
+#       * non-holonomic constraint    → two_d_mode + tight vy covariance in
+#                                        wheel_odom publisher
+#       * per-fix-type σ floors       → not needed (EKF honors NavSatFix.cov
+#                                        directly, and with frequent updates
+#                                        the filter converges to fix precision)
+#       * velocity-heading (GPS COG)  → navsat_transform provides natively
+#       * reverse-aware               → same
+#       * IMU bias tracking           → EKF has adaptive_noise option
+# ---------------------------------------------------------------------------
+
+# -----------------------------------------------------------------
+# 1. LOCAL EKF — dead-reckoning, never uses GPS
+# -----------------------------------------------------------------
+# Produces odom → base_footprint TF. Inputs: wheel twist + gyro_z.
+# Keep frequency at 50 Hz (same as current FusionCore) so Nav2's local
+# costmap and controllers see a smooth, high-rate pose.
+ekf_odom_node:
+  ros__parameters:
+    frequency: 50.0
+    sensor_timeout: 0.5
+    two_d_mode: true            # forces Z=0, roll=0, pitch=0
+    transform_time_offset: 0.0
+    transform_timeout: 0.1
+    print_diagnostics: false
+    debug: false
+    publish_tf: true
+    publish_acceleration: false
+    map_frame:           map
+    odom_frame:          odom
+    base_link_frame:     base_footprint
+    world_frame:         odom     # LOCAL EKF produces odom → base_footprint
+
+    # ─ Wheel odometry (vx, wz only; vy locked to 0 via covariance) ─
+    # hardware_bridge publishes wheel_odom with:
+    #   twist.linear.x   = vx      (cov=0.01 m²/s² ≈ σ=10 cm/s)
+    #   twist.angular.z  = wz      (cov=9e-4 rad²/s² ≈ σ=0.03 rad/s)
+    #   twist.linear.y   = 0.0     (cov=1e-4 → tight non-holo constraint)
+    # The cov on linear.y is what gives us the non-holonomic lock without
+    # needing a separate pseudo-measurement node.
+    odom0: /wheel_odom
+    odom0_config: [false, false, false,   # x, y, z         — no abs position
+                   false, false, false,   # roll, pitch, yaw — no abs orientation
+                   true,  true,  false,   # vx, vy, vz      — fuse vx + vy=0
+                   false, false, true,    # vroll, vpitch, vyaw — fuse wz
+                   false, false, false]   # ax, ay, az      — not available
+    odom0_queue_size: 10
+    odom0_differential: false   # not integrating abs pose anyway
+    odom0_relative: false
+    odom0_nodelay: false
+
+    # ─ IMU — gyro_z only (no magnetometer → no absolute yaw) ─
+    # /imu/data carries identity orientation with loose yaw covariance (99);
+    # tight roll/pitch (0.001) so orientation fusion here is roll+pitch only.
+    # Angular velocity z is the primary short-term yaw source.
+    imu0: /imu/data
+    imu0_config: [false, false, false,    # x, y, z
+                  true,  true,  false,    # roll, pitch, yaw — only roll/pitch
+                  false, false, false,    # vx, vy, vz
+                  false, false, true,     # vroll, vpitch, vyaw — fuse gyro_z
+                  false, false, false]    # ax, ay, az — not fusing; drift-prone
+    imu0_queue_size: 50
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+    imu0_nodelay: false
+
+    # ─ Optional: Kinematic-ICP twist (lidar drift correction) ─
+    # When use_lidar=true, the kinematic_icp_encoder_adapter publishes
+    # body-frame twist on /encoder2/odom. Fuse as a second velocity source.
+    # Commented out for first validation — enable once base stack works.
+    # odom1: /encoder2/odom
+    # odom1_config: [false, false, false,
+    #                false, false, false,
+    #                true,  true,  false,
+    #                false, false, true,
+    #                false, false, false]
+    # odom1_queue_size: 10
+    # odom1_differential: false
+
+    # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
+    # Starting with defaults; tune after we have a session to compare.
+    process_noise_covariance:  # 15x15 diagonal, row-major
+      [0.05, 0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0.05, 0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0.06, 0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0.03, 0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0.03, 0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0.06, 0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0.025,0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0.025,0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0.04,  0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0.01,  0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0.01,  0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0.02,  0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0.01, 0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0.01, 0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0.015]
+
+# -----------------------------------------------------------------
+# 2. NAVSAT TRANSFORM — NavSatFix → /odometry/gps in map frame
+# -----------------------------------------------------------------
+# Takes /gps/fix + /odometry/filtered (from ekf_odom) + /imu/data and
+# produces /odometry/gps (an Odometry message in map frame at the GPS
+# arrival rate). This is what ekf_map fuses.
+#
+# Datum mode: we use a FIXED datum (lat/lon from mowgli_robot.yaml) so
+# the map frame has the same origin across restarts — saved area polygons
+# and dock pose stay valid. Overridden at launch from mowgli_robot.yaml.
+navsat_transform_node:
+  ros__parameters:
+    frequency: 30.0
+    delay: 0.0
+    magnetic_declination_radians: 0.0   # no magnetometer; irrelevant
+    yaw_offset: 0.0                     # IMU coordinate frame convention
+    zero_altitude: false                # keep absolute altitude
+    publish_filtered_gps: true
+    broadcast_utm_transform: false      # no UTM frame needed
+    broadcast_utm_transform_as_parent_frame: false
+    use_odometry_yaw: true              # use /odometry/filtered yaw as
+                                         # heading anchor (since our IMU
+                                         # has no magnetometer)
+    wait_for_datum: false               # use fixed datum from params
+    # datum: [lat_deg, lon_deg, yaw_rad] — overridden at launch
+
+# -----------------------------------------------------------------
+# 3. GLOBAL EKF — with GPS, produces map → odom correction
+# -----------------------------------------------------------------
+# Inputs: same as ekf_odom PLUS /odometry/gps. Publishes map → odom TF.
+ekf_map_node:
+  ros__parameters:
+    frequency: 30.0                     # match navsat_transform output
+    sensor_timeout: 0.5
+    two_d_mode: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.1
+    print_diagnostics: false
+    debug: false
+    publish_tf: true
+    publish_acceleration: false
+    map_frame:           map
+    odom_frame:          odom
+    base_link_frame:     base_footprint
+    world_frame:         map       # GLOBAL EKF produces map → odom
+
+    # ─ Wheel odometry ─
+    odom0: /wheel_odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_differential: false
+
+    # ─ GPS (NavSatFix → ENU via navsat_transform) ─
+    odom1: /odometry/gps
+    odom1_config: [true,  true,  false,   # x, y        — absolute position
+                   false, false, false,   # orientation — navsat_transform
+                                           #               doesn't give yaw
+                                           #               (no magnetometer),
+                                           #               rely on dead-
+                                           #               reckoning + COG via
+                                           #               ekf_odom
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    odom1_queue_size: 10
+    odom1_differential: false
+    odom1_relative: false
+    odom1_nodelay: false
+
+    # ─ IMU (same as ekf_odom) ─
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  true,  true,  false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    imu0_queue_size: 50
+    imu0_remove_gravitational_acceleration: true
+
+    # Process noise — same as ekf_odom
+    process_noise_covariance:
+      [0.05, 0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0.05, 0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0.06, 0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0.03, 0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0.03, 0,    0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0.06, 0,    0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0.025,0,    0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0.025,0,     0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0.04,  0,     0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0.01,  0,     0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0.01,  0,     0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0.02,  0,    0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0.01, 0,    0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0.01, 0,
+       0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,     0,    0,    0.015]

@@ -90,12 +90,38 @@ def generate_launch_description() -> LaunchDescription:
         description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Also skips Kinematic-ICP LiDAR odometry.",
     )
 
+    # Migration 2026-04-24: allow switching the localization backend at
+    # launch time. "fusioncore" is the current default (22D quaternion UKF
+    # from submodule). "robot_localization" runs the OpenMower-style dual
+    # EKF stack (ekf_odom + navsat_transform + ekf_map). Use the latter to
+    # validate whether σ_xy collapses to RTK floor and whether the
+    # docking-drift bug is resolved.
+    localization_backend_arg = DeclareLaunchArgument(
+        "localization_backend",
+        default_value="fusioncore",
+        choices=["fusioncore", "robot_localization"],
+        description=(
+            "Which fusion stack to run. fusioncore = 22D UKF submodule "
+            "(current default, publishes map static-identity + odom→base TF). "
+            "robot_localization = dual EKF (ekf_odom publishes odom→base TF, "
+            "ekf_map publishes map→odom correction, navsat_transform bridges GPS)."
+        ),
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_ekf = LaunchConfiguration("use_ekf")
     use_lidar = LaunchConfiguration("use_lidar")
+    localization_backend = LaunchConfiguration("localization_backend")
+    # Condition substitutions — evaluated at launch time
+    use_fusioncore_cond = PythonExpression([
+        "'", localization_backend, "' == 'fusioncore'"
+    ])
+    use_robotloc_cond = PythonExpression([
+        "'", localization_backend, "' == 'robot_localization'"
+    ])
 
     # ------------------------------------------------------------------
     # Config paths
@@ -305,7 +331,10 @@ def generate_launch_description() -> LaunchDescription:
     #    Publishes odom → base_footprint TF. GPS-RTK anchored.
     # ------------------------------------------------------------------
     fusioncore_node = LifecycleNode(
-        condition=IfCondition(use_ekf),
+        condition=IfCondition(PythonExpression([
+            "'", use_ekf, "'.lower() in ('true', '1') and '",
+            localization_backend, "' == 'fusioncore'"
+        ])),
         package="fusioncore_ros",
         executable="fusioncore_node",
         name="fusioncore_node",
@@ -379,7 +408,10 @@ def generate_launch_description() -> LaunchDescription:
     #    dead-reckoning by feeding FusionCore's encoder2 slot (see
     #    kinematic_icp.launch.py, gated on use_lidar).
     # ------------------------------------------------------------------
+    # Only in the fusioncore backend: map == odom. With robot_localization
+    # the ekf_map_node publishes the (non-identity) map→odom correction.
     static_map_odom_tf = Node(
+        condition=IfCondition(use_fusioncore_cond),
         package="tf2_ros",
         executable="static_transform_publisher",
         name="static_map_odom_tf",
@@ -459,6 +491,73 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # Alternative localization backend: robot_localization
+    # ------------------------------------------------------------------
+    # Three nodes. Active only when localization_backend == "robot_localization".
+    # ekf_odom_node         : wheels + IMU gyro → odom → base_footprint TF
+    # navsat_transform_node : /gps/fix + /odometry/filtered → /odometry/gps
+    # ekf_map_node          : wheels + IMU + /odometry/gps → map → odom TF
+    robot_localization_params = os.path.join(
+        bringup_dir, "config", "robot_localization.yaml"
+    )
+
+    ekf_odom_node = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_odom_node",
+        output="screen",
+        parameters=[
+            robot_localization_params,
+            {"use_sim_time": use_sim_time},
+        ],
+        remappings=[
+            ("odometry/filtered", "/odometry/filtered"),
+        ],
+    )
+
+    # Datum triple [lat, lon, yaw]. yaw stays 0 — our IMU has no
+    # magnetometer so yaw can't be anchored to true north at boot;
+    # robot yaw will align to GPS track after the first straight
+    # motion, and to dock_pose_yaw at dock reset (same as fusioncore
+    # behavior). Datum lat/lon must match what was used to save
+    # areas / dock pose, otherwise saved coordinates shift.
+    navsat_transform_node = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="robot_localization",
+        executable="navsat_transform_node",
+        name="navsat_transform_node",
+        output="screen",
+        parameters=[
+            robot_localization_params,
+            {"use_sim_time": use_sim_time},
+            {"datum": [datum_lat_deg, datum_lon_deg, 0.0]},
+        ],
+        remappings=[
+            ("imu/data", "/imu/data"),
+            ("gps/fix", "/gps/fix"),
+            ("odometry/filtered", "/odometry/filtered"),
+            ("odometry/gps", "/odometry/gps"),
+            ("gps/filtered", "/gps/filtered"),
+        ],
+    )
+
+    ekf_map_node = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_map_node",
+        output="screen",
+        parameters=[
+            robot_localization_params,
+            {"use_sim_time": use_sim_time},
+        ],
+        remappings=[
+            ("odometry/filtered", "/odometry/filtered_map"),
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -466,10 +565,17 @@ def generate_launch_description() -> LaunchDescription:
             use_sim_time_arg,
             use_ekf_arg,
             use_lidar_arg,
+            localization_backend_arg,
+            # fusioncore stack (conditional)
             static_map_odom_tf,
             fusioncore_node,
             fusioncore_configure,
             fusioncore_start,
+            # robot_localization stack (conditional)
+            ekf_odom_node,
+            navsat_transform_node,
+            ekf_map_node,
+            # shared
             kinematic_icp_group,
             wait_for_map_odom_tf,
             nav2_after_tf,
