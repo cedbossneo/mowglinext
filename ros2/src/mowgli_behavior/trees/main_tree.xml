@@ -209,25 +209,12 @@
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
           <WaitForDuration duration_sec="1.0"/>
           <Fallback name="UndockOrSkip">
-            <!-- Not on dock: skip the full undock sequence. Do a short
-                 reverse if possible so velocity-heading can observe yaw,
-                 but always return SUCCESS — don't fall through to the
-                 1 m undock BackUp which assumes a dock-aligned start
-                 pose and pushes the robot in a fixed direction
-                 regardless of where it actually is. If the short BackUp
-                 fails (Nav2 abort, timeout, boundary refusal), we still
-                 proceed to coverage; velocity-heading will correct yaw
-                 from the mowing motion itself.
-                 Wrapping BackUp in a Fallback→AlwaysSuccess makes the
-                 whole NotDockedBranch non-failing. -->
+            <!-- Not on dock: no physical undock motion needed. Yaw seeding
+                 happens uniformly after this Fallback via SeedYawFromMotion,
+                 which drives the robot 1 m forward and sets the EKF heading
+                 from GPS track direction — no reverse wiggle required. -->
             <Sequence name="NotDockedBranch">
               <Inverter><IsCharging/></Inverter>
-              <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
-              <Fallback>
-                <BackUp backup_dist="0.3" backup_speed="0.20"/>
-                <AlwaysSuccess/>
-              </Fallback>
-              <WaitForDuration duration_sec="0.5"/>
             </Sequence>
             <!-- On dock — wait for GPS, save map, then undock. IsCharging
                  gate ensures we only run the docked-undock path when the
@@ -255,38 +242,23 @@
                   </Sequence>
                 </Fallback>
               </RetryUntilSuccessful>
-              <!-- Save SLAM map while docked with correct heading.
-                   If undock flips heading, restart loads this good map. -->
               <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
               <RecordUndockStart/>
-              <!-- Nav2 readiness is already guaranteed by the Nav2Active
-                   poll above UndockOrSkip; the old hardcoded 30 s sleep
-                   here is no longer needed. -->
               <ClearCostmap/>
-              <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
-                   uses geometric distance to dock pose which fails with
-                   SLAM relocalization drift. BackUp reliably reverses
-                   off the dock via Nav2 behavior_server.
-                   Distance trimmed from 2.0m to 1.0m after an observed
-                   boundary-violation: 2m put the robot ~0.3m past the
-                   east edge of a tight garden polygon. 1m gives the F9P
-                   enough displacement to calibrate undock heading while
-                   staying safely inside typical boundaries. -->
-              <!-- 0.5 m (was 1.0 m and 2.0 m before). 1 m reversed the
-                   robot off the dock but also often far enough past the
-                   polygon edge that BoundaryGuard fired immediately.
-                   0.5 m gives the F9P ~2.5 s × 0.2 m/s of GPS
-                   displacement to calibrate yaw via velocity-heading
-                   while staying inside typical dock-adjacent polygon
-                   margins. -->
+              <!-- BackUp via Nav2 behavior_server instead of
+                   opennav_docking's UndockRobot: opennav's isDocked() uses
+                   a geometric distance to the dock pose that is fragile
+                   when RTK drifts briefly near the metal canopy. BackUp is
+                   deterministic — reverse at the given speed for the
+                   given distance. 0.5 m is enough to clear the dock; any
+                   further and tight garden polygons start triggering
+                   BoundaryGuard on the way out. -->
               <BackUp backup_dist="0.5" backup_speed="0.20"/>
               <!-- Wait for RTK Fixed after undock. The dock often has a
                    metal canopy that attenuates GPS; once the robot is 2 m
                    out the F9P should re-acquire quickly. Timeout proceeds
                    anyway at degraded precision rather than freeze. -->
               <WaitForGpsFix timeout_sec="20.0" min_fix_type="4"/>
-              <!-- Compute heading from GPS displacement during undock -->
-              <CalibrateHeadingFromUndock/>
               <!-- Clear costmaps again after undock — dock structure must be
                    cleared before navigation starts. -->
               <ClearCostmap/>
@@ -299,6 +271,15 @@
               <AlwaysFailure/>
             </Sequence>
           </Fallback>
+
+          <!-- Seed the global EKF with a GPS-derived heading before any
+               Nav2 action runs. robot_localization has no absolute heading
+               reference at boot (no magnetometer, IMU yaw is pure gyro
+               integration), so without this seed Nav2 would pick a random
+               initial direction. Runs once per session via tree topology
+               regardless of whether we just undocked or started off-dock. -->
+          <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
+          <SeedYawFromMotion distance_m="1.0" speed_ms="0.2" timeout_sec="30.0"/>
 
           <!-- Record if it was raining at start — user chose to mow in rain -->
           <WasRainingAtStart/>
@@ -355,7 +336,7 @@
                   <Fallback name="RainResumeUndock">
                     <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
                    uses geometric distance to dock pose which fails with
-                   SLAM relocalization drift. BackUp reliably reverses
+                   RTK drift near the dock canopy. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
               <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
@@ -402,7 +383,7 @@
                   <Fallback name="ResumeUndockOrAbort">
                     <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
                    uses geometric distance to dock pose which fails with
-                   SLAM relocalization drift. BackUp reliably reverses
+                   RTK drift near the dock canopy. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
               <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
