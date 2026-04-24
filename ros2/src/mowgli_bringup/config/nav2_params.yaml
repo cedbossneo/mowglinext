@@ -323,11 +323,13 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
-      # TF tolerance: how stale a transform can be before the costmap rejects it.
-      # Keep this short — stale TF after SLAM corrections projects scans into
-      # wrong cells, creating phantom obstacles.  SLAM init delay is handled by
-      # wait_for_tf.py, not this parameter.
-      transform_tolerance: 5.0
+      # TF tolerance: how stale a transform can be before the costmap rejects
+      # it. At 0.8 rad/s max angular velocity the old 5.0s allowed up to 229°
+      # of rotation error on cached TFs — exactly the "pollution during
+      # rotation" symptom observed on the 2026-04-24 mow test. 0.5 s still
+      # absorbs the ~300 ms ARM scheduler jitter that motivated the earlier
+      # bump, while capping the per-scan rotation smear at ≤22°.
+      transform_tolerance: 0.5
       # Force periodic full publishes even when no obstacles change, so
       # isCurrent() reliably flips true for the planner's waitForCurrent.
       always_send_full_costmap: true
@@ -417,11 +419,11 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_footprint
-      # Raised from default 0.3s: on ARM the odom→base_footprint TF lookup
-      # occasionally exceeds 300ms of scheduler jitter, causing updateMap()
-      # to early-return without setting current_=true → controller_server's
-      # waitForCurrent times out every goal with error 107.
-      transform_tolerance: 5.0
+      # 0.5 s: balances ARM ~300 ms scheduler jitter against rotation-smear
+      # in scan projection. The 5.0 s value used before the 2026-04-24
+      # robot_localization test let stale TFs up to 229° out of date drive
+      # obstacle placement when the robot was rotating.
+      transform_tolerance: 0.5
       # Force periodic full publishes. Without this (default false), the
       # costmap only publishes when its map changes — but with only the
       # inflation_layer and no obstacle source, the map rarely changes,
