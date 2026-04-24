@@ -42,6 +42,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "std_srvs/srv/trigger.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace mowgli_localization
 {
@@ -84,9 +86,28 @@ private:
   /// Standard-msg twin of the AbsolutePose topic. robot_localization's EKF
   /// pose0 input expects PoseWithCovarianceStamped; AbsolutePose is a
   /// Mowgli-specific type and not subscribable by the EKF.
+  ///
+  /// UNLIKE pose_pub_ this publishes BASE FRAME (base_footprint) position —
+  /// not antenna position. Lever arm is subtracted using the latest
+  /// map→base_footprint TF for the yaw at GPS-fix time. Required so the
+  /// EKF tracks the robot body and not the 30-cm antenna circle traced
+  /// during pure rotation.
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_pub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr set_datum_srv_;
+
+  /// TF listener to resolve base_footprint↔gps_link (static from URDF,
+  /// gives the lever arm) and odom↔base_footprint (dynamic from ekf_odom,
+  /// gives current yaw). First-successful-lookup latches the lever arm;
+  /// yaw is looked up fresh each fix. We intentionally use the ODOM-frame
+  /// yaw (wheels+gyro) rather than the map-frame yaw because ekf_map
+  /// consumes this pose_cov topic and using its yaw would feed back into
+  /// the lever arm correction, amplifying rotational noise.
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  bool lever_arm_known_{false};
+  double lever_arm_x_{0.0};
+  double lever_arm_y_{0.0};
 };
 
 }  // namespace mowgli_localization

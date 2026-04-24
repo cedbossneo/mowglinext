@@ -265,7 +265,13 @@ class MowSessionMonitor(Node):
             self.create_subscription(msg_type, topic, callback, qos, callback_group=cb)
 
         # FusionCore output
+        # Subscribe to both FusionCore and robot_localization fused-pose
+        # outputs; _fusion_odom_cb doesn't care which one is publishing. In
+        # the FusionCore backend /fusion/odom is live and /odometry/filtered_map
+        # is silent; in the robot_localization backend it's the reverse.
+        # Whichever arrives populates the same LatestState.fusion_* fields.
         sub("/fusion/odom", Odometry, self._fusion_odom_cb, QOS_RELIABLE)
+        sub("/odometry/filtered_map", Odometry, self._fusion_odom_cb, QOS_RELIABLE)
 
         # Wheels + IMU (hardware_bridge publishes RELIABLE; IMU is sensor QoS from
         # some sources, so accept both with best-effort as a fallback subscriber)
