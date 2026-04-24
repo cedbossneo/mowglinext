@@ -540,8 +540,6 @@ docking_server:
       # Geometric distance (m) from base_link to dock pose for isDocked().
       # RTK-Fixed gives σ ~3 mm, so 0.05 m is a comfortable envelope
       # covering antenna-lever-arm effects and short GPS glitches.
-      # (The earlier 0.5 m was a concession to lifelong-SLAM drift, which
-      # no longer applies — FusionCore is the sole localizer.)
       docking_threshold: 0.05
       staging_x_offset: -1.0
       use_external_detection_pose: false

@@ -38,44 +38,6 @@ fusioncore_node:
     # TF carry real altitude; the costmap rolling_window already ignores Z.
     publish.force_2d: false
 
-    # QoS overrides — ublox_dgnss publishes /gps/fix BEST_EFFORT (sensor-data
-    # convention). FusionCore's default subscription QoS is RELIABLE, which
-    # refuses BEST_EFFORT publishers. The overrides below also exist for
-    # /imu/data and /wheel_odom, though hardware_bridge intentionally
-    # publishes those RELIABLE today (see hardware_bridge_node.cpp:141).
-    # NOTE: FusionCore subscriptions are created without qos_overriding_options
-    # enabled, so these entries are effectively no-ops — present for parity
-    # with other Mowgli configs until fusioncore adopts them upstream.
-    qos_overrides:
-      /imu/data:
-        subscription:
-          reliability: best_effort
-          durability: volatile
-          history: keep_last
-          depth: 10
-      /wheel_odom:
-        subscription:
-          reliability: best_effort
-          durability: volatile
-          history: keep_last
-          depth: 10
-      /gps/fix:
-        subscription:
-          reliability: best_effort
-          durability: volatile
-          history: keep_last
-          depth: 10
-      /gnss/heading:
-        subscription:
-          reliability: reliable
-          durability: volatile
-          history: keep_last
-          depth: 10
-      # NOTE: no qos_overrides for /encoder2/odom — FusionCore doesn't
-      # opt into the rclcpp QoS-override mechanism on its subscriptions,
-      # so entries here are effectively no-ops. The adapter on the other
-      # end publishes RELIABLE to match.
-
     # IMU: differential gyro + accel only — no magnetometer.
     # hardware_bridge publishes identity orientation (no real heading).
     # has_magnetometer must be false so FusionCore only uses gyro rates.

@@ -131,13 +131,6 @@ mowgli:
     max_obstacle_avoidance_distance: 2.0  # how far to deviate from path
 
     # -----------------------------------------------------------------
-    # SLAM / Mapping
-    # -----------------------------------------------------------------
-    slam_mode: "lifelong"          # mapping | localization | lifelong
-    map_save_path: "/ros2_ws/maps/garden_map"
-    map_save_on_dock: true         # save SLAM map before docking
-
-    # -----------------------------------------------------------------
     # Navigation tolerances (garden terrain)
     # -----------------------------------------------------------------
     xy_goal_tolerance: 0.75        # metres — acceptable goal position error
