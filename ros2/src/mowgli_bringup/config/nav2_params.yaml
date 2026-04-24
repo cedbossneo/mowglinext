@@ -525,8 +525,8 @@ local_costmap:
         inflation_radius: 0.40
 
 # ---------------------------------------------------------------------------
-# Map server / AMCL (unused — map->odom is a static identity with
-# Kinematic-ICP drift correction feeding FusionCore's encoder2 slot;
+# Map server / AMCL (unused — map->odom is published by ekf_map_node
+# with Kinematic-ICP drift correction feeding ekf_odom_node's odom1 slot;
 # kept for completeness / Nav2 lifecycle compatibility)
 # ---------------------------------------------------------------------------
 map_server:
@@ -552,7 +552,7 @@ docking_server:
     # 10 Hz (was 2 Hz): tighter approach control + faster polling of
     # isDocked()/isCharging() so the robot stops within ~100 ms of the
     # charging signal arriving rather than up to ~500 ms. Not high
-    # enough to starve Nav2/FusionCore on ARM.
+    # enough to starve Nav2/robot_localization on ARM.
     controller_frequency: 10.0
     initial_perception_timeout: 5.0
     # Firmware sets STATUS_BIT_CHARGING only after its own ADC debounce

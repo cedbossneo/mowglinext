@@ -102,9 +102,9 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 2. Navigation stack — FusionCore, static map->odom, Nav2
-    #    navigation.launch.py publishes a static identity map -> odom, so
-    #    no extra TF publisher is needed here.
+    # 2. Navigation stack — robot_localization (dual EKF), Nav2
+    #    ekf_map_node publishes map -> odom, ekf_odom_node publishes
+    #    odom -> base_footprint, so no extra TF publisher is needed here.
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

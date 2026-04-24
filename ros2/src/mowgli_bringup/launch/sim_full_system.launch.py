@@ -24,7 +24,7 @@ behavior stack, using simulated time throughout.
 
 Brings up:
   1. mowgli_simulation/launch/simulation.launch.py — Gazebo world + spawned robot
-  2. navigation.launch.py                          — FusionCore, static map->odom, Nav2
+  2. navigation.launch.py                          — robot_localization (dual EKF), Nav2
   3. Behavior tree node                             — mowgli_behavior
   4. Map server                                     — mowgli_map
   5. Coverage server                                — opennav_coverage
@@ -144,11 +144,11 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 2. Navigation stack — FusionCore, static map->odom, Nav2
-    #    FusionCore publishes odom -> base_footprint; navigation.launch.py
-    #    publishes a static identity map -> odom. Kinematic-ICP drift
-    #    correction is real-robot only (requires LiDAR on ARM); sim runs
-    #    open-loop GPS-only for now.
+    # 2. Navigation stack — robot_localization (dual EKF), Nav2
+    #    ekf_odom_node publishes odom -> base_footprint; ekf_map_node
+    #    publishes map -> odom. Kinematic-ICP drift correction is
+    #    real-robot only (requires LiDAR on ARM); sim runs open-loop
+    #    GPS-only for now.
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -247,8 +247,8 @@ def generate_launch_description() -> LaunchDescription:
 
     # ------------------------------------------------------------------
     # 9. GPS notes
-    #    FusionCore takes /gps/fix (NavSatFix) directly from Gazebo.
-    #    navsat_to_pose_node is no longer needed (was for old EKF).
+    #    navsat_transform_node takes /gps/fix (NavSatFix) directly from Gazebo.
+    #    navsat_to_pose_node is no longer needed.
     #    GPS degradation simulator needs rewriting to intercept NavSatFix
     #    instead of PoseWithCovarianceStamped — disabled for now.
     # TODO: rewrite gps_degradation_sim_node to modify NavSatFix messages
