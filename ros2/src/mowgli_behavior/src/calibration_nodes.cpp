@@ -22,6 +22,26 @@
 namespace mowgli_behavior
 {
 
+namespace
+{
+
+// Fill the covariance block for a yaw-plus-xy seed: tight trust on the
+// states we want to set, effectively infinite variance on the states we
+// want the filter to keep from its prior.
+void set_seed_covariance(geometry_msgs::msg::PoseWithCovarianceStamped& msg,
+                         double yaw_var)
+{
+  msg.pose.covariance.fill(0.0);
+  msg.pose.covariance[0]  = 0.01;      // x
+  msg.pose.covariance[7]  = 0.01;      // y
+  msg.pose.covariance[14] = 1e6;       // z (keep prior)
+  msg.pose.covariance[21] = 1e6;       // roll (keep prior)
+  msg.pose.covariance[28] = 1e6;       // pitch (keep prior)
+  msg.pose.covariance[35] = yaw_var;
+}
+
+}  // namespace
+
 // ---------------------------------------------------------------------------
 // RecordUndockStart
 // ---------------------------------------------------------------------------
@@ -36,6 +56,86 @@ BT::NodeStatus RecordUndockStart::tick()
               "RecordUndockStart: pos=(%.3f, %.3f)",
               ctx->undock_start_x,
               ctx->undock_start_y);
+  return BT::NodeStatus::SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// CalibrateHeadingFromUndock
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus CalibrateHeadingFromUndock::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!ctx->undock_start_recorded)
+  {
+    // RecordUndockStart never fired (e.g., fresh retry after a failed
+    // undock where the node was halted). Report SUCCESS rather than
+    // FAILURE so the rest of the sequence runs; the dock_yaw injection
+    // (hardware_bridge → ekf_map via dock_yaw_to_set_pose) is still
+    // active and will have seeded the filter from the charging state.
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "CalibrateHeadingFromUndock: no undock_start recorded, "
+                "skipping (relying on dock_yaw seed).");
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  double min_displacement = 0.5;
+  getInput("min_displacement_m", min_displacement);
+
+  const double dx = ctx->gps_x - ctx->undock_start_x;
+  const double dy = ctx->gps_y - ctx->undock_start_y;
+  const double dist = std::hypot(dx, dy);
+
+  if (dist < min_displacement)
+  {
+    // BackUp reported complete but GPS barely moved — robot is likely
+    // still stuck on the dock latch. Fail so UndockSequence fails and
+    // the outer ReactiveSequence retries.
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "CalibrateHeadingFromUndock: displacement %.3fm below "
+                "min %.3fm — BackUp did not actually move the robot.",
+                dist, min_displacement);
+    // Mark the snapshot consumed so a retry does not falsely see old data.
+    ctx->undock_start_recorded = false;
+    return BT::NodeStatus::FAILURE;
+  }
+
+  // Robot moved backward during the BackUp. Motion vector (dx, dy) points
+  // OPPOSITE to the robot's heading, so heading = atan2(-dy, -dx).
+  const double yaw = std::atan2(-dy, -dx);
+
+  if (!set_pose_pub_)
+  {
+    auto qos = rclcpp::QoS(1).reliable();
+    set_pose_pub_ = ctx->node->create_publisher<
+        geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/ekf_map_node/set_pose", qos);
+  }
+
+  geometry_msgs::msg::PoseWithCovarianceStamped seed{};
+  seed.header.stamp = ctx->node->now();
+  seed.header.frame_id = "map";
+  seed.pose.pose.position.x = ctx->gps_x;
+  seed.pose.pose.position.y = ctx->gps_y;
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, yaw);
+  seed.pose.pose.orientation.x = q.x();
+  seed.pose.pose.orientation.y = q.y();
+  seed.pose.pose.orientation.z = q.z();
+  seed.pose.pose.orientation.w = q.w();
+  // σ ≈ atan(GPS_σ / displacement). With σ_GPS ~ 7 mm and displacement
+  // ≥ 0.5 m that's ~0.014 rad ≈ 0.8°; variance = 2 × 10⁻⁴.
+  set_seed_covariance(seed, 2e-4);
+  set_pose_pub_->publish(seed);
+
+  ctx->undock_start_recorded = false;
+  ctx->yaw_seeded_this_session = true;
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "CalibrateHeadingFromUndock: dist=%.3fm yaw_seed=%.1f° "
+              "pos=(%.3f, %.3f) — set_pose published.",
+              dist, yaw * 180.0 / M_PI, ctx->gps_x, ctx->gps_y);
   return BT::NodeStatus::SUCCESS;
 }
 
@@ -62,6 +162,16 @@ BT::NodeStatus SeedYawFromMotion::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
+  if (ctx->yaw_seeded_this_session)
+  {
+    // Already seeded this session — don't re-drive on ReactiveSequence
+    // halt/resume cycles.
+    RCLCPP_DEBUG(ctx->node->get_logger(),
+                 "SeedYawFromMotion: yaw already seeded this session, "
+                 "skipping forward drive.");
+    return BT::NodeStatus::SUCCESS;
+  }
+
   if (!cmd_pub_)
   {
     cmd_pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>(
@@ -69,10 +179,6 @@ BT::NodeStatus SeedYawFromMotion::onStart()
   }
   if (!set_pose_pub_)
   {
-    // ekf_map subscribes to set_pose as a topic (PoseWithCovarianceStamped).
-    // Reliable + volatile: we want the seed delivered once, but not replayed
-    // if ekf_map restarts later — a stale seed would snap the filter to an
-    // old position.
     auto qos = rclcpp::QoS(1).reliable();
     set_pose_pub_ = ctx->node->create_publisher<
         geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -88,8 +194,6 @@ BT::NodeStatus SeedYawFromMotion::onStart()
   getInput("timeout_sec", timeout_sec_);
   getInput("min_displacement_m", min_displacement_m_);
 
-  // Need a fresh GPS fix to record start. The dock canopy may attenuate the
-  // first seconds of fix — caller is expected to have run WaitForGpsFix.
   if (!ctx->gps_is_fixed)
   {
     RCLCPP_WARN(ctx->node->get_logger(),
@@ -166,19 +270,10 @@ BT::NodeStatus SeedYawFromMotion::onRunning()
   seed.pose.pose.orientation.y = q.y();
   seed.pose.pose.orientation.z = q.z();
   seed.pose.pose.orientation.w = q.w();
-
-  // Tight covariance for x/y (GPS-quality seed) and yaw (validated by 1m of
-  // GPS-verified motion — σ ≈ atan2(GPS_σ / displacement) ≈ 7mm/1m ≈ 0.4°).
-  // High variance on the states we don't want to set (z, roll, pitch), so
-  // the filter keeps its prior there.
-  seed.pose.covariance.fill(0.0);
-  seed.pose.covariance[0]  = 0.01;      // x
-  seed.pose.covariance[7]  = 0.01;      // y
-  seed.pose.covariance[14] = 1e6;       // z (don't touch)
-  seed.pose.covariance[21] = 1e6;       // roll
-  seed.pose.covariance[28] = 1e6;       // pitch
-  seed.pose.covariance[35] = 0.005;     // yaw (~4° σ)
+  set_seed_covariance(seed, 5e-3);  // ~4° σ
   set_pose_pub_->publish(seed);
+
+  ctx->yaw_seeded_this_session = true;
 
   RCLCPP_INFO(ctx->node->get_logger(),
               "SeedYawFromMotion: dist=%.3fm yaw_seed=%.1f° pos=(%.3f, %.3f) — "

@@ -62,6 +62,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<SetNavMode>("SetNavMode");
   factory.registerNodeType<WasRainingAtStart>("WasRainingAtStart");
   factory.registerNodeType<RecordUndockStart>("RecordUndockStart");
+  factory.registerNodeType<CalibrateHeadingFromUndock>("CalibrateHeadingFromUndock");
   factory.registerNodeType<SeedYawFromMotion>("SeedYawFromMotion");
   factory.registerNodeType<DockRobot>("DockRobot");
   factory.registerNodeType<UndockRobot>("UndockRobot");

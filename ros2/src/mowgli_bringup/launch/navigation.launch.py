@@ -575,6 +575,25 @@ def generate_launch_description() -> LaunchDescription:
         ],
         remappings=[
             ("odometry/filtered", "/odometry/filtered_map"),
+            # robot_localization defaults to a global /set_pose topic shared
+            # by both EKFs. Remap ekf_map's subscription to a node-unique
+            # name so seeding ekf_map does not also reset ekf_odom.
+            ("set_pose", "/ekf_map_node/set_pose"),
+        ],
+    )
+
+    # Seeds ekf_map with the dock heading on rising edges of is_charging.
+    # Replaces FusionCore's /gnss/heading consumer, which does not exist in
+    # the robot_localization stack. Fires once per docking event plus once
+    # at boot if the robot is already docked.
+    dock_yaw_to_set_pose = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="mowgli_localization",
+        executable="dock_yaw_to_set_pose.py",
+        name="dock_yaw_to_set_pose",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
         ],
     )
 
@@ -597,6 +616,7 @@ def generate_launch_description() -> LaunchDescription:
             ekf_odom_node,
             navsat_transform_node,
             ekf_map_node,
+            dock_yaw_to_set_pose,
             # shared
             kinematic_icp_group,
             wait_for_map_odom_tf,
