@@ -51,7 +51,7 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import Imu, MagneticField
 from nav_msgs.msg import Odometry
 
-from mowgli_interfaces.msg import Emergency
+from mowgli_interfaces.msg import AbsolutePose, Emergency
 from mowgli_interfaces.msg import HighLevelStatus
 from mowgli_interfaces.msg import Status as HwStatus
 from mowgli_interfaces.srv import CalibrateImuYaw, HighLevelControl
@@ -165,13 +165,24 @@ class ImuYawCalibrator(Node):
                                         # body accel. 3 cycles → sqrt(3) ≈ 1.7× noise
                                         # reduction on the vector sum → ±10° typical.
 
-    # --- Magnetometer calibration ---
-    # Rotation phase appended to the drive. Collects /imu/mag_raw while the
-    # robot spins in place so that a full azimuth sweep of the Earth field
-    # passes through the sensor. Hard-iron offset is the midpoint of each
-    # axis' min/max; soft-iron scale equalises the per-axis ranges. Result
-    # is written to MAG_CALIBRATION_PATH where mag_yaw_publisher.py picks
-    # it up.
+    # --- Dock yaw calibration (OpenMower-style) ---
+    # When calibration starts with the robot on the dock, we reverse at a
+    # very slow speed under RTK-Fixed GPS for DOCK_UNDOCK_DISTANCE_M, then
+    # compute dock_yaw = atan2(-dy, -dx) from the motion vector (negated
+    # because the robot drives BACKWARD out of the dock — motion direction
+    # is opposite to robot heading). Stored on disk where map_server_node
+    # and hardware_bridge read it at startup, replacing the old phone-
+    # compass measurement that was only ±10 ° accurate.
+    DOCK_UNDOCK_SPEED = 0.15            # m/s (slow enough to average GPS noise)
+    DOCK_UNDOCK_DISTANCE_M = 2.0        # target displacement (GPS-measured)
+    DOCK_UNDOCK_TIMEOUT_SEC = 25.0      # abort if distance not reached
+    DOCK_UNDOCK_MIN_DISPLACEMENT = 0.8  # below this the yaw is too noisy
+    DOCK_CALIBRATION_PATH = "/ros2_ws/maps/dock_calibration.yaml"
+
+    # --- Magnetometer calibration (opt-in) ---
+    # Rotation phase appended to the drive when do_mag_calibration is true.
+    # Disabled by default under the Option A path (OpenMower-style GPS-only
+    # yaw). Can be enabled if we want to experiment with LIS3MDL later.
     MAG_ROTATE_WZ = 0.30                # rad/s (~17°/s)
     MAG_ROTATE_SEC = 30.0               # total rotation time (≈ 1.4 turns)
     MAG_MIN_SAMPLES = 150
@@ -211,6 +222,12 @@ class ImuYawCalibrator(Node):
         self._mag_samples: list[tuple[float, float, float]] = []
         self._collecting_mag = False
 
+        # Latest GPS pose (map-frame ENU) + RTK fix flag for dock-yaw calibration.
+        self._latest_gps_x: float | None = None
+        self._latest_gps_y: float | None = None
+        self._gps_rtk_fixed = False
+        self._gps_position_accuracy = 99.0
+
         # Preflight state (latest values from safety topics).
         self._is_charging = False
         self._emergency_active = False
@@ -221,6 +238,10 @@ class ImuYawCalibrator(Node):
         )
         self._mag_sub = self.create_subscription(
             MagneticField, "/imu/mag_raw", self._mag_cb, imu_qos,
+            callback_group=self._cb_group,
+        )
+        self._gps_sub = self.create_subscription(
+            AbsolutePose, "/gps/absolute_pose", self._gps_cb, imu_qos,
             callback_group=self._cb_group,
         )
         self._odom_sub = self.create_subscription(
@@ -312,6 +333,12 @@ class ImuYawCalibrator(Node):
                 )
             )
 
+    def _gps_cb(self, msg: AbsolutePose) -> None:
+        self._latest_gps_x = float(msg.pose.pose.position.x)
+        self._latest_gps_y = float(msg.pose.pose.position.y)
+        self._gps_position_accuracy = float(msg.position_accuracy)
+        self._gps_rtk_fixed = bool(msg.flags & AbsolutePose.FLAG_GPS_RTK_FIXED)
+
     def _status_cb(self, msg: HwStatus) -> None:
         self._is_charging = bool(msg.is_charging)
 
@@ -389,6 +416,128 @@ class ImuYawCalibrator(Node):
             time.sleep(period)
         # Stop at end.
         self._publish_wz(0.0)
+
+    def _wait_for_rtk_fixed(self, timeout_sec: float = 10.0) -> bool:
+        """Block until /gps/absolute_pose reports FLAG_GPS_RTK_FIXED or
+        timeout elapses. While waiting we publish zero velocity so the
+        firmware watchdog stays fed."""
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            if self._gps_rtk_fixed and self._gps_position_accuracy < 0.05:
+                return True
+            self._publish_vx(0.0)
+            time.sleep(1.0 / self.CMD_RATE_HZ)
+        return False
+
+    def _run_dock_yaw_drive(self) -> dict | None:
+        """Reverse DOCK_UNDOCK_DISTANCE_M under RTK-Fixed while logging GPS
+        displacement. Compute dock_yaw from the motion vector (robot
+        heading = opposite of reverse motion direction). Save to disk.
+        Returns the result dict on success, None on failure."""
+        self.get_logger().info(
+            "Dock yaw calibration: waiting for RTK-Fixed (≤ 10 s)…"
+        )
+        if not self._wait_for_rtk_fixed(10.0):
+            self.get_logger().error(
+                f"No RTK-Fixed within 10 s (rtk_fixed={self._gps_rtk_fixed}, "
+                f"pos_acc={self._gps_position_accuracy:.3f} m). "
+                "Cannot compute dock yaw — aborting."
+            )
+            return None
+
+        x0, y0 = self._latest_gps_x, self._latest_gps_y
+        if x0 is None or y0 is None:
+            self.get_logger().error(
+                "/gps/absolute_pose never arrived despite RTK Fixed — aborting."
+            )
+            return None
+
+        self.get_logger().info(
+            f"RTK-Fixed acquired. Reversing at {self.DOCK_UNDOCK_SPEED:+.2f} m/s "
+            f"target {self.DOCK_UNDOCK_DISTANCE_M:.1f} m "
+            f"(timeout {self.DOCK_UNDOCK_TIMEOUT_SEC:.0f} s) — "
+            f"start pos=({x0:+.3f}, {y0:+.3f})."
+        )
+
+        period = 1.0 / self.CMD_RATE_HZ
+        t_deadline = time.monotonic() + self.DOCK_UNDOCK_TIMEOUT_SEC
+        displacement = 0.0
+        while time.monotonic() < t_deadline:
+            if self._emergency_active:
+                self._publish_vx(0.0)
+                self.get_logger().error("Emergency during dock undock — aborting.")
+                return None
+            self._publish_vx(-self.DOCK_UNDOCK_SPEED)
+            if self._latest_gps_x is not None and self._latest_gps_y is not None:
+                dx = self._latest_gps_x - x0
+                dy = self._latest_gps_y - y0
+                displacement = math.hypot(dx, dy)
+                if displacement >= self.DOCK_UNDOCK_DISTANCE_M:
+                    break
+            time.sleep(period)
+
+        # Stop and settle.
+        for _ in range(int(1.0 * self.CMD_RATE_HZ)):
+            self._publish_vx(0.0)
+            time.sleep(period)
+
+        x1, y1 = self._latest_gps_x, self._latest_gps_y
+        if x1 is None or y1 is None:
+            self.get_logger().error("Lost GPS during dock undock — aborting.")
+            return None
+        dx = x1 - x0
+        dy = y1 - y0
+        displacement = math.hypot(dx, dy)
+
+        if displacement < self.DOCK_UNDOCK_MIN_DISPLACEMENT:
+            self.get_logger().error(
+                f"Only {displacement:.3f} m of GPS displacement after reverse "
+                f"(need ≥ {self.DOCK_UNDOCK_MIN_DISPLACEMENT:.1f} m). "
+                "Wheels probably slipped on the dock ramp. Aborting."
+            )
+            return None
+
+        # Robot moved backward → motion vector direction = opposite of
+        # robot heading. So heading = atan2(-dy, -dx).
+        dock_yaw = math.atan2(-dy, -dx)
+
+        # σ_yaw ≈ atan2(2·σ_pos, displacement). With σ_pos ≈ 7 mm and
+        # displacement ≥ 0.8 m that's ≤ 1 °.
+        sigma_pos = max(self._gps_position_accuracy, 0.003)
+        sigma_yaw_rad = math.atan2(2.0 * sigma_pos, displacement)
+
+        result = {
+            "dock_pose_x": float(x0),
+            "dock_pose_y": float(y0),
+            "dock_pose_yaw_rad": float(dock_yaw),
+            "dock_pose_yaw_deg": float(math.degrees(dock_yaw)),
+            "undock_displacement_m": float(displacement),
+            "yaw_sigma_rad": float(sigma_yaw_rad),
+            "yaw_sigma_deg": float(math.degrees(sigma_yaw_rad)),
+            "calibrated_at": datetime.now(timezone.utc).isoformat(),
+            "speed_ms": self.DOCK_UNDOCK_SPEED,
+        }
+
+        try:
+            os.makedirs(os.path.dirname(self.DOCK_CALIBRATION_PATH), exist_ok=True)
+            with open(self.DOCK_CALIBRATION_PATH, "w") as fh:
+                yaml.safe_dump({"dock_calibration": result}, fh, sort_keys=False)
+        except Exception as exc:
+            self.get_logger().error(
+                f"Failed to persist dock calibration to "
+                f"{self.DOCK_CALIBRATION_PATH}: {exc}"
+            )
+            return None
+
+        self.get_logger().info(
+            "Dock yaw calibration: start=({:+.3f}, {:+.3f}) end=({:+.3f}, {:+.3f}) "
+            "displacement={:.3f} m dock_yaw={:+.2f}° (σ={:.2f}°). "
+            "Saved to {}.".format(
+                x0, y0, x1, y1, displacement, math.degrees(dock_yaw),
+                math.degrees(sigma_yaw_rad), self.DOCK_CALIBRATION_PATH,
+            )
+        )
+        return result
 
     def _fit_and_save_mag(self, samples: list[tuple[float, float, float]]) -> None:
         """Fit hard-iron + soft-iron calibration and persist to YAML.
@@ -484,13 +633,12 @@ class ImuYawCalibrator(Node):
         # the total length can still drive that externally.
 
         # --- Preflight checks ---
-        if self._is_charging:
-            response.success = False
-            response.message = (
-                "Refusing to calibrate while charging — undock the robot first. "
-                "Calibration drives the robot ~0.6 m forward then back."
-            )
-            return response
+        # Charging is now ALLOWED: if the robot is on the dock we run an
+        # extra pre-phase that reverses 2 m slowly under RTK-Fixed and
+        # captures dock_yaw from the GPS track. Skipping that phase is
+        # fine too — the IMU calibration works identically from a
+        # stationary off-dock start.
+        do_dock_yaw_calibration = bool(self._is_charging)
         if self._emergency_active:
             response.success = False
             response.message = (
@@ -536,6 +684,24 @@ class ImuYawCalibrator(Node):
             self._imu_samples.clear()
             self._odom_samples.clear()
             self._collecting = True
+
+        # --- Phase 0: dock-yaw calibration (on-dock starts only) --------
+        dock_yaw_result = None
+        if do_dock_yaw_calibration:
+            dock_yaw_result = self._run_dock_yaw_drive()
+            if dock_yaw_result is None:
+                # Hard failure — robot could not gather a valid track.
+                # Still exit RECORDING so we don't leave the BT stuck.
+                if need_exit_recording:
+                    self._call_hlc(HL_CMD_RECORD_CANCEL,
+                                   "cancel after dock yaw failure")
+                response.success = False
+                response.message = (
+                    "Dock yaw calibration failed: no RTK Fixed or "
+                    "insufficient GPS displacement during the 2 m reverse. "
+                    "Check the dock area visibility and retry."
+                )
+                return response
 
         # --- Stationary baseline ---
         # Collect IMU while perfectly still to measure the DC offset on
@@ -595,30 +761,36 @@ class ImuYawCalibrator(Node):
             # Belt-and-braces stop: one last zero command after the profile.
             self._publish_vx(0.0)
 
-        # --- Magnetometer calibration phase -------------------------------
-        # Rotate in place so /imu/mag_raw sweeps a full azimuth — hard-iron
-        # offset + per-axis soft-iron scaling can then be fitted. Kept
-        # inside the same RECORDING window as the linear drive above so
-        # the whole IMU calibration is one call, one motion routine.
-        self.get_logger().info(
-            f"Magnetometer calibration: rotating at wz={self.MAG_ROTATE_WZ:+.2f} "
-            f"rad/s for {self.MAG_ROTATE_SEC:.0f}s "
-            f"(≈{math.degrees(self.MAG_ROTATE_WZ * self.MAG_ROTATE_SEC):.0f}°)."
+        # --- Magnetometer calibration phase (opt-in, default off) -------
+        # Option A path (OpenMower-style) uses GPS for absolute yaw and
+        # does not need the magnetometer. Keeping the rotation phase
+        # gated behind a parameter so we can re-enable it if we decide
+        # to experiment with the LIS3MDL later.
+        do_mag_calibration = bool(
+            self.declare_parameter("do_mag_calibration", False).value
+        ) if not self.has_parameter("do_mag_calibration") else bool(
+            self.get_parameter("do_mag_calibration").value
         )
-        with self._lock:
-            self._mag_samples.clear()
-            self._collecting_mag = True
-        try:
-            self._rotate_profile(self.MAG_ROTATE_WZ, self.MAG_ROTATE_SEC)
-        except Exception as exc:
-            for _ in range(5):
-                self._publish_wz(0.0)
-                time.sleep(0.05)
-            self.get_logger().error(f"Mag rotate phase errored: {exc}")
-        finally:
+        if do_mag_calibration:
+            self.get_logger().info(
+                f"Magnetometer calibration: rotating at wz="
+                f"{self.MAG_ROTATE_WZ:+.2f} rad/s for {self.MAG_ROTATE_SEC:.0f}s "
+                f"(≈{math.degrees(self.MAG_ROTATE_WZ * self.MAG_ROTATE_SEC):.0f}°)."
+            )
             with self._lock:
-                self._collecting_mag = False
-            self._publish_wz(0.0)
+                self._mag_samples.clear()
+                self._collecting_mag = True
+            try:
+                self._rotate_profile(self.MAG_ROTATE_WZ, self.MAG_ROTATE_SEC)
+            except Exception as exc:
+                for _ in range(5):
+                    self._publish_wz(0.0)
+                    time.sleep(0.05)
+                self.get_logger().error(f"Mag rotate phase errored: {exc}")
+            finally:
+                with self._lock:
+                    self._collecting_mag = False
+                self._publish_wz(0.0)
 
         # --- Exit RECORDING cleanly — CANCEL discards the trajectory ---
         if need_exit_recording:
@@ -633,7 +805,8 @@ class ImuYawCalibrator(Node):
 
         # Fit and persist magnetometer calibration (non-fatal if it fails
         # — the IMU yaw result is still reported via the service response).
-        self._fit_and_save_mag(mag_samples)
+        if do_mag_calibration:
+            self._fit_and_save_mag(mag_samples)
 
         self.get_logger().info(
             f"Drive complete — {len(imu_samples)} IMU / "
