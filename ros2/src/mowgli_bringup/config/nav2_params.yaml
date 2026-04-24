@@ -331,9 +331,15 @@ global_costmap:
       # absorbs the ~300 ms ARM scheduler jitter that motivated the earlier
       # bump, while capping the per-scan rotation smear at ≤22°.
       transform_tolerance: 0.5
-      # Force periodic full publishes even when no obstacles change, so
-      # isCurrent() reliably flips true for the planner's waitForCurrent.
-      always_send_full_costmap: true
+      # Experiment 2026-04-24: switch to delta mode (default). The old
+      # comment blamed an isCurrent() bug in Nav2 for needing
+      # always_send_full_costmap=true, but the Kilted release may have
+      # fixed it. If the controller_server starts failing goals with
+      # error 107 ("costmap not current"), revert to true. The delta
+      # path publishes full snapshot on first connect + only changed
+      # cells via /*_costmap_updates thereafter, cutting the steady
+      # state publish cost dramatically.
+      always_send_full_costmap: false
       # Footprint computed from mowgli_robot.yaml at launch time
       footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
