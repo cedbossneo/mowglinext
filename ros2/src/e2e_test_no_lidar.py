@@ -9,7 +9,7 @@ Validates the full mowing cycle WITHOUT LiDAR:
   4. Dock back when complete
 
 No obstacle avoidance test — without LiDAR there is no obstacle detection.
-GPS-only localization: FusionCore publishes odom→base_footprint TF using GPS+IMU+wheel odometry.
+GPS-only localization: robot_localization dual EKF publishes map→odom→base_footprint using GPS+IMU+wheel odometry.
 
 Usage:
   # Launch simulation first:
@@ -108,7 +108,7 @@ class NoLidarE2ETestNode(Node):
         )
         self.create_subscription(
             Odometry,
-            "/fusion/odom",
+            "/odometry/filtered_map",
             self._on_fusion_odom,
             sensor_qos,
         )
@@ -455,7 +455,7 @@ def main():
     rclpy.init()
     node = NoLidarE2ETestNode()
 
-    # Wait for TF chain (FusionCore + SLAM must be publishing)
+    # Wait for TF chain (robot_localization must be publishing map→odom→base_footprint)
     if not wait_for_tf(node, timeout=120.0):
         node.get_logger().error("TF chain never became available. Aborting.")
         node.destroy_node()

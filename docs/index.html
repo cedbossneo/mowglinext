@@ -170,13 +170,13 @@
       <div class="feature-card">
         <div class="icon">🗺️</div>
         <h3>Kinematic-ICP &amp; RTK Localization</h3>
-        <p>No SLAM needed. FusionCore UKF fuses RTK-GPS + IMU + wheel odometry at 100 Hz. Optional Kinematic-ICP provides LiDAR drift correction under tree cover. Centimeter-accurate positioning without map-building overhead.</p>
+        <p>No SLAM needed. robot_localization's dual EKF fuses RTK-GPS + IMU + wheel odometry under REP-105. Optional Kinematic-ICP provides LiDAR drift correction under tree cover. Centimeter-accurate positioning without map-building overhead.</p>
       </div>
 
       <div class="feature-card">
         <div class="icon">📡</div>
-        <h3>FusionCore Sensor Fusion</h3>
-        <p>Modern single-UKF combining GPS, IMU, and wheel odometry into one seamless positioning system. Replaces older multi-filter approaches with a unified, robust localization pipeline.</p>
+        <h3>Dual-EKF Sensor Fusion</h3>
+        <p>Standard robot_localization stack: local EKF for continuous odometry, global EKF for GPS-anchored map pose. Battle-tested, under <code>two_d_mode</code>, with a tight non-holonomic constraint on the wheel input.</p>
       </div>
 
       <div class="feature-card">
@@ -263,8 +263,8 @@
 │  │  coverage    │  │          │  │                 │ │
 │  └─────────────┘  └──────────┘  └─────────────────┘ │
 │  ┌─────────────┐  ┌──────────┐  ┌─────────────────┐ │
-│  │  <span class="highlight">Coverage</span>    │  │<span class="highlight">FusionCore</span>│  │  <span class="highlight">Hardware</span>       │ │
-│  │  Planner     │  │ Single UKF │  │  Bridge         │ │
+│  │  <span class="highlight">Coverage</span>    │  │<span class="highlight">robot_loc</span>│  │  <span class="highlight">Hardware</span>       │ │
+│  │  Planner     │  │ Dual EKF │  │  Bridge         │ │
 │  │  (cell-based)│  │GPS+IMU+Odometry│  │  COBS serial    │ │
 │  └─────────────┘  └──────────┘  └────────┬────────┘ │
 └───────────────────────────────────────────┼──────────┘

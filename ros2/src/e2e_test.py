@@ -184,7 +184,7 @@ class E2ETestNode(Node):
             Odometry, "/wheel_odom", self._on_odom, sensor_qos
         )
         self.create_subscription(
-            Odometry, "/fusion/odom", self._on_filtered_map, reliable_qos
+            Odometry, "/odometry/filtered_map", self._on_filtered_map, reliable_qos
         )
         self.slam_pose = None
         self.create_subscription(

@@ -7,8 +7,8 @@ wheel_odom_tf_node.py
 
 Publishes a raw wheel-only TF chain that Kinematic-ICP consumes as its motion
 prior. Exists solely to break the feedback loop that would form if Kinematic-
-ICP looked up FusionCore's fused `odom -> base_footprint` TF (Kinematic-ICP's
-output goes back into FusionCore via `/encoder2/odom`).
+ICP looked up the fused `odom -> base_footprint` TF (Kinematic-ICP's
+output goes back into ekf_odom_node via `/encoder2/odom`).
 
     /wheel_odom (nav_msgs/Odometry, twist-only from hardware_bridge)
         -> integrate twist.linear.x / twist.angular.z
@@ -18,7 +18,7 @@ Kinematic-ICP is configured with:
     wheel_odom_frame = wheel_odom_raw
     base_frame       = base_footprint_wheels
 so its motion-prior TF lookup returns the pure wheel dead-reckoning pose
-— independent of FusionCore, GPS, or IMU.
+— independent of robot_localization's fused state, GPS, or IMU.
 
 Safety: this node publishes only TF on a private frame pair. It does not
 touch `odom`, `base_footprint`, any drive command, or any Nav2 input.

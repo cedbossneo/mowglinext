@@ -33,8 +33,8 @@
 # 1. LOCAL EKF — dead-reckoning, never uses GPS
 # -----------------------------------------------------------------
 # Produces odom → base_footprint TF. Inputs: wheel twist + gyro_z.
-# Keep frequency at 50 Hz (same as current FusionCore) so Nav2's local
-# costmap and controllers see a smooth, high-rate pose.
+# Frequency is 50 Hz so Nav2's local costmap and controllers see a
+# smooth, high-rate pose.
 ekf_odom_node:
   ros__parameters:
     frequency: 50.0
@@ -205,8 +205,8 @@ ekf_map_node:
     # cog_to_imu.py publishes a synthetic Imu whose orientation is the
     # heading computed from RTK-Fixed GPS displacement divided by dt,
     # gated on forward motion. Only the absolute yaw (index 5) is fused;
-    # everything else stays with imu0. Replaces FusionCore's native
-    # velocity_heading without needing a custom fork of robot_localization.
+    # everything else stays with imu0. Provides absolute yaw without a
+    # magnetometer.
     imu1: /imu/cog_heading
     imu1_config: [false, false, false,
                   false, false, true,

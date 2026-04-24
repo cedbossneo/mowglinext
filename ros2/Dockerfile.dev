@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-kilted-nav2-core \
     ros-kilted-nav2-util \
     ros-kilted-nav2-msgs \
-    # SLAM (FusionCore is built from source in the workspace)
+    # SLAM toolbox pulled in for tooling only; not launched.
     ros-kilted-slam-toolbox \
     # Motion control
     ros-kilted-twist-mux \

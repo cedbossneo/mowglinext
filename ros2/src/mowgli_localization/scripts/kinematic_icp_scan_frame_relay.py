@@ -10,7 +10,7 @@ Kinematic-ICP consumes. This is the piece that lets the clean decoupled
 design work:
 
   Real URDF tree:
-      odom (FusionCore)  ->  base_footprint  ->  base_link  ->  lidar_link
+      map (ekf_map_node) -> odom (ekf_odom_node) -> base_footprint -> base_link -> lidar_link
   Parallel isolated tree (K-ICP only):
       wheel_odom_raw (wheel_odom_tf_node)  ->  base_footprint_wheels
                                                        │

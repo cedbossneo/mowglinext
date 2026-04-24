@@ -236,9 +236,9 @@ private:
     pub_emergency_ =
         create_publisher<mowgli_interfaces::msg::Emergency>("~/emergency", rclcpp::QoS(10));
     pub_power_ = create_publisher<mowgli_interfaces::msg::Power>("~/power", rclcpp::QoS(10));
-    // RELIABLE, not SensorDataQoS — FusionCore subscribes RELIABLE and
-    // refuses BEST_EFFORT publishers with "incompatible QoS policy",
-    // which starved the filter of IMU/wheel data.
+    // RELIABLE, not SensorDataQoS — robot_localization's EKF nodes
+    // subscribe RELIABLE and refuse BEST_EFFORT publishers with
+    // "incompatible QoS policy", which starves the filter of IMU/wheel data.
     pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::QoS(10));
     // Raw magnetometer µT → Tesla for mag_yaw_publisher (calibration
     // gated on /ros2_ws/maps/mag_calibration.yaml). Also used
@@ -985,10 +985,11 @@ private:
     }
 
     // Flat-ground constraint: the robot is always on a level surface, so
-    // roll=0 and pitch=0. Yaw is left to FusionCore (GPS+gyro).
+    // roll=0 and pitch=0. Yaw comes from gyro_z integration in the
+    // local EKF plus GPS-COG absolute yaw in the global EKF.
     // Set orientation to identity with tight roll/pitch covariance and
-    // loose yaw covariance so FusionCore constrains roll/pitch to zero
-    // without fighting its own yaw estimate.
+    // loose yaw covariance so robot_localization constrains roll/pitch
+    // to zero without fighting its own yaw estimate.
     msg.orientation.w = 1.0;
     msg.orientation_covariance[0] = 0.001;  // roll  variance (tight)
     msg.orientation_covariance[4] = 0.001;  // pitch variance (tight)
@@ -1058,17 +1059,16 @@ private:
       return;
 
     // Publish dock heading as sensor_msgs/Imu on ~/dock_heading
-    // (remapped to /gnss/heading in launch). FusionCore interprets the
-    // orientation quaternion as heading in ENU.
+    // (remapped to /gnss/heading in launch). dock_yaw_to_set_pose
+    // consumes it and seeds both EKFs via their set_pose services.
+    // The orientation quaternion is heading in ENU.
     // dock_yaw_ is compass heading; convert to ENU: yaw_enu = pi/2 - compass
     const double enu_yaw = M_PI / 2.0 - dock_yaw_;
 
     // During the anchor window after a charging transition, publish with
-    // σ=π so FusionCore's Mahalanobis gate accepts the first heading update
-    // no matter how far the filter's initial yaw is from the dock. Without
-    // this, a filter that initialises at yaw≈0 would reject the true dock
-    // heading (~2.6 rad innovation ≫ 4σ at σ=0.1 rad) and heading_validated_
-    // would stay false, leaving the GPS lever arm disabled indefinitely.
+    // σ=π so dock_yaw_to_set_pose accepts the first heading update as a
+    // wide-σ seed no matter how far the filter's initial yaw is from the
+    // dock.
     double yaw_cov = 0.01;  // steady-state: σ ≈ 0.1 rad (~6°)
     if (charging_anchor_active_)
     {
@@ -1144,7 +1144,7 @@ private:
     // the firmware's own prev_*_encoder_val reset, giving a phantom delta of
     // ~tens-of-thousands-of-ticks (observed as 1000+ m/s velocity spikes in
     // wheel_odom). Dropping the offending packet's delta is far safer than
-    // letting FusionCore integrate that into a position/yaw jump.
+    // letting robot_localization integrate that into a position/yaw jump.
     constexpr int32_t kTickSpikeLimit = 100;
     if (std::abs(d_left) > kTickSpikeLimit || std::abs(d_right) > kTickSpikeLimit)
     {
@@ -1161,7 +1161,7 @@ private:
     // Firmware packets arrive at ~47 Hz (every ~21 ms). At slow speeds this
     // gives only 0-3 ticks per window, so single-tick encoder noise (1 tick
     // = ~167 mm/s over 21 ms!) gets amplified into phantom velocity spikes
-    // that FusionCore trusts thanks to the tight wheel covariance. Sum 5
+    // that robot_localization trusts thanks to the tight wheel covariance. Sum 5
     // packets (~100 ms, ~15 ticks at 0.5 m/s) so the velocity denominator
     // grows and single-tick noise collapses to ~7 % relative error.
     odom_acc_delta_left_  += d_left;
@@ -1215,7 +1215,7 @@ private:
     // still mode=AUTONOMOUS(2) but the robot has already re-docked and
     // is physically stationary. Without the zero constraint, gyro_z
     // bias (~0.01 rad/s on the WT901) integrates into fusion yaw at
-    // ~30°/min, which then corrupts FusionCore's heading estimate and
+    // ~30°/min, which then corrupts the fused heading estimate and
     // manifests as a slowly-rotating robot icon while on the dock.
     //
     // Edge case: the charger bit can briefly stay high during a BackUp
@@ -1238,7 +1238,7 @@ private:
     const double vel_var = force_zero ? 1e-6 : 0.01;
     msg.twist.covariance[0] = vel_var;  // vx variance
     // Non-holonomic constraint: diff-drive can't slide sideways. Tight
-    // variance on VY=0 tells FusionCore to treat this as a hard constraint;
+    // variance on VY=0 tells robot_localization to treat this as a hard constraint;
     // leaving at 1e6 ("unknown") lets GPS+IMU noise accumulate as apparent
     // lateral drift during outdoor runs.
     msg.twist.covariance[7] = 1e-4;  // vy (enforce VY = 0)

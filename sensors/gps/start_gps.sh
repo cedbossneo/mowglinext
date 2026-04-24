@@ -44,7 +44,7 @@ ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args \
 GPS_PID=$!
 
 # UBX HP → NavSatFix — remap /fix → /gps/fix to keep downstream consumers
-# (FusionCore, navsat_to_absolute_pose, GUI) on the current topic name.
+# (navsat_transform_node, navsat_to_absolute_pose, GUI) on the current topic name.
 ros2 run ublox_nav_sat_fix_hp_node ublox_nav_sat_fix_hp --ros-args \
   --params-file /ublox_dgnss.yaml \
   -r /fix:=/gps/fix &

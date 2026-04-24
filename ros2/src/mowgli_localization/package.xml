@@ -4,9 +4,11 @@
   <name>mowgli_localization</name>
   <version>0.1.0</version>
   <description>
-    Localization nodes for the Mowgli robot mower: wheel odometry integration,
-    GPS conversion, and a localization quality monitor.  FusionCore (launched
-    by this package) provides the odom→base_footprint TF.
+    Localization helper nodes for the Mowgli robot mower: wheel odometry
+    integration, GPS conversion (NavSatFix → AbsolutePose and PoseWithCovarianceStamped),
+    COG-to-IMU absolute-yaw publisher, magnetometer yaw publisher, dock-yaw
+    auto-capture, and a localization quality monitor. The odom→base_footprint
+    and map→odom TFs are published by the stock robot_localization EKF nodes.
   </description>
   <maintainer email="cedric@mowgli.dev">Cedric</maintainer>
   <license>GPL-3.0</license>
@@ -24,7 +26,8 @@
   <depend>tf2_geometry_msgs</depend>
   <depend>mowgli_interfaces</depend>
 
-  <!-- FusionCore is launched by this package but not compiled against -->
+  <!-- robot_localization (ekf_node, navsat_transform_node) is launched by
+       mowgli_bringup and not compiled against here. -->
 
   <!-- Python runtime deps for calibrate_imu_yaw_node.py,
        kinematic_icp_encoder_adapter.py,

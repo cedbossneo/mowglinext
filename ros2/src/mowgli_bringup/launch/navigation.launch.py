@@ -334,9 +334,7 @@ def generate_launch_description() -> LaunchDescription:
     # navsat_transform_node looks up a TF from base_footprint to the frame
     # named in the NavSatFix header. Our URDF calls that frame gps_link,
     # but the ublox_dgnss driver publishes frame_id=gps. Alias gps_link →
-    # gps as a static identity so the lookup finds a chain. Only needed
-    # in robot_localization backend; in fusioncore we use the URDF-based
-    # TF lookup in fusion_node.cpp with explicit lever-arm parameters.
+    # gps as a static identity so the lookup finds a chain.
     static_gps_link_alias = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -368,9 +366,9 @@ def generate_launch_description() -> LaunchDescription:
     # Datum triple [lat, lon, yaw]. yaw stays 0 — our IMU has no
     # magnetometer so yaw can't be anchored to true north at boot;
     # robot yaw will align to GPS track after the first straight
-    # motion, and to dock_pose_yaw at dock reset (same as fusioncore
-    # behavior). Datum lat/lon must match what was used to save
-    # areas / dock pose, otherwise saved coordinates shift.
+    # motion, and to dock_pose_yaw at dock reset. Datum lat/lon must
+    # match what was used to save areas / dock pose, otherwise saved
+    # coordinates shift.
     navsat_transform_node = Node(
         package="robot_localization",
         executable="navsat_transform_node",
@@ -409,9 +407,8 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Seeds ekf_map with the dock heading on rising edges of is_charging.
-    # Replaces FusionCore's /gnss/heading consumer, which does not exist in
-    # the robot_localization stack. Fires once per docking event plus once
-    # at boot if the robot is already docked.
+    # Fires once per docking event plus once at boot if the robot is
+    # already docked.
     dock_yaw_to_set_pose = Node(
         package="mowgli_localization",
         executable="dock_yaw_to_set_pose.py",
@@ -424,10 +421,9 @@ def generate_launch_description() -> LaunchDescription:
 
     # Publishes GPS course-over-ground as a synthetic sensor_msgs/Imu on
     # /imu/cog_heading so ekf_map_node can fuse it as an absolute-yaw
-    # observation. Replaces FusionCore's velocity_heading mode: once the
-    # session is seeded and the robot is driving forward faster than
-    # min_speed_ms with RTK-Fixed, this node corrects gyro drift every
-    # /gps/absolute_pose sample.
+    # observation. Once the session is seeded and the robot is driving
+    # forward faster than min_speed_ms with RTK-Fixed, this node corrects
+    # gyro drift every /gps/absolute_pose sample.
     cog_to_imu = Node(
         package="mowgli_localization",
         executable="cog_to_imu.py",

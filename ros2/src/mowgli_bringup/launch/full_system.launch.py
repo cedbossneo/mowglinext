@@ -21,7 +21,7 @@ Complete Mowgli robot mower system launch.
 
 Brings up all subsystems:
   1. mowgli.launch.py        — hardware bridge, RSP, twist_mux
-  2. navigation.launch.py    — SLAM, FusionCore, Nav2
+  2. navigation.launch.py    — robot_localization (dual EKF), Nav2
   3. Behavior tree node       — mowgli_behavior
   4. Map server               — mowgli_map
   5. Wheel odometry            — mowgli_localization
@@ -190,8 +190,9 @@ def generate_launch_description() -> LaunchDescription:
     # (disabled) and rely on hardware_bridge alone.
     # ------------------------------------------------------------------
     # 7a. NavSat → AbsolutePose converter (for GUI + BT)
-    # FusionCore takes /gps/fix directly; this node converts to
-    # /gps/absolute_pose for the GUI and behavior tree.
+    # navsat_transform_node takes /gps/fix directly for the EKF pipeline;
+    # this node publishes a parallel /gps/absolute_pose (Mowgli-specific
+    # message) for the GUI/BT, and /gps/pose_cov which ekf_map_node fuses.
     # ------------------------------------------------------------------
     datum_lat = float(robot_params.get("datum_lat", 0.0))
     datum_lon = float(robot_params.get("datum_lon", 0.0))

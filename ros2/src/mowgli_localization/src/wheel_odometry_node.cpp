@@ -37,10 +37,11 @@
  *   theta += d_theta
  *
  * Covariance notes:
- *   FusionCore (the UKF in localization.yaml) consumes only vx and vyaw from
- *   this source, so pose covariance is intentionally large (we do not claim
- *   accurate absolute position from dead-reckoning alone).  Twist covariance
- *   uses moderate values reflecting real encoder noise.
+ *   robot_localization's EKF nodes consume vx + vy (with vy locked near
+ *   zero) and vyaw from this source, so pose covariance is intentionally
+ *   large (we do not claim accurate absolute position from dead-reckoning
+ *   alone).  Twist covariance uses moderate values reflecting real encoder
+ *   noise.
  */
 
 #include "mowgli_localization/wheel_odometry_node.hpp"
@@ -187,9 +188,9 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
 
   nav_msgs::msg::Odometry odom;
   odom.header.stamp = stamp;
-  // REP-105: body frame is base_footprint; FusionCore owns odom->base_footprint.
+  // REP-105: body frame is base_footprint; ekf_odom_node owns odom->base_footprint.
   // This node is kept for twist-only consumers; publish_tf defaults to false so
-  // the pose branch never competes with FusionCore.
+  // the pose branch never competes with robot_localization.
   odom.header.frame_id = "odom";
   odom.child_frame_id = "base_footprint";
 
@@ -200,7 +201,7 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   odom.pose.pose.orientation = yaw_to_quaternion(theta_);
 
   // Pose covariance (row-major 6×6: x y z roll pitch yaw).
-  // Large diagonal — we trust FusionCore to own the absolute pose; we only
+  // Large diagonal — we trust robot_localization to own the absolute pose; we only
   // contribute velocity information (vx and vyaw) from the encoder stream.
   odom.pose.covariance[0] = 1e6;  // x  (untrusted — EKF uses velocity only)
   odom.pose.covariance[7] = 1e6;  // y  (untrusted — EKF uses velocity only)
@@ -213,7 +214,7 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   // time between consecutive tick messages. Falling back to a hardcoded
   // 10 ms (as the old code did) overstated the reported velocity by
   // ~2x when the firmware actually publishes at ~47 Hz, which cascades
-  // into FusionCore as inflated position increments.
+  // into the EKF as inflated position increments.
   const double dt_safe = (dt_sec > 1e-3) ? dt_sec : 1e-3;
   odom.twist.twist.linear.x = d_center / dt_safe;
   odom.twist.twist.angular.z = d_theta / dt_safe;
@@ -221,7 +222,7 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   // Twist covariance
   odom.twist.covariance[0] = 1e-3;  // vx
   // Non-holonomic constraint: a differential-drive robot cannot slide
-  // sideways. Publish VY = 0 with a tight variance so FusionCore treats
+  // sideways. Publish VY = 0 with a tight variance so robot_localization treats
   // it as a hard "no lateral motion" measurement. Previously the
   // variance was 1e6 ("unknown"), which let GPS + IMU noise pull the
   // fused state into apparent lateral drift during outdoor runs.

@@ -103,15 +103,13 @@ QOS_RELIABLE = QoSProfile(
 # -----------------------------------------------------------------------------
 # RTK-covariance-drop check
 #
-# With RTK Fixed (σ~3 mm raw GPS) and the cov_floor_xy_fixed=0.02 m (4e-4 var)
-# in FusionCore, every GPS update that isn't rejected by the Mahalanobis gate
-# (outlier_threshold_gnss, currently 16.27) should pull /fusion/odom's xx/yy
-# covariance down to ~4e-4 within one publish tick (~20 ms at 50 Hz).
+# With RTK Fixed (σ~3 mm raw GPS), every GPS update accepted by ekf_map_node
+# should pull /odometry/filtered_map's xx/yy covariance down to roughly fix
+# precision within one publish tick (~33 ms at 30 Hz).
 #
-# If RTK Fixed is streaming at 5 Hz but /fusion/odom covariance stays loose
-# (σ > ~5 cm), the gate is rejecting fixes and the filter is running on
-# dead-reckoning only — exactly the failure mode CLAUDE.md / the 2026-04-23
-# memory describe as "filter drifts between fixes, every fix fails the gate".
+# If RTK Fixed is streaming at 5 Hz but /odometry/filtered_map covariance stays
+# loose (σ > ~5 cm), something is rejecting or diluting the fix (covariance
+# mismatch, navsat_transform datum drift, or the EKF saturating process noise).
 #
 # Thresholds below are tuned for RTK Fixed specifically. Looser fix types
 # (Float / DGPS) are not checked — their larger covariance is expected.
@@ -121,8 +119,7 @@ QOS_RELIABLE = QoSProfile(
 # RTK Fixed typically reports 3-10 mm → 1e-4 m²; pad generously.
 RTK_FIXED_GPS_COV_THRESHOLD = 1.0e-3      # var (σ ≤ ~3.2 cm)
 
-# Expect /fusion/odom σ_xy to sit under this shortly after RTK Fixed.
-# 4e-4 is the exact Fixed floor; accept up to 2.5× for one-tick slack.
+# Expect /odometry/filtered_map σ_xy to sit under this shortly after RTK Fixed.
 FUSION_COV_TARGET = 1.0e-3                # var (σ ≤ ~3.2 cm)
 
 # Window after an RTK-Fixed GPS arrival within which fusion cov must drop.
@@ -138,7 +135,7 @@ RTK_COV_WINDOW_SEC = 0.30
 
 @dataclass
 class LatestState:
-    # --- FusionCore ---
+    # --- Fused pose (ekf_map_node output) ---
     fusion_x: Optional[float] = None
     fusion_y: Optional[float] = None
     fusion_z: Optional[float] = None
@@ -243,10 +240,10 @@ class MowSessionMonitor(Node):
         # --- RTK covariance-drop check state ---
         # See the comment block above RTK_FIXED_GPS_COV_THRESHOLD for why this
         # matters. The check is armed on every RTK-Fixed GPS arrival and fires
-        # on the next /fusion/odom sample within RTK_COV_WINDOW_SEC: if fusion
-        # cov hasn't dropped to FUSION_COV_TARGET, count it as a suspected
-        # outlier-gate rejection. A non-zero count at end of session is a red
-        # flag worth correlating with outlier_threshold_gnss.
+        # on the next /odometry/filtered_map sample within RTK_COV_WINDOW_SEC:
+        # if fusion cov hasn't dropped to FUSION_COV_TARGET, count it as a
+        # suspected rejection/dilution. A non-zero count at end of session is
+        # a red flag worth correlating with the EKF tuning.
         self._last_rtk_fixed_at: Optional[float] = None   # wallclock seconds
         self._last_rtk_fixed_cov_xx: Optional[float] = None
         self.rtk_fixed_arrivals = 0
@@ -264,13 +261,7 @@ class MowSessionMonitor(Node):
         def sub(topic: str, msg_type, callback, qos=QOS_RELIABLE):
             self.create_subscription(msg_type, topic, callback, qos, callback_group=cb)
 
-        # FusionCore output
-        # Subscribe to both FusionCore and robot_localization fused-pose
-        # outputs; _fusion_odom_cb doesn't care which one is publishing. In
-        # the FusionCore backend /fusion/odom is live and /odometry/filtered_map
-        # is silent; in the robot_localization backend it's the reverse.
-        # Whichever arrives populates the same LatestState.fusion_* fields.
-        sub("/fusion/odom", Odometry, self._fusion_odom_cb, QOS_RELIABLE)
+        # Fused pose output (ekf_map_node / map frame).
         sub("/odometry/filtered_map", Odometry, self._fusion_odom_cb, QOS_RELIABLE)
 
         # Wheels + IMU (hardware_bridge publishes RELIABLE; IMU is sensor QoS from
@@ -536,9 +527,9 @@ class MowSessionMonitor(Node):
             fusion_carto_dist = None
             fusion_carto_yaw_diff = None
             if carto is not None and s.fusion_yaw_rad is not None:
-                # Cartographer's map→base_footprint vs FusionCore's idea (fusion
-                # yaw is in odom frame; to compare yaws we'd need map→odom too,
-                # which we have). Filter yaw in map frame = m2o.yaw + fusion_yaw.
+                # Cartographer's map→base_footprint vs the EKF's map-frame yaw.
+                # We fuse /odometry/filtered_map (already in map frame), so no
+                # composition with map→odom is needed here.
                 if m2o is not None:
                     f_yaw_in_map_deg = (
                         m2o["yaw_deg"] + math.degrees(s.fusion_yaw_rad)
@@ -587,7 +578,7 @@ class MowSessionMonitor(Node):
                 },
                 "cartographer_map_base": carto,        # map → base_footprint
                 "map_to_odom": m2o,                    # Cartographer correction
-                "odom_to_base": o2bf,                  # FusionCore output as TF
+                "odom_to_base": o2bf,                  # ekf_odom_node output as TF
                 "wheel": {
                     "vx": s.wheel_vx, "wz": s.wheel_wz,
                     "var_vx": s.wheel_vx_var, "var_wz": s.wheel_wz_var,

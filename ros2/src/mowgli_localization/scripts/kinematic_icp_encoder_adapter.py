@@ -6,7 +6,7 @@
 kinematic_icp_encoder_adapter.py
 
 Re-publishes Kinematic-ICP's LiDAR-odometry as a "second encoder" twist
-source that FusionCore can fuse alongside the wheel encoders.
+source that ekf_odom_node fuses (as odom1) alongside the wheel encoders.
 
     /kinematic_icp/lidar_odometry (nav_msgs/Odometry, pose + twist)
         -> finite-difference twist (falls back to .twist if populated)
@@ -17,10 +17,10 @@ seeded by the wheel-odom TF delta and penalised for deviating from the
 non-holonomic motion model, so the finite-difference twist cannot
 hallucinate lateral motion the way KISS-ICP did on featureless grass.
 
-FusionCore's UKF treats this topic as a body-frame twist measurement;
-the covariance we advertise gates its influence. Baseline σ values make
+ekf_odom_node treats this topic as a body-frame twist measurement; the
+covariance we advertise gates its influence. Baseline σ values make
 healthy ICP twist tighter than wheel-encoder twist (especially on yaw);
-degraded samples are inflated so FusionCore effectively ignores them.
+degraded samples are inflated so the EKF effectively ignores them.
 
 Safety: this node does not touch drive commands, TF, or any safety
 topic. It is purely a measurement re-packager and can be killed/added
@@ -94,10 +94,10 @@ class KinematicIcpEncoderAdapter(Node):
             depth=10,
             durability=DurabilityPolicy.VOLATILE,
         )
-        # Output: /encoder2/odom — FusionCore subscribes RELIABLE with depth
-        # 50, matching hardware_bridge's /wheel_odom publisher QoS. A
-        # BEST_EFFORT publisher here would be silently dropped ("incompatible
-        # QoS, last policy: RELIABILITY") — we saw this on first deploy.
+        # Output: /encoder2/odom — ekf_odom_node subscribes RELIABLE, matching
+        # hardware_bridge's /wheel_odom publisher QoS. A BEST_EFFORT publisher
+        # here would be silently dropped ("incompatible QoS, last policy:
+        # RELIABILITY") — we saw this on first deploy.
         out_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
@@ -181,7 +181,7 @@ class KinematicIcpEncoderAdapter(Node):
         out = Odometry()
         out.header = msg.header
         out.child_frame_id = msg.child_frame_id
-        out.pose = msg.pose   # pass pose through (FusionCore ignores it on this topic)
+        out.pose = msg.pose   # pass pose through (EKF ignores it — only twist fields are configured for fusion)
         out.twist.twist.linear.x = vx_body
         out.twist.twist.linear.y = vy_body
         out.twist.twist.angular.z = wz

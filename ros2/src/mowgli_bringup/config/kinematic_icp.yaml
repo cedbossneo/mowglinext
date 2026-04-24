@@ -17,8 +17,9 @@
 # Role in the stack
 #   Kinematic-ICP's output (`/kinematic_icp/lidar_odometry`) is finite-
 #   differenced by kinematic_icp_encoder_adapter.py into a body-frame twist
-#   and published on `/encoder2/odom` for FusionCore's UKF. Kinematic-ICP
-#   does NOT publish the `odom` TF — FusionCore owns that. The node still
+#   and published on `/encoder2/odom` which `ekf_odom_node` fuses as
+#   `odom1`. Kinematic-ICP does NOT publish the `odom` TF — robot_localization
+#   owns that. The node still
 #   publishes its own lidar_odom frame (here named `odom_kicp`) which we
 #   isolate via publish_odom_tf=false anyway.
 
@@ -52,7 +53,7 @@
     # 10 iterations × tighter convergence is typical upstream; keep defaults.
     max_num_iterations: 10
     convergence_criterion: 0.001
-    # ARM is CPU-bound with Nav2 + FusionCore running; single-threaded ICP
+    # ARM is CPU-bound with Nav2 + robot_localization running; single-threaded ICP
     # is fine for 2D sparse clouds and leaves cores for controllers.
     max_num_threads: 1
 

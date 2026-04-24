@@ -82,9 +82,9 @@ ublox_nav_sat_fix_hp:
   ros__parameters:
     FRAME_ID: gps
     # Publish /gps/fix as RELIABLE. Cyclone DDS rejects the connection
-    # when a RELIABLE subscriber (fusioncore, rtabmap,
+    # when a RELIABLE subscriber (navsat_transform_node,
     # navsat_to_absolute_pose) meets a BEST_EFFORT publisher, so none
-    # of those nodes were receiving GPS fixes — FusionCore pose drifts,
+    # of those nodes would receive GPS fixes — map→odom fails to converge,
     # BT PreFlightCheck times out, Nav2 plans from a wrong pose.
     qos_overrides:
       /gps/fix:

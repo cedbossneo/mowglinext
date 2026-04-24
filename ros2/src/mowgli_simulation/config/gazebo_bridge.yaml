@@ -45,9 +45,9 @@
   direction: GZ_TO_ROS
 
 # NOTE: /tf is NOT bridged — Gazebo's diff-drive publishes odom→base_link
-# which conflicts with FusionCore's odom→base_footprint, causing pose
-# flickering. All TF is handled by robot_state_publisher, FusionCore, and
-# the static map→odom publisher in navigation.launch.py.
+# which conflicts with ekf_odom_node's odom→base_footprint, causing pose
+# flickering. All TF is handled by robot_state_publisher and
+# robot_localization (ekf_odom_node + ekf_map_node) from navigation.launch.py.
 
 - ros_topic_name: /clock
   gz_topic_name: /clock
