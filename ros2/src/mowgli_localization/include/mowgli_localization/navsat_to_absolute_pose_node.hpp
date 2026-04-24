@@ -97,9 +97,12 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr set_datum_srv_;
 
   /// TF listener to resolve base_footprint↔gps_link (static from URDF,
-  /// gives the lever arm) and map↔base_footprint (dynamic from ekf_map,
+  /// gives the lever arm) and odom↔base_footprint (dynamic from ekf_odom,
   /// gives current yaw). First-successful-lookup latches the lever arm;
-  /// yaw is looked up fresh each fix.
+  /// yaw is looked up fresh each fix. We intentionally use the ODOM-frame
+  /// yaw (wheels+gyro) rather than the map-frame yaw because ekf_map
+  /// consumes this pose_cov topic and using its yaw would feed back into
+  /// the lever arm correction, amplifying rotational noise.
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   bool lever_arm_known_{false};

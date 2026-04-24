@@ -267,10 +267,18 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
   }
 
-  // Look up the current map→base_footprint TF to get yaw at this fix.
-  // If not yet available (e.g. ekf_map hasn't converged), fall back to
-  // publishing the raw antenna position — this matches the legacy
-  // /gps/absolute_pose behavior exactly, so no worse than before.
+  // Look up the current odom→base_footprint TF to get yaw at this fix.
+  // We use the ODOM frame yaw (ekf_odom: wheels + IMU gyro) rather than the
+  // MAP frame yaw (ekf_map), even though we are publishing a map-frame
+  // position. Reason: ekf_map consumes this very pose_cov topic, so using
+  // its yaw would create a feedback loop — during pure rotation the lever
+  // arm correction would oscillate with the filter's own yaw noise and
+  // amplify it (observed as +74% range on diag-2-rotate-lever run).
+  // The odom-frame yaw is driven by wheels+gyro only; map→odom yaw drift
+  // in 2D mode is slow and small, so the residual error in the lever arm
+  // rotation is negligible compared to the GPS sigma.
+  // If the TF is not yet available, fall back to publishing the raw
+  // antenna position — matches legacy /gps/absolute_pose behavior.
   double base_x = east;
   double base_y = north;
   bool lever_arm_applied = false;
@@ -279,7 +287,7 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     try
     {
       auto tf = tf_buffer_->lookupTransform(
-          "map", "base_footprint", tf2::TimePointZero);
+          "odom", "base_footprint", tf2::TimePointZero);
       tf2::Quaternion q(
           tf.transform.rotation.x,
           tf.transform.rotation.y,
@@ -299,7 +307,7 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
     catch (const tf2::TransformException&)
     {
-      // map→base_footprint TF not yet published; keep raw antenna pos.
+      // odom→base_footprint TF not yet published; keep raw antenna pos.
     }
   }
 
