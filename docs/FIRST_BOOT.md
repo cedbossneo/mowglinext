@@ -44,9 +44,8 @@ The IMU's heading relative to forward is not auto-detected — it has to be solv
 
 ## 5. Dock pose
 
-- Measure the dock's position relative to the GPS datum (the datum is automatically set to the first GPS fix received on first boot; after that it is pinned in `reference.x/y/z` under the FusionCore config).
-- Set `dock_pose_x`, `dock_pose_y`, `dock_pose_yaw` in `mowgli_robot.yaml`.
-- `dock_pose_yaw` is measured once with a phone compass pointing in the direction the mower faces when docked (reverse in → the tail is toward the dock, so the heading is the direction the mower points when it drives out).
+- Dock position and yaw are **auto-captured on first successful dock**. `dock_yaw_to_set_pose` records the map-frame pose while the robot sits on the dock and writes it to `dock_calibration.yaml`. `hardware_bridge` and `map_server_node` read this file at startup.
+- If you want to pre-seed (e.g. to bootstrap the first undock), set `dock_pose_x`, `dock_pose_y`, `dock_pose_yaw` in `mowgli_robot.yaml`; these are used as a fallback when `dock_calibration.yaml` does not exist yet. The GPS datum is a fixed lat/lon in `mowgli_robot.yaml` consumed by `navsat_transform_node`, so the map origin is the same across restarts.
 
 ## 6. Record a mowing area
 
