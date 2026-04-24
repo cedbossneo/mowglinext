@@ -32,13 +32,15 @@ import {useGPS} from "../hooks/useGPS.ts";
 import {useFusionOdom} from "../hooks/useFusionOdom.ts";
 import {useBTLog} from "../hooks/useBTLog.ts";
 import {useImu} from "../hooks/useImu.ts";
+import {useCogHeading} from "../hooks/useCogHeading.ts";
+import {useMagYaw} from "../hooks/useMagYaw.ts";
 import {useWheelTicks} from "../hooks/useWheelTicks.ts";
 import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
 import {useDiagnostics} from "../hooks/useDiagnostics.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useIsMobile} from "../hooks/useIsMobile";
 import {AbsolutePoseConstants} from "../types/ros.ts";
-import {useMemo} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {useSettings} from "../hooks/useSettings.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
 
@@ -94,7 +96,17 @@ export const DiagnosticsPage = () => {
     const pose = useFusionOdom();
     const btNodeStates = useBTLog();
     const imu = useImu();
+    const {imu: cogImu, lastMessageAt: cogLastAt} = useCogHeading();
+    const {imu: magImu, lastMessageAt: magLastAt} = useMagYaw();
     const wheelTicks = useWheelTicks();
+
+    // Tick state once a second so the "Live/Stale" tags update even when no
+    // new message has arrived (staleness is time-based, not message-driven).
+    const [nowMs, setNowMs] = useState(Date.now());
+    useEffect(() => {
+        const id = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, []);
     const {snapshot, loading, refresh} = useDiagnosticsSnapshot();
     const {diagnostics} = useDiagnostics();
     const {settings} = useSettings();
@@ -384,6 +396,104 @@ export const DiagnosticsPage = () => {
                                 }
                                
                             />
+                        </Col>
+                    </Row>
+                </Card>
+            </Col>
+        </Row>
+    );
+
+    // ── Section 2b: Heading Sources ──────────────────────────────────────────
+    // Shows the two synthetic absolute-yaw Imu publishers fused by ekf_map
+    // alongside the filter output for comparison. Staleness threshold: 5 s.
+
+    const STALE_MS = 5000;
+    const cogStale = cogLastAt === null || (nowMs - cogLastAt) > STALE_MS;
+    const magStale = magLastAt === null || (nowMs - magLastAt) > STALE_MS;
+
+    const cogYawDeg = cogImu?.orientation
+        ? yawFromQuaternion(cogImu.orientation.x, cogImu.orientation.y, cogImu.orientation.z, cogImu.orientation.w)
+        : null;
+    const magYawDeg = magImu?.orientation
+        ? yawFromQuaternion(magImu.orientation.x, magImu.orientation.y, magImu.orientation.z, magImu.orientation.w)
+        : null;
+
+    // orientation_covariance is a flat length-9 row-major 3×3; yaw variance
+    // sits at index 8 (same convention used by cog_to_imu.py / mag_yaw_publisher.py).
+    const cogYawVar = cogImu?.orientation_covariance?.[8];
+    const magYawVar = magImu?.orientation_covariance?.[8];
+    const cogSigmaDeg = (cogYawVar !== undefined && cogYawVar > 0) ? Math.sqrt(cogYawVar) * (180 / Math.PI) : null;
+    const magSigmaDeg = (magYawVar !== undefined && magYawVar > 0) ? Math.sqrt(magYawVar) * (180 / Math.PI) : null;
+
+    // Wrap angle difference into (-180, 180].
+    const wrap180 = (d: number) => ((d + 180) % 360 + 360) % 360 - 180;
+    const deltaFilterMag = (!magStale && magYawDeg !== null) ? wrap180(yaw - magYawDeg) : null;
+    const deltaFilterCog = (!cogStale && cogYawDeg !== null) ? wrap180(yaw - cogYawDeg) : null;
+
+    const sectionHeadingSources = (
+        <Row gutter={[12, 12]}>
+            <Col span={24}>
+                <Card title={<Space><CompassOutlined/> Heading sources (fused by ekf_map)</Space>} size="small">
+                    <Row gutter={[12, 12]}>
+                        <Col xs={24} md={8}>
+                            <Space direction="vertical" style={{width: "100%"}}>
+                                <Space>
+                                    <Typography.Text strong>Filter</Typography.Text>
+                                    <Tag color="success">/odometry/filtered_map</Tag>
+                                </Space>
+                                <Statistic title="Yaw (deg)" value={yaw} precision={1} suffix="°"/>
+                                <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                    Reference signal for deltas below.
+                                </Typography.Text>
+                            </Space>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Space direction="vertical" style={{width: "100%"}}>
+                                <Space>
+                                    <Typography.Text strong>COG (GPS)</Typography.Text>
+                                    <Tag color={cogStale ? "default" : "processing"}>
+                                        {cogStale ? "Stale" : "Live"}
+                                    </Tag>
+                                </Space>
+                                <Statistic
+                                    title="Yaw (deg)"
+                                    value={cogYawDeg !== null ? cogYawDeg : "-"}
+                                    precision={cogYawDeg !== null ? 1 : undefined}
+                                    suffix={cogYawDeg !== null ? "°" : undefined}
+                                />
+                                <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                    σ: {cogSigmaDeg !== null ? `${cogSigmaDeg.toFixed(2)}°` : "—"}
+                                </Typography.Text>
+                                {deltaFilterCog !== null && (
+                                    <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                        Δ(filter−cog): {deltaFilterCog.toFixed(1)}°
+                                    </Typography.Text>
+                                )}
+                            </Space>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Space direction="vertical" style={{width: "100%"}}>
+                                <Space>
+                                    <Typography.Text strong>Magnetometer</Typography.Text>
+                                    <Tag color={magStale ? "default" : "processing"}>
+                                        {magStale ? "Stale" : "Live"}
+                                    </Tag>
+                                </Space>
+                                <Statistic
+                                    title="Yaw (deg)"
+                                    value={magYawDeg !== null ? magYawDeg : "-"}
+                                    precision={magYawDeg !== null ? 1 : undefined}
+                                    suffix={magYawDeg !== null ? "°" : undefined}
+                                />
+                                <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                    σ: {magSigmaDeg !== null ? `${magSigmaDeg.toFixed(2)}°` : "—"}
+                                </Typography.Text>
+                                {deltaFilterMag !== null && (
+                                    <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                        Δ(filter−mag): {deltaFilterMag.toFixed(1)}°
+                                    </Typography.Text>
+                                )}
+                            </Space>
                         </Col>
                     </Row>
                 </Card>
@@ -774,6 +884,11 @@ export const DiagnosticsPage = () => {
                             children: sectionLocalization,
                         },
                         {
+                            key: "heading_sources",
+                            label: <Space><CompassOutlined/> Heading sources</Space>,
+                            children: sectionHeadingSources,
+                        },
+                        {
                             key: "bt",
                             label: <Space><ApiOutlined/> BT State & Coverage</Space>,
                             children: sectionBtCoverage,
@@ -805,6 +920,7 @@ export const DiagnosticsPage = () => {
             {sectionAlerts && <Col span={24}>{sectionAlerts}</Col>}
             <Col span={24}>{sectionSystem}</Col>
             <Col span={24}>{sectionLocalization}</Col>
+            <Col span={24}>{sectionHeadingSources}</Col>
             <Col span={24}>{sectionBtCoverage}</Col>
             <Col span={24}>{sectionCrossChecks}</Col>
             <Col span={24}>{sectionSensors}</Col>
