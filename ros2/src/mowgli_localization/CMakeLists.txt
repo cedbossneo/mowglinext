@@ -73,6 +73,8 @@ ament_target_dependencies(navsat_to_absolute_pose_node
   sensor_msgs
   geometry_msgs
   std_srvs
+  tf2
+  tf2_ros
   mowgli_interfaces
 )
 
