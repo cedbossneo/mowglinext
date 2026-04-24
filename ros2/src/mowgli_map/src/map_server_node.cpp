@@ -20,6 +20,7 @@
 #include <cmath>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,52 @@
 
 namespace mowgli_map
 {
+
+// Simple parser for /ros2_ws/maps/dock_calibration.yaml — see the twin
+// helper in hardware_bridge_node.cpp. Duplicated locally to avoid
+// introducing a shared header for a few dozen lines.
+struct DockCalibrationFile
+{
+  double x{0.0};
+  double y{0.0};
+  double yaw_rad{0.0};
+};
+
+inline std::optional<double> parse_yaml_double(const std::string& content,
+                                               const std::string& key)
+{
+  const std::string needle = key + ":";
+  auto pos = content.find(needle);
+  if (pos == std::string::npos) return std::nullopt;
+  pos += needle.size();
+  while (pos < content.size() &&
+         (content[pos] == ' ' || content[pos] == '\t')) ++pos;
+  auto end = pos;
+  while (end < content.size() && content[end] != '\n' && content[end] != '\r') ++end;
+  try
+  {
+    return std::stod(content.substr(pos, end - pos));
+  }
+  catch (...)
+  {
+    return std::nullopt;
+  }
+}
+
+inline std::optional<DockCalibrationFile> load_dock_calibration_file(
+    const std::string& path)
+{
+  std::ifstream f(path);
+  if (!f.good()) return std::nullopt;
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string content = ss.str();
+  auto x = parse_yaml_double(content, "dock_pose_x");
+  auto y = parse_yaml_double(content, "dock_pose_y");
+  auto yaw = parse_yaml_double(content, "dock_pose_yaw_rad");
+  if (!x || !y || !yaw) return std::nullopt;
+  return DockCalibrationFile{*x, *y, *yaw};
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Construction
@@ -286,9 +333,23 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   // GUI and BT always have a dock pose on first boot.
   if (!docking_pose_set_)
   {
-    const double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
-    const double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
-    const double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
+    double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
+    double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
+    double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
+    const char* dock_source = "parameters";
+
+    // Override the config-file dock pose with the calibrated value when
+    // available. The file is written by /calibrate_imu_yaw_node/calibrate
+    // and carries a GPS-derived yaw with ~1° σ — considerably better than
+    // the phone-compass value a user enters once at install time.
+    if (auto file_cal = load_dock_calibration_file(
+            "/ros2_ws/maps/dock_calibration.yaml"))
+    {
+      dock_x = file_cal->x;
+      dock_y = file_cal->y;
+      dock_yaw = file_cal->yaw_rad;
+      dock_source = "dock_calibration.yaml";
+    }
 
     if (dock_x != 0.0 || dock_y != 0.0 || dock_yaw != 0.0)
     {
@@ -301,7 +362,8 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
       docking_pose_.orientation.y = 0.0;
       docking_pose_set_ = true;
       RCLCPP_INFO(get_logger(),
-                  "Dock pose from parameters: (%.3f, %.3f) yaw=%.3f",
+                  "Dock pose from %s: (%.3f, %.3f) yaw=%.3f",
+                  dock_source,
                   dock_x,
                   dock_y,
                   dock_yaw);

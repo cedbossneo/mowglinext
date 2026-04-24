@@ -52,6 +52,8 @@
 #include <ctime>
 #include <fstream>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -88,6 +90,58 @@ namespace mowgli_hardware
 
 using namespace std::chrono_literals;
 
+// Simple parser for /ros2_ws/maps/dock_calibration.yaml. Written by
+// calibrate_imu_yaw_node's dock pre-phase, this file carries the
+// GPS-derived dock pose with ~1° accuracy — significantly better than
+// the phone-compass value stored in mowgli_robot.yaml at install time.
+// Both hardware_bridge_node and map_server_node read it at startup.
+//
+// Avoids a yaml-cpp dependency by scanning for the three numeric keys
+// we care about. Returns nullopt if any are missing or the file cannot
+// be read, in which case the caller falls back to the ROS parameter.
+struct DockCalibrationFile
+{
+  double x{0.0};
+  double y{0.0};
+  double yaw_rad{0.0};
+};
+
+inline std::optional<double> parse_yaml_double(const std::string& content,
+                                               const std::string& key)
+{
+  const std::string needle = key + ":";
+  auto pos = content.find(needle);
+  if (pos == std::string::npos) return std::nullopt;
+  pos += needle.size();
+  while (pos < content.size() &&
+         (content[pos] == ' ' || content[pos] == '\t')) ++pos;
+  auto end = pos;
+  while (end < content.size() && content[end] != '\n' && content[end] != '\r') ++end;
+  try
+  {
+    return std::stod(content.substr(pos, end - pos));
+  }
+  catch (...)
+  {
+    return std::nullopt;
+  }
+}
+
+inline std::optional<DockCalibrationFile> load_dock_calibration_file(
+    const std::string& path)
+{
+  std::ifstream f(path);
+  if (!f.good()) return std::nullopt;
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string content = ss.str();
+  auto x = parse_yaml_double(content, "dock_pose_x");
+  auto y = parse_yaml_double(content, "dock_pose_y");
+  auto yaw = parse_yaml_double(content, "dock_pose_yaw_rad");
+  if (!x || !y || !yaw) return std::nullopt;
+  return DockCalibrationFile{*x, *y, *yaw};
+}
+
 class HardwareBridgeNode : public rclcpp::Node
 {
 public:
@@ -123,6 +177,24 @@ private:
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
+
+    // Override the config-file dock pose with the runtime calibration
+    // persisted by calibrate_imu_yaw_node's dock pre-phase. The file wins
+    // over the parameter so that a redeploy after the calibration does
+    // not roll back to the old phone-compass value. Falls back silently
+    // to the parameter if the file is missing or unparseable.
+    if (auto file_cal = load_dock_calibration_file(
+            "/ros2_ws/maps/dock_calibration.yaml"))
+    {
+      RCLCPP_INFO(get_logger(),
+                  "Using dock calibration from file: pose=(%.3f, %.3f) "
+                  "yaw=%.4f rad (%.2f°) — overrides config",
+                  file_cal->x, file_cal->y, file_cal->yaw_rad,
+                  file_cal->yaw_rad * 180.0 / M_PI);
+      dock_x_ = file_cal->x;
+      dock_y_ = file_cal->y;
+      dock_yaw_ = file_cal->yaw_rad;
+    }
     lift_recovery_mode_ = declare_parameter<bool>("lift_recovery_mode", false);
     lift_blade_resume_delay_sec_ = declare_parameter<double>("lift_blade_resume_delay_sec", 1.0);
     // imu_yaw parameter is used by URDF for mounting rotation, not needed here
