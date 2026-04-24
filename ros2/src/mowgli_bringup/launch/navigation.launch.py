@@ -597,6 +597,23 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # Publishes GPS course-over-ground as a synthetic sensor_msgs/Imu on
+    # /imu/cog_heading so ekf_map_node can fuse it as an absolute-yaw
+    # observation. Replaces FusionCore's velocity_heading mode: once the
+    # session is seeded and the robot is driving forward faster than
+    # min_speed_ms with RTK-Fixed, this node corrects gyro drift every
+    # /gps/absolute_pose sample.
+    cog_to_imu = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="mowgli_localization",
+        executable="cog_to_imu.py",
+        name="cog_to_imu",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
     # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
@@ -617,6 +634,7 @@ def generate_launch_description() -> LaunchDescription:
             navsat_transform_node,
             ekf_map_node,
             dock_yaw_to_set_pose,
+            cog_to_imu,
             # shared
             kinematic_icp_group,
             wait_for_map_odom_tf,

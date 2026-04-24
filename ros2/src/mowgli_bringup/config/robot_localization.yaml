@@ -201,6 +201,23 @@ ekf_map_node:
     imu0_queue_size: 50
     imu0_remove_gravitational_acceleration: true
 
+    # ─ IMU 1 — GPS course-over-ground derived absolute yaw ─
+    # cog_to_imu.py publishes a synthetic Imu whose orientation is the
+    # heading computed from RTK-Fixed GPS displacement divided by dt,
+    # gated on forward motion. Only the absolute yaw (index 5) is fused;
+    # everything else stays with imu0. Replaces FusionCore's native
+    # velocity_heading without needing a custom fork of robot_localization.
+    imu1: /imu/cog_heading
+    imu1_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu1_queue_size: 10
+    imu1_differential: false
+    imu1_relative: false
+    imu1_remove_gravitational_acceleration: false
+
     # Process noise — same as ekf_odom
     process_noise_covariance:
       [0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
