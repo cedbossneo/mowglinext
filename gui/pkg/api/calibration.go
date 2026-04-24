@@ -53,6 +53,7 @@ type CalibrateImuYawResponse struct {
 func CalibrationRoutes(r *gin.RouterGroup, rosProvider types.IRosProvider) {
 	group := r.Group("/calibration")
 	group.POST("/imu-yaw", postCalibrateImuYaw(rosProvider))
+	registerCalibrationStatusRoute(group)
 }
 
 // ---------------------------------------------------------------------------
