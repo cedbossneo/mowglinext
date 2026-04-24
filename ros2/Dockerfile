@@ -215,7 +215,10 @@ COPY --from=build /ros2_ws/install/ install/
 # Copy all launch files and config from every package
 COPY src/mowgli_bringup/launch/    /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/launch/
 COPY src/mowgli_bringup/config/    /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/
-COPY src/mowgli_localization/launch/  /ros2_ws/install/mowgli_localization/share/mowgli_localization/launch/
+# mowgli_localization has no launch files anymore (localization.launch.py
+# was removed when FusionCore went away — the nodes are brought up from
+# mowgli_bringup/navigation.launch.py). Keep the config copy so the YAML
+# files still land in the install tree.
 COPY src/mowgli_localization/config/  /ros2_ws/install/mowgli_localization/share/mowgli_localization/config/
 
 # Use Cyclone DDS — FastRTPS shared memory causes stale /dev/shm segments
