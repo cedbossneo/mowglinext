@@ -28,6 +28,7 @@
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "nav2_msgs/srv/clear_entire_costmap.hpp"
 #include "std_srvs/srv/empty.hpp"
 
 namespace mowgli_behavior
@@ -98,8 +99,8 @@ public:
   BT::NodeStatus tick() override;
 
 private:
-  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr global_client_;
-  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr local_client_;
+  rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr global_client_;
+  rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr local_client_;
 };
 
 // ---------------------------------------------------------------------------

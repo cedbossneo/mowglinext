@@ -139,16 +139,21 @@ BT::NodeStatus ClearCostmap::tick()
 
   if (!global_client_)
   {
-    global_client_ = ctx->node->create_client<std_srvs::srv::Empty>(
+    global_client_ = ctx->node->create_client<nav2_msgs::srv::ClearEntireCostmap>(
         "/global_costmap/clear_entirely_global_costmap");
   }
   if (!local_client_)
   {
-    local_client_ = ctx->node->create_client<std_srvs::srv::Empty>(
+    local_client_ = ctx->node->create_client<nav2_msgs::srv::ClearEntireCostmap>(
         "/local_costmap/clear_entirely_local_costmap");
   }
 
-  auto request = std::make_shared<std_srvs::srv::Empty::Request>();
+  // Nav2's clear_entirely_* services use nav2_msgs/ClearEntireCostmap, NOT
+  // std_srvs/Empty. An earlier version of this node used Empty which
+  // silently failed at the DDS type-match stage — ClearCostmap returned
+  // SUCCESS but the costmap was never actually cleared, leaving stale
+  // obstacle marks (observed on the 2026-04-24 'Start occupied' loop).
+  auto request = std::make_shared<nav2_msgs::srv::ClearEntireCostmap::Request>();
 
   // Just send the requests. If the service isn't ready, async_send_request
   // will fail silently (no response). This avoids DDS discovery issues
