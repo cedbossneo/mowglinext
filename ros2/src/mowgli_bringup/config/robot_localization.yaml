@@ -174,15 +174,13 @@ ekf_map_node:
     odom0_differential: false
 
     # ─ GPS as absolute pose in map frame ─
-    # Use /gps/absolute_pose (PoseWithCovarianceStamped, map-frame ENU)
-    # instead of /odometry/gps. Our navsat_to_absolute_pose_node (custom)
-    # correctly labels frame_id="map" whereas robot_localization's
-    # navsat_transform publishes /odometry/gps with frame_id="odom" even
-    # when the pose is in the map frame — that mislabeling made ekf_map
-    # apply the position through the map→odom TF, producing a persistent
-    # 1-3 m offset from truth. pose0 is a PoseWithCovarianceStamped input
-    # type in robot_localization; frame_id is honored correctly.
-    pose0: /gps/absolute_pose
+    # /gps/pose_cov is a PoseWithCovarianceStamped twin of /gps/absolute_pose
+    # published by navsat_to_absolute_pose_node specifically for
+    # robot_localization consumption (the canonical AbsolutePose topic
+    # uses a Mowgli-specific message type that EKF can't subscribe to).
+    # frame_id=map, same ENU coords as /gps/absolute_pose, covariance
+    # built from position_accuracy.
+    pose0: /gps/pose_cov
     pose0_config: [true,  true,  false,   # x, y        — absolute position
                    false, false, false,   # orientation — no yaw from GPS
                    false, false, false,
