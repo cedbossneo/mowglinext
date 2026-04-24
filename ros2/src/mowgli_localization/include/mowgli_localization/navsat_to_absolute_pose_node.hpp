@@ -37,6 +37,7 @@
 #include <memory>
 
 #include "geometry_msgs/msg/pose_with_covariance.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
@@ -80,6 +81,10 @@ private:
 
   // ROS handles
   rclcpp::Publisher<mowgli_interfaces::msg::AbsolutePose>::SharedPtr pose_pub_;
+  /// Standard-msg twin of the AbsolutePose topic. robot_localization's EKF
+  /// pose0 input expects PoseWithCovarianceStamped; AbsolutePose is a
+  /// Mowgli-specific type and not subscribable by the EKF.
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_pub_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr fix_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr set_datum_srv_;
 };

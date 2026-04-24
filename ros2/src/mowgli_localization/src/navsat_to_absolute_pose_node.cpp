@@ -87,6 +87,11 @@ void NavSatToAbsolutePoseNode::create_publishers()
 {
   pose_pub_ =
       create_publisher<mowgli_interfaces::msg::AbsolutePose>("/gps/absolute_pose", rclcpp::QoS(10));
+  // robot_localization-compatible twin: standard PoseWithCovarianceStamped
+  // so ekf_map can subscribe as pose0 input. Published on every fix update
+  // in on_navsat_fix alongside the AbsolutePose message.
+  pose_cov_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "/gps/pose_cov", rclcpp::QoS(10));
 }
 
 void NavSatToAbsolutePoseNode::create_subscribers()
@@ -230,6 +235,22 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
   }
 
   pose_pub_->publish(out);
+
+  // Standard-msg twin for robot_localization consumption. Same pose,
+  // same covariance diagonal built from position_accuracy; frame_id=map
+  // matches what ekf_map expects for pose0 absolute-pose input.
+  geometry_msgs::msg::PoseWithCovarianceStamped twin;
+  twin.header.stamp = out.header.stamp;
+  twin.header.frame_id = "map";
+  twin.pose.pose = out.pose.pose;
+  const double var_xy = static_cast<double>(out.position_accuracy) * out.position_accuracy;
+  twin.pose.covariance[0]  = var_xy;                  // x variance
+  twin.pose.covariance[7]  = var_xy;                  // y variance
+  twin.pose.covariance[14] = var_xy * 4.0;            // z — looser, we do two_d_mode anyway
+  twin.pose.covariance[21] = 1.0e3;                   // roll — "unknown"
+  twin.pose.covariance[28] = 1.0e3;                   // pitch — "unknown"
+  twin.pose.covariance[35] = 1.0e3;                   // yaw  — "unknown" (no GPS heading)
+  pose_cov_pub_->publish(twin);
 }
 
 // ---------------------------------------------------------------------------
