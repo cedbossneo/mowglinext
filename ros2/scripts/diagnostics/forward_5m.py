@@ -47,6 +47,7 @@ class Fwd5m(Node):
         self.create_subscription(Odometry, "/wheel_odom", self._wheel_cb, qos, callback_group=self._cb)
         self.create_subscription(Imu, "/imu/data", self._imu_cb, qos_imu, callback_group=self._cb)
         self.create_subscription(Odometry, "/fusion/odom", self._fusion_cb, qos, callback_group=self._cb)
+        self.create_subscription(Odometry, "/odometry/filtered_map", self._fusion_cb, qos, callback_group=self._cb)
 
     def _wheel_cb(self, m):
         t = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
