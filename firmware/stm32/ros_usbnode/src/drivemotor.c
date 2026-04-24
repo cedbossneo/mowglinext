@@ -141,7 +141,6 @@ static int16_t right_chop_acc = 0;
  * Function Prototypes
  *******************************************************************************/
 __STATIC_INLINE void drivemotor_prepareMsg(uint8_t left_speed, uint8_t right_speed, uint8_t left_dir, uint8_t right_dir);
-__STATIC_INLINE int16_t drivemotor_deadband_chop(int16_t pwm, int16_t *acc);
 
 /******************************************************************************
  *  Public Functions
