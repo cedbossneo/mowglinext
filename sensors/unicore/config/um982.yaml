@@ -1,0 +1,11 @@
+um982_node:
+  ros__parameters:
+    port: /dev/gps
+    baudrate: 921600
+    frame_id: gps
+    data_timeout_sec: 1.0
+    reconnect_interval_sec: 1.0
+    read_poll_hz: 200.0
+    fix_topic: /gps/fix
+    heading_topic: /gps/azimuth
+    diagnostics_topic: /gps/diagnostics
