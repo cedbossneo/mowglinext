@@ -829,6 +829,21 @@ class ImuYawCalibrator(Node):
         response.stationary_samples_used = int(result["stationary_samples_used"])
         response.gravity_mag_mps2 = result["gravity_mag_mps2"]
 
+        # Dock pose fields — only filled when the pre-phase actually ran
+        # and succeeded. Leave dock_valid false + zeros otherwise so the
+        # GUI knows to keep the previously configured dock_pose_yaw.
+        if dock_yaw_result is not None:
+            response.dock_valid = True
+            response.dock_pose_x = float(dock_yaw_result["dock_pose_x"])
+            response.dock_pose_y = float(dock_yaw_result["dock_pose_y"])
+            response.dock_pose_yaw_rad = float(dock_yaw_result["dock_pose_yaw_rad"])
+            response.dock_pose_yaw_deg = float(dock_yaw_result["dock_pose_yaw_deg"])
+            response.dock_yaw_sigma_deg = float(dock_yaw_result["yaw_sigma_deg"])
+            response.dock_undock_displacement_m = float(
+                dock_yaw_result["undock_displacement_m"])
+        else:
+            response.dock_valid = False
+
         if response.success:
             self.get_logger().info(
                 f"imu_yaw = {response.imu_yaw_rad:+.4f} rad "
@@ -850,6 +865,16 @@ class ImuYawCalibrator(Node):
                     f"Pitch/roll not computed: only "
                     f"{response.stationary_samples_used} stationary IMU "
                     f"samples (need ≥ {self.MIN_STATIONARY_SAMPLES})."
+                )
+            if response.dock_valid:
+                self.get_logger().info(
+                    f"dock_pose = ({response.dock_pose_x:+.3f}, "
+                    f"{response.dock_pose_y:+.3f}) yaw="
+                    f"{response.dock_pose_yaw_deg:+.2f}° "
+                    f"(σ={response.dock_yaw_sigma_deg:.2f}°, "
+                    f"undock displacement={response.dock_undock_displacement_m:.3f} m). "
+                    "Promote to mowgli_robot.yaml → dock_pose_yaw "
+                    f"= {response.dock_pose_yaw_rad:.4f}."
                 )
         else:
             self.get_logger().warn(f"Calibration failed: {response.message}")

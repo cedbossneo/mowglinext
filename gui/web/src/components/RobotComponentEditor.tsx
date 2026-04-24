@@ -102,6 +102,22 @@ type ImuYawCalibrationResult = {
     imu_yaw_deg: number;
     samples_used: number;
     std_dev_deg: number;
+    imu_pitch_rad?: number;
+    imu_pitch_deg?: number;
+    imu_roll_rad?: number;
+    imu_roll_deg?: number;
+    stationary_samples_used?: number;
+    gravity_mag_mps2?: number;
+    // Dock-yaw fields, present only if the calibration was started
+    // while the robot was on the dock (charging). When dock_valid is
+    // false the remaining dock_* fields are 0 and should be ignored.
+    dock_valid?: boolean;
+    dock_pose_x?: number;
+    dock_pose_y?: number;
+    dock_pose_yaw_rad?: number;
+    dock_pose_yaw_deg?: number;
+    dock_yaw_sigma_deg?: number;
+    dock_undock_displacement_m?: number;
 };
 
 export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
@@ -117,6 +133,10 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
     const [calibRunning, setCalibRunning] = useState(false);
     const [calibResult, setCalibResult] = useState<ImuYawCalibrationResult | null>(null);
     const CALIB_DURATION_SEC = 30;
+    // The service now runs dock-yaw pre-phase (up to ~25 s) +
+    // forward/back drives (~20 s) + optional mag rotation. Backend
+    // budget is 150 s; give the fetch a matching AbortController.
+    const CALIB_CLIENT_TIMEOUT_MS = 155_000;
 
     const resetCalibration = useCallback(() => {
         setCalibRunning(false);
@@ -132,11 +152,17 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
     const startCalibration = useCallback(async () => {
         setCalibRunning(true);
         setCalibResult(null);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(
+            () => controller.abort(),
+            CALIB_CLIENT_TIMEOUT_MS,
+        );
         try {
             const res = await fetch("/api/calibration/imu-yaw", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ duration_sec: CALIB_DURATION_SEC }),
+                signal: controller.signal,
             });
             if (!res.ok) {
                 const errBody = await res.text();
@@ -145,21 +171,69 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
             const data = (await res.json()) as ImuYawCalibrationResult;
             setCalibResult(data);
         } catch (e: any) {
+            const msg = e?.name === "AbortError"
+                ? "Timed out after 155 s. The service may still be running — check the robot and retry."
+                : (e?.message || String(e));
             notification.error({
                 message: "IMU yaw calibration failed",
-                description: e?.message || String(e),
+                description: msg,
             });
         } finally {
+            clearTimeout(timeoutId);
             setCalibRunning(false);
         }
     }, []);
 
     const applyCalibration = useCallback(() => {
         if (!calibResult || !calibResult.success) return;
+
+        const appliedBits: string[] = [];
+
+        // imu_yaw is useful only when the std_dev was reasonably small;
+        // we keep the old behaviour of always writing it since the old
+        // workflow did. Users can still decide not to Save.
         onChange("imu_yaw", roundTo(calibResult.imu_yaw_rad, 4));
+        appliedBits.push(
+            `imu_yaw = ${calibResult.imu_yaw_deg.toFixed(2)}°`
+        );
+
+        // Pitch/roll are now also returned by the service. Promote them
+        // when the stationary baseline was long enough for a meaningful
+        // estimate (node threshold 150 samples) — otherwise the fields
+        // come back as 0 and writing them would zero a good prior.
+        const stationaryOk =
+            (calibResult.stationary_samples_used ?? 0) >= 150
+            && Number.isFinite(calibResult.imu_pitch_rad)
+            && Number.isFinite(calibResult.imu_roll_rad);
+        if (stationaryOk) {
+            onChange("imu_pitch", roundTo(calibResult.imu_pitch_rad!, 4));
+            onChange("imu_roll", roundTo(calibResult.imu_roll_rad!, 4));
+            appliedBits.push(
+                `imu_pitch = ${calibResult.imu_pitch_deg!.toFixed(2)}°`,
+                `imu_roll = ${calibResult.imu_roll_deg!.toFixed(2)}°`,
+            );
+        }
+
+        // Dock pose yaw: when the service was started while charging the
+        // dock-undock pre-phase runs and delivers a ~1° precise dock yaw.
+        // Write it into dock_pose_yaw (replacing the phone-compass value
+        // baked into mowgli_robot.yaml at install time).
+        if (calibResult.dock_valid && Number.isFinite(calibResult.dock_pose_yaw_rad)) {
+            onChange("dock_pose_yaw", roundTo(calibResult.dock_pose_yaw_rad!, 4));
+            onChange("dock_pose_x", roundTo(calibResult.dock_pose_x ?? 0, 4));
+            onChange("dock_pose_y", roundTo(calibResult.dock_pose_y ?? 0, 4));
+            appliedBits.push(
+                `dock_pose_yaw = ${calibResult.dock_pose_yaw_deg!.toFixed(2)}° `
+                + `(σ${calibResult.dock_yaw_sigma_deg!.toFixed(2)}°)`,
+            );
+        }
+
         notification.success({
-            message: "IMU yaw updated",
-            description: `imu_yaw = ${calibResult.imu_yaw_deg.toFixed(2)}° (${calibResult.imu_yaw_rad.toFixed(4)} rad). Remember to save the configuration.`,
+            message: "Calibration applied",
+            description:
+                appliedBits.join(" · ")
+                + ". Remember to save the configuration.",
+            duration: 6,
         });
         setCalibOpen(false);
         resetCalibration();
