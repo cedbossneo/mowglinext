@@ -575,6 +575,10 @@ def generate_launch_description() -> LaunchDescription:
         ],
         remappings=[
             ("odometry/filtered", "/odometry/filtered_map"),
+            # robot_localization defaults to a global /set_pose topic shared
+            # by both EKFs. Remap ekf_map's subscription to a node-unique
+            # name so seeding ekf_map does not also reset ekf_odom.
+            ("set_pose", "/ekf_map_node/set_pose"),
         ],
     )
 
