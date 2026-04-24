@@ -89,16 +89,30 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 
   if (dist < min_displacement)
   {
-    // BackUp reported complete but GPS barely moved — robot is likely
-    // still stuck on the dock latch. Fail so UndockSequence fails and
-    // the outer ReactiveSequence retries.
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "CalibrateHeadingFromUndock: displacement %.3fm below "
-                "min %.3fm — BackUp did not actually move the robot.",
-                dist, min_displacement);
-    // Mark the snapshot consumed so a retry does not falsely see old data.
+    const bool still_on_dock = ctx->latest_power.charger_enabled;
     ctx->undock_start_recorded = false;
-    return BT::NodeStatus::FAILURE;
+    if (still_on_dock)
+    {
+      // BackUp reported complete but GPS barely moved AND the dock still
+      // charges — robot is genuinely stuck on the dock latch. Fail so
+      // UndockSequence fails and the outer ReactiveSequence retries.
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "CalibrateHeadingFromUndock: displacement %.3fm below min %.3fm "
+                  "AND is_charging=true — robot stuck on dock, retrying undock.",
+                  dist, min_displacement);
+      return BT::NodeStatus::FAILURE;
+    }
+    // Partial undock: GPS moved less than expected (wheel slip on the dock
+    // ramp is common) but charging has dropped, so the robot IS off the
+    // dock. The displacement is too short to refine yaw reliably — trust
+    // the dock_yaw injected by dock_yaw_to_set_pose while still on the
+    // dock and continue with the rest of the session.
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "CalibrateHeadingFromUndock: partial undock (%.3fm < %.3fm) but "
+                "charging dropped — keeping dock_yaw seed, skipping refinement.",
+                dist, min_displacement);
+    ctx->yaw_seeded_this_session = true;
+    return BT::NodeStatus::SUCCESS;
   }
 
   // Robot moved backward during the BackUp. Motion vector (dx, dy) points
