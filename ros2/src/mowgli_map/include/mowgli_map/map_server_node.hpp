@@ -339,6 +339,13 @@ private:
   /// tracker overshoot.
   double strip_boundary_margin_m_{0.5};
 
+  /// Extent of the dock approach corridor along -X in dock local frame (m).
+  /// Cells within this rectangle in front of the dock are marked
+  /// NO_GO_ZONE so coverage strips stop before the straight-line alignment
+  /// corridor that opennav_docking needs for the final approach.
+  double dock_approach_corridor_length_m_{1.5};
+  double dock_approach_corridor_half_width_m_{0.40};
+
   // ── State ─────────────────────────────────────────────────────────────────
   grid_map::GridMap map_;
   mutable std::mutex map_mutex_;
