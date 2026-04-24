@@ -20,16 +20,20 @@ export interface FusionOdom {
 }
 
 /**
- * Subscribes to the raw /fusion/odom topic (nav_msgs/Odometry).
- * Unlike usePose which gets the dock-override AbsolutePose,
- * this provides the actual FusionCore UKF output.
+ * Subscribes to the global filtered odometry published by
+ * ekf_map_node (robot_localization dual-EKF). Before the 2026-04-24
+ * migration this came from FusionCore on /fusion/odom; the topic
+ * alias kept its name ("fusionRaw") on the backend to avoid churning
+ * every consumer. The function name is kept as useFusionOdom for
+ * the same reason — rename to useMapOdometry in a follow-up if we
+ * want to retire the FusionCore branding entirely.
  */
 export const useFusionOdom = () => {
     const [odom, setOdom] = useState<FusionOdom>({})
     const stream = useWS<string>(() => {
-            console.log({ message: "FusionOdom Stream closed" })
+            console.log({ message: "MapOdometry Stream closed" })
         }, () => {
-            console.log({ message: "FusionOdom Stream connected" })
+            console.log({ message: "MapOdometry Stream connected" })
         },
         (e) => {
             setOdom(JSON.parse(e))

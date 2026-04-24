@@ -264,7 +264,7 @@ export const DiagnosticsPage = () => {
     const sectionLocalization = (
         <Row gutter={[12, 12]}>
             <Col xs={24} lg={12}>
-                <Card title={<Space><CompassOutlined/> FusionCore Pose</Space>} size="small"
+                <Card title={<Space><CompassOutlined/> Filtered Pose (map frame)</Space>} size="small"
                       extra={pose.pose?.pose?.position ? <Tag color="success">Live</Tag> : <Tag>Waiting...</Tag>}>
                     <Row gutter={[12, 12]}>
                         <Col span={8}>
