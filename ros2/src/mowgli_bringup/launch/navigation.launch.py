@@ -614,6 +614,21 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # Publishes tilt-compensated magnetic heading as a synthetic
+    # sensor_msgs/Imu on /imu/mag_yaw. Active as soon as mag_calibration.yaml
+    # exists (written by /calibrate_imu_yaw_node/calibrate). Unlike
+    # cog_to_imu this works with the robot stationary or rotating in place.
+    mag_yaw_publisher = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="mowgli_localization",
+        executable="mag_yaw_publisher.py",
+        name="mag_yaw_publisher",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
     # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
@@ -635,6 +650,7 @@ def generate_launch_description() -> LaunchDescription:
             ekf_map_node,
             dock_yaw_to_set_pose,
             cog_to_imu,
+            mag_yaw_publisher,
             # shared
             kinematic_icp_group,
             wait_for_map_odom_tf,

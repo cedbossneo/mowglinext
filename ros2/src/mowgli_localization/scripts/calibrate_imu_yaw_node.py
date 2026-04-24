@@ -34,18 +34,21 @@ pipeline, so physical obstacles stop the motion regardless.
 """
 
 import math
+import os
 import threading
 import time
+from datetime import datetime, timezone
 
 import numpy as np
 import rclpy
+import yaml
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 
 from geometry_msgs.msg import TwistStamped
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, MagneticField
 from nav_msgs.msg import Odometry
 
 from mowgli_interfaces.msg import Emergency
@@ -67,6 +70,58 @@ HL_CMD_RECORD_CANCEL    = 6
 
 def _stamp_to_float(stamp) -> float:
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
+
+
+def fit_mag_min_max(samples: list[tuple[float, float, float]]) -> dict:
+    """Min/max hard-iron + isotropic soft-iron fit. Returns calibration dict.
+
+    This is the simplest robust mag calibration that works on a wheeled
+    robot that can only spin around Z. A full ellipsoid fit would need
+    tilts in multiple axes which we can't drive cleanly here."""
+    xs = [s[0] for s in samples]
+    ys = [s[1] for s in samples]
+    zs = [s[2] for s in samples]
+
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    min_z, max_z = min(zs), max(zs)
+
+    offset_x = (max_x + min_x) / 2.0
+    offset_y = (max_y + min_y) / 2.0
+    offset_z = (max_z + min_z) / 2.0
+
+    range_x = max_x - min_x
+    range_y = max_y - min_y
+    range_z = max_z - min_z
+    mean_range = (range_x + range_y + range_z) / 3.0
+
+    scale_x = mean_range / range_x if range_x > 1e-6 else 1.0
+    scale_y = mean_range / range_y if range_y > 1e-6 else 1.0
+    scale_z = mean_range / range_z if range_z > 1e-6 else 1.0
+
+    mags = []
+    for bx, by, bz in samples:
+        cx = (bx - offset_x) * scale_x
+        cy = (by - offset_y) * scale_y
+        cz = (bz - offset_z) * scale_z
+        mags.append(math.sqrt(cx * cx + cy * cy + cz * cz))
+    mag_mean = sum(mags) / len(mags) if mags else 0.0
+    var = sum((m - mag_mean) ** 2 for m in mags) / len(mags) if mags else 0.0
+    mag_std = math.sqrt(var)
+
+    return {
+        "offset_x_uT": float(offset_x),
+        "offset_y_uT": float(offset_y),
+        "offset_z_uT": float(offset_z),
+        "scale_x": float(scale_x),
+        "scale_y": float(scale_y),
+        "scale_z": float(scale_z),
+        "sample_count": len(samples),
+        "magnitude_mean_uT": float(mag_mean),
+        "magnitude_std_uT": float(mag_std),
+        "raw_min_uT": [float(min_x), float(min_y), float(min_z)],
+        "raw_max_uT": [float(max_x), float(max_y), float(max_z)],
+    }
 
 
 class ImuYawCalibrator(Node):
@@ -110,6 +165,18 @@ class ImuYawCalibrator(Node):
                                         # body accel. 3 cycles → sqrt(3) ≈ 1.7× noise
                                         # reduction on the vector sum → ±10° typical.
 
+    # --- Magnetometer calibration ---
+    # Rotation phase appended to the drive. Collects /imu/mag_raw while the
+    # robot spins in place so that a full azimuth sweep of the Earth field
+    # passes through the sensor. Hard-iron offset is the midpoint of each
+    # axis' min/max; soft-iron scale equalises the per-axis ranges. Result
+    # is written to MAG_CALIBRATION_PATH where mag_yaw_publisher.py picks
+    # it up.
+    MAG_ROTATE_WZ = 0.30                # rad/s (~17°/s)
+    MAG_ROTATE_SEC = 30.0               # total rotation time (≈ 1.4 turns)
+    MAG_MIN_SAMPLES = 150
+    MAG_CALIBRATION_PATH = "/ros2_ws/maps/mag_calibration.yaml"
+
     def __init__(self) -> None:
         super().__init__("calibrate_imu_yaw_node")
 
@@ -140,6 +207,9 @@ class ImuYawCalibrator(Node):
         # from gravity during stationary periods; ax/ay drive the yaw solve.
         self._imu_samples: list[tuple[float, float, float, float]] = []
         self._odom_samples: list[tuple[float, float, float]] = []
+        # Magnetometer samples during the rotation phase: (Bx, By, Bz) in µT.
+        self._mag_samples: list[tuple[float, float, float]] = []
+        self._collecting_mag = False
 
         # Preflight state (latest values from safety topics).
         self._is_charging = False
@@ -148,6 +218,10 @@ class ImuYawCalibrator(Node):
 
         self._imu_sub = self.create_subscription(
             Imu, "/imu/data", self._imu_cb, imu_qos, callback_group=self._cb_group
+        )
+        self._mag_sub = self.create_subscription(
+            MagneticField, "/imu/mag_raw", self._mag_cb, imu_qos,
+            callback_group=self._cb_group,
         )
         self._odom_sub = self.create_subscription(
             Odometry, "/wheel_odom", self._odom_cb, odom_qos,
@@ -225,6 +299,19 @@ class ImuYawCalibrator(Node):
                 (t, float(msg.twist.twist.linear.x), float(msg.twist.twist.angular.z))
             )
 
+    def _mag_cb(self, msg: MagneticField) -> None:
+        if not self._collecting_mag:
+            return
+        # Store in µT so fit numbers stay human-readable.
+        with self._lock:
+            self._mag_samples.append(
+                (
+                    float(msg.magnetic_field.x) * 1e6,
+                    float(msg.magnetic_field.y) * 1e6,
+                    float(msg.magnetic_field.z) * 1e6,
+                )
+            )
+
     def _status_cb(self, msg: HwStatus) -> None:
         self._is_charging = bool(msg.is_charging)
 
@@ -281,6 +368,68 @@ class ImuYawCalibrator(Node):
         for _ in range(n):
             self._publish_vx(0.0)
             time.sleep(period)
+
+    def _publish_wz(self, wz: float) -> None:
+        """Publish a stamped Twist with the given angular velocity."""
+        msg = TwistStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "base_footprint"
+        msg.twist.angular.z = float(wz)
+        self._cmd_pub.publish(msg)
+
+    def _rotate_profile(self, wz: float, duration_sec: float) -> None:
+        """Spin in place at a fixed wz for `duration_sec`, cmd_vel at
+        CMD_RATE_HZ so the firmware watchdog never trips."""
+        period = 1.0 / self.CMD_RATE_HZ
+        n = max(1, int(duration_sec * self.CMD_RATE_HZ))
+        for _ in range(n):
+            if self._emergency_active:
+                break
+            self._publish_wz(wz)
+            time.sleep(period)
+        # Stop at end.
+        self._publish_wz(0.0)
+
+    def _fit_and_save_mag(self, samples: list[tuple[float, float, float]]) -> None:
+        """Fit hard-iron + soft-iron calibration and persist to YAML.
+        Non-fatal — logs and returns without raising if samples are
+        insufficient or the file write fails."""
+        if len(samples) < self.MAG_MIN_SAMPLES:
+            self.get_logger().warn(
+                f"Too few mag samples for calibration ({len(samples)} < "
+                f"{self.MAG_MIN_SAMPLES}). Verify /imu/mag_raw is publishing."
+            )
+            return
+        cal = fit_mag_min_max(samples)
+        out = {
+            "mag_calibration": {
+                **cal,
+                "calibrated_at": datetime.now(timezone.utc).isoformat(),
+                "rotate_wz_rad_s": self.MAG_ROTATE_WZ,
+                "rotate_duration_sec": self.MAG_ROTATE_SEC,
+            },
+        }
+        try:
+            os.makedirs(os.path.dirname(self.MAG_CALIBRATION_PATH), exist_ok=True)
+            with open(self.MAG_CALIBRATION_PATH, "w") as fh:
+                yaml.safe_dump(out, fh, sort_keys=False)
+        except Exception as exc:
+            self.get_logger().error(
+                f"Failed to write mag calibration to "
+                f"{self.MAG_CALIBRATION_PATH}: {exc}"
+            )
+            return
+        self.get_logger().info(
+            "Mag calibration: samples={}  offset=({:+7.2f}, {:+7.2f}, {:+7.2f}) µT  "
+            "scale=({:.3f}, {:.3f}, {:.3f})  |B|={:.2f} ± {:.2f} µT  "
+            "(Earth range ≈ 25–65 µT)  saved to {}".format(
+                cal["sample_count"],
+                cal["offset_x_uT"], cal["offset_y_uT"], cal["offset_z_uT"],
+                cal["scale_x"], cal["scale_y"], cal["scale_z"],
+                cal["magnitude_mean_uT"], cal["magnitude_std_uT"],
+                self.MAG_CALIBRATION_PATH,
+            )
+        )
 
     def _call_hlc(self, command: int, label: str) -> bool:
         """Call the BT's HighLevelControl service synchronously.
@@ -446,6 +595,31 @@ class ImuYawCalibrator(Node):
             # Belt-and-braces stop: one last zero command after the profile.
             self._publish_vx(0.0)
 
+        # --- Magnetometer calibration phase -------------------------------
+        # Rotate in place so /imu/mag_raw sweeps a full azimuth — hard-iron
+        # offset + per-axis soft-iron scaling can then be fitted. Kept
+        # inside the same RECORDING window as the linear drive above so
+        # the whole IMU calibration is one call, one motion routine.
+        self.get_logger().info(
+            f"Magnetometer calibration: rotating at wz={self.MAG_ROTATE_WZ:+.2f} "
+            f"rad/s for {self.MAG_ROTATE_SEC:.0f}s "
+            f"(≈{math.degrees(self.MAG_ROTATE_WZ * self.MAG_ROTATE_SEC):.0f}°)."
+        )
+        with self._lock:
+            self._mag_samples.clear()
+            self._collecting_mag = True
+        try:
+            self._rotate_profile(self.MAG_ROTATE_WZ, self.MAG_ROTATE_SEC)
+        except Exception as exc:
+            for _ in range(5):
+                self._publish_wz(0.0)
+                time.sleep(0.05)
+            self.get_logger().error(f"Mag rotate phase errored: {exc}")
+        finally:
+            with self._lock:
+                self._collecting_mag = False
+            self._publish_wz(0.0)
+
         # --- Exit RECORDING cleanly — CANCEL discards the trajectory ---
         if need_exit_recording:
             self._call_hlc(HL_CMD_RECORD_CANCEL, "cancel recording")
@@ -455,6 +629,11 @@ class ImuYawCalibrator(Node):
             self._collecting = False
             imu_samples = list(self._imu_samples)
             odom_samples = list(self._odom_samples)
+            mag_samples = list(self._mag_samples)
+
+        # Fit and persist magnetometer calibration (non-fatal if it fails
+        # — the IMU yaw result is still reported via the service response).
+        self._fit_and_save_mag(mag_samples)
 
         self.get_logger().info(
             f"Drive complete — {len(imu_samples)} IMU / "
