@@ -214,17 +214,18 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
             );
         }
 
-        // Dock pose yaw: when the service was started while charging the
-        // dock-undock pre-phase runs and delivers a ~1° precise dock yaw.
-        // Write it into dock_pose_yaw (replacing the phone-compass value
-        // baked into mowgli_robot.yaml at install time).
+        // Dock pose yaw: the service's dock pre-phase already persisted
+        // the calibrated value to /ros2_ws/maps/dock_calibration.yaml —
+        // hardware_bridge_node, map_server_node and dock_yaw_to_set_pose
+        // all load that file at startup and it takes precedence over the
+        // mowgli_robot.yaml values. There is nothing for the form to save;
+        // we just surface the result so the operator can verify.
         if (calibResult.dock_valid && Number.isFinite(calibResult.dock_pose_yaw_rad)) {
-            onChange("dock_pose_yaw", roundTo(calibResult.dock_pose_yaw_rad!, 4));
-            onChange("dock_pose_x", roundTo(calibResult.dock_pose_x ?? 0, 4));
-            onChange("dock_pose_y", roundTo(calibResult.dock_pose_y ?? 0, 4));
             appliedBits.push(
                 `dock_pose_yaw = ${calibResult.dock_pose_yaw_deg!.toFixed(2)}° `
-                + `(σ${calibResult.dock_yaw_sigma_deg!.toFixed(2)}°)`,
+                + `(σ${calibResult.dock_yaw_sigma_deg!.toFixed(2)}°, `
+                + `displacement ${calibResult.dock_undock_displacement_m?.toFixed(2) ?? "?"} m, `
+                + "persisted to dock_calibration.yaml)",
             );
         }
 
