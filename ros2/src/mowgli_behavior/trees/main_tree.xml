@@ -209,12 +209,16 @@
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
           <WaitForDuration duration_sec="1.0"/>
           <Fallback name="UndockOrSkip">
-            <!-- Not on dock: no physical undock motion needed. Yaw seeding
-                 happens uniformly after this Fallback via SeedYawFromMotion,
-                 which drives the robot 1 m forward and sets the EKF heading
-                 from GPS track direction — no reverse wiggle required. -->
+            <!-- Not on dock: the dock_yaw injection (hardware_bridge →
+                 /gnss/heading → dock_yaw_to_set_pose.py) never fired, so
+                 the global EKF has a random initial yaw. Drive forward 1 m
+                 and derive yaw from the GPS track direction. Guarded by
+                 yaw_seeded_this_session so a ReactiveSequence halt/resume
+                 cycle does not re-trigger the forward drive mid-session. -->
             <Sequence name="NotDockedBranch">
               <Inverter><IsCharging/></Inverter>
+              <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
+              <SeedYawFromMotion distance_m="1.0" speed_ms="0.2" timeout_sec="30.0"/>
             </Sequence>
             <!-- On dock — wait for GPS, save map, then undock. IsCharging
                  gate ensures we only run the docked-undock path when the
@@ -250,15 +254,21 @@
                    a geometric distance to the dock pose that is fragile
                    when RTK drifts briefly near the metal canopy. BackUp is
                    deterministic — reverse at the given speed for the
-                   given distance. 0.5 m is enough to clear the dock; any
-                   further and tight garden polygons start triggering
-                   BoundaryGuard on the way out. -->
-              <BackUp backup_dist="0.5" backup_speed="0.20"/>
+                   given distance. 1 m gives RTK ~5 s × 0.2 m/s of clean
+                   displacement for CalibrateHeadingFromUndock to resolve
+                   the initial heading accurately. -->
+              <BackUp backup_dist="1.0" backup_speed="0.20"/>
               <!-- Wait for RTK Fixed after undock. The dock often has a
                    metal canopy that attenuates GPS; once the robot is 2 m
                    out the F9P should re-acquire quickly. Timeout proceeds
                    anyway at degraded precision rather than freeze. -->
               <WaitForGpsFix timeout_sec="20.0" min_fix_type="4"/>
+              <!-- Refine the EKF yaw from the 1 m of GPS-verified backward
+                   motion: heading = atan2(-dy, -dx). Sync, no extra motion.
+                   Fails UndockSequence if GPS barely moved (robot stuck on
+                   dock) so the BT retries the whole undock. -->
+              <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
+              <CalibrateHeadingFromUndock min_displacement_m="0.5"/>
               <!-- Clear costmaps again after undock — dock structure must be
                    cleared before navigation starts. -->
               <ClearCostmap/>
@@ -271,15 +281,6 @@
               <AlwaysFailure/>
             </Sequence>
           </Fallback>
-
-          <!-- Seed the global EKF with a GPS-derived heading before any
-               Nav2 action runs. robot_localization has no absolute heading
-               reference at boot (no magnetometer, IMU yaw is pure gyro
-               integration), so without this seed Nav2 would pick a random
-               initial direction. Runs once per session via tree topology
-               regardless of whether we just undocked or started off-dock. -->
-          <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
-          <SeedYawFromMotion distance_m="1.0" speed_ms="0.2" timeout_sec="30.0"/>
 
           <!-- Record if it was raining at start — user chose to mow in rain -->
           <WasRainingAtStart/>

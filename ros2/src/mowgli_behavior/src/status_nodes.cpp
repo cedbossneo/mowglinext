@@ -103,6 +103,9 @@ BT::NodeStatus ClearCommand::tick()
               "ClearCommand: resetting current_command from %u to 0",
               ctx->current_command);
   ctx->current_command = 0;
+  // Per-session flags reset here so the next session's seeding nodes
+  // actually run instead of short-circuiting on stale state.
+  ctx->yaw_seeded_this_session = false;
   return BT::NodeStatus::SUCCESS;
 }
 

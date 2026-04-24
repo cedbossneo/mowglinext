@@ -129,6 +129,7 @@ install(
 install(
   PROGRAMS
     scripts/calibrate_imu_yaw_node.py
+    scripts/dock_yaw_to_set_pose.py
     scripts/kinematic_icp_encoder_adapter.py
     scripts/kinematic_icp_scan_frame_relay.py
     scripts/wheel_odom_tf_node.py

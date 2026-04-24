@@ -28,7 +28,7 @@ namespace mowgli_behavior
 {
 
 // ---------------------------------------------------------------------------
-// RecordUndockStart — snapshot GPS position before undocking
+// RecordUndockStart — snapshot GPS position before the undock BackUp
 // ---------------------------------------------------------------------------
 
 class RecordUndockStart : public BT::SyncActionNode
@@ -47,19 +47,59 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// SeedYawFromMotion — drive forward, derive yaw from GPS track, set_pose EKF
+// CalibrateHeadingFromUndock — derive yaw from the BackUp displacement
 // ---------------------------------------------------------------------------
 
-/// Forces a short forward drive at the beginning of an autonomous session
-/// and seeds the global EKF with a correct heading derived from the GPS
-/// displacement direction. Solves the no-magnetometer yaw-initialisation
-/// problem for robot_localization: ekf_map has no absolute heading reference
-/// at boot, so Nav2 would otherwise send the robot in a random direction
-/// until the filter self-corrects via several metres of driving.
+/// Sync node that runs immediately after the UndockSequence BackUp. Uses
+/// the GPS position captured by RecordUndockStart and the current GPS
+/// position to compute the robot's heading: since the BackUp reversed
+/// ~1 m in a straight line, the motion vector points OPPOSITE to the
+/// robot's heading, so `heading = atan2(-dy, -dx)` (equivalent to adding
+/// π to the motion angle).
 ///
-/// Tree topology places this node once in the autonomous sequence, so it
-/// runs exactly once per START — on dock, off dock, same node. No
-/// blackboard flag or session bookkeeping needed.
+/// Publishes a PoseWithCovarianceStamped seed to /ekf_map_node/set_pose
+/// so the global EKF aligns with reality before any Nav2 goal runs. Sets
+/// ctx->yaw_seeded_this_session so the off-dock SeedYawFromMotion node
+/// will skip if triggered later in the same session.
+///
+/// Returns FAILURE if the GPS displacement is below min_displacement_m
+/// (typically because the BackUp reported complete but the robot never
+/// physically left the dock) — this propagates back up to UndockSequence
+/// failure and the BT retries the whole undock, giving the mechanical
+/// setup another chance to break free.
+class CalibrateHeadingFromUndock : public BT::SyncActionNode
+{
+public:
+  CalibrateHeadingFromUndock(const std::string& name, const BT::NodeConfig& config)
+      : BT::SyncActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+        BT::InputPort<double>("min_displacement_m", 0.5,
+                              "Minimum GPS displacement for a valid yaw"),
+    };
+  }
+  BT::NodeStatus tick() override;
+
+private:
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr set_pose_pub_;
+};
+
+// ---------------------------------------------------------------------------
+// SeedYawFromMotion — forward-drive yaw seeder for off-dock starts
+// ---------------------------------------------------------------------------
+
+/// Used only in the NotDockedBranch of the undock fallback, where no
+/// BackUp happens and therefore CalibrateHeadingFromUndock has no prior
+/// motion to work with. Drives the robot forward a short distance under
+/// collision_monitor supervision, then derives yaw from the GPS track
+/// direction and publishes a set_pose seed.
+///
+/// Guarded by ctx->yaw_seeded_this_session so that a ReactiveSequence
+/// halt/resume cycle does not re-trigger the forward drive mid-session.
 class SeedYawFromMotion : public BT::StatefulActionNode
 {
 public:
