@@ -135,9 +135,9 @@ run_check() {
     echo -e "  Flat constraint: ${RED}DRIFT${RESET} (roll=${roll}° pitch=${pitch}°)"
   fi
 
-  # --- FusionCore z-drift ---
+  # --- EKF z-drift (should stay ~0 under two_d_mode) ---
   local odom
-  odom=$(topic_once "/fusion/odom")
+  odom=$(topic_once "/odometry/filtered_map")
   local odom_z
   odom_z=$(echo "$odom" | grep "z:" | head -1 | awk '{printf "%.2f", $2}')
   local map_z
@@ -198,7 +198,7 @@ print(f'  Grid: [{ox:.2f}, {gx_max:.2f}] x [{oy:.2f}, {gy_max:.2f}]')
   echo -e "\n${BOLD}[SENSORS]${RESET}"
   local topic_list
   topic_list=$(ros2cmd "ros2 topic list 2>/dev/null")
-  for topic in /fusion/odom /gps/fix /imu/data /scan /wheel_odom /gnss/heading; do
+  for topic in /odometry/filtered_map /odometry/filtered /gps/fix /imu/data /scan /wheel_odom /gnss/heading; do
     if echo "$topic_list" | grep -q "^${topic}$"; then
       echo -e "  ${GREEN}●${RESET} $topic"
     else
