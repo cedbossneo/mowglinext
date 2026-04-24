@@ -34,9 +34,11 @@ Semantics:
 """
 
 import math
+import os
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped
+import yaml
+from geometry_msgs.msg import PoseWithCovarianceStamped, Quaternion
 from mowgli_interfaces.msg import AbsolutePose, Status as HwStatus
 from rclpy.node import Node
 from rclpy.qos import (
@@ -46,6 +48,8 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import Imu
+
+DOCK_CALIBRATION_PATH = "/ros2_ws/maps/dock_calibration.yaml"
 
 
 class DockYawToSetPose(Node):
@@ -99,8 +103,46 @@ class DockYawToSetPose(Node):
         # CalibrateHeadingFromUndock but tight enough to anchor the filter.
         self._yaw_var = self.declare_parameter("seed_yaw_variance", 0.1).value
 
+        # Load /ros2_ws/maps/dock_calibration.yaml if it exists. The file
+        # is written by calibrate_imu_yaw_node's dock-yaw pre-phase and
+        # contains a ±1° yaw derived from the GPS track during a slow
+        # 2 m undock. We prefer that over the phone-compass-based yaw
+        # broadcast on /gnss/heading (±10° accuracy).
+        self._file_yaw_rad: float | None = None
+        self._file_yaw_var: float | None = None
+        self._load_dock_calibration()
+
         self.get_logger().info(
             "dock_yaw_to_set_pose started — waits for rising edge of is_charging"
+        )
+
+    def _load_dock_calibration(self) -> None:
+        if not os.path.exists(DOCK_CALIBRATION_PATH):
+            self.get_logger().info(
+                f"No {DOCK_CALIBRATION_PATH} — will fall back to "
+                "/gnss/heading (phone-compass dock yaw)."
+            )
+            return
+        try:
+            with open(DOCK_CALIBRATION_PATH) as fh:
+                data = yaml.safe_load(fh) or {}
+            cal = data.get("dock_calibration") or {}
+            yaw_rad = float(cal.get("dock_pose_yaw_rad"))
+            sigma_rad = float(cal.get("yaw_sigma_rad", 0.035))  # 2° default
+        except Exception as exc:
+            self.get_logger().error(
+                f"Failed to parse {DOCK_CALIBRATION_PATH}: {exc}. "
+                "Falling back to /gnss/heading."
+            )
+            return
+        self._file_yaw_rad = yaw_rad
+        # Use max(file σ², param floor) so a bad calibration cannot over-trust.
+        self._file_yaw_var = max(sigma_rad * sigma_rad, 1e-3)  # ~2° floor
+        self.get_logger().info(
+            "Loaded dock calibration: yaw={:.2f}° (σ={:.2f}°) from {}".format(
+                math.degrees(yaw_rad), math.degrees(sigma_rad),
+                DOCK_CALIBRATION_PATH,
+            )
         )
 
     def _on_heading(self, msg: Imu) -> None:
@@ -138,8 +180,23 @@ class DockYawToSetPose(Node):
             self._try_publish()
 
     def _try_publish(self) -> None:
-        if self._latest_heading is None or self._latest_gps is None:
+        # We need GPS for position. Heading comes from either the
+        # dock_calibration.yaml file (preferred) or /gnss/heading (fallback).
+        if self._latest_gps is None:
             return
+        if self._file_yaw_rad is None and self._latest_heading is None:
+            return
+
+        # Resolve yaw quaternion + variance: file value takes precedence.
+        if self._file_yaw_rad is not None:
+            q = Quaternion()
+            q.w = math.cos(self._file_yaw_rad / 2.0)
+            q.z = math.sin(self._file_yaw_rad / 2.0)
+            yaw_quat = q
+            yaw_var = self._file_yaw_var
+        else:
+            yaw_quat = self._latest_heading.orientation
+            yaw_var = self._yaw_var
 
         # Common covariance: tight on x/y/yaw, loose on z/roll/pitch so the
         # filter keeps its prior on the states we are not setting.
@@ -149,7 +206,7 @@ class DockYawToSetPose(Node):
         cov[14] = 1e6                    # z
         cov[21] = 1e6                    # roll
         cov[28] = 1e6                    # pitch
-        cov[35] = self._yaw_var          # yaw
+        cov[35] = yaw_var                # yaw
 
         # ---- ekf_map seed: GPS position + dock yaw in the map frame ----
         map_seed = PoseWithCovarianceStamped()
@@ -157,7 +214,7 @@ class DockYawToSetPose(Node):
         map_seed.header.frame_id = "map"
         map_seed.pose.pose.position.x = self._latest_gps.pose.pose.position.x
         map_seed.pose.pose.position.y = self._latest_gps.pose.pose.position.y
-        map_seed.pose.pose.orientation = self._latest_heading.orientation
+        map_seed.pose.pose.orientation = yaw_quat
         map_seed.pose.covariance = list(cov)
         self._pub_map.publish(map_seed)
 
@@ -175,19 +232,20 @@ class DockYawToSetPose(Node):
         odom_seed.header.frame_id = "odom"
         odom_seed.pose.pose.position.x = 0.0
         odom_seed.pose.pose.position.y = 0.0
-        odom_seed.pose.pose.orientation = self._latest_heading.orientation
+        odom_seed.pose.pose.orientation = yaw_quat
         odom_seed.pose.covariance = list(cov)
         self._pub_odom.publish(odom_seed)
 
         self._need_to_publish = False
 
-        # Extract yaw from quaternion for log (z and w components only —
-        # roll/pitch are zero in the publisher).
-        q = self._latest_heading.orientation
-        yaw = math.atan2(2.0 * q.w * q.z, 1.0 - 2.0 * q.z * q.z)
+        # Extract yaw from the quaternion we just published for logging.
+        yaw = math.atan2(2.0 * yaw_quat.w * yaw_quat.z,
+                         1.0 - 2.0 * yaw_quat.z * yaw_quat.z)
+        source = "file" if self._file_yaw_rad is not None else "/gnss/heading"
         self.get_logger().info(
-            "published dock set_pose: map=({:.3f}, {:.3f}) yaw={:.1f}°, "
+            "published dock set_pose ({}): map=({:.3f}, {:.3f}) yaw={:.1f}°, "
             "odom=(0, 0) yaw={:.1f}°".format(
+                source,
                 map_seed.pose.pose.position.x,
                 map_seed.pose.pose.position.y,
                 math.degrees(yaw),
