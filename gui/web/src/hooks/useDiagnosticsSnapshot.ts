@@ -24,6 +24,8 @@ export interface DockPoseCrossCheck {
     datum_lat: number;
     datum_lon: number;
     has_config: boolean;
+    // "dock_calibration.yaml" | "mowgli_robot.yaml" | ""
+    source?: string;
 }
 
 export interface CrossChecks {

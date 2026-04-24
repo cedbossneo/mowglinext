@@ -1,0 +1,77 @@
+import {useCallback, useEffect, useState} from "react";
+import {useApi} from "./useApi.ts";
+
+export interface DockCalibrationStatus {
+    present: boolean;
+    dock_pose_x?: number;
+    dock_pose_y?: number;
+    dock_pose_yaw_rad?: number;
+    dock_pose_yaw_deg?: number;
+    yaw_sigma_deg?: number;
+    undock_displacement_m?: number;
+    calibrated_at?: string;
+    error?: string;
+}
+
+export interface ImuCalibrationStatus {
+    present: boolean;
+    calibrated_at?: string;
+    samples_used?: number;
+    accel_bias_x?: number;
+    accel_bias_y?: number;
+    gyro_bias_x?: number;
+    gyro_bias_y?: number;
+    gyro_bias_z?: number;
+    implied_pitch_deg?: number;
+    implied_roll_deg?: number;
+    error?: string;
+}
+
+export interface MagCalibrationStatus {
+    present: boolean;
+    calibrated_at?: string;
+    magnitude_mean_uT?: number;
+    magnitude_std_uT?: number;
+    sample_count?: number;
+    error?: string;
+}
+
+export interface CalibrationStatus {
+    dock: DockCalibrationStatus;
+    imu: ImuCalibrationStatus;
+    mag: MagCalibrationStatus;
+}
+
+/**
+ * Polls /api/calibration/status every 5 seconds. The backend reads
+ * three on-disk artefacts (dock_calibration.yaml, imu_calibration.txt,
+ * mag_calibration.yaml) and returns {present: false} for any that are
+ * missing. Safe to call even when the robot has never been calibrated.
+ */
+export const useCalibrationStatus = () => {
+    const guiApi = useApi();
+    const [status, setStatus] = useState<CalibrationStatus | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const refresh = useCallback(async () => {
+        try {
+            const response = await guiApi.request<CalibrationStatus>({
+                path: "/calibration/status",
+                method: "GET",
+                format: "json",
+            });
+            setStatus(response.data);
+            setError(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : "Failed to fetch calibration status");
+        }
+    }, []);
+
+    useEffect(() => {
+        refresh();
+        const id = setInterval(refresh, 5000);
+        return () => clearInterval(id);
+    }, [refresh]);
+
+    return {status, error, refresh};
+};
