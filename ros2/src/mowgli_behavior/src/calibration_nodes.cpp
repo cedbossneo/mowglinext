@@ -17,10 +17,7 @@
 
 #include <cmath>
 
-#include "nav2_msgs/srv/clear_entire_costmap.hpp"
-#include "rclcpp/rclcpp.hpp"
-#include "tf2/utils.h"
-#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "tf2/LinearMath/Quaternion.h"
 
 namespace mowgli_behavior
 {
@@ -43,58 +40,160 @@ BT::NodeStatus RecordUndockStart::tick()
 }
 
 // ---------------------------------------------------------------------------
-// CalibrateHeadingFromUndock
+// SeedYawFromMotion
 // ---------------------------------------------------------------------------
 
-BT::NodeStatus CalibrateHeadingFromUndock::tick()
+void SeedYawFromMotion::publish_forward(const rclcpp::Node::SharedPtr& node,
+                                        double speed)
+{
+  geometry_msgs::msg::TwistStamped cmd{};
+  cmd.header.stamp = node->now();
+  cmd.header.frame_id = "base_footprint";
+  cmd.twist.linear.x = speed;
+  cmd_pub_->publish(cmd);
+}
+
+void SeedYawFromMotion::publish_zero(const rclcpp::Node::SharedPtr& node)
+{
+  publish_forward(node, 0.0);
+}
+
+BT::NodeStatus SeedYawFromMotion::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  ctx->undock_start_recorded = false;
-
-  // Read current pose from EKF via TF (map -> base_footprint).
-  // The EKF already fuses the best available sources (GPS, IMU, wheel ticks),
-  // so its heading is the most accurate estimate we have after undock.
-  geometry_msgs::msg::TransformStamped tf_msg;
-  try
+  if (!cmd_pub_)
   {
-    tf_msg = ctx->tf_buffer->lookupTransform("map", "base_footprint", tf2::TimePointZero);
+    cmd_pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>(
+        "/cmd_vel_teleop", 10);
   }
-  catch (const tf2::TransformException& ex)
+  if (!set_pose_pub_)
+  {
+    // ekf_map subscribes to set_pose as a topic (PoseWithCovarianceStamped).
+    // Reliable + volatile: we want the seed delivered once, but not replayed
+    // if ekf_map restarts later — a stale seed would snap the filter to an
+    // old position.
+    auto qos = rclcpp::QoS(1).reliable();
+    set_pose_pub_ = ctx->node->create_publisher<
+        geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/ekf_map_node/set_pose", qos);
+  }
+
+  distance_m_ = 1.0;
+  speed_ms_ = 0.2;
+  timeout_sec_ = 30.0;
+  min_displacement_m_ = 0.5;
+  getInput("distance_m", distance_m_);
+  getInput("speed_ms", speed_ms_);
+  getInput("timeout_sec", timeout_sec_);
+  getInput("min_displacement_m", min_displacement_m_);
+
+  // Need a fresh GPS fix to record start. The dock canopy may attenuate the
+  // first seconds of fix — caller is expected to have run WaitForGpsFix.
+  if (!ctx->gps_is_fixed)
   {
     RCLCPP_WARN(ctx->node->get_logger(),
-                "CalibrateHeadingFromUndock: TF lookup failed: %s",
-                ex.what());
-    return BT::NodeStatus::SUCCESS;  // non-fatal
+                "SeedYawFromMotion: no RTK fix at start (fix_type=%u), "
+                "aborting seed.",
+                ctx->gps_fix_type);
+    return BT::NodeStatus::FAILURE;
   }
 
-  const double pose_x = tf_msg.transform.translation.x;
-  const double pose_y = tf_msg.transform.translation.y;
-  const double heading = tf2::getYaw(tf_msg.transform.rotation);
+  x0_ = ctx->gps_x;
+  y0_ = ctx->gps_y;
+  start_time_ = ctx->node->now();
 
   RCLCPP_INFO(ctx->node->get_logger(),
-              "CalibrateHeadingFromUndock: EKF pose=(%.3f, %.3f) heading=%.1f deg",
-              pose_x,
-              pose_y,
-              heading * 180.0 / M_PI);
+              "SeedYawFromMotion: start pos=(%.3f, %.3f), drive %.2fm fwd at %.2fm/s",
+              x0_, y0_, distance_m_, speed_ms_);
+  publish_forward(ctx->node, speed_ms_);
+  return BT::NodeStatus::RUNNING;
+}
 
-  // Clear costmaps to remove stale obstacle marks around the dock — the
-  // pre-undock view includes the dock frame itself and any neighbour
-  // furniture that will now be behind the robot.
-  for (const auto& svc : {"/global_costmap/clear_entirely_global_costmap",
-                          "/local_costmap/clear_entirely_local_costmap"})
+BT::NodeStatus SeedYawFromMotion::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (ctx->latest_emergency.active_emergency ||
+      ctx->latest_emergency.latched_emergency)
   {
-    auto cc = ctx->node->create_client<nav2_msgs::srv::ClearEntireCostmap>(svc);
-    if (cc->wait_for_service(std::chrono::seconds(1)))
-    {
-      auto cr = std::make_shared<nav2_msgs::srv::ClearEntireCostmap::Request>();
-      auto cf = cc->async_send_request(cr);
-      (void)cf;
-    }
+    publish_zero(ctx->node);
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "SeedYawFromMotion: emergency during seed drive, aborting.");
+    return BT::NodeStatus::FAILURE;
   }
-  RCLCPP_INFO(ctx->node->get_logger(), "CalibrateHeadingFromUndock: costmaps cleared");
 
+  const double elapsed = (ctx->node->now() - start_time_).seconds();
+  if (elapsed > timeout_sec_)
+  {
+    publish_zero(ctx->node);
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "SeedYawFromMotion: timeout after %.1fs, aborting.", elapsed);
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const double dx = ctx->gps_x - x0_;
+  const double dy = ctx->gps_y - y0_;
+  const double dist = std::hypot(dx, dy);
+
+  if (dist < distance_m_)
+  {
+    publish_forward(ctx->node, speed_ms_);
+    return BT::NodeStatus::RUNNING;
+  }
+
+  publish_zero(ctx->node);
+
+  if (dist < min_displacement_m_)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(),
+                "SeedYawFromMotion: displacement %.3fm below min %.3fm, "
+                "seed invalid.",
+                dist, min_displacement_m_);
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const double yaw = std::atan2(dy, dx);
+
+  geometry_msgs::msg::PoseWithCovarianceStamped seed{};
+  seed.header.stamp = ctx->node->now();
+  seed.header.frame_id = "map";
+  seed.pose.pose.position.x = ctx->gps_x;
+  seed.pose.pose.position.y = ctx->gps_y;
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, yaw);
+  seed.pose.pose.orientation.x = q.x();
+  seed.pose.pose.orientation.y = q.y();
+  seed.pose.pose.orientation.z = q.z();
+  seed.pose.pose.orientation.w = q.w();
+
+  // Tight covariance for x/y (GPS-quality seed) and yaw (validated by 1m of
+  // GPS-verified motion — σ ≈ atan2(GPS_σ / displacement) ≈ 7mm/1m ≈ 0.4°).
+  // High variance on the states we don't want to set (z, roll, pitch), so
+  // the filter keeps its prior there.
+  seed.pose.covariance.fill(0.0);
+  seed.pose.covariance[0]  = 0.01;      // x
+  seed.pose.covariance[7]  = 0.01;      // y
+  seed.pose.covariance[14] = 1e6;       // z (don't touch)
+  seed.pose.covariance[21] = 1e6;       // roll
+  seed.pose.covariance[28] = 1e6;       // pitch
+  seed.pose.covariance[35] = 0.005;     // yaw (~4° σ)
+  set_pose_pub_->publish(seed);
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "SeedYawFromMotion: dist=%.3fm yaw_seed=%.1f° pos=(%.3f, %.3f) — "
+              "set_pose published.",
+              dist, yaw * 180.0 / M_PI, ctx->gps_x, ctx->gps_y);
   return BT::NodeStatus::SUCCESS;
+}
+
+void SeedYawFromMotion::onHalted()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  if (cmd_pub_)
+  {
+    publish_zero(ctx->node);
+  }
 }
 
 }  // namespace mowgli_behavior
