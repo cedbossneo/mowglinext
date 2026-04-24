@@ -121,27 +121,44 @@ static uint8_t right_dir_req;
  * actual rotation 0.72 rad/s regardless of command. */
 static int16_t left_pwm_cmd_raw  = 0;
 static int16_t right_pwm_cmd_raw = 0;
-/* Bresenham DDA accumulators for the sub-deadband chopper. Ticks as long
- * as |cmd| < PWM_DEADBAND; self-reset when cmd = 0 or ≥ deadband. */
+/* Bresenham DDA accumulators for the sub-deadband chopper. Grow by
+ * |cmd| each tick; discharge by PWM_DEADBAND per "on" tick. Self-reset
+ * when cmd = 0 or |cmd| ≥ PWM_DEADBAND. */
 static int16_t left_chop_acc  = 0;
 static int16_t right_chop_acc = 0;
+/* Pulse state: ticks remaining in the current ON burst + direction sign.
+ * A pulse runs for at least PWM_CHOP_MIN_ON_TICKS so the motor has time
+ * to overcome static friction — single-tick pulses at 10 ms just buzz
+ * without spinning the wheel (confirmed empirically). */
+static int8_t  left_pulse_remaining  = 0;
+static int8_t  right_pulse_remaining = 0;
+static int8_t  left_pulse_sign  = 0;
+static int8_t  right_pulse_sign = 0;
 
 /* Motor static-friction deadband — below this PWM the motor sits in the
- * buzz zone (current flowing but no rotation). The chopper promotes
- * sub-deadband commands to ±PWM_DEADBAND for SOME of the 10 ms ticks
- * (duty cycle = |cmd| / PWM_DEADBAND) and leaves the wheel coasting
- * for the rest, giving a true proportional average speed. Empirically
- * PWM~30-35 on this drivetrain; 35 adds safety margin.
+ * buzz zone (current flowing but no rotation). The chopper fires a
+ * MIN_ON-tick burst at ±PWM_DEADBAND when enough duty credit has been
+ * accumulated, then coasts until the next burst. Long-term time-average
+ * output = commanded value; the MIN_ON floor prevents the motor from
+ * never starting on sub-50 ms pulses that are too short to build torque.
+ *
+ * PWM_DEADBAND empirically ~30-35 on this drivetrain; 35 adds margin.
+ * MIN_ON=5 (50 ms) is the lower edge of typical brushed-DC motor
+ * electrical/mechanical time constants observed on YardForce drivetrains.
  */
 #ifndef PWM_DEADBAND
 #define PWM_DEADBAND  35
+#endif
+#ifndef PWM_CHOP_MIN_ON_TICKS
+#define PWM_CHOP_MIN_ON_TICKS  5
 #endif
 
 /******************************************************************************
  * Function Prototypes
  *******************************************************************************/
 __STATIC_INLINE void drivemotor_prepareMsg(uint8_t left_speed, uint8_t right_speed, uint8_t left_dir, uint8_t right_dir);
-__STATIC_INLINE int16_t drivemotor_deadband_chop(int16_t pwm, int16_t *acc);
+__STATIC_INLINE int16_t drivemotor_deadband_chop(
+    int16_t pwm, int16_t *acc, int8_t *pulse_remaining, int8_t *pulse_sign);
 
 /******************************************************************************
  *  Public Functions
@@ -295,8 +312,12 @@ void DRIVEMOTOR_App_10ms(void)
          * speed matches the commanded value. Call exactly once per tick.
          * Commands ≥ PWM_DEADBAND pass through unchanged. */
         {
-            int16_t left_effective  = drivemotor_deadband_chop(left_pwm_cmd_raw,  &left_chop_acc);
-            int16_t right_effective = drivemotor_deadband_chop(right_pwm_cmd_raw, &right_chop_acc);
+            int16_t left_effective  = drivemotor_deadband_chop(
+                left_pwm_cmd_raw,  &left_chop_acc,
+                &left_pulse_remaining,  &left_pulse_sign);
+            int16_t right_effective = drivemotor_deadband_chop(
+                right_pwm_cmd_raw, &right_chop_acc,
+                &right_pulse_remaining, &right_pulse_sign);
             left_speed_req  = (uint8_t)(left_effective  < 0 ? -left_effective  : left_effective);
             right_speed_req = (uint8_t)(right_effective < 0 ? -right_effective : right_effective);
             /* Motor-controller convention: dir=1 → forward at |speed|,
@@ -523,32 +544,78 @@ void DRIVEMOTOR_App_Rx(void)
 }
 
 /**
- * @brief  Sub-deadband chopper: when |cmd| is below PWM_DEADBAND but
- *         non-zero, turn it into an on/off pulse train at the 100 Hz
- *         motor-control tick rate with duty cycle = |cmd| / PWM_DEADBAND,
- *         so the time-average wheel output matches the commanded speed
- *         instead of snapping to the deadband floor. Uses a Bresenham-
- *         style DDA accumulator for exact long-term average.
+ * @brief  Sub-deadband chopper with minimum burst length.
  *
- *         Above the deadband the command passes through unchanged and
- *         the accumulator is reset (so a transition |cmd| ≥ deadband
- *         → |cmd| < deadband does not carry stale phase).
+ *         For |cmd| ≥ PWM_DEADBAND: pass-through, reset pulse state.
+ *         For 0 < |cmd| < PWM_DEADBAND: emit PWM_CHOP_MIN_ON_TICKS-length
+ *         bursts of ±PWM_DEADBAND spaced such that the long-term
+ *         time-average output equals the commanded value.
+ *
+ *         Algorithm: accumulator grows by |cmd| every tick. When NOT in
+ *         a burst, we fire a burst once acc ≥ PWM_CHOP_MIN_ON_TICKS ×
+ *         PWM_DEADBAND (enough "duty credit" for a full-length pulse).
+ *         During the burst each tick subtracts PWM_DEADBAND from acc.
+ *
+ *         Math check (abs_pwm = 14, deadband = 35, min_on = 5):
+ *           credit per burst cycle = 5 × 35 = 175
+ *           ticks to accumulate 175 at +14/tick = 12.5
+ *           steady-state: 7.5 off + 5 on = 12.5-tick period, 40% duty
+ *           ⇒ time-avg output = 35 × 0.40 = 14.0 ✓ (matches command)
+ *
+ *         MIN_ON_TICKS is set to 5 (50 ms) to give the motor enough
+ *         torque-build time to start spinning against static friction;
+ *         shorter bursts cause the wheel to buzz without moving.
  *
  *         Must be called EXACTLY ONCE per 10 ms tick per wheel, right
  *         before the message is queued to the motor controller.
  */
-__STATIC_INLINE int16_t drivemotor_deadband_chop(int16_t pwm, int16_t *acc)
+__STATIC_INLINE int16_t drivemotor_deadband_chop(
+    int16_t pwm, int16_t *acc, int8_t *pulse_remaining, int8_t *pulse_sign)
 {
-    if (pwm == 0) { *acc = 0; return 0; }
-    int16_t abs_pwm = (pwm > 0) ? pwm : -pwm;
-    if (abs_pwm >= PWM_DEADBAND) { *acc = 0; return pwm; }
-    /* Sub-deadband: integrate commanded magnitude; emit ±PWM_DEADBAND
-     * when we've accumulated one deadband's worth, else zero. */
-    *acc += abs_pwm;
-    if (*acc >= PWM_DEADBAND) {
-        *acc -= PWM_DEADBAND;
-        return (pwm > 0) ? PWM_DEADBAND : -PWM_DEADBAND;
+    if (pwm == 0) {
+        *acc = 0;
+        *pulse_remaining = 0;
+        *pulse_sign = 0;
+        return 0;
     }
+    int16_t abs_pwm = (pwm > 0) ? pwm : -pwm;
+    int8_t  sign    = (pwm > 0) ? 1 : -1;
+
+    if (abs_pwm >= PWM_DEADBAND) {
+        *acc = 0;
+        *pulse_remaining = 0;
+        *pulse_sign = sign;
+        return pwm;
+    }
+
+    /* Fill duty-credit accumulator each tick. */
+    *acc += abs_pwm;
+
+    /* Direction flip while pulsing: abort the current burst. The motor
+     * can't reverse direction mid-50ms-pulse cleanly, and the new sign
+     * will start a fresh burst on the next eligible tick. */
+    if (*pulse_remaining > 0 && *pulse_sign != sign) {
+        *pulse_remaining = 0;
+    }
+
+    /* Mid-burst: keep pulsing, subtract one deadband of credit. */
+    if (*pulse_remaining > 0) {
+        (*pulse_remaining)--;
+        *acc -= PWM_DEADBAND;
+        return (*pulse_sign > 0) ? PWM_DEADBAND : -PWM_DEADBAND;
+    }
+
+    /* Not in a burst: fire only if we have enough credit for a full
+     * MIN_ON-tick burst. Prevents the motor from starting a pulse that
+     * would be too short to actually move the wheel. */
+    const int16_t credit_for_full_burst = (int16_t)PWM_CHOP_MIN_ON_TICKS * PWM_DEADBAND;
+    if (*acc >= credit_for_full_burst) {
+        *acc -= PWM_DEADBAND;   /* consume this tick's credit */
+        *pulse_sign = sign;
+        *pulse_remaining = PWM_CHOP_MIN_ON_TICKS - 1;  /* N-1 more ticks queued */
+        return sign * PWM_DEADBAND;
+    }
+
     return 0;
 }
 
