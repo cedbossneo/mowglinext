@@ -501,6 +501,27 @@ def generate_launch_description() -> LaunchDescription:
         bringup_dir, "config", "robot_localization.yaml"
     )
 
+    # navsat_transform_node looks up a TF from base_footprint to the frame
+    # named in the NavSatFix header. Our URDF calls that frame gps_link,
+    # but the ublox_dgnss driver publishes frame_id=gps. Alias gps_link →
+    # gps as a static identity so the lookup finds a chain. Only needed
+    # in robot_localization backend; in fusioncore we use the URDF-based
+    # TF lookup in fusion_node.cpp with explicit lever-arm parameters.
+    static_gps_link_alias = Node(
+        condition=IfCondition(use_robotloc_cond),
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_gps_link_to_gps_alias",
+        output="screen",
+        arguments=[
+            "--x", "0", "--y", "0", "--z", "0",
+            "--roll", "0", "--pitch", "0", "--yaw", "0",
+            "--frame-id", "gps_link",
+            "--child-frame-id", "gps",
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     ekf_odom_node = Node(
         condition=IfCondition(use_robotloc_cond),
         package="robot_localization",
@@ -572,6 +593,7 @@ def generate_launch_description() -> LaunchDescription:
             fusioncore_configure,
             fusioncore_start,
             # robot_localization stack (conditional)
+            static_gps_link_alias,
             ekf_odom_node,
             navsat_transform_node,
             ekf_map_node,
