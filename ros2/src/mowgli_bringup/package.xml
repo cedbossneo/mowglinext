@@ -33,7 +33,6 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
 
   <!-- Localization -->
-  <exec_depend>fusioncore_ros</exec_depend>
   <exec_depend>robot_localization</exec_depend>
   <!-- Kinematic-ICP is built from source as a submodule under
        ros2/src/kinematic_icp; no rosdep entry because it is not in the

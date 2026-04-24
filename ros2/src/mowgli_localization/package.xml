@@ -25,7 +25,6 @@
   <depend>mowgli_interfaces</depend>
 
   <!-- FusionCore is launched by this package but not compiled against -->
-  <exec_depend>fusioncore_ros</exec_depend>
 
   <!-- Python runtime deps for calibrate_imu_yaw_node.py,
        kinematic_icp_encoder_adapter.py,
