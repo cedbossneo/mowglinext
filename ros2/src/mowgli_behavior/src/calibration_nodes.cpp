@@ -40,6 +40,33 @@ void set_seed_covariance(geometry_msgs::msg::PoseWithCovarianceStamped& msg,
   msg.pose.covariance[35] = yaw_var;
 }
 
+// Seed ekf_odom with the same yaw we are pushing into ekf_map, at odom
+// origin. Keeps odom→base yaw aligned with map→base yaw so that the
+// lever-arm correction in navsat_to_absolute_pose_node rotates the
+// antenna→base offset by the true robot heading. Without this, the two
+// filter yaws drift apart and /gps/pose_cov ends up ~0.55 m off truth.
+// Position is reset to (0, 0) — harmless because the robot is stationary
+// during seeds that matter (dock) and because ClearCostmap runs right
+// after so no odom-frame obstacles are lost.
+void publish_odom_yaw_seed(
+    const rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr& pub,
+    const rclcpp::Time& stamp,
+    const tf2::Quaternion& q,
+    double yaw_var)
+{
+  geometry_msgs::msg::PoseWithCovarianceStamped odom_seed;
+  odom_seed.header.stamp = stamp;
+  odom_seed.header.frame_id = "odom";
+  odom_seed.pose.pose.position.x = 0.0;
+  odom_seed.pose.pose.position.y = 0.0;
+  odom_seed.pose.pose.orientation.x = q.x();
+  odom_seed.pose.pose.orientation.y = q.y();
+  odom_seed.pose.pose.orientation.z = q.z();
+  odom_seed.pose.pose.orientation.w = q.w();
+  set_seed_covariance(odom_seed, yaw_var);
+  pub->publish(odom_seed);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -125,15 +152,19 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
     set_pose_pub_ = ctx->node->create_publisher<
         geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/ekf_map_node/set_pose", qos);
+    set_pose_odom_pub_ = ctx->node->create_publisher<
+        geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/set_pose", qos);
   }
+
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, yaw);
 
   geometry_msgs::msg::PoseWithCovarianceStamped seed{};
   seed.header.stamp = ctx->node->now();
   seed.header.frame_id = "map";
   seed.pose.pose.position.x = ctx->gps_x;
   seed.pose.pose.position.y = ctx->gps_y;
-  tf2::Quaternion q;
-  q.setRPY(0.0, 0.0, yaw);
   seed.pose.pose.orientation.x = q.x();
   seed.pose.pose.orientation.y = q.y();
   seed.pose.pose.orientation.z = q.z();
@@ -142,6 +173,7 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   // ≥ 0.5 m that's ~0.014 rad ≈ 0.8°; variance = 2 × 10⁻⁴.
   set_seed_covariance(seed, 2e-4);
   set_pose_pub_->publish(seed);
+  publish_odom_yaw_seed(set_pose_odom_pub_, seed.header.stamp, q, 2e-4);
 
   ctx->undock_start_recorded = false;
   ctx->yaw_seeded_this_session = true;
@@ -197,6 +229,9 @@ BT::NodeStatus SeedYawFromMotion::onStart()
     set_pose_pub_ = ctx->node->create_publisher<
         geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/ekf_map_node/set_pose", qos);
+    set_pose_odom_pub_ = ctx->node->create_publisher<
+        geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/set_pose", qos);
   }
 
   distance_m_ = 1.0;
@@ -273,19 +308,21 @@ BT::NodeStatus SeedYawFromMotion::onRunning()
 
   const double yaw = std::atan2(dy, dx);
 
+  tf2::Quaternion q;
+  q.setRPY(0.0, 0.0, yaw);
+
   geometry_msgs::msg::PoseWithCovarianceStamped seed{};
   seed.header.stamp = ctx->node->now();
   seed.header.frame_id = "map";
   seed.pose.pose.position.x = ctx->gps_x;
   seed.pose.pose.position.y = ctx->gps_y;
-  tf2::Quaternion q;
-  q.setRPY(0.0, 0.0, yaw);
   seed.pose.pose.orientation.x = q.x();
   seed.pose.pose.orientation.y = q.y();
   seed.pose.pose.orientation.z = q.z();
   seed.pose.pose.orientation.w = q.w();
   set_seed_covariance(seed, 5e-3);  // ~4° σ
   set_pose_pub_->publish(seed);
+  publish_odom_yaw_seed(set_pose_odom_pub_, seed.header.stamp, q, 5e-3);
 
   ctx->yaw_seeded_this_session = true;
 
