@@ -384,7 +384,8 @@ docker compose -f docker-compose.simulation.yaml exec dev-sim bash -c "\
 
 | Topic | Type | Purpose |
 |-------|------|---------|
-| `/fusion/odom` | nav_msgs/Odometry | Fused wheel + IMU + GPS (FusionCore UKF) |
+| `/odometry/filtered` | nav_msgs/Odometry | Local EKF (wheels + gyro, odom frame) |
+| `/odometry/filtered_map` | nav_msgs/Odometry | Global EKF (+ GPS + COG yaw, map frame) |
 | `/map` | nav_msgs/OccupancyGrid | Occupancy grid from SLAM |
 | `/tf` | tf2_msgs/TFMessage | Transform tree (map → odom → base_footprint) |
 
@@ -599,7 +600,7 @@ docker exec mowgli_simulation_gui bash -c "\
   source /opt/ros/kilted/setup.bash && \
   source /ros2_ws/install/setup.bash && \
   ros2 bag record -o test_odom_0 \
-    /fusion/odom \
+    /odometry/filtered_map \
     /wheel_odom \
     /tf \
     --duration 30"

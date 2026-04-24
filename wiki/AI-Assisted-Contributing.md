@@ -86,7 +86,7 @@ RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
 
 #### 3. TF Authority
 
-AI may suggest having multiple nodes publish the same TF transforms. **Don't.** `map→odom` is a static identity transform published once at launch (there is no SLAM back-end). FusionCore is the sole publisher of `odom→base_footprint` at 100 Hz. Kinematic-ICP (when enabled) publishes its own parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), which nothing else in the stack consumes — that isolation is what prevents K-ICP's output from feeding back into its own motion prior.
+AI may suggest having multiple nodes publish the same TF transforms. **Don't.** `map→odom` is owned by `ekf_map_node` (GPS-corrected), `odom→base_footprint` by `ekf_odom_node` (local dead reckoning) — there is no SLAM back-end. Kinematic-ICP (when enabled) publishes its own parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), which nothing else in the stack consumes — that isolation is what prevents K-ICP's output from feeding back into its own motion prior.
 
 #### 4. MPPI Controller for Coverage
 
