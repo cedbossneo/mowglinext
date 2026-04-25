@@ -52,9 +52,10 @@ func TestSerializeCDR_PoseFloat64Alignment(t *testing.T) {
 	out, err := SerializeCDR(jsonReq, schema)
 	require.NoError(t, err)
 
-	// 4-byte encap header + 7 doubles, no padding (4-byte alignment, doubles
-	// land on 4-byte boundaries from the start of the payload).
-	require.Len(t, out, 4+7*8)
+	// 4-byte encap header + 7 doubles + 4 bytes of trailing pad (rmw checks
+	// total wire size for a multiple of 8 — see SerializeCDR's end-of-buffer
+	// pad).
+	require.Len(t, out, 64)
 	assert.Equal(t, []byte{0x00, 0x01, 0x00, 0x00}, out[:4], "encap header")
 
 	readDouble := func(off int) float64 {
@@ -96,4 +97,35 @@ func TestSerializeCDR_RoundTripsThroughReader(t *testing.T) {
 	assert.InDelta(t, 3.5e9, pos["y"], 1e-3)
 	assert.InDelta(t, 0.0, pos["z"], 1e-12)
 	assert.InDelta(t, 1.0, orient["w"], 1e-12)
+}
+
+// CalibrateImuYaw.srv request schema as advertised by foxglove_bridge:
+// a single primitive float64 field with no nested structs.
+const calibrateImuYawReqSchema = `float64 duration_sec
+`
+
+// TestSerializeCDR_SingleFloat64PadsToMultipleOfEight is the regression test
+// for the CalibrateImuYaw rejection path. Without the end-of-buffer pad in
+// SerializeCDR, the wire payload is 12 bytes (4 header + 8 data), which
+// foxglove_bridge's rmw layer rejects with `rmw_serialize: invalid data
+// size`. Nested-struct messages like SetDockingPoint (60 bytes) happened to
+// be over the threshold and were waved through, so the bug only surfaced
+// for services with very small request bodies — like the IMU-yaw
+// calibration service that takes a single float64 duration.
+func TestSerializeCDR_SingleFloat64PadsToMultipleOfEight(t *testing.T) {
+	schema, err := ParseSchema(calibrateImuYawReqSchema)
+	require.NoError(t, err)
+
+	out, err := SerializeCDR([]byte(`{"duration_sec": 30.0}`), schema)
+	require.NoError(t, err)
+
+	// 4 header + 8 data + 4 trailing pad = 16 bytes (multiple of 8).
+	require.Len(t, out, 16)
+	assert.Equal(t, []byte{0x00, 0x01, 0x00, 0x00}, out[:4], "encap header")
+
+	val := math.Float64frombits(binary.LittleEndian.Uint64(out[4:12]))
+	assert.Equal(t, 30.0, val, "duration_sec at byte 4")
+
+	// Trailing four bytes must be zero pad, not random memory.
+	assert.Equal(t, []byte{0, 0, 0, 0}, out[12:16], "trailing pad zeros")
 }

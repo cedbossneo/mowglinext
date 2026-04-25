@@ -37,8 +37,26 @@ func SerializeCDR(jsonData []byte, schema *msgSchema) ([]byte, error) {
 	// payload after the encapsulation header is completely empty (zero-field
 	// messages like std_srvs/Trigger request). Append a padding byte to
 	// ensure at least 1 byte of body.
-	if len(w.buf) == 4 {
+	if len(w.buf) == cdrEncapHeaderLen {
 		w.buf = append(w.buf, 0x00)
+	}
+
+	// Pad the total wire buffer up to a multiple of XCDR1's largest natural
+	// alignment unit (8 bytes — float64/uint64). foxglove_bridge's rmw layer
+	// rejects requests with `rmw_serialize: invalid data size` when the total
+	// length isn't a multiple of 8: e.g. CalibrateImuYaw (a single float64,
+	// 4-byte header + 8 data = 12 bytes total) was rejected because rmw
+	// expected 16. Nested-struct messages like SetDockingPoint (4 header +
+	// 7×float64 = 60) happened to be over the threshold and got through the
+	// gate by luck. Padding the buffer to the next multiple of 8 makes both
+	// shapes pass the size check; trailing zero bytes are never read by the
+	// receiver-side schema walker.
+	const wireAlign = 8
+	if rem := len(w.buf) % wireAlign; rem != 0 {
+		pad := wireAlign - rem
+		for i := 0; i < pad; i++ {
+			w.buf = append(w.buf, 0)
+		}
 	}
 
 	return w.buf, nil

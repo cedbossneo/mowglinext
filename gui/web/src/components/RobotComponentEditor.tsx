@@ -133,17 +133,48 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
         setCalibRunning(true);
         setCalibResult(null);
         try {
-            const res = await fetch("/api/calibration/imu-yaw", {
+            // Async API: kick off the job, then poll. The synchronous endpoint
+            // used to race foxglove_bridge's per-call timeout and return
+            // HTTP 500 within milliseconds even though the underlying ROS
+            // service was actually running. The /start + /status pair owns
+            // the long-running call in a goroutine on the Go side.
+            const startRes = await fetch("/api/calibration/imu-yaw/start", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ duration_sec: CALIB_DURATION_SEC }),
             });
-            if (!res.ok) {
-                const errBody = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errBody}`);
+            if (!startRes.ok) {
+                const errBody = await startRes.text();
+                throw new Error(`HTTP ${startRes.status}: ${errBody}`);
             }
-            const data = (await res.json()) as ImuYawCalibrationResult;
-            setCalibResult(data);
+            const { job_id } = (await startRes.json()) as { job_id: string };
+
+            const pollDeadline = Date.now() + (CALIB_DURATION_SEC + 60) * 1000;
+            while (Date.now() < pollDeadline) {
+                await new Promise((r) => setTimeout(r, 500));
+                const statusRes = await fetch(
+                    `/api/calibration/imu-yaw/status/${encodeURIComponent(job_id)}`,
+                );
+                if (!statusRes.ok) {
+                    const errBody = await statusRes.text();
+                    throw new Error(`HTTP ${statusRes.status}: ${errBody}`);
+                }
+                const job = (await statusRes.json()) as {
+                    state: "running" | "done" | "failed";
+                    result?: ImuYawCalibrationResult;
+                    error?: string;
+                };
+                if (job.state === "done" && job.result) {
+                    setCalibResult(job.result);
+                    return;
+                }
+                if (job.state === "failed") {
+                    throw new Error(job.error || "calibration failed without an error message");
+                }
+            }
+            throw new Error(
+                `Calibration did not complete within ${CALIB_DURATION_SEC + 60}s — robot may still be moving`,
+            );
         } catch (e: any) {
             notification.error({
                 message: "IMU yaw calibration failed",
