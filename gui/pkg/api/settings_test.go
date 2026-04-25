@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func setupSettingsRouter(dbProvider types.IDBProvider) *gin.Engine {
@@ -489,6 +490,79 @@ func TestPostSettingsYAML_MergesExisting(t *testing.T) {
 	assert.Contains(t, string(content), "OM_EXISTING")
 	assert.Contains(t, string(content), "keep_me")
 	assert.Contains(t, string(content), "99.999")
+}
+
+// Dual-block keys (e.g. datum_lat / datum_lon) are declared on both the
+// `mowgli` and `navsat_to_absolute_pose` ROS2 nodes, so a single yaml file
+// can drive both. The GUI flow used to update only one block on POST and
+// then non-deterministically pick a value on GET — see PR description.
+//
+// These tests pin the corrected behaviour:
+//   - GET prefers the meaningful (non-zero) value when blocks disagree
+//   - POST writes the new value into every block that already declared the key
+func TestGetSettingsYAML_DualBlockKey_PrefersNonZero(t *testing.T) {
+	yamlFile := createTempYAMLFile(t, `mowgli:
+  ros__parameters:
+    datum_lat: 48.1590756
+    datum_lon: 11.3153734
+navsat_to_absolute_pose:
+  ros__parameters:
+    datum_lat: 0
+    datum_lon: 0
+`)
+	db := types.NewMockDBProvider()
+	db.Set("system.mower.yamlConfigFile", []byte(yamlFile))
+	router := setupSettingsRouter(db)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/settings/yaml", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, 48.1590756, result["datum_lat"], "non-zero value from one block must win over zero in another")
+	assert.Equal(t, 11.3153734, result["datum_lon"])
+}
+
+func TestPostSettingsYAML_DualBlockKey_WritesToAllNodes(t *testing.T) {
+	yamlFile := createTempYAMLFile(t, `mowgli:
+  ros__parameters:
+    datum_lat: 0
+    datum_lon: 0
+navsat_to_absolute_pose:
+  ros__parameters:
+    datum_lat: 0
+    datum_lon: 0
+`)
+	db := types.NewMockDBProvider()
+	db.Set("system.mower.yamlConfigFile", []byte(yamlFile))
+	router := setupSettingsRouter(db)
+
+	body, _ := json.Marshal(map[string]any{
+		"datum_lat": 48.1590756,
+		"datum_lon": 11.3153734,
+	})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/settings/yaml", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	content, err := os.ReadFile(yamlFile)
+	require.NoError(t, err)
+
+	// Re-parse the written YAML and assert both nodes carry the new value.
+	var written map[string]any
+	require.NoError(t, yaml.Unmarshal(content, &written))
+	for _, nodeName := range []string{"mowgli", "navsat_to_absolute_pose"} {
+		node, ok := written[nodeName].(map[string]any)
+		require.Truef(t, ok, "node %q missing", nodeName)
+		params, ok := node["ros__parameters"].(map[string]any)
+		require.Truef(t, ok, "ros__parameters missing on %q", nodeName)
+		assert.Equal(t, 48.1590756, params["datum_lat"], "datum_lat must be propagated to %q", nodeName)
+		assert.Equal(t, 11.3153734, params["datum_lon"], "datum_lon must be propagated to %q", nodeName)
+	}
 }
 
 func TestPostSettingsYAML_InvalidJSON(t *testing.T) {

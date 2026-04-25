@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -187,11 +188,30 @@ func extractNodeMappings(schema map[string]any) map[string]string {
 
 // flattenROS2YAML reads nested ROS2 YAML (node: ros__parameters: {k: v}) and
 // returns a flat map of all parameter key-value pairs across all nodes.
-// It also duplicates datum_lat/datum_lon from mowgli node to keep them in sync.
+//
+// Some keys legitimately appear in multiple nodes (datum_lat/datum_lon are
+// declared on both `mowgli` and `navsat_to_absolute_pose` so each node loads
+// its own copy from a single yaml). Two correctness rules apply:
+//  1. Iterate node names in deterministic (sorted) order — Go map iteration
+//     is randomized, so a naive last-wins merge produced non-deterministic
+//     reads (the GUI's MapPage saw datum_lat=0 sometimes and 48.x other
+//     times depending on hash seed).
+//  2. Prefer non-zero values: if a key is present in two nodes with
+//     different values (typically because nestToROS2YAML used to only
+//     update one of them), the live value usually lives in the node that
+//     was updated. Returning the zero would cause downstream consumers
+//     (MapPage, MiniMap) to treat the datum as unset.
 func flattenROS2YAML(yamlData map[string]any) map[string]any {
 	flat := map[string]any{}
-	for _, nodeData := range yamlData {
-		nodeMap, ok := nodeData.(map[string]any)
+
+	nodeNames := make([]string, 0, len(yamlData))
+	for n := range yamlData {
+		nodeNames = append(nodeNames, n)
+	}
+	sort.Strings(nodeNames)
+
+	for _, nodeName := range nodeNames {
+		nodeMap, ok := yamlData[nodeName].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -200,15 +220,56 @@ func flattenROS2YAML(yamlData map[string]any) map[string]any {
 			continue
 		}
 		for k, v := range rosParams {
-			flat[k] = v
+			if existing, hadValue := flat[k]; hadValue && !isZeroish(v) && isZeroish(existing) {
+				// Replace the zero with the meaningful value.
+				flat[k] = v
+			} else if !hadValue {
+				flat[k] = v
+			}
+			// else: keep what we already have (either both non-zero,
+			// or the existing value is non-zero and the new one is zero).
 		}
 	}
 	return flat
 }
 
+// isZeroish returns true for values that look like "unset" — empty strings,
+// zero numerics, nil, and the literal "0" / "0.0" strings YAML sometimes
+// produces. Used by flattenROS2YAML to prefer meaningful values when a
+// key appears in multiple nodes.
+func isZeroish(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch x := v.(type) {
+	case float64:
+		return x == 0
+	case float32:
+		return x == 0
+	case int:
+		return x == 0
+	case int64:
+		return x == 0
+	case string:
+		return x == "" || x == "0" || x == "0.0"
+	}
+	return false
+}
+
 // nestToROS2YAML takes a flat param map and node mappings, and produces
 // nested ROS2 YAML structure. It preserves any existing YAML content that
 // is not covered by the schema.
+//
+// When a key already exists in *multiple* nodes of the existing YAML
+// (e.g. datum_lat lives on both `mowgli` and `navsat_to_absolute_pose`),
+// the new value is written to *all* of those nodes. The previous behaviour
+// updated only the schema-mapped node (mowgli by default), which left the
+// other copy stale and triggered the dual-block bug: GET would re-read the
+// stale zero from the un-updated block and overwrite the value the GUI just
+// thought it had saved.
+//
+// For brand-new keys (not present anywhere in existingYAML) we still defer
+// to the schema's x-yaml-node mapping, falling back to "mowgli".
 func nestToROS2YAML(flat map[string]any, nodeMappings map[string]string, existingYAML map[string]any) map[string]any {
 	result := map[string]any{}
 
@@ -223,17 +284,42 @@ func nestToROS2YAML(flat map[string]any, nodeMappings map[string]string, existin
 		}
 	}
 
-	// Group flat params by node
+	// Build a key → [nodes that already host it] index from existingYAML so
+	// we can fan out shared keys (datum_lat etc.) to every place that
+	// already declares them.
+	keyHostNodes := map[string][]string{}
+	for nodeName, nodeData := range existingYAML {
+		nodeMap, ok := nodeData.(map[string]any)
+		if !ok {
+			continue
+		}
+		rosParams, ok := nodeMap["ros__parameters"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for k := range rosParams {
+			keyHostNodes[k] = append(keyHostNodes[k], nodeName)
+		}
+	}
+
+	// Group flat params by node — fan out to every node that already hosts
+	// the key, or fall back to schema mapping for brand-new keys.
 	nodeParams := map[string]map[string]any{}
 	for key, value := range flat {
-		node := "mowgli" // default
-		if n, ok := nodeMappings[key]; ok {
-			node = n
+		nodes := keyHostNodes[key]
+		if len(nodes) == 0 {
+			n := "mowgli"
+			if m, ok := nodeMappings[key]; ok {
+				n = m
+			}
+			nodes = []string{n}
 		}
-		if nodeParams[node] == nil {
-			nodeParams[node] = map[string]any{}
+		for _, n := range nodes {
+			if nodeParams[n] == nil {
+				nodeParams[n] = map[string]any{}
+			}
+			nodeParams[n][key] = value
 		}
-		nodeParams[node][key] = value
 	}
 
 	// Merge into result, preserving existing ros__parameters that aren't in flat
