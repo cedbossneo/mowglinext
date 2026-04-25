@@ -37,7 +37,10 @@
 # smooth, high-rate pose.
 ekf_odom_node:
   ros__parameters:
-    frequency: 30.0
+    # 20 Hz: 30 Hz saturated this ARM CPU on every cycle ("Failed to
+    # meet update rate" errors at 30-200 ms per cycle). 20 Hz is
+    # comfortable headroom and matches the wheel_odom rate.
+    frequency: 20.0
     sensor_timeout: 0.5
     two_d_mode: true            # forces Z=0, roll=0, pitch=0
     transform_time_offset: 0.0
@@ -151,7 +154,7 @@ navsat_transform_node:
 # Inputs: same as ekf_odom PLUS /odometry/gps. Publishes map → odom TF.
 ekf_map_node:
   ros__parameters:
-    frequency: 30.0
+    frequency: 10.0
     sensor_timeout: 0.5
     two_d_mode: true
     transform_time_offset: 0.0
