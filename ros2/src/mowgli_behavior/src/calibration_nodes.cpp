@@ -107,7 +107,12 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
     return BT::NodeStatus::SUCCESS;
   }
 
-  double min_displacement = 0.5;
+  // Minimum GPS displacement to refine yaw. At RTK-Fixed σ≈7 mm,
+  // σ_yaw = atan2(2σ_pos, displacement). 0.20 m → σ ≈ 4° — far tighter
+  // than the dock_yaw seed σ=10° floor, so even a partial undock with
+  // wheel slip on the ramp still gives us a useful yaw refinement based
+  // on the robot's actual motion rather than yesterday's calibration.
+  double min_displacement = 0.20;
   getInput("min_displacement_m", min_displacement);
 
   const double dx = ctx->gps_x - ctx->undock_start_x;
@@ -169,11 +174,14 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   seed.pose.pose.orientation.y = q.y();
   seed.pose.pose.orientation.z = q.z();
   seed.pose.pose.orientation.w = q.w();
-  // σ ≈ atan(GPS_σ / displacement). With σ_GPS ~ 7 mm and displacement
-  // ≥ 0.5 m that's ~0.014 rad ≈ 0.8°; variance = 2 × 10⁻⁴.
-  set_seed_covariance(seed, 2e-4);
+  // σ ≈ atan(2·σ_GPS / displacement). Compute from actual displacement
+  // so partial undocks (down to 0.20 m) get a representative variance
+  // rather than the over-tight 2 × 10⁻⁴ that assumed ≥ 0.5 m motion.
+  const double sigma_yaw = std::atan2(2.0 * 0.007, std::max(dist, 0.05));
+  const double yaw_var = std::max(sigma_yaw * sigma_yaw, 5e-4);  // floor σ≈1.3°
+  set_seed_covariance(seed, yaw_var);
   set_pose_pub_->publish(seed);
-  publish_odom_yaw_seed(set_pose_odom_pub_, seed.header.stamp, q, 2e-4);
+  publish_odom_yaw_seed(set_pose_odom_pub_, seed.header.stamp, q, yaw_var);
 
   ctx->undock_start_recorded = false;
   ctx->yaw_seeded_this_session = true;
