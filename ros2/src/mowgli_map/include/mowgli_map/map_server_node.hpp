@@ -316,6 +316,11 @@ private:
   /// just "soft" (attempt recovery back inside).
   double lethal_boundary_margin_m_{0.5};
 
+  /// Deadband for the soft boundary violation flag — RTK noise + FTC
+  /// tracking error must push the robot more than this many metres
+  /// outside any polygon before /boundary_violation fires.
+  double soft_boundary_margin_m_{0.10};
+
   /// How far inside the polygon the soft-recovery pose should sit, measured
   /// along the robot → edge direction. Large enough that subsequent controller
   /// jitter doesn't immediately cross the boundary again.

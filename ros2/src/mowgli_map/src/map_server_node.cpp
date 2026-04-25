@@ -110,6 +110,13 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   // emergency-stop because blade/motors outside the authorised zone
   // can do real damage.
   lethal_boundary_margin_m_ = declare_parameter<double>("lethal_boundary_margin_m", 0.5);
+  // Soft boundary deadband: distance the robot must be outside ANY area
+  // before /boundary_violation fires. Without this, RTK noise (~3 mm)
+  // and FTC tracking error around strip endpoints (which sit
+  // strip_boundary_margin_m_ inside the polygon) triggers recovery the
+  // moment the robot grazes the edge, producing endless transit/abort
+  // recovery loops with 30-60 s gaps between strips.
+  soft_boundary_margin_m_ = declare_parameter<double>("soft_boundary_margin_m", 0.10);
   boundary_recovery_offset_m_ =
       declare_parameter<double>("boundary_recovery_offset_m", 0.8);
   boundary_inner_margin_m_ =
@@ -1659,7 +1666,11 @@ void MapServerNode::check_boundary_violation(double x, double y)
   }
 
   std_msgs::msg::Bool soft_msg;
-  soft_msg.data = !inside_any;
+  // Deadband: only flag a soft violation once the robot is outside by
+  // more than soft_boundary_margin_m_. Avoids the transit/abort loop
+  // where RTK noise + FTC tracking error around strip endpoints keeps
+  // the robot oscillating across the polygon edge.
+  soft_msg.data = !inside_any && (min_edge_dist > soft_boundary_margin_m_);
   boundary_violation_pub_->publish(soft_msg);
 
   std_msgs::msg::Bool lethal_msg;
