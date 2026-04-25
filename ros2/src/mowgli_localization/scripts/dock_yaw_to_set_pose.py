@@ -33,6 +33,7 @@ Semantics:
 
 import math
 import os
+import time
 
 import rclpy
 import yaml
@@ -96,6 +97,8 @@ class DockYawToSetPose(Node):
         self._latest_heading: Imu | None = None
         self._latest_gps: AbsolutePose | None = None
         self._need_to_publish = False
+        self._last_publish_time = 0.0   # seconds, monotonic
+        self._min_publish_period = 1.0  # 1 Hz throttle while charging
         # Yaw variance for the seed (rad^2). 0.1 rad^2 ≈ σ 18° — loose
         # enough that the EKF still trusts a later, tighter refinement from
         # CalibrateHeadingFromUndock but tight enough to anchor the filter.
@@ -160,25 +163,29 @@ class DockYawToSetPose(Node):
     def _on_status(self, msg: HwStatus) -> None:
         is_charging = bool(msg.is_charging)
 
-        if self._last_is_charging is None:
-            # First status message — if we boot docked, inject once.
-            if is_charging:
-                self._need_to_publish = True
-                self.get_logger().info(
-                    "boot detected docked state → will inject dock yaw on "
-                    "next heading+gps pair"
-                )
-        elif is_charging and not self._last_is_charging:
-            # Rising edge of charging.
-            self._need_to_publish = True
+        if self._last_is_charging is None and is_charging:
             self.get_logger().info(
-                "charging rising edge → will inject dock yaw on next "
-                "heading+gps pair"
+                "boot detected docked state → pinning pose to dock while "
+                "charging"
+            )
+        elif is_charging and not self._last_is_charging:
+            self.get_logger().info(
+                "charging rising edge → pinning pose to dock while charging"
+            )
+        elif self._last_is_charging and not is_charging:
+            self.get_logger().info(
+                "charging dropped → pose no longer pinned, EKF takes over"
             )
 
         self._last_is_charging = is_charging
 
-        if self._need_to_publish and is_charging:
+        # While charging, continuously republish the dock pose seed so the
+        # EKF state stays anchored at the dock. /hardware_bridge/status
+        # arrives at 1 Hz so this naturally throttles. Once charging
+        # drops (undock) we stop firing immediately so the BackUp motion
+        # can play out without snapping the filter back to the dock.
+        if is_charging:
+            self._need_to_publish = True
             self._try_publish()
 
     def _try_publish(self) -> None:
@@ -188,6 +195,12 @@ class DockYawToSetPose(Node):
             return
         if self._file_yaw_rad is None and self._latest_heading is None:
             return
+        # Throttle to 1 Hz so the continuous-pin behaviour while charging
+        # doesn't slam the EKF with a fresh state reset on every GPS sample.
+        now = time.monotonic()
+        if now - self._last_publish_time < self._min_publish_period:
+            return
+        self._last_publish_time = now
 
         # Resolve yaw quaternion + variance: file value takes precedence.
         if self._file_yaw_rad is not None:
