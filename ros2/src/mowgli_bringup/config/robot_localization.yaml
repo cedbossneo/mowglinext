@@ -164,14 +164,14 @@ ekf_map_node:
     world_frame:         map       # GLOBAL EKF produces map → odom
 
     # ─ Wheel odometry ─
-    # ekf_map uses GPS as the sole position source — wheel vx/vy are NOT
-    # fused here (they remain in ekf_odom for the local-frame estimate).
-    # Only vyaw is fused so the yaw RATE has a tight wheel reference;
-    # absolute yaw still comes from /imu/cog_heading.
+    # Wheel vx/vy/vyaw all fused. Wheel velocity provides essential
+    # dead-reckoning between GPS samples and during RTK Float gaps —
+    # disabling vx/vy froze the map-frame position whenever RTK was not
+    # Fixed and made the controller act on a stale pose.
     odom0: /wheel_odom
     odom0_config: [false, false, false,
                    false, false, false,
-                   false, false, false,
+                   true,  true,  false,
                    false, false, true,
                    false, false, false]
     odom0_queue_size: 10
