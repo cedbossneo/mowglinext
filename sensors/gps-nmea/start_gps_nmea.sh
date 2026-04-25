@@ -3,8 +3,12 @@
 # NMEA GPS startup. Reads config from /config/mowgli_robot.yaml.
 #
 # Launches:
-#   1. nmea_serial_bridge.py    /dev/gps → /nmea_sentence (RELIABLE)
-#   2. nmea_topic_driver        /nmea_sentence → /gps/fix (NavSatFix)
+#   1. nmea_serial_bridge.py    /dev/gps → /nmea_sentence  (RELIABLE)
+#                               /gps/fix_raw → /gps/fix    (status corrected)
+#   2. nmea_topic_driver        /nmea_sentence → /gps/fix_raw  (NavSatFix)
+#                               (raw because upstream driver maps Q=4 and Q=5
+#                                both to STATUS_GBAS_FIX — the bridge restores
+#                                the Float vs Fixed distinction)
 #   3. str2str (NTRIP)          NTRIP caster → RTCM3 → /dev/gps (write side)
 #   + inotify watcher reloads str2str when ntrip_* keys in the YAML change.
 # =============================================================================
@@ -51,16 +55,17 @@ python3 /nmea_serial_bridge.py --ros-args \
   -p frame_id:="${GPS_FRAME}" &
 BRIDGE_PID=$!
 
-# 2. nmea_navsat_driver topic mode: /nmea_sentence → /gps/fix.
-#    Trust the driver's default publisher QoS (RELIABLE in current upstream).
-#    If FusionCore stops receiving fixes after upstream changes, switch to a
-#    bespoke NavSatFix publisher inside nmea_serial_bridge.py.
+# 2. nmea_navsat_driver topic mode: /nmea_sentence → /gps/fix_raw.
+#    The bridge above re-publishes /gps/fix_raw as /gps/fix with a corrected
+#    status.status field (Q=5 → SBAS_FIX = RTK Float, Q=4 → GBAS_FIX = RTK
+#    Fixed). Upstream collapses both to GBAS_FIX, which mis-flags Float
+#    fixes as Fixed in navsat_to_absolute_pose and the GUI.
 ros2 run nmea_navsat_driver nmea_topic_driver --ros-args \
   -p frame_id:="${GPS_FRAME}" \
   -p time_ref_source:=gps \
   -p useRMC:=false \
   -p use_GNSS_time:=false \
-  -r /fix:=/gps/fix \
+  -r /fix:=/gps/fix_raw \
   -r /vel:=/gps/vel \
   -r /time_reference:=/gps/time_reference &
 DRIVER_PID=$!
