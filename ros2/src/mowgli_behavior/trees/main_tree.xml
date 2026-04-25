@@ -281,7 +281,7 @@
                    displacement to calibrate yaw via velocity-heading
                    while staying inside typical dock-adjacent polygon
                    margins. -->
-              <BackUp backup_dist="0.5" backup_speed="0.20"/>
+              <BackUp backup_dist="1.5" backup_speed="0.20"/>
               <!-- Wait for RTK Fixed after undock. The dock often has a
                    metal canopy that attenuates GPS; once the robot is 2 m
                    out the F9P should re-acquire quickly. Timeout proceeds

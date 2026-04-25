@@ -134,22 +134,19 @@ fusioncore_node:
     gnss.heading_noise: 0.1
     gnss.max_hdop: 4.0
     gnss.min_satellites: 4
-    # Accept ANY fix (plain GPS, SBAS, Fixed). Strict Fixed (4) starves
-    # the filter during RTK drops — and the F9P often drops to NavSatFix
-    # STATUS_FIX=0 (plain GPS, σ≈0.25 m) for minutes under light tree
-    # cover. At min=2 (Float+) the UKF received zero GPS updates during
-    # those intervals and position variance exploded unbounded
-    # (0.2 m → 10+ m in a few minutes). At min=1 the UKF keeps absorbing
-    # Require DGPS/SBAS or better before fusing any GPS fix. u-blox
-    # pre-RTK fixes (status=0 NavSatStatus STATUS_FIX) can anchor the UKF
-    # 3-5 m off truth and the error persists long after RTK locks because
-    # the initial position covariance grew tight around the bad first-fix
-    # location. Preflight gates mowing on RTK Fixed (fix_type 4); setting
-    # fusion's threshold at DGPS (2) keeps FusionCore idle until the
-    # receiver has at least SBAS augmentation, which empirically tracks
-    # the moment our u-blox starts reporting believable positions.
     # FusionCore enum: 0=NO_FIX, 1=GPS, 2=DGPS, 3=RTK_FLOAT, 4=RTK_FIXED.
-    gnss.min_fix_type: 2
+    # The acceptance gate appears to be strict (`fix_type > min_fix_type`),
+    # so min=2 in practice rejects DGPS as well — confirmed on a 2026-04-25
+    # field session under a metal dock canopy where the receiver dropped
+    # from RTK Float to DGPS for tens of seconds and FusionCore declared
+    # the GNSS channel STALE while every fix in the stream carried the
+    # warning `fix_type=2, min=2`. min=1 lets DGPS through (cov_floor_xy_dgps
+    # still bounds the noise at σ≈0.7 m) so the UKF stays anchored during
+    # those intermittent drops instead of running open-loop on IMU+wheels
+    # and accumulating multi-metre drift. Pre-flight still gates mowing on
+    # RTK Fixed via `WaitForGpsFix`, so allowing DGPS into fusion does not
+    # let the robot start mowing on a degraded fix.
+    gnss.min_fix_type: 1
 
     # GPS antenna offset from base_link in body frame.
     # Leaving these at 0 lets FusionCore auto-resolve the lever arm from

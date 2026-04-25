@@ -303,9 +303,17 @@ velocity_smoother:
     max_decel: [-0.5, 0.0, -4.0]
     odom_topic: /wheel_odom
     odom_duration: 0.1
-    # Match motor deadband (PWM ~40 of 300 → 0.13 m/s). Commanded vel below
-    # this is zeroed so the motors never sit in the buzz zone.
-    deadband_velocity: [0.13, 0.0, 0.0]
+    # 0.04 m/s — small enough that nav2_behaviors' BackUp at 0.20 m/s still
+    # passes through after collision_monitor's PolygonSlow drops it to 30 %
+    # (= 0.06 m/s). The previous 0.13 m/s deadband zeroed every command in
+    # the slowdown zone around the dock, so undock would silently sit at
+    # zero velocity for the entire time_allowance and abort with code 6
+    # (DriveOnHeading goal not reached) — observed on the 2026-04-25 field
+    # session. The deadband-original justification ("match motor PWM-40
+    # buzz zone") still holds for normal driving; 0.04 m/s is well below
+    # any commanded coverage/transit speed and only matters at the edge of
+    # collision-slowdown bursts which used to break undock.
+    deadband_velocity: [0.04, 0.0, 0.0]
     velocity_timeout: 1.0
 
 # ---------------------------------------------------------------------------
