@@ -10,6 +10,7 @@ import type MapboxDraw from "@mapbox/mapbox-gl-draw";
 import type {Map as MapboxMap} from 'mapbox-gl';
 import {emojiToPolygon} from '../utils/emojiToPolygon';
 import {
+    DockFeatureBase,
     MowingFeature,
     MowingAreaFeature,
     MowingFeatureBase,
@@ -602,14 +603,30 @@ export function useMapEditing({
                 const newFeatures = {...currFeatures};
                 for (const f of e.features) {
                     const feature = newFeatures[f.id as string];
+                    // Polygon edits (areas, obstacles, navigation zones)
                     if (
-                        !(feature instanceof MowingAreaFeature) &&
-                        !(feature instanceof ObstacleFeature) &&
-                        !(feature instanceof NavigationFeature)
-                    )
+                        feature instanceof MowingAreaFeature ||
+                        feature instanceof ObstacleFeature ||
+                        feature instanceof NavigationFeature
+                    ) {
+                        if (f.geometry.type === "Polygon") {
+                            feature.setGeometry(f.geometry as Polygon);
+                        }
                         continue;
-                    if (f.geometry.type === "Polygon") {
-                        feature.setGeometry(f.geometry as Polygon);
+                    }
+                    // Dock drag: keep heading from prior state, replace coords
+                    // with the new dragged position. Without this branch the
+                    // dragged coordinates were lost and Save sent (0,0,0) to
+                    // /map_server_node/set_docking_point.
+                    if (
+                        feature instanceof DockFeatureBase &&
+                        f.geometry.type === "Point"
+                    ) {
+                        const c = f.geometry.coordinates as [number, number];
+                        newFeatures[f.id as string] = new DockFeatureBase(
+                            c,
+                            feature.getHeading()
+                        );
                     }
                 }
                 return newFeatures;
