@@ -27,18 +27,45 @@ DOCKER_SUBDIR="install"
 INSTALL_DIR="${REPO_DIR}/${DOCKER_SUBDIR}"
 UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
 
-MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mowgli-ros2:main"
-# UBX (ublox_dgnss) image is NOT built by this fork's CI — see
-# .github/workflows/sensors-docker.yml. The fork primarily targets NMEA
-# receivers (UM980, etc.). For UBX users we point at the upstream image,
-# which tracks the same sensors/gps/ source.
-GPS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/gps:main"
-GPS_NMEA_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/gps-nmea:main"
-LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-ldlidar:main"
-LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-rplidar:main"
-LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-stl27l:main"
-MAVROS_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mavros:main"
-GUI_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mowglinext-gui:main"
+# Track whether IMAGE_TAG came from an explicit source (env var or
+# --image-tag= flag). If yes, branch changes won't override it.
+IMAGE_TAG_EXPLICIT=false
+[ -n "${IMAGE_TAG:-}" ] && IMAGE_TAG_EXPLICIT=true
+
+# Image tag + defaults are derived after parse_args() so that --branch=
+# can rewire the tag. Call derive_image_defaults() again if you mutate
+# REPO_BRANCH or IMAGE_TAG after sourcing this file.
+#
+# CI only publishes images for `main` and `dev` (see
+# .github/workflows/sensors-docker.yml et al.) — anything else falls back
+# to `:main` so users on feature branches still get a working pull.
+# Override with IMAGE_TAG=foo env or --image-tag=foo if you've published
+# a custom tag (e.g. a release tag, a PR-build tag).
+derive_image_defaults() {
+  if [ "$IMAGE_TAG_EXPLICIT" != "true" ]; then
+    case "$REPO_BRANCH" in
+      main|dev) IMAGE_TAG="$REPO_BRANCH" ;;
+      *)        IMAGE_TAG="main" ;;
+    esac
+  fi
+
+  MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mowgli-ros2:${IMAGE_TAG}"
+  # UBX (ublox_dgnss) image is NOT built by this fork's CI — see
+  # .github/workflows/sensors-docker.yml. The fork primarily targets NMEA
+  # receivers (UM980, etc.). For UBX users we point at the upstream image,
+  # which tracks the same sensors/gps/ source. This default stays on :main
+  # regardless of IMAGE_TAG because cedbossneo only publishes :main.
+  GPS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/gps:main"
+  GPS_NMEA_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/gps-nmea:${IMAGE_TAG}"
+  LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-ldlidar:${IMAGE_TAG}"
+  LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-rplidar:${IMAGE_TAG}"
+  LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-stl27l:${IMAGE_TAG}"
+  MAVROS_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mavros:${IMAGE_TAG}"
+  GUI_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mowglinext-gui:${IMAGE_TAG}"
+}
+
+# Initial derivation — re-runs at end of parse_args() to pick up overrides.
+derive_image_defaults
 
 CHECK_ONLY=false
 CLI_PRESET=false
@@ -51,6 +78,10 @@ parse_args() {
         ;;
       --branch=*)
         REPO_BRANCH="${1#*=}"
+        ;;
+      --image-tag=*)
+        IMAGE_TAG="${1#*=}"
+        IMAGE_TAG_EXPLICIT=true
         ;;
       --lang=*)
         MOWGLI_LANG="${1#*=}"
@@ -156,6 +187,9 @@ parse_args() {
   if [[ "$CLI_PRESET" == "true" ]]; then
     PRESET_LOADED=true
   fi
+
+  # Re-derive image defaults so --branch= / --image-tag= overrides take effect.
+  derive_image_defaults
 }
 
 # Track issues for the final summary
