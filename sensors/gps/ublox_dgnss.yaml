@@ -1,5 +1,7 @@
 # ZED-F9P rover overrides for aussierobots/ublox_dgnss.
 #
+# Target: 7 Hz nav rate, RTK Fixed-preferred, ground-mowing dynamics.
+#
 # The driver preloads defaults from f9p_ubx_config.toml (126 CFG items);
 # the values here override that TOML for the things that matter in a
 # rover + NTRIP configuration. Keys are the exact u-blox CFG-VALSET
@@ -34,12 +36,26 @@ ublox_dgnss:
     CFG_USBOUTPROT_UBX: true
     CFG_USBOUTPROT_RTCM3X: false
 
-    # 5 Hz nav rate (200 ms measurement period), solve every measurement.
-    # F9P can't quite sustain 8 Hz with 4 constellations enabled (observed
-    # ~7.86 Hz on /gps/fix) — dropping to 5 Hz gives deterministic output
-    # and more integration time per epoch, which helps ambiguity resolution
-    # and RTK Fixed holdover on weaker signals.
-    CFG_RATE_MEAS: 200
+    # 7 Hz nav rate (143 ms measurement period, solve every measurement).
+    #
+    # CFG_RATE_MEAS = nominal time between GNSS measurements, in ms.
+    # CFG_RATE_NAV  = ratio of measurements per navigation solution
+    #                 (1 = solve every measurement).
+    # Effective nav rate = 1000 / (MEAS * NAV).
+    #   143 ms * 1 = ~6.99 Hz.
+    #
+    # F9P with 4 constellations + RTK was observed at ~7.86 Hz on /gps/fix
+    # when targeting 8 Hz (125 ms), which is right at the receiver's CPU
+    # ceiling. 143 ms / 7 Hz leaves real headroom for ambiguity resolution
+    # and USB message I/O — should be deterministic with no dropped epochs.
+    #
+    # NOTE on the previous config: it had MEAS=200, NAV=5 with a comment
+    # claiming "5 Hz, solve every measurement". Under standard F9P
+    # semantics that's 200*5 = 1000 ms = 1 Hz nav, not 5 Hz, and not
+    # "solve every measurement" (which would be NAV=1). Worth confirming
+    # with `ros2 topic hz /gps/fix` on the old config; if it was ~1 Hz,
+    # this is why. New values below give actual 7 Hz.
+    CFG_RATE_MEAS: 143
     CFG_RATE_NAV: 1
 
     # Dynamic model: 10 = Mower (ZED-F9 specific, HPG 1.32+).
@@ -47,17 +63,23 @@ ublox_dgnss:
     # and regular rotation patterns. Tightens the receiver's internal
     # Kalman motion model: stricter speed priors, less tolerant of big
     # position jumps, better RTK-Fixed holdover across brief occlusions.
-    # Was 0 (Portable) — generic default, assumes moderate vehicle-scale
-    # dynamics and lets reported position drift more than a sub-metre
-    # mower can stomach.
     CFG_NAVSPG_DYNMODEL: 10
 
+    # Elevation mask: drop satellites below this elevation (degrees) from
+    # the navigation solution. Default 5°. Bumping to 10° trades a handful
+    # of low-elevation sats for substantially less multipath off the
+    # ground / walls / foliage — generally improves RTK-Fixed reliability
+    # on a mower working in semi-open environments. Drop back to 5 if you
+    # operate under heavy canopy and need every satellite you can get.
+    CFG_NAVSPG_INFIL_MINELEV: 10
+
     # High-precision DGNSS mode:
-    #   2 = Float-only (default on many F9P images)
-    #   3 = Allow RTK Fixed when integer ambiguities resolve
+    #   2 = Float-only
+    #   3 = Allow RTK Fixed when integer ambiguities resolve, fall back
+    #       to Float otherwise.
     # NOTE: "RTK Fixed only" is NOT a receiver mode — mode 3 means the F9P
-    # will produce Fixed whenever possible and fall back to Float otherwise.
-    # The driver's ublox_nav_sat_fix_hp_node does NOT inspect carrSoln:
+    # will produce Fixed whenever possible and Float otherwise. The
+    # driver's ublox_nav_sat_fix_hp_node does NOT inspect carrSoln:
     # both Float and Fixed become sensor_msgs::NavSatStatus::STATUS_FIX
     # (or STATUS_SBAS_FIX if diffSoln). There is no driver-side CFG to
     # gate /gps/fix on Fixed-only. To watch fix quality, subscribe to
@@ -65,26 +87,31 @@ ublox_dgnss:
     # published below via CFG_MSGOUT_UBX_NAV_STATUS_USB.
     CFG_NAVHPG_DGNSSMODE: 3
 
-    # UBX messages on USB (0 = off, 1 = every nav epoch).
+    # UBX messages on USB. Value = output every N nav epochs (0 = off).
+    # At 7 Hz, "1" = ~7 msg/s, "7" = ~1 msg/s.
     CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB: 1   # high-precision LLH — needed by HP NavSatFix node
     CFG_MSGOUT_UBX_NAV_STATUS_USB: 1     # fix type + carrSoln/diffSoln diagnostics
     CFG_MSGOUT_UBX_NAV_COV_USB: 1        # covariance → NavSatFix.position_covariance
     CFG_MSGOUT_UBX_NAV_PVT_USB: 1
     CFG_MSGOUT_UBX_NAV_VELNED_USB: 1
     CFG_MSGOUT_UBX_NAV_RELPOSNED_USB: 0  # 0 unless moving-base / dual-antenna
-    CFG_MSGOUT_UBX_RXM_RTCM_USB: 1       # correction ingestion counter
+    CFG_MSGOUT_UBX_RXM_RTCM_USB: 1       # correction ingestion counter — NTRIP debug
+    CFG_MSGOUT_UBX_NAV_SIG_USB: 7        # per-signal CN0/quality, ~1 Hz — multipath diagnostics
+    CFG_MSGOUT_UBX_NAV_SAT_USB: 7        # per-satellite info, ~1 Hz — sky-view diagnostics
 
-    # NMEA GGA on USB — fed back to NTRIP client for VRS casters that
-    # need a client position to generate local corrections.
-    CFG_MSGOUT_NMEA_ID_GGA_USB: 1
+    # NMEA GGA on USB — fed back to the NTRIP client for VRS casters that
+    # need a client position to generate local corrections. VRS only needs
+    # ~1 Hz updates; outputting every 7 epochs (= ~1 Hz at 7 Hz nav)
+    # avoids spamming the caster and saves USB bandwidth.
+    CFG_MSGOUT_NMEA_ID_GGA_USB: 7
 
 ublox_nav_sat_fix_hp:
   ros__parameters:
     FRAME_ID: gps
     # Publish /gps/fix as RELIABLE. Cyclone DDS rejects the connection
-    # when a RELIABLE subscriber (navsat_transform_node,
+    # when a RELIABLE subscriber (fusioncore, rtabmap,
     # navsat_to_absolute_pose) meets a BEST_EFFORT publisher, so none
-    # of those nodes would receive GPS fixes — map→odom fails to converge,
+    # of those nodes were receiving GPS fixes — FusionCore pose drifts,
     # BT PreFlightCheck times out, Nav2 plans from a wrong pose.
     qos_overrides:
       /gps/fix:
