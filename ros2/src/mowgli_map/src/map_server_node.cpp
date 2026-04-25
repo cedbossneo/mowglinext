@@ -746,20 +746,18 @@ void MapServerNode::on_publish_timer()
     mow_progress_pub_->publish(mow_progress_to_occupancy_grid());
     coverage_cells_pub_->publish(coverage_cells_to_occupancy_grid());
 
-    // Only recompute masks when areas or obstacles changed.
+    // Only publish masks when something changed. The publishers use
+    // transient_local QoS so late subscribers (e.g. costmap_filter)
+    // automatically receive the most recent mask. Republishing a
+    // stale cached mask each tick was triggering the global_costmap
+    // KeepoutFilter to reload its filter every second ("New filter
+    // mask arrived" log), invalidating active plans and causing
+    // docking nav-to-staging to never settle.
     if (masks_dirty_)
     {
       publish_keepout_mask();
       publish_speed_mask();
       masks_dirty_ = false;
-    }
-    else
-    {
-      // Republish cached masks (cheap — just a copy + publish).
-      cached_keepout_mask_.header.stamp = now_time;
-      keepout_mask_pub_->publish(cached_keepout_mask_);
-      cached_speed_mask_.header.stamp = now_time;
-      speed_mask_pub_->publish(cached_speed_mask_);
     }
   }
 }
