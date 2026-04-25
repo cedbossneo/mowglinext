@@ -6,9 +6,23 @@
 
 # ── Global configuration ────────────────────────────────────────────────────
 
-REPO_URL="https://github.com/Mowglifrenchtouch/mowglinext.git"
-REPO_BRANCH="main"
+REPO_URL="${MOWGLI_REPO_URL:-https://github.com/Mowglifrenchtouch/mowglinext.git}"
 REPO_DIR="${MOWGLI_HOME:-$HOME/mowglinext}"
+
+# Branch precedence (highest wins):
+#   1. --branch=<name> CLI flag (parsed in parse_args below)
+#   2. MOWGLI_REPO_BRANCH env var
+#   3. Currently checked-out branch in $REPO_DIR (auto-detect on re-runs)
+#   4. "main" fallback for fresh clones
+if [ -z "${REPO_BRANCH:-}" ]; then
+  if [ -n "${MOWGLI_REPO_BRANCH:-}" ]; then
+    REPO_BRANCH="$MOWGLI_REPO_BRANCH"
+  elif [ -d "$REPO_DIR/.git" ]; then
+    REPO_BRANCH="$(git -C "$REPO_DIR" symbolic-ref --short HEAD 2>/dev/null || echo main)"
+  else
+    REPO_BRANCH="main"
+  fi
+fi
 DOCKER_SUBDIR="install"
 INSTALL_DIR="${REPO_DIR}/${DOCKER_SUBDIR}"
 UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
@@ -34,6 +48,9 @@ parse_args() {
     case "$1" in
       --check)
         CHECK_ONLY=true
+        ;;
+      --branch=*)
+        REPO_BRANCH="${1#*=}"
         ;;
       --lang=*)
         MOWGLI_LANG="${1#*=}"
