@@ -223,7 +223,12 @@ controller_server:
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
       goal_timeout: 10.0
       max_follow_distance: 2.0
-      forward_only: false            # allow reversing
+      # 2026-04-25: forced to true. F9P RTK Kalman lags ~1.5 s on direction
+      # reversals (verified ros2/scripts/gps_log.py), which fed garbage map→odom
+      # back to the controller and was the root cause of the boundary breach in
+      # the 2026-04-25 mow run. Reverse remains available for undock (Nav2
+      # BackUp) and recovery — those use their own cmd_vel paths via twist_mux.
+      forward_only: true
       # Obstacles: check the local_costmap obstacle_layer for the next
       # `obstacle_lookahead` path poses and abort the strip when one
       # of them falls on a LETHAL cell. Previously disabled, which let
@@ -333,8 +338,12 @@ velocity_smoother:
     # (nav2_velocity_smoother doesn't expose input_topic/output_topic as
     # parameters — only 'cmd_vel' and 'smoothed_cmd_vel' remap targets).
     # See nav2_navigation_launch.py for the actual wiring.
-    max_velocity: [0.25, 0.0, 0.8]
-    min_velocity: [-0.25, 0.0, -1.0]
+    # 2026-04-25: forward cap dropped 0.25 → 0.20 to match FTCController carrot
+    # speed_fast (0.20 m/s). Operator feedback: the previous 0.25 burst during
+    # PID corrections felt too fast on grass. With cap = carrot, corrections
+    # saturate at carrot speed — no over-shoot above the planned reference.
+    max_velocity: [0.20, 0.0, 0.8]
+    min_velocity: [-0.20, 0.0, -1.0]
     # Higher acceleration to overcome grass resistance and static friction.
     # The robot needs a burst of power to start moving on thick terrain.
     # Angular accel 4.0 rad/s² — the smoother was a hidden ceiling that made

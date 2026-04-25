@@ -58,12 +58,16 @@ ublox_dgnss:
     CFG_RATE_MEAS: 143
     CFG_RATE_NAV: 1
 
-    # Dynamic model: 10 = Mower (ZED-F9 specific, HPG 1.32+).
-    # Tuned for slow-moving ground robots with near-zero altitude change
-    # and regular rotation patterns. Tightens the receiver's internal
-    # Kalman motion model: stricter speed priors, less tolerant of big
-    # position jumps, better RTK-Fixed holdover across brief occlusions.
-    CFG_NAVSPG_DYNMODEL: 10
+    # Dynamic model: 0 = Portable (default, no aggressive motion priors).
+    # 2026-04-25: switched from 10 ("Mower"/Bike per HPG 1.32+) because the
+    # internal Kalman of the slow-ground-robot models over-smooths during
+    # sharp direction reversals — verified with ros2/scripts/gps_log.py:
+    # /gps/fix lagged ~1.5 s (~0.3 m) on a forward→stop→reverse manoeuvre,
+    # then snapped to the true position once stationary. Portable has no
+    # such priors; ekf_odom_node + ekf_map_node do all the filtering using
+    # gyro and wheel which react in ms, so direction reversals track
+    # immediately. RTK-Fixed σ stays ~3 mm.
+    CFG_NAVSPG_DYNMODEL: 0
 
     # Elevation mask: drop satellites below this elevation (degrees) from
     # the navigation solution. Default 5°. Bumping to 10° trades a handful

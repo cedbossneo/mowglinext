@@ -119,7 +119,7 @@ controller_server:
       max_goal_angle_error: 15.0
       goal_timeout: 10.0
       max_follow_distance: 2.0
-      forward_only: false
+      forward_only: true   # 2026-04-25: F9P RTK lag on reversals; see nav2_params.yaml
       check_obstacles: false
 
 # ---------------------------------------------------------------------------
@@ -216,8 +216,8 @@ velocity_smoother:
     #             twist_mux → cmd_vel → hardware
     input_topic: cmd_vel_nav
     output_topic: cmd_vel_smoothed
-    max_velocity: [0.4, 0.0, 1.0]
-    min_velocity: [-0.3, 0.0, -1.0]
+    max_velocity: [0.20, 0.0, 0.8]   # 2026-04-25: align with lidar config / operator feedback
+    min_velocity: [-0.20, 0.0, -1.0]
     max_accel: [0.3, 0.0, 1.5]
     max_decel: [-0.3, 0.0, -1.5]
     odom_topic: /wheel_odom
