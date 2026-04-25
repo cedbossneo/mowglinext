@@ -4,12 +4,15 @@ on:
   push:
     branches: [main, dev]
     paths:
-      - 'sensors/gps/**'
+      # 'sensors/gps/**' (ublox_dgnss) is built upstream only — push-by-digest
+      # to this fork's GHCR namespace fails consistently for the multi-stage
+      # ublox build. NMEA receivers (UM980, etc.) are the supported path here.
       - 'sensors/gps-nmea/**'
       - 'sensors/lidar-ldlidar/**'
       - 'sensors/lidar-rplidar/**'
       - 'sensors/lidar-stl27l/**'
       - 'sensors/mavros/**'
+      - '.github/workflows/sensors-docker.yml'
   workflow_dispatch:
     inputs:
       no-cache:
@@ -34,12 +37,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [gps, gps-nmea, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
+        image: [gps-nmea, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
         arch: [linux/amd64, linux/arm64]
         include:
-          - image: gps
-            context: ./sensors/gps
-            target: ""
           - image: gps-nmea
             context: ./sensors/gps-nmea
             target: ""
@@ -128,7 +128,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [gps, gps-nmea, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
+        image: [gps-nmea, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
 
     permissions:
       contents: read
