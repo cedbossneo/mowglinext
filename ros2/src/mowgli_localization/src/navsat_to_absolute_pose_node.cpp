@@ -312,6 +312,16 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
   }
 
+  // RTK-Fixed gate: only feed /gps/pose_cov to ekf_map when the fix is
+  // RTK Fixed. Float and standalone fixes have σ ≥ 20 cm and routinely
+  // jump by 1-3 m under tree cover or multipath — fusing them lets the
+  // EKF wander outside the polygon while we are mowing. /gps/absolute_pose
+  // is still published for the GUI so the user sees the live status.
+  if (msg->status.status != NavStatus::STATUS_GBAS_FIX)
+  {
+    return;
+  }
+
   // Standard-msg twin for robot_localization consumption. Pose is the
   // BASE FRAME position (antenna minus lever arm rotated by current yaw).
   // Covariance diagonal built from position_accuracy; frame_id=map so
