@@ -5,6 +5,7 @@ on:
     branches: [main, dev]
     paths:
       - 'sensors/gps/**'
+      - 'sensors/gps-nmea/**'
       - 'sensors/lidar-ldlidar/**'
       - 'sensors/lidar-rplidar/**'
       - 'sensors/lidar-stl27l/**'
@@ -33,11 +34,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [gps, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
+        image: [gps, gps-nmea, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
         arch: [linux/amd64, linux/arm64]
         include:
           - image: gps
             context: ./sensors/gps
+            target: ""
+          - image: gps-nmea
+            context: ./sensors/gps-nmea
             target: ""
           - image: lidar-ldlidar
             context: ./sensors/lidar-ldlidar
@@ -124,7 +128,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [gps, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
+        image: [gps, gps-nmea, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
 
     permissions:
       contents: read

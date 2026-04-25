@@ -53,9 +53,14 @@ setup_env() {
   : "${TFLUNA_EDGE_UART_DEVICE:=/dev/ttyAMA2}"
   : "${TFLUNA_EDGE_BAUD:=115200}"
 
-  # Images — select LiDAR image based on type
+  # Images — select GPS image by protocol, LiDAR image by type
   : "${MOWGLI_ROS2_IMAGE:=${MOWGLI_ROS2_IMAGE_DEFAULT}}"
-  : "${GPS_IMAGE:=${GPS_IMAGE_DEFAULT}}"
+  if [[ -z "${GPS_IMAGE:-}" ]]; then
+    case "${GPS_PROTOCOL:-UBX}" in
+      NMEA) GPS_IMAGE="${GPS_NMEA_IMAGE_DEFAULT}" ;;
+      *)    GPS_IMAGE="${GPS_IMAGE_DEFAULT}" ;;
+    esac
+  fi
   : "${GUI_IMAGE:=${GUI_IMAGE_DEFAULT}}"
   : "${MAVROS_IMAGE:=${MAVROS_IMAGE_DEFAULT}}"
   if [[ -z "${LIDAR_IMAGE:-}" ]]; then

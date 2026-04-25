@@ -28,7 +28,15 @@ build_compose_stack() {
   COMPOSE_FILES+=("compose/docker-compose.base.yml")
   COMPOSE_FILES+=("compose/docker-compose.gui.yml")
   COMPOSE_FILES+=("compose/docker-compose.mqtt.yml")
-  COMPOSE_FILES+=("compose/docker-compose.gps.yml")
+
+  case "${GPS_PROTOCOL:-UBX}" in
+    NMEA)
+      COMPOSE_FILES+=("compose/docker-compose.gps-nmea.yml")
+      ;;
+    UBX|*)
+      COMPOSE_FILES+=("compose/docker-compose.gps.yml")
+      ;;
+  esac
 
   # Foxglove bridge is controlled via the ENABLE_FOXGLOVE env var passed
   # to the ROS2 container (see docker-compose.base.yml).  No separate
