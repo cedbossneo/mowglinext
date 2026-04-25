@@ -101,10 +101,16 @@
           <WaitForDuration duration_sec="3600.0"/>
         </Sequence>
 
-        <!-- Soft path: stop, then route back to a known-inside pose -->
+        <!-- Soft path: route back to a known-inside pose. We deliberately
+             do NOT call StopMoving here — it would publish zero velocity to
+             /cmd_vel_emergency at twist_mux priority 100, which then vetoes
+             the very NavigateInsideBoundary recovery we are about to start
+             (priority 10 on /cmd_vel_nav). Nav2's controller already produces
+             a continuous twist stream and ramps the robot to whatever speed
+             it needs from the current state; the previous defensive pre-stop
+             just deadlocked the recovery (#18). -->
         <Sequence name="SoftBoundaryHandler">
           <SetMowerEnabled enabled="false"/>
-          <StopMoving/>
           <PublishHighLevelStatus state="2" state_name="BOUNDARY_RECOVERY"/>
           <Fallback name="RecoverOrEscalate">
             <!-- Navigate back to the nearest in-area pose. map_server_node's
