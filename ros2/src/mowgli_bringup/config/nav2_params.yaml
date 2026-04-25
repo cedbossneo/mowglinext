@@ -105,7 +105,12 @@ controller_server:
       # docking_ftc_local_planner max_cmd_vel_ang of 0.5. 0.8 was
       # 60% above both reference stacks and contributed to the
       # "erratic rotations" reported on 2026-04-24.
-      rotate_to_heading_angular_vel: 0.5
+      # 0.85 rad/s — at ω=0.5 each wheel runs at 0.08 m/s = PWM ~24,
+      # below the firmware ~PWM 40 deadband: motors buzz instead of
+      # rotating. 0.85 rad/s lifts wheel vel to 0.14 m/s = PWM 42 with
+      # a small margin over the deadband, matching Spin's
+      # min_rotational_vel.
+      rotate_to_heading_angular_vel: 0.85
       max_angular_accel: 1.0
       # RPP parameters — tuned for slow differential drive motors
       desired_linear_vel: 0.2
