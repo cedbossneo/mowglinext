@@ -1180,11 +1180,12 @@ private:
     odom_acc_delta_right_ += d_right;
     odom_acc_dt_ms_       += pkt.dt_millis;
 
-    // 33 ms aggregation → ~30 Hz /wheel_odom. Firmware packets arrive
-    // at ~47 Hz so each window aggregates 1-2 packets; at 0.3 m/s that
-    // is 3-6 ticks/window with denominator dt=33ms, giving ~5% relative
-    // noise on velocity — still acceptable.
-    static constexpr uint32_t kAggregateMs = 33;
+    // 50 ms aggregation → ~20 Hz /wheel_odom. Tested: 33 ms (30 Hz)
+    // saturated the EKF on this ARM CPU and produced "Failed to meet
+    // update rate" errors on every cycle. 50 ms is twice the GPS rate
+    // and twice the controller rate — sufficient for closed-loop
+    // velocity control without choking the filter.
+    static constexpr uint32_t kAggregateMs = 50;
     if (odom_acc_dt_ms_ < kAggregateMs)
     {
       return;
