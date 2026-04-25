@@ -20,6 +20,12 @@ Dockerized ROS2 drivers for each supported sensor. Each subdirectory contains a 
 
 Both images publish `/gps/fix` (`sensor_msgs/NavSatFix`) so downstream consumers (FusionCore, `navsat_to_absolute_pose`) don't care which one is running.
 
+> **Fork note:** this fork's CI builds only `gps-nmea`. The `gps` (ublox) image
+> is pulled from upstream `cedbossneo/mowglinext` — its source under `sensors/gps/`
+> stays in sync, but the image push to this fork's GHCR is currently disabled
+> (push-by-digest race for the multi-stage ublox build). To re-enable, add
+> `gps` back to both `matrix.image` lists in `.github/workflows/sensors-docker.yml`.
+
 ## Adding a New Sensor
 
 1. Create a new directory (e.g., `sensors/gps-foo/`).

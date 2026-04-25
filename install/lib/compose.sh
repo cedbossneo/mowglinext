@@ -29,12 +29,12 @@ build_compose_stack() {
   COMPOSE_FILES+=("compose/docker-compose.gui.yml")
   COMPOSE_FILES+=("compose/docker-compose.mqtt.yml")
 
-  case "${GPS_PROTOCOL:-UBX}" in
-    NMEA)
-      COMPOSE_FILES+=("compose/docker-compose.gps-nmea.yml")
-      ;;
-    UBX|*)
+  case "${GPS_PROTOCOL:-NMEA}" in
+    UBX)
       COMPOSE_FILES+=("compose/docker-compose.gps.yml")
+      ;;
+    NMEA|*)
+      COMPOSE_FILES+=("compose/docker-compose.gps-nmea.yml")
       ;;
   esac
 

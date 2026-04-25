@@ -21,12 +21,13 @@ setup_env() {
   : "${MOWER_IP:=10.0.0.161}"
   : "${DISABLE_BLUETOOTH:=true}"
 
-  # GPS
+  # GPS — fork defaults to NMEA (UM980 etc.). UBX users override at install
+  # time via --gps=ubx-* (the ubx image comes from upstream — see config.sh).
   : "${GPS_CONNECTION:=uart}"
-  : "${GPS_PROTOCOL:=UBX}"
+  : "${GPS_PROTOCOL:=NMEA}"
   : "${GPS_PORT:=/dev/gps}"
   : "${GPS_UART_DEVICE:=/dev/ttyAMA4}"
-  : "${GPS_BAUD:=460800}"
+  : "${GPS_BAUD:=115200}"
 
   : "${GPS_DEBUG_ENABLED:=false}"
   : "${GPS_DEBUG_PORT:=/dev/gps_debug}"

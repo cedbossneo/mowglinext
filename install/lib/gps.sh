@@ -26,12 +26,13 @@ configure_gps() {
       GPS_DEBUG_UART_DEVICE="$REPLY"
     fi
   else
-    # Defaults based on PCB / GUI-ready
-    : "${GPS_PROTOCOL:=UBX}"
+    # Defaults: NMEA primary on this fork (UM980 etc.); UBX still selectable
+    # but pulls the ublox image from upstream cedbossneo/mowglinext.
+    : "${GPS_PROTOCOL:=NMEA}"
     : "${GPS_CONNECTION:=uart}"
     : "${GPS_PORT:=/dev/gps}"
     : "${GPS_UART_DEVICE:=/dev/ttyAMA4}"
-    : "${GPS_BAUD:=460800}"
+    : "${GPS_BAUD:=115200}"
 
     # Debug only on miniUART
     : "${GPS_DEBUG_ENABLED:=false}"
@@ -64,19 +65,22 @@ configure_gps() {
 
     echo ""
     echo "$MSG_GPS_PROTOCOL"
-    echo "  1) UBX"
-    echo "  2) NMEA"
+    echo "  1) NMEA   (UM980, ArduSimple, Septentrio, generic NMEA RTK) [default]"
+    echo "  2) UBX    (u-blox ZED-F9P — image pulled from upstream)"
     prompt "$MSG_CHOICE" "1"
     local proto_choice="$REPLY"
 
     case "$proto_choice" in
       1)
-        GPS_PROTOCOL="UBX"
-        GPS_BAUD="460800"
-        ;;
-      2)
         GPS_PROTOCOL="NMEA"
         GPS_BAUD="115200"
+        ;;
+      2)
+        GPS_PROTOCOL="UBX"
+        GPS_BAUD="460800"
+        warn "UBX selected — pulling ublox image from upstream (cedbossneo/mowglinext)."
+        warn "  This fork's CI does not build the ublox image. Override GPS_IMAGE in"
+        warn "  .env if you want a different source."
         ;;
       *)
         error "$MSG_GPS_INVALID_PROTOCOL"
