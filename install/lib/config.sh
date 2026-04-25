@@ -199,7 +199,21 @@ add_issue() {
   ISSUES+=("$1")
 }
 
-# Load existing config values from mowgli_robot.yaml for use as defaults
+# Surgically update a single ROS2 parameter in a yaml file. The replacement
+# is global (sed `g` flag) so dual-block keys like datum_lat — which appear
+# under both `mowgli` and `navsat_to_absolute_pose` — are propagated to
+# every node that declares them. Skips silently if the key isn't present
+# (write_config falls back to the full template for fresh installs).
+update_yaml_param() {
+  local file="$1" key="$2" value="$3"
+  # Use | as delimiter so values may contain / (paths, etc.)
+  sed -i -E "s|^([[:space:]]+)${key}:[[:space:]].*|\1${key}: ${value}|g" "$file"
+}
+
+# Load existing config values from mowgli_robot.yaml for use as defaults.
+# _yaml_val is pipefail-safe (grep returning 1 on missing key would otherwise
+# kill the script under `set -euo pipefail`) and prefers the first non-zero
+# value when a key appears in multiple node blocks.
 load_existing_config() {
   local yaml_file="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
   if [ ! -f "$yaml_file" ]; then
@@ -207,7 +221,23 @@ load_existing_config() {
   fi
 
   _yaml_val() {
-    grep -E "^\s+${1}:" "$yaml_file" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
+    local raw vals val first
+    raw=$(grep -E "^\s+${1}:" "$yaml_file" 2>/dev/null) || true
+    [ -n "$raw" ] || return 0
+    # Strip leading "  key: " and surrounding quotes from each occurrence.
+    vals=$(echo "$raw" | sed 's/.*:\s*//' | tr -d '"' | tr -d "'")
+    # Prefer the first non-zero value (handles half-updated dual-block yamls
+    # where one node still carries 0 from a stale write).
+    first=""
+    while IFS= read -r val; do
+      [ -z "$first" ] && first="$val"
+      case "$val" in
+        ""|"0"|"0.0"|"false") continue ;;
+        *) echo "$val"; return 0 ;;
+      esac
+    done <<< "$vals"
+    # All occurrences were zero/empty — return the first one.
+    echo "$first"
   }
 
   PREV_DATUM_LAT=$(_yaml_val datum_lat)
@@ -372,13 +402,20 @@ interactive_config() {
   CONFIG_NTRIP_USER="$ntrip_user"
   CONFIG_NTRIP_PASSWORD="$ntrip_password"
   CONFIG_NTRIP_MOUNTPOINT="$ntrip_mountpoint"
-  CONFIG_LIDAR_X="0.20"
-  CONFIG_LIDAR_Y="0.0"
-  CONFIG_LIDAR_Z="0.22"
-  CONFIG_LIDAR_YAW="0.0"
-  CONFIG_DOCK_X="0.0"
-  CONFIG_DOCK_Y="0.0"
-  CONFIG_DOCK_YAW="0.0"
+
+  # LiDAR / dock geometry: only seed defaults when no yaml exists yet. On
+  # re-runs we leave whatever is already in mowgli_robot.yaml alone so a
+  # calibrated lidar_yaw or dock_pose isn't silently reset to the install
+  # template values.
+  if [ ! -f "$INSTALL_DIR/config/mowgli/mowgli_robot.yaml" ]; then
+    CONFIG_LIDAR_X="0.20"
+    CONFIG_LIDAR_Y="0.0"
+    CONFIG_LIDAR_Z="0.22"
+    CONFIG_LIDAR_YAW="0.0"
+    CONFIG_DOCK_X="0.0"
+    CONFIG_DOCK_Y="0.0"
+    CONFIG_DOCK_YAW="0.0"
+  fi
 }
 
 write_config() {
@@ -388,7 +425,25 @@ write_config() {
   : "${GPS_PORT:=/dev/gps}"
   : "${GPS_BAUD:=460800}"
 
-  cat > "$yaml_file" <<EOF
+  if [ -f "$yaml_file" ]; then
+    # Re-run: surgically update only the keys the installer manages, leaving
+    # all other parameters (battery_*, chassis_*, mow_*, imu_*, etc.) and
+    # any non-mowgli node blocks untouched. Previous behaviour rewrote the
+    # whole file from a small template, dropping ~80 keys that the user (or
+    # the GUI) had set since the last installer run.
+    update_yaml_param "$yaml_file" datum_lat        "$CONFIG_DATUM_LAT"
+    update_yaml_param "$yaml_file" datum_lon        "$CONFIG_DATUM_LON"
+    update_yaml_param "$yaml_file" gps_port         "\"$GPS_PORT\""
+    update_yaml_param "$yaml_file" gps_baudrate     "$GPS_BAUD"
+    update_yaml_param "$yaml_file" ntrip_enabled    "$CONFIG_NTRIP_ENABLED"
+    update_yaml_param "$yaml_file" ntrip_host       "\"$CONFIG_NTRIP_HOST\""
+    update_yaml_param "$yaml_file" ntrip_port       "$CONFIG_NTRIP_PORT"
+    update_yaml_param "$yaml_file" ntrip_user       "\"$CONFIG_NTRIP_USER\""
+    update_yaml_param "$yaml_file" ntrip_password   "\"$CONFIG_NTRIP_PASSWORD\""
+    update_yaml_param "$yaml_file" ntrip_mountpoint "\"$CONFIG_NTRIP_MOUNTPOINT\""
+    info "Updated $yaml_file (preserved existing parameters)"
+  else
+    cat > "$yaml_file" <<EOF
 # Mowgli ROS2 — Site-specific configuration
 # Full reference: docker exec mowgli-ros2 cat /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/mowgli_robot.yaml
 
@@ -422,8 +477,8 @@ navsat_to_absolute_pose:
     datum_lat: $CONFIG_DATUM_LAT
     datum_lon: $CONFIG_DATUM_LON
 EOF
-
-  info "Wrote $yaml_file"
+    info "Wrote $yaml_file (fresh install)"
+  fi
 
   cat > "$INSTALL_DIR/config/om/mower_config.sh" <<EOF
 export OM_DATUM_LAT=$CONFIG_DATUM_LAT
