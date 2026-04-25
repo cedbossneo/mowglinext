@@ -37,7 +37,7 @@
 # smooth, high-rate pose.
 ekf_odom_node:
   ros__parameters:
-    frequency: 50.0
+    frequency: 30.0
     sensor_timeout: 0.5
     two_d_mode: true            # forces Z=0, roll=0, pitch=0
     transform_time_offset: 0.0
@@ -131,7 +131,7 @@ ekf_odom_node:
 # and dock pose stay valid. Overridden at launch from mowgli_robot.yaml.
 navsat_transform_node:
   ros__parameters:
-    frequency: 30.0
+    frequency: 10.0                     # matches GPS rate (5 Hz × 2 headroom)
     delay: 0.0
     magnetic_declination_radians: 0.0   # no magnetometer; irrelevant
     yaw_offset: 0.0                     # IMU coordinate frame convention
@@ -151,7 +151,7 @@ navsat_transform_node:
 # Inputs: same as ekf_odom PLUS /odometry/gps. Publishes map → odom TF.
 ekf_map_node:
   ros__parameters:
-    frequency: 30.0                     # match navsat_transform output
+    frequency: 30.0
     sensor_timeout: 0.5
     two_d_mode: true
     transform_time_offset: 0.0

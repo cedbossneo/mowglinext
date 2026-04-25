@@ -91,12 +91,10 @@ def generate_launch_description() -> LaunchDescription:
                 "input_topic": "/wheel_odom",
                 "parent_frame": "wheel_odom_raw",
                 "child_frame": "base_footprint_wheels",
-                # 25 Hz: K-ICP consumes scans at 10 Hz, so anything above
-                # 2× the scan rate is wasted bandwidth. Default 100 Hz
-                # was flooding the foxglove_bridge WebSocket and showing
-                # up as multi-second pose lag in the viewer (while the
-                # ROS2 side was actually fresh — TF stamp lag <20 ms).
-                "rebroadcast_hz": 25.0,
+                # 15 Hz: K-ICP consumes scans at 10 Hz; 1.5× headroom is
+                # plenty. Lower rate also matches the 0.3 m/s robot speed —
+                # at 15 Hz the robot moves 2 cm per TF tick.
+                "rebroadcast_hz": 15.0,
             }
         ],
     )
