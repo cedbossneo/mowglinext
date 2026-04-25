@@ -13,14 +13,14 @@ DOCKER_SUBDIR="install"
 INSTALL_DIR="${REPO_DIR}/${DOCKER_SUBDIR}"
 UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
 
-MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mowgli-ros2:main"
-GPS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/gps:main"
-GPS_NMEA_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/gps-nmea:main"
-LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-ldlidar:main"
-LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-rplidar:main"
-LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-stl27l:main"
-MAVROS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mavros:main"
-GUI_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mowglinext-gui:main"
+MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mowgli-ros2:main"
+GPS_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/gps:main"
+GPS_NMEA_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/gps-nmea:main"
+LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-ldlidar:main"
+LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-rplidar:main"
+LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/lidar-stl27l:main"
+MAVROS_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mavros:main"
+GUI_IMAGE_DEFAULT="ghcr.io/danyial/mowglinext/mowglinext-gui:main"
 
 CHECK_ONLY=false
 CLI_PRESET=false
