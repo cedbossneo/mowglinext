@@ -31,10 +31,16 @@ func unmarshalROSMessage[T any](reader io.ReadCloser, out T) error {
 	if err != nil {
 		return err
 	}
+	// Match struct fields against incoming map keys ignoring both case and
+	// underscores so PascalCase Go fields (DockingPose) match snake_case
+	// rosbridge keys (docking_pose) as well as camelCase variants.
+	normalize := func(s string) string {
+		return strings.ReplaceAll(strings.ToLower(s), "_", "")
+	}
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result: out,
 		MatchName: func(mapKey, fieldName string) bool {
-			return strings.ToLower(fieldName) == strings.ToLower(mapKey)
+			return normalize(fieldName) == normalize(mapKey)
 		},
 	})
 	err = decoder.Decode(m)

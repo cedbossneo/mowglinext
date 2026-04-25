@@ -15,14 +15,18 @@ func SerializeCDR(jsonData []byte, schema *msgSchema) ([]byte, error) {
 		return nil, fmt.Errorf("cdr write: unmarshal: %w", err)
 	}
 
-	w := &cdrWriter{maxAlign: 8} // Classic XCDR1: 8-byte max alignment
-	// Encapsulation header: 0x0001 = CDR_LE (classic XCDR1 little-endian).
-	// This is ROS 2's default wire encoding for services and messages across
-	// all rmw implementations (FastDDS / CycloneDDS), so it's the most
-	// compatible choice. Previously we wrote this header with maxAlign=4 —
-	// half-XCDR2 — and rmw rejected every request with
-	// "rmw_serialize: invalid data size" because float64 landed at offset 4
-	// instead of 8. maxAlign=8 fixes float64/uint64 alignment to match.
+	// ROS 2 Kilted with the default rmw stack negotiates PLAIN_CDR2 over the
+	// wire — primitives align at most to 4 bytes regardless of the encap
+	// representation byte (this matches cdrReader's maxAlign=4 used in
+	// DeserializeCDR). With maxAlign=8 here the writer pushed leading float64
+	// fields one 8-byte slot too far, so e.g. SetDockingPoint's Pose decoded
+	// to garbage on the C++ side because position.x landed at byte 8 while
+	// rmw was reading it at byte 4.
+	w := &cdrWriter{maxAlign: 4}
+	// Encapsulation header: representation_id + options. ROS 2 publishers
+	// emit 0x0001 0x0000 (CDR_LE) regardless of the actual XCDR variant.
+	// Alignment is measured from the start of the payload (the byte AFTER
+	// this 4-byte header) — see the relative-alignment logic in cdrWriter.align.
 	w.buf = append(w.buf, 0x00, 0x01, 0x00, 0x00)
 
 	if err := w.writeMessage(msg, schema.Fields); err != nil {
@@ -40,11 +44,23 @@ func SerializeCDR(jsonData []byte, schema *msgSchema) ([]byte, error) {
 	return w.buf, nil
 }
 
+// cdrEncapHeaderLen is the size of the 4-byte CDR encapsulation header
+// (representation_id + options) that precedes the payload.
+const cdrEncapHeaderLen = 4
+
 type cdrWriter struct {
 	buf      []byte
 	maxAlign int
 }
 
+// align pads the buffer so the next write lands on an n-byte boundary
+// MEASURED FROM THE START OF THE PAYLOAD (i.e. after the 4-byte encapsulation
+// header), as required by CDR. Including the header in the modulo would push
+// every 8-byte-aligned field 4 bytes too far — fine for messages whose first
+// field is a string/uint32 (4-byte alignment is a no-op), but corrupts services
+// whose first field needs 8-byte alignment (e.g. SetDockingPoint with a Pose
+// containing leading float64s — the receiver reads at relative offset 0 and
+// gets garbage from the padding bytes).
 func (w *cdrWriter) align(n int) {
 	if n <= 1 {
 		return
@@ -52,7 +68,7 @@ func (w *cdrWriter) align(n int) {
 	if n > w.maxAlign {
 		n = w.maxAlign
 	}
-	rem := len(w.buf) % n
+	rem := (len(w.buf) - cdrEncapHeaderLen) % n
 	if rem != 0 {
 		pad := n - rem
 		for i := 0; i < pad; i++ {
