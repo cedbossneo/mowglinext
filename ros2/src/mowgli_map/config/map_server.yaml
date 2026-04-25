@@ -28,6 +28,12 @@ map_server_node:
     # but stops the planner from drafting big detours outside the area.
     keepout_nav_margin: 0.3
 
+    # Strip inset: distance from polygon edge to strip endpoints.
+    # Set so the recorded boundary sits ~40 cm outside the actual mowed
+    # strips, leaving room for FTC tracking error and pose drift before
+    # the robot crosses the polygon.
+    strip_boundary_margin_m: 0.40
+
     # Inner-boundary margin. Cells INSIDE a mowing area but within this
     # distance of the nearest edge are marked LETHAL in the keepout mask.
     # Intended to push Nav2 transit paths away from the polygon edge, but
