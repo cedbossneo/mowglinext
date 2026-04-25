@@ -312,12 +312,14 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
   }
 
-  // RTK-Fixed gate: only feed /gps/pose_cov to ekf_map when the fix is
-  // RTK Fixed. Float and standalone fixes have σ ≥ 20 cm and routinely
-  // jump by 1-3 m under tree cover or multipath — fusing them lets the
-  // EKF wander outside the polygon while we are mowing. /gps/absolute_pose
-  // is still published for the GUI so the user sees the live status.
-  if (msg->status.status != NavStatus::STATUS_GBAS_FIX)
+  // RTK-aware gate: skip standalone (no RTK) fixes — those have σ ~ 1-3 m
+  // and jump erratically under multipath. RTK Float (σ ~ 20 cm) is fused
+  // because its actual position_accuracy is known and the EKF weights it
+  // appropriately; without Float updates the map-frame position freezes
+  // during the long Float windows under tree cover, leaving the controller
+  // to act on stale poses.
+  if (msg->status.status != NavStatus::STATUS_GBAS_FIX &&
+      msg->status.status != NavStatus::STATUS_SBAS_FIX)
   {
     return;
   }
