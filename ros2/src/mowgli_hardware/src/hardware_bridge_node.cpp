@@ -1312,18 +1312,35 @@ private:
 
   void on_cmd_vel(geometry_msgs::msg::TwistStamped::ConstSharedPtr msg)
   {
+    double vx = msg->twist.linear.x;
+    double wz = msg->twist.angular.z;
+
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u && (msg->twist.linear.x != 0.0 || msg->twist.angular.z != 0.0))
+    if (current_mode_ == 0u && (vx != 0.0 || wz != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();
     }
 
+    // Motor deadband boost: at low |ω| with no linear motion, each wheel
+    // gets PWM ≈ |ω|·L/2·PWM_PER_MPS. With L=0.325 and PWM_PER_MPS=300,
+    // |ω|=0.5 rad/s → PWM 24, well below the firmware deadband (~PWM 40)
+    // → motors buzz and the robot doesn't rotate. Boost sub-threshold pure
+    // rotations to MIN_ROT_VEL so the wheels actually engage. Forward
+    // motion supplies its own PWM via vx, so we only boost when the
+    // robot is essentially stationary in linear.
+    constexpr double kMinRotVel = 0.85;          // rad/s, ≈ wheel 0.14 m/s
+    constexpr double kVxStationaryThreshold = 0.05;
+    if (std::abs(vx) < kVxStationaryThreshold && wz != 0.0 && std::abs(wz) < kMinRotVel)
+    {
+      wz = std::copysign(kMinRotVel, wz);
+    }
+
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
-    pkt.linear_x = static_cast<float>(msg->twist.linear.x);
-    pkt.angular_z = static_cast<float>(msg->twist.angular.z);
+    pkt.linear_x = static_cast<float>(vx);
+    pkt.angular_z = static_cast<float>(wz);
 
     send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdVel) - sizeof(uint16_t));
   }
