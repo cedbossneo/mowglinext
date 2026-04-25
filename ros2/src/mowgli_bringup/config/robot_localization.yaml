@@ -85,18 +85,19 @@ ekf_odom_node:
     imu0_remove_gravitational_acceleration: true
     imu0_nodelay: false
 
-    # ─ Optional: Kinematic-ICP twist (lidar drift correction) ─
-    # When use_lidar=true, the kinematic_icp_encoder_adapter publishes
-    # body-frame twist on /encoder2/odom. Fuse as a second velocity source.
-    # Commented out for first validation — enable once base stack works.
-    # odom1: /encoder2/odom
-    # odom1_config: [false, false, false,
-    #                false, false, false,
-    #                true,  true,  false,
-    #                false, false, true,
-    #                false, false, false]
-    # odom1_queue_size: 10
-    # odom1_differential: false
+    # ─ Kinematic-ICP twist (lidar drift correction) ─
+    # kinematic_icp_encoder_adapter publishes body-frame twist on
+    # /encoder2/odom from K-ICP's lidar-derived pose deltas. Fused as a
+    # second velocity source — provides dead-reckoning support during
+    # RTK Float gaps and partial GPS occlusion under tree cover.
+    odom1: /encoder2/odom
+    odom1_config: [false, false, false,
+                   false, false, false,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom1_queue_size: 10
+    odom1_differential: false
 
     # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
     # Starting with defaults; tune after we have a session to compare.
