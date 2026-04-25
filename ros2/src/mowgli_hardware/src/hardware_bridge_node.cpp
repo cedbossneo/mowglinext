@@ -1180,7 +1180,11 @@ private:
     odom_acc_delta_right_ += d_right;
     odom_acc_dt_ms_       += pkt.dt_millis;
 
-    static constexpr uint32_t kAggregateMs = 100;
+    // 33 ms aggregation → ~30 Hz /wheel_odom. Firmware packets arrive
+    // at ~47 Hz so each window aggregates 1-2 packets; at 0.3 m/s that
+    // is 3-6 ticks/window with denominator dt=33ms, giving ~5% relative
+    // noise on velocity — still acceptable.
+    static constexpr uint32_t kAggregateMs = 33;
     if (odom_acc_dt_ms_ < kAggregateMs)
     {
       return;

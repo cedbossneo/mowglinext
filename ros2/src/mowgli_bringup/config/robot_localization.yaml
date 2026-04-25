@@ -37,10 +37,7 @@
 # smooth, high-rate pose.
 ekf_odom_node:
   ros__parameters:
-    # 20 Hz — robot moves 1.5 cm/cycle at 0.3 m/s. Higher rates are
-    # wasted CPU/TF bandwidth given the 5 Hz GPS, 10 Hz wheel, and
-    # 10 Hz LiDAR upstream rates and the 10 Hz controller downstream.
-    frequency: 20.0
+    frequency: 30.0
     sensor_timeout: 0.5
     two_d_mode: true            # forces Z=0, roll=0, pitch=0
     transform_time_offset: 0.0
@@ -154,7 +151,7 @@ navsat_transform_node:
 # Inputs: same as ekf_odom PLUS /odometry/gps. Publishes map → odom TF.
 ekf_map_node:
   ros__parameters:
-    frequency: 10.0                     # match GPS / navsat_transform rate
+    frequency: 30.0
     sensor_timeout: 0.5
     two_d_mode: true
     transform_time_offset: 0.0
