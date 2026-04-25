@@ -14,7 +14,14 @@ CONFIG="/config/mowgli_robot.yaml"
 [ -f "$CONFIG" ] || { echo "[gps-nmea] $CONFIG missing — bind-mount install/config/mowgli to /config"; exit 1; }
 
 parse_yaml() {
-  grep -E "^\s+${1}:" "$CONFIG" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
+  # Pipefail-safe: grep returns 1 when the key is missing, which would kill
+  # the script (set -euo pipefail). Capture and short-circuit instead, so a
+  # missing key just yields an empty string — defaults at the bottom of the
+  # block then take over.
+  local line
+  line=$(grep -E "^\s+${1}:" "$CONFIG" 2>/dev/null | head -1) || true
+  [ -n "$line" ] || return 0
+  echo "$line" | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
 }
 
 GPS_PORT=$(parse_yaml gps_port)
