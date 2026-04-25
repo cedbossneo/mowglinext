@@ -164,6 +164,10 @@ ekf_map_node:
     world_frame:         map       # GLOBAL EKF produces map → odom
 
     # ─ Wheel odometry ─
+    # Wheel vx/vy/vyaw all fused. Wheel velocity provides essential
+    # dead-reckoning between GPS samples and during RTK Float gaps —
+    # disabling vx/vy froze the map-frame position whenever RTK was not
+    # Fixed and made the controller act on a stale pose.
     odom0: /wheel_odom
     odom0_config: [false, false, false,
                    false, false, false,
