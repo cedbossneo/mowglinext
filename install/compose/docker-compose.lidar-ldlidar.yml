@@ -22,16 +22,14 @@ services:
     privileged: true
     environment:
       <<: *ros2-env
-    command: >
-      ros2 run ldlidar_stl_ros2 ldlidar_stl_ros2_node
-      --ros-args
-      -p product_name:=LDLiDAR_LD19
-      -p topic_name:=scan
-      -p frame_id:=lidar_link
-      -p port_name:=${LIDAR_PORT:-/dev/lidar}
-      -p port_baudrate:=${LIDAR_BAUD:-230400}
-      -p laser_scan_dir:=true
-      -p enable_angle_crop_func:=false
+    # No `command:` override — the image's CMD is /start_lidar.sh which calls
+    # `ros2 launch /ldlidar_scan.launch.py` with the Myzhar/ldrobot-lidar-ros2
+    # lifecycle driver (see sensors/lidar-ldlidar/Dockerfile). The previous
+    # override invoked `ros2 run ldlidar_stl_ros2 ldlidar_stl_ros2_node` —
+    # that's the older ldrobotSensorTeam driver, which is not in this image
+    # and produces variable scan length anyway (slam_toolbox rejects it).
+    # To customise: edit /ldlidar.yaml inside the image, or rebuild with a
+    # different launch file — don't re-add `command:` here.
     volumes:
       - /dev:/dev
       - ./config/cyclonedds.xml:/cyclonedds.xml:ro
