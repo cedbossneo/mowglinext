@@ -134,8 +134,12 @@ class DockYawToSetPose(Node):
             )
             return
         self._file_yaw_rad = yaw_rad
-        # Use max(file σ², param floor) so a bad calibration cannot over-trust.
-        self._file_yaw_var = max(sigma_rad * sigma_rad, 1e-3)  # ~2° floor
+        # Floor at σ=10° (variance 0.03) so the seed dominates gyro drift
+        # while docked but does NOT outweigh the first /imu/cog_heading
+        # samples once the robot is moving. A tighter seed (e.g. σ=2°) takes
+        # several seconds of GPS COG observations to overcome — long enough
+        # for Nav2 to commit to a wrong heading and drive off-boundary.
+        self._file_yaw_var = max(sigma_rad * sigma_rad, 0.03)  # ~10° floor
         self.get_logger().info(
             "Loaded dock calibration: yaw={:.2f}° (σ={:.2f}°) from {}".format(
                 math.degrees(yaw_rad), math.degrees(sigma_rad),
