@@ -17,8 +17,11 @@ mowgli:
     # -----------------------------------------------------------------
     mower_model: "YardForce500"
 
-    # Chassis dimensions (metres) — synced 2026-04-26 to runtime config.
-    chassis_length: 0.54
+    # Chassis dimensions (metres) — physically measured on the actual
+    # YardForce 500. Earlier the runtime YAML had 0.54 m which silently
+    # diverged from this template; the 0.60 m here is the correct value
+    # and was restored on 2026-04-26.
+    chassis_length: 0.60
     chassis_width: 0.40
     chassis_height: 0.19
     chassis_mass_kg: 8.76
@@ -31,8 +34,8 @@ mowgli:
                                # MUST match firmware physical assumption.
     wheel_x_offset: 0.0       # drive wheels at base_link (wheel axis centre)
     chassis_center_x: 0.18    # chassis geometric centre forward of wheel axis (m)
-                               # rear bumper at -0.09, front bumper at +0.45
-                               # (synced 2026-04-26 to match runtime config)
+                               # with chassis_length 0.60 → rear bumper -0.12,
+                               # front bumper +0.48
     # ticks_per_metre is consumed by hardware_bridge_node to convert raw
     # encoder tick deltas (from the STM32 firmware odom packet) into
     # metres. MUST match the firmware constant TICKS_PER_M in
