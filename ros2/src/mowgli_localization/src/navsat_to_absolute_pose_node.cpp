@@ -266,15 +266,21 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
   }
 
-  // Look up the current odom→base_footprint TF for the world-frame yaw.
+  // Look up the current map→base_footprint TF for the world-frame yaw.
   //
-  // We intentionally use the ODOM-frame yaw (wheels + gyro from
-  // ekf_odom_node) rather than the map-frame yaw because ekf_map
-  // consumes /gps/pose_cov — using its own yaw output would create a
-  // feedback loop in the lever-arm correction. The odom-frame yaw is
-  // smooth, available immediately at startup, and accurate enough for
-  // a ≤30 cm lever arm (the map→odom rotation only matters at ~mm
-  // scale for this correction).
+  // The lever-arm rotation must use the SAME world frame the GPS sample
+  // lives in — i.e. the map frame, anchored to GPS. Using odom yaw
+  // instead drifts away from map yaw on every rotation (gyro scale
+  // error accumulates in odom alone, while map yaw stays anchored by
+  // /gps/pose_cov + /imu/cog_heading). After 1-2 in-place rotations the
+  // odom↔map yaw delta reaches ~10° and the R(yaw_odom)·offset
+  // correction starts amplifying the antenna arc instead of cancelling
+  // it (empirically: /gps/pose_cov residual grew 10cm → 21cm between
+  // back-to-back 360° spins on 2026-04-26, with sweep > raw antenna
+  // radius). The feedback-loop concern about ekf_map consuming its own
+  // yaw doesn't materialise in 2D mode: yaw_map covariance is bounded,
+  // GPS σ at RTK Fixed (~5 mm) dwarfs the residual, and the lever-arm
+  // is a fixed ≤30cm × Δyaw_rad — feedback gain is effectively zero.
   // If the TF is not yet available, fall back to publishing the raw
   // antenna position — matches legacy /gps/absolute_pose behavior.
   double base_x = east;
@@ -284,7 +290,7 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
   {
     try
     {
-      auto tf = tf_buffer_->lookupTransform("odom", "base_footprint", tf2::TimePointZero);
+      auto tf = tf_buffer_->lookupTransform("map", "base_footprint", tf2::TimePointZero);
       tf2::Quaternion q(tf.transform.rotation.x,
                         tf.transform.rotation.y,
                         tf.transform.rotation.z,
@@ -303,7 +309,7 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
     catch (const tf2::TransformException&)
     {
-      // odom→base_footprint TF not yet published; keep raw antenna pos.
+      // map→base_footprint TF not yet published; keep raw antenna pos.
     }
   }
 
