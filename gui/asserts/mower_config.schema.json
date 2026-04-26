@@ -390,8 +390,8 @@
         "battery_full_voltage": {
           "type": "number",
           "title": "Full Voltage",
-          "default": 28.5,
-          "description": "Voltage at which battery is considered full."
+          "default": 28.0,
+          "description": "Voltage at which battery is considered full. Yardforce500 SLA packs top out around 28.0 V on the dock; setting this higher caps the displayed percentage below 100%."
         },
         "battery_empty_voltage": {
           "type": "number",

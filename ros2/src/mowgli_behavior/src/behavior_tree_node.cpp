@@ -114,11 +114,39 @@ private:
                                      std::lock_guard<std::mutex> lock(context_->context_mutex);
                                      context_->latest_power = *msg;
 
-                                     // Derive battery_percent from voltage using
+                                     // Low-pass filter v_battery before computing the
+                                     // percentage. Without this, brief load spikes from
+                                     // motor PWM startup transients sag the rail by
+                                     // 0.5–1 V for a few hundred ms — long enough to drag
+                                     // battery_percent below the NeedsDocking threshold
+                                     // and trip a spurious LOW_BATTERY_DOCKING even
+                                     // though the no-load voltage is well above. With
+                                     // ALPHA=0.05 at the topic's ~10 Hz update rate, the
+                                     // filter has a ~2 s time constant — load transients
+                                     // are smoothed but real discharge is tracked
+                                     // closely enough.
+                                     constexpr float kVBatteryFilterAlpha = 0.05f;
+                                     constexpr float kVBatterySanityFloor = 10.0f;  // V
+                                     if (msg->v_battery >= kVBatterySanityFloor) {
+                                       if (filtered_v_battery_ <= 0.0f) {
+                                         // Bootstrap on first valid sample — no jump on init.
+                                         filtered_v_battery_ = msg->v_battery;
+                                       } else {
+                                         filtered_v_battery_ =
+                                             (1.0f - kVBatteryFilterAlpha) * filtered_v_battery_ +
+                                             kVBatteryFilterAlpha * msg->v_battery;
+                                       }
+                                     }
+                                     // If v_battery is implausibly low (sensor glitch,
+                                     // disconnected pack), keep the previous filtered
+                                     // value so the BT doesn't act on spurious zeros.
+
+                                     // Derive battery_percent from filtered voltage using
                                      // configurable thresholds from ROS parameters.
                                      const float v_max = battery_full_voltage_;
                                      const float v_min = battery_empty_voltage_;
-                                     const float clamped = std::clamp(msg->v_battery, v_min, v_max);
+                                     const float clamped =
+                                         std::clamp(filtered_v_battery_, v_min, v_max);
                                      context_->battery_percent =
                                          100.0f * (clamped - v_min) / (v_max - v_min);
                                    });
@@ -330,7 +358,7 @@ private:
 
     // Battery voltage curve — configurable via mowgli_robot.yaml
     battery_full_voltage_ =
-        static_cast<float>(declare_parameter<double>("battery_full_voltage", 28.5));
+        static_cast<float>(declare_parameter<double>("battery_full_voltage", 28.0));
     battery_empty_voltage_ =
         static_cast<float>(declare_parameter<double>("battery_empty_voltage", 24.0));
 
@@ -418,8 +446,11 @@ private:
   bool undock_ready_{false};
 
   // Battery voltage curve parameters
-  float battery_full_voltage_{28.5f};
+  float battery_full_voltage_{28.0f};
   float battery_empty_voltage_{24.0f};
+  // Low-pass filtered v_battery for spike-resistant battery_percent. 0.0 = uninitialised
+  // (bootstrap on first valid sample to avoid an artificial dip from zero on startup).
+  float filtered_v_battery_{0.0f};
 };
 
 }  // namespace mowgli_behavior

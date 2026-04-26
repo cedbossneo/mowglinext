@@ -1,6 +1,6 @@
 /** Default battery voltage thresholds — must match mower_config.schema.json */
 export const BATTERY_DEFAULTS = {
-    fullVoltage: 28.5,
+    fullVoltage: 28.0,
     emptyVoltage: 24.0,
     criticalVoltage: 23.0,
 } as const;

@@ -80,7 +80,7 @@ mowgli:
     # -----------------------------------------------------------------
     # Battery
     # -----------------------------------------------------------------
-    battery_full_voltage: 28.5     # consider fully charged above this
+    battery_full_voltage: 28.0     # consider fully charged above this — Yardforce500 SLA tops out at ~28.0V
     battery_empty_voltage: 24.0    # dock if below for sustained period
     battery_critical_voltage: 23.0 # immediate dock
     battery_full_percent: 95.0     # resume mowing above this %
