@@ -108,6 +108,32 @@ class NmeaSerialBridge(Node):
         except ValueError:
             return None
 
+    @staticmethod
+    def _zero_gga_geoid_separation(line: str) -> str:
+        # Workaround for UM980 (and other Unicore N4 receivers) when any
+        # base-station corrections are active: in DGPS, RTK Float and RTK
+        # Fixed modes (GGA quality 2, 3, 4, 5) the receiver puts the rover's
+        # HAE in field 9 (the "MSL altitude" slot) but still emits the geoid
+        # separation in field 11. nmea_navsat_driver naively adds them,
+        # producing HAE + geoid_sep = a doubled geoid offset (~+47 m in
+        # southern Germany). Zeroing field 11 keeps the driver's MSL+0 = HAE
+        # arithmetic correct. Pure SPP (q=1) is spec-compliant — field 9 is
+        # actual MSL — so it must NOT go through this transform.
+        # Caller must already have gated on q in {2, 3, 4, 5} — we only do
+        # the field rewrite + checksum here.
+        body, _, _ = line.partition("*")
+        parts = body.split(",")
+        # Full GGA: $G[NP]GGA,utc,lat,N/S,lon,E/W,quality,sats,hdop,
+        #          alt,M,geoid_sep,M,age,station
+        if len(parts) < 13:
+            return line
+        parts[11] = "0.0"
+        new_body = ",".join(parts)
+        checksum = 0
+        for c in new_body[1:]:  # XOR everything between '$' (excl) and '*' (excl)
+            checksum ^= ord(c)
+        return f"{new_body}*{checksum:02X}"
+
     def _on_fix_raw(self, msg: NavSatFix) -> None:
         with self._quality_lock:
             q = self._last_quality
@@ -128,11 +154,16 @@ class NmeaSerialBridge(Node):
                         line = raw.decode("ascii", errors="replace").strip()
                         if not line.startswith("$"):
                             continue
-                        # Track GGA quality for the NavSatFix republisher.
+                        # Track GGA quality for the NavSatFix republisher and,
+                        # in any base-corrected mode (DGPS / RTK Float / RTK
+                        # Fixed), normalise away the doubled-geoid bug before
+                        # downstream consumers see the sentence.
                         q = self._gga_quality(line)
                         if q is not None:
                             with self._quality_lock:
                                 self._last_quality = q
+                            if 2 <= q <= 5:
+                                line = self._zero_gga_geoid_separation(line)
                         msg = Sentence()
                         msg.header.stamp = self.get_clock().now().to_msg()
                         msg.header.frame_id = self._frame_id
