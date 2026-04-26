@@ -12,6 +12,7 @@ x-ros2-env: &ros2-env
   RCUTILS_LOGGING_USE_STDOUT: "1"
   LIDAR_ENABLED: ${LIDAR_ENABLED:-true}
   ENABLE_FOXGLOVE: ${ENABLE_FOXGLOVE:-true}
+  HARDWARE_BACKEND: ${HARDWARE_BACKEND:-mowgli}
 
 services:
 
@@ -20,6 +21,7 @@ services:
   # Runs the full mowgli_ros2 stack: hardware bridge, Nav2, behavior trees,
   # coverage planning, SLAM map server, and foxglove_bridge (port 8765).
   # -------------------------------------------------------------------------
+
   mowgli:
     container_name: mowgli-ros2
     image: ${MOWGLI_ROS2_IMAGE}
@@ -32,13 +34,12 @@ services:
       ros2 launch mowgli_bringup full_system.launch.py
       enable_foxglove:=${ENABLE_FOXGLOVE:-true}
       enable_coverage:=true
-      use_lidar:=${LIDAR_ENABLED:-true}
+      use_lidar:=${LIDAR_ENABLED}
     volumes:
       - /dev:/dev
       - mowgli_maps:/ros2_ws/maps
-      - ./config/mowgli:/ros2_ws/config:ro
-      - ./config/cyclonedds.xml:/cyclonedds.xml:ro
-
+      - ./docker/config/mowgli:/ros2_ws/config:ro
+      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     restart: unless-stopped
     logging:
       driver: json-file
