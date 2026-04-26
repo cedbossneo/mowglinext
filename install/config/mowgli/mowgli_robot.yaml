@@ -16,7 +16,7 @@ mowgli:
         caster_track: 0.36
         chassis_center_x: 0.18
         chassis_height: 0.19
-        chassis_length: 0.54
+        chassis_length: 0.60
         chassis_mass_kg: 8.76
         chassis_width: 0.4
         coverage_xy_tolerance: 0.5
