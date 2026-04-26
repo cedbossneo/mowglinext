@@ -36,7 +36,7 @@
     "react-router-dom": "^7.13.2",
     "react-terminal-ui": "^1.4.0",
     "react-use-websocket": "4.13.0",
-    "styled-components": "^6.3.12",
+    "styled-components": "^6.4.1",
     "usng.js": "^0.4.5"
   },
   "devDependencies": {
