@@ -163,7 +163,7 @@
           <IsBatteryLow threshold="10.0"/>
           <SetMowerEnabled enabled="false"/>
           <StopMoving/>
-          <PublishHighLevelStatus state="1" state_name="CRITICAL_BATTERY_DOCKING"/>
+          <PublishHighLevelStatus state="2" state_name="CRITICAL_BATTERY_DOCKING"/>
           <SaveObstacles/>
           <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <Fallback name="CriticalNavOrStop">
@@ -335,7 +335,7 @@
                 <Sequence name="RainDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="1" state_name="RAIN_DETECTED_DOCKING"/>
+                  <PublishHighLevelStatus state="2" state_name="RAIN_DETECTED_DOCKING"/>
                   <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <Fallback name="RainNavOrStay">
                     <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
@@ -383,7 +383,7 @@
                 <Sequence name="BatteryDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="1" state_name="LOW_BATTERY_DOCKING"/>
+                  <PublishHighLevelStatus state="2" state_name="LOW_BATTERY_DOCKING"/>
                   <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <PublishHighLevelStatus state="1" state_name="CHARGING"/>
@@ -477,7 +477,7 @@
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
               <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
-              <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
+              <PublishHighLevelStatus state="2" state_name="COVERAGE_FAILED_DOCKING"/>
               <Fallback name="FailedCoverageNavOrStop">
                 <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                 <Sequence>
@@ -528,7 +528,7 @@
             <ReactiveFallback name="HomeOrAlreadyDocked">
               <IsCharging/>
               <Sequence name="NavigateHome">
-                <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
+                <PublishHighLevelStatus state="2" state_name="RETURNING_HOME"/>
                 <SaveObstacles/>
                 <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                 <Fallback name="HomeNavOrStop">
