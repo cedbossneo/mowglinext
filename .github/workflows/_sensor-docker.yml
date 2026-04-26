@@ -1,56 +1,46 @@
-name: Sensors — Docker
+name: Sensor Docker (reusable)
+
+# Reusable workflow that builds a single sensor image (multi-arch) and
+# pushes a multi-arch manifest. One thin caller per sensor lives in
+# sensors-<image>.yml — that caller decides on which paths/branches it
+# fires. This file is not triggered directly.
 
 on:
-  push:
-    branches: [main, dev]
-    paths:
-      - 'sensors/gps/**'
-      - 'sensors/lidar-ldlidar/**'
-      - 'sensors/lidar-rplidar/**'
-      - 'sensors/lidar-stl27l/**'
-      - 'sensors/mavros/**'
-  workflow_dispatch:
+  workflow_call:
     inputs:
+      image:
+        description: 'Image name under ghcr.io/<repo>/'
+        type: string
+        required: true
+      context:
+        description: 'Build context path (e.g. ./sensors/gps)'
+        type: string
+        required: true
+      target:
+        description: 'Optional Dockerfile target stage'
+        type: string
+        required: false
+        default: ''
       no-cache:
         description: 'Build without Docker layer cache'
         type: boolean
+        required: false
         default: false
-
-concurrency:
-  group: docker-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
-  # ─── Build each (image × arch) on native runners ─────────────────────────
   build:
-    name: Build ${{ matrix.image }} (${{ matrix.arch }})
+    name: Build ${{ inputs.image }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
       matrix:
-        image: [gps, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
         arch: [linux/amd64, linux/arm64]
         include:
-          - image: gps
-            context: ./sensors/gps
-            target: ""
-          - image: lidar-ldlidar
-            context: ./sensors/lidar-ldlidar
-            target: runtime
-          - image: lidar-rplidar
-            context: ./sensors/lidar-rplidar
-            target: ""
-          - image: lidar-stl27l
-            context: ./sensors/lidar-stl27l
-            target: runtime
-          - image: mavros
-            context: ./sensors/mavros
-            target: ""
           - arch: linux/amd64
             runner: ubuntu-24.04
           - arch: linux/arm64
@@ -78,53 +68,49 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          images: ${{ env.IMAGE_PREFIX }}/${{ inputs.image }}
 
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.context }}
-          target: ${{ matrix.target != '' && matrix.target || '' }}
+          context: ${{ inputs.context }}
+          target: ${{ inputs.target }}
           platforms: ${{ matrix.arch }}
-          no-cache: ${{ inputs.no-cache == true }}
-          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}/{1}:buildcache-{2}', env.IMAGE_PREFIX, matrix.image, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
-          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
+          no-cache: ${{ inputs.no-cache }}
+          cache-from: ${{ inputs.no-cache != true && format('type=registry,ref={0}/{1}:buildcache-{2}', env.IMAGE_PREFIX, inputs.image, matrix.arch == 'linux/arm64' && 'arm64' || 'amd64') || '' }}
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}/${{ inputs.image }}:buildcache-${{ matrix.arch == 'linux/arm64' && 'arm64' || 'amd64' }},mode=max
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}/${{ inputs.image }},push-by-digest=true,name-canonical=true,push=true
           provenance: true
           sbom: true
 
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Sanitise arch name for artifact
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          clean=${{ matrix.arch }}
-          clean=${clean////-}
+          clean=${ARCH////-}
           echo "ARTIFACT_NAME=${clean}" >> "$GITHUB_ENV"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.image }}-${{ env.ARTIFACT_NAME }}
+          name: digests-${{ inputs.image }}-${{ env.ARTIFACT_NAME }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
-  # ─── Merge per-arch digests into multi-arch manifest ──────────────────────
   merge:
-    name: Merge manifest (${{ matrix.image }})
+    name: Merge manifest (${{ inputs.image }})
     runs-on: ubuntu-24.04
     needs: build
-
-    strategy:
-      fail-fast: false
-      matrix:
-        image: [gps, lidar-ldlidar, lidar-rplidar, lidar-stl27l, mavros]
 
     permissions:
       contents: read
@@ -134,7 +120,7 @@ jobs:
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
-          pattern: digests-${{ matrix.image }}-*
+          pattern: digests-${{ inputs.image }}-*
           merge-multiple: true
           path: /tmp/digests
 
@@ -152,7 +138,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          images: ${{ env.IMAGE_PREFIX }}/${{ inputs.image }}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -161,11 +147,15 @@ jobs:
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
+        env:
+          IMG: ${{ env.IMAGE_PREFIX }}/${{ inputs.image }}
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE_PREFIX }}/${{ matrix.image }}@sha256:%s ' *)
+            $(printf "${IMG}@sha256:%s " *)
 
       - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
+        env:
+          IMG: ${{ env.IMAGE_PREFIX }}/${{ inputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "${IMG}:${VERSION}"
