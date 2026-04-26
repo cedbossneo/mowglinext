@@ -15,14 +15,15 @@ func SerializeCDR(jsonData []byte, schema *msgSchema) ([]byte, error) {
 		return nil, fmt.Errorf("cdr write: unmarshal: %w", err)
 	}
 
-	// ROS 2 Kilted with the default rmw stack negotiates PLAIN_CDR2 over the
-	// wire — primitives align at most to 4 bytes regardless of the encap
-	// representation byte (this matches cdrReader's maxAlign=4 used in
-	// DeserializeCDR). With maxAlign=8 here the writer pushed leading float64
-	// fields one 8-byte slot too far, so e.g. SetDockingPoint's Pose decoded
-	// to garbage on the C++ side because position.x landed at byte 8 while
-	// rmw was reading it at byte 4.
-	w := &cdrWriter{maxAlign: 4}
+	// rmw_cyclonedds on ROS 2 Kilted uses PLAIN_CDR (XCDR1): up to 8-byte
+	// natural alignment, measured relative to the payload start (after the
+	// 4-byte encapsulation header). The earlier maxAlign=4 cap matched the
+	// reader's previous CDR2 assumption — both have been corrected together.
+	// SetDockingPoint stays correct because its 7 consecutive float64 fields
+	// land on the same offsets under both alignment caps anyway; the
+	// breakage we hit before was the absolute-vs-payload-relative align()
+	// bug, fixed in cdrWriter.align below.
+	w := &cdrWriter{maxAlign: 8}
 	// Encapsulation header: representation_id + options. ROS 2 publishers
 	// emit 0x0001 0x0000 (CDR_LE) regardless of the actual XCDR variant.
 	// Alignment is measured from the start of the payload (the byte AFTER

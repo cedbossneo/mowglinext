@@ -252,10 +252,14 @@ func DeserializeCDR(data []byte, schema *msgSchema) (map[string]interface{}, err
 	}
 
 	// Encapsulation header: byte 1 encodes endianness (0x01 = LE).
-	// ROS2 Jazzy uses PLAIN_CDR2 encoding which caps alignment at 4 bytes,
-	// regardless of the encapsulation header value.
+	// rmw_cyclonedds on ROS 2 Kilted publishes PLAIN_CDR (XCDR1) for topics,
+	// which uses 8-byte natural alignment (relative to the payload start, not
+	// the buffer start). The earlier code assumed CDR2 (maxAlign=4 absolute)
+	// and corrupted any message whose layout placed a float64 after a string
+	// of an offset that differed between the two schemes — see
+	// CalibrateImuYawStatus.
 	le := data[1] == 0x01
-	r := &cdrReader{data: data, offset: 4, le: le, maxAlign: 4}
+	r := &cdrReader{data: data, offset: 4, le: le, maxAlign: 8}
 
 	return r.readMessage(schema.Fields)
 }
@@ -563,6 +567,10 @@ func (r *cdrReader) readUint64() (uint64, error) {
 }
 
 // align advances offset to the next multiple of n, capped by maxAlign.
+// Alignment is measured RELATIVE TO THE PAYLOAD START (after the 4-byte
+// encapsulation header), matching CDR's own convention and what the writer
+// produces. Modulo'ing the absolute buffer offset would push every 8-byte
+// alignment 4 bytes too late.
 func (r *cdrReader) align(n int) {
 	if n <= 1 {
 		return
@@ -570,7 +578,7 @@ func (r *cdrReader) align(n int) {
 	if n > r.maxAlign {
 		n = r.maxAlign
 	}
-	rem := r.offset % n
+	rem := (r.offset - cdrEncapHeaderLen) % n
 	if rem != 0 {
 		r.offset += n - rem
 	}
