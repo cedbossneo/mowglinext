@@ -582,6 +582,17 @@ docking_server:
     fixed_frame: odom
     dock_backwards: false
     dock_prestaging_tolerance: 0.5
+    # Disable the docking controller's internal collision check. It
+    # projects the dock-approach trajectory through the local_costmap
+    # and aborts if any cell exceeds dock_collision_threshold — but the
+    # dock structure itself shows up in the obstacle layer as soon as
+    # the LiDAR sees it, so the controller refuses its own destination
+    # and DockRobot times out with "Failed to get control / Timed out
+    # resetting dock approach". collision_monitor (downstream of nav2,
+    # always active) still enforces the chassis-polygon emergency stop,
+    # so disabling the docking-internal check doesn't remove safety —
+    # it just stops the docking server from refusing to dock at the dock.
+    controller.use_collision_detection: false
     # Named dock instances — BT uses dock_id="home_dock"
     dock_plugins: ["simple_charging_dock"]
     docks: ["home_dock"]
