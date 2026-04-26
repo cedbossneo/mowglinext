@@ -37,10 +37,13 @@
 # smooth, high-rate pose.
 ekf_odom_node:
   ros__parameters:
-    # 20 Hz: 30 Hz saturated this ARM CPU on every cycle ("Failed to
-    # meet update rate" errors at 30-200 ms per cycle). 20 Hz is
-    # comfortable headroom and matches the wheel_odom rate.
-    frequency: 20.0
+    # 10 Hz: with K-ICP fusion re-enabled (odom1) higher target rates
+    # collapsed under per-tick CPU pressure (20 Hz → 2 Hz, 15 Hz → 4 Hz).
+    # 10 Hz aligns the filter tick with K-ICP and ekf_map arrivals so
+    # they're processed in the same step instead of bouncing the
+    # filter state between them. Nav2 controller runs at 10 Hz so we
+    # match its consumption rate. Live measurement: ~9 Hz publish.
+    frequency: 10.0
     sensor_timeout: 0.5
     two_d_mode: true            # forces Z=0, roll=0, pitch=0
     transform_time_offset: 0.0
@@ -82,26 +85,31 @@ ekf_odom_node:
                   false, false, false,    # vx, vy, vz
                   false, false, true,     # vroll, vpitch, vyaw — fuse gyro_z
                   false, false, false]    # ax, ay, az — not fusing; drift-prone
-    imu0_queue_size: 50
+    # IMU at 91 Hz × queue 50 = 0.55 s buffered, way more than the EKF
+    # ever uses on a single tick. Trimmed to 15 = ~165 ms of buffer,
+    # plenty for jitter without dragging the filter step.
+    imu0_queue_size: 15
     imu0_differential: false
     imu0_relative: false
     imu0_remove_gravitational_acceleration: true
     imu0_nodelay: false
 
-    # ─ Kinematic-ICP twist (DISABLED) ─
-    # Activating odom1 fusion in ekf_odom collapsed the publish rate
-    # from 50 Hz to ~14 Hz (CPU saturation: each K-ICP sample arrival
-    # triggered a full filter step including reseeding queues from all
-    # five sensors). Reverted until we either bump CPU headroom on this
-    # platform or process K-ICP samples at a slower rate.
-    # odom1: /encoder2/odom
-    # odom1_config: [false, false, false,
-    #                false, false, false,
-    #                true,  true,  false,
-    #                false, false, true,
-    #                false, false, false]
-    # odom1_queue_size: 10
-    # odom1_differential: false
+    # ─ Kinematic-ICP twist ─
+    # 2026-04-26 RE-ENABLED. Previous CPU saturation was at 50 Hz EKF +
+    # velocity_smoother in the pipeline. We're now at 20 Hz EKF and the
+    # smoother is gone, so the per-sample filter step has plenty of
+    # headroom. K-ICP body-frame twist (vx, vy=0, wz) gives us a second
+    # velocity source that closes the lateral-drift hole on featureless
+    # grass and cuts wheel-slip impact during sharp yaw corrections.
+    odom1: /encoder2/odom
+    odom1_config: [false, false, false,
+                   false, false, false,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom1_queue_size: 10
+    odom1_differential: false
+    odom1_relative: false
 
     # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
     # Starting with defaults; tune after we have a session to compare.
@@ -122,31 +130,11 @@ ekf_odom_node:
        0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.01, 0.0,
        0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.015]
 
-# -----------------------------------------------------------------
-# 2. NAVSAT TRANSFORM — NavSatFix → /odometry/gps in map frame
-# -----------------------------------------------------------------
-# Takes /gps/fix + /odometry/filtered (from ekf_odom) + /imu/data and
-# produces /odometry/gps (an Odometry message in map frame at the GPS
-# arrival rate). This is what ekf_map fuses.
-#
-# Datum mode: we use a FIXED datum (lat/lon from mowgli_robot.yaml) so
-# the map frame has the same origin across restarts — saved area polygons
-# and dock pose stay valid. Overridden at launch from mowgli_robot.yaml.
-navsat_transform_node:
-  ros__parameters:
-    frequency: 10.0                     # matches GPS rate (5 Hz × 2 headroom)
-    delay: 0.0
-    magnetic_declination_radians: 0.0   # no magnetometer; irrelevant
-    yaw_offset: 0.0                     # IMU coordinate frame convention
-    zero_altitude: false                # keep absolute altitude
-    publish_filtered_gps: true
-    broadcast_utm_transform: false      # no UTM frame needed
-    broadcast_utm_transform_as_parent_frame: false
-    use_odometry_yaw: true              # use /odometry/filtered yaw as
-                                         # heading anchor (since our IMU
-                                         # has no magnetometer)
-    wait_for_datum: false               # use fixed datum from params
-    # datum: [lat_deg, lon_deg, yaw_rad] — overridden at launch
+# navsat_transform_node was removed 2026-04-26 — its only output
+# (/odometry/gps) was never fused. The custom navsat_to_absolute_pose_node
+# in mowgli_localization handles NavSatFix → ENU + datum + lever-arm
+# correction (with map yaw) and publishes /gps/pose_cov directly to
+# ekf_map's pose0 input.
 
 # -----------------------------------------------------------------
 # 3. GLOBAL EKF — with GPS, produces map → odom correction
@@ -207,7 +195,10 @@ ekf_map_node:
                   false, false, false,
                   false, false, true,
                   false, false, false]
-    imu0_queue_size: 50
+    # IMU at 91 Hz × queue 50 = 0.55 s buffered, way more than the EKF
+    # ever uses on a single tick. Trimmed to 15 = ~165 ms of buffer,
+    # plenty for jitter without dragging the filter step.
+    imu0_queue_size: 15
     imu0_remove_gravitational_acceleration: true
 
     # ─ IMU 1 — GPS course-over-ground derived absolute yaw ─

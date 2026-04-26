@@ -268,16 +268,24 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     }
   }
 
-  // Look up the current odom→base_footprint TF to get yaw at this fix.
-  // We use the ODOM frame yaw (ekf_odom: wheels + IMU gyro) rather than the
-  // MAP frame yaw (ekf_map), even though we are publishing a map-frame
-  // position. Reason: ekf_map consumes this very pose_cov topic, so using
-  // its yaw would create a feedback loop — during pure rotation the lever
-  // arm correction would oscillate with the filter's own yaw noise and
-  // amplify it (observed as +74% range on diag-2-rotate-lever run).
-  // The odom-frame yaw is driven by wheels+gyro only; map→odom yaw drift
-  // in 2D mode is slow and small, so the residual error in the lever arm
-  // rotation is negligible compared to the GPS sigma.
+  // Look up the current map→base_footprint TF for the world-frame yaw.
+  //
+  // 2026-04-26: previously used odom→base_footprint yaw, on the theory
+  // that the map→odom rotation drift would be small. In practice the map
+  // frame yaw at startup is anchored by whatever the EKF settled on
+  // (often arbitrary when /imu/cog_heading isn't publishing because the
+  // robot is stationary), and we measured map→odom = -132° on a
+  // representative run. Compensating with the wrong yaw makes /gps/pose_cov
+  // sweep a *bigger* arc than the raw antenna (46 cm vs 30 cm during a
+  // pure 360° spin), which is then amplified by ekf_map into ~1 m of
+  // phantom translation.
+  //
+  // The original feedback-loop concern (using ekf_map yaw to correct the
+  // pose that ekf_map fuses) doesn't materialise on robot_localization:
+  // yaw_map evolves at ~10 Hz with bounded covariance, the lever-arm
+  // correction is a small fixed multiplier (≤ 30 cm × Δyaw_rad), and
+  // GPS σ at RTK Fixed (~5 mm) is orders of magnitude smaller than any
+  // residual. The feedback gain is effectively zero in 2D mode.
   // If the TF is not yet available, fall back to publishing the raw
   // antenna position — matches legacy /gps/absolute_pose behavior.
   double base_x = east;
@@ -288,7 +296,7 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     try
     {
       auto tf = tf_buffer_->lookupTransform(
-          "odom", "base_footprint", tf2::TimePointZero);
+          "map", "base_footprint", tf2::TimePointZero);
       tf2::Quaternion q(
           tf.transform.rotation.x,
           tf.transform.rotation.y,

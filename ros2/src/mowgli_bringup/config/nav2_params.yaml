@@ -333,42 +333,10 @@ waypoint_follower:
       enabled: true
       waypoint_pause_duration: 200
 
-# ---------------------------------------------------------------------------
-# Velocity smoother
-# ---------------------------------------------------------------------------
-velocity_smoother:
-  ros__parameters:
-    use_sim_time: false
-    enable_stamped_cmd_vel: true
-    smoothing_frequency: 20.0
-    scale_velocities: false
-    feedback: "OPEN_LOOP"
-    # Pipeline topics are wired via launch-file remappings, not yaml
-    # (nav2_velocity_smoother doesn't expose input_topic/output_topic as
-    # parameters — only 'cmd_vel' and 'smoothed_cmd_vel' remap targets).
-    # See nav2_navigation_launch.py for the actual wiring.
-    # 2026-04-25: forward cap dropped 0.25 → 0.20 to match FTCController carrot
-    # speed_fast (0.20 m/s). Operator feedback: the previous 0.25 burst during
-    # PID corrections felt too fast on grass. With cap = carrot, corrections
-    # saturate at carrot speed — no over-shoot above the planned reference.
-    max_velocity: [0.20, 0.0, 0.8]
-    min_velocity: [-0.20, 0.0, -1.0]
-    # Higher acceleration to overcome grass resistance and static friction.
-    # The robot needs a burst of power to start moving on thick terrain.
-    # Angular accel 4.0 rad/s² — the smoother was a hidden ceiling that made
-    # short turns crawl even after bumping controller-side max_angular_accel.
-    # 2026-04-26: angular accel/decel halved (4.0 → 2.0) to smooth the yaw
-    # transitions. With max_cmd_vel_ang=0.8, ramping to full speed in 0.4 s
-    # is plenty responsive without producing the pop-snap zigzags that
-    # made the trajectory feel chaotic.
-    max_accel: [0.8, 0.0, 2.0]
-    max_decel: [-0.5, 0.0, -2.0]
-    odom_topic: /wheel_odom
-    odom_duration: 0.1
-    # Match motor deadband (PWM ~40 of 300 → 0.13 m/s). Commanded vel below
-    # this is zeroed so the motors never sit in the buzz zone.
-    deadband_velocity: [0.13, 0.0, 0.0]
-    velocity_timeout: 1.0
+# velocity_smoother removed 2026-04-26 — caps live in the controllers
+# (FTC max_cmd_vel_speed/ang, RPP desired_linear_vel) and the firmware
+# deadband; an extra ramp layer here only added latency and confused
+# tuning. cmd_vel pipeline now skips this hop.
 
 # ---------------------------------------------------------------------------
 # Global costmap
@@ -636,7 +604,9 @@ collision_monitor:
     base_frame_id: base_footprint
     odom_frame_id: odom
     cmd_vel_in_topic: cmd_vel_nav
-    cmd_vel_out_topic: cmd_vel_safe
+    # 2026-04-26: bypass velocity_smoother (now removed). Output goes
+    # straight to twist_mux on cmd_vel_monitored.
+    cmd_vel_out_topic: cmd_vel_monitored
     state_topic: collision_monitor_state
     transform_tolerance: 0.2
     # Source timeout: how long before stale sensor data triggers a stop.

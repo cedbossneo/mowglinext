@@ -124,17 +124,13 @@ def generate_launch_description() -> LaunchDescription:
             f"[{fp_r:.3f}, {fp_hw:.3f}]]"
         )
 
-    # Read dock pose, WGS84 datum, and Nav2 speed knobs from the runtime
-    # config. Dock pose feeds docking_server's home_dock.pose below. The
-    # datum is fed directly to navsat_transform_node as its WGS84 origin
-    # so the ENU projection is deterministic across restarts (without it,
-    # the first post-boot GPS fix would define the origin and every saved
-    # area polygon would drift).
+    # Read dock pose and Nav2 speed knobs from the runtime config. Dock
+    # pose feeds docking_server's home_dock.pose below. The WGS84 datum
+    # is read by full_system.launch.py and passed to navsat_to_absolute_pose_node
+    # directly — not needed here.
     dock_pose_x = 0.0
     dock_pose_y = 0.0
     dock_pose_yaw = 0.0
-    datum_lat_deg = 0.0
-    datum_lon_deg = 0.0
     # Speeds are operator-facing knobs in mowgli_robot.yaml. Nothing read
     # them before — they were orphan params — so editing them looked like
     # it should do something but didn't. Load here and inject into the
@@ -155,8 +151,6 @@ def generate_launch_description() -> LaunchDescription:
         dock_pose_x = float(rt_rp.get("dock_pose_x", 0.0))
         dock_pose_y = float(rt_rp.get("dock_pose_y", 0.0))
         dock_pose_yaw = float(rt_rp.get("dock_pose_yaw", 0.0))
-        datum_lat_deg = float(rt_rp.get("datum_lat", 0.0))
-        datum_lon_deg = float(rt_rp.get("datum_lon", 0.0))
         transit_speed = float(rt_rp.get("transit_speed", transit_speed))
         mowing_speed = float(rt_rp.get("mowing_speed", mowing_speed))
 
@@ -206,14 +200,6 @@ def generate_launch_description() -> LaunchDescription:
                  .setdefault("ros__parameters", {})
                  .setdefault("FollowPath", {}))
         fp["desired_linear_vel"] = transit_speed
-        # RPP has no max_speed_xy knob itself, but velocity_smoother
-        # clamps downstream — set it here so both match the robot-yaml
-        # value.
-        vs = (doc.setdefault("velocity_smoother", {})
-                 .setdefault("ros__parameters", {}))
-        max_vels = vs.get("max_velocity", [0.5, 0.0, 2.0])
-        max_vels[0] = max(transit_speed, mowing_speed)
-        vs["max_velocity"] = max_vels
 
         # FollowCoveragePath (FTC: coverage strip controller). Its speed
         # knob is desired_linear_vel; mowing_speed overrides it.
@@ -369,24 +355,11 @@ def generate_launch_description() -> LaunchDescription:
     # motion, and to dock_pose_yaw at dock reset. Datum lat/lon must
     # match what was used to save areas / dock pose, otherwise saved
     # coordinates shift.
-    navsat_transform_node = Node(
-        package="robot_localization",
-        executable="navsat_transform_node",
-        name="navsat_transform_node",
-        output="screen",
-        parameters=[
-            robot_localization_params,
-            {"use_sim_time": use_sim_time},
-            {"datum": [datum_lat_deg, datum_lon_deg, 0.0]},
-        ],
-        remappings=[
-            ("imu/data", "/imu/data"),
-            ("gps/fix", "/gps/fix"),
-            ("odometry/filtered", "/odometry/filtered"),
-            ("odometry/gps", "/odometry/gps"),
-            ("gps/filtered", "/gps/filtered"),
-        ],
-    )
+    # navsat_transform_node removed 2026-04-26 — its only output (/odometry/gps)
+    # had no subscribers in the active fusion path. /gps/pose_cov from the
+    # custom navsat_to_absolute_pose_node (which applies the lever-arm
+    # correction with map yaw) is what ekf_map actually fuses.
+    # /gps/filtered (foxglove visualisation) is replaced by /gps/absolute_pose.
 
     ekf_map_node = Node(
         package="robot_localization",
@@ -459,7 +432,6 @@ def generate_launch_description() -> LaunchDescription:
             # robot_localization dual EKF + helpers
             static_gps_link_alias,
             ekf_odom_node,
-            navsat_transform_node,
             ekf_map_node,
             dock_yaw_to_set_pose,
             cog_to_imu,

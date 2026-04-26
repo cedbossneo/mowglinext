@@ -30,7 +30,6 @@
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_waypoint_follower</exec_depend>
-  <exec_depend>nav2_velocity_smoother</exec_depend>
 
   <!-- Localization -->
   <exec_depend>robot_localization</exec_depend>

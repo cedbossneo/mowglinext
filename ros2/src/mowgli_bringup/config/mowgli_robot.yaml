@@ -30,7 +30,12 @@ mowgli:
     wheel_x_offset: 0.0       # drive wheels at base_link (wheel axis centre)
     chassis_center_x: 0.20    # chassis geometric centre forward of wheel axis (m)
                                # rear bumper at -0.10, front bumper at +0.50
-    ticks_per_revolution: 1050 # encoder ticks per full wheel revolution
+    # Informational only — no active code consumes this. Firmware uses
+    # TICKS_PER_M=300 directly (board.h). With wheel_radius=0.04475
+    # (circumference 0.281 m), that's ~84 ticks per revolution. The
+    # historical 1050 was a 12× off mismatch but harmless because
+    # nothing read it.
+    ticks_per_revolution: 84
 
     # Front casters
     caster_radius: 0.03

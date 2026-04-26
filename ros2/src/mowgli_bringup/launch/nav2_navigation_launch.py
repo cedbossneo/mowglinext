@@ -48,10 +48,9 @@ def generate_launch_description():
 
     lifecycle_nodes = [
         'controller_server',
-        'smoother_server',
+        'smoother_server',     # Nav2 path smoother (planning), not velocity!
         'planner_server',
         'behavior_server',
-        'velocity_smoother',
         'collision_monitor',
         'bt_navigator',
         'waypoint_follower',
@@ -190,27 +189,17 @@ def generate_launch_description():
                 arguments=['--ros-args', '--log-level', log_level],
                 remappings=remappings,
             ),
-            Node(
-                package='nav2_velocity_smoother',
-                executable='velocity_smoother',
-                name='velocity_smoother',
-                output='screen',
-                respawn=use_respawn,
-                respawn_delay=2.0,
-                parameters=[configured_params],
-                arguments=['--ros-args', '--log-level', log_level],
-                # Smoother is positioned AFTER collision_monitor in the pipeline
-                # so the 30%↔100% step applied by collision_monitor's slowdown
-                # polygon gets ramped on the motor side (instead of being
-                # smoothed upstream and then step-changed downstream, which
-                # produced visible cmd_vel oscillation).
-                # Pipeline: controller_server → cmd_vel_nav → collision_monitor
-                #         → cmd_vel_safe → velocity_smoother → cmd_vel_monitored
-                #         → twist_mux → cmd_vel → hardware
-                remappings=remappings
-                + [('cmd_vel', 'cmd_vel_safe'),
-                   ('cmd_vel_smoothed', 'cmd_vel_monitored')],
-            ),
+            # 2026-04-26: velocity_smoother removed. The job it was doing
+            # (velocity caps + accel limits + deadband) is duplicated by
+            # the controller plugins themselves (FTCController has its own
+            # accel/cap params, RPP has desired_linear_vel) and by the
+            # firmware deadband. Having the smoother in the pipeline added
+            # a hidden layer that mismatched the controller intent and
+            # confused tuning. Pipeline now:
+            #   controller_server → cmd_vel_nav → collision_monitor
+            #     → cmd_vel_monitored → twist_mux → cmd_vel → hardware
+            # collision_monitor's cmd_vel_out_topic was changed from
+            # cmd_vel_safe to cmd_vel_monitored to skip the smoother hop.
             Node(
                 package='nav2_collision_monitor',
                 executable='collision_monitor',
@@ -295,14 +284,8 @@ def generate_launch_description():
                         parameters=[configured_params],
                         remappings=remappings,
                     ),
-                    ComposableNode(
-                        package='nav2_velocity_smoother',
-                        plugin='nav2_velocity_smoother::VelocitySmoother',
-                        name='velocity_smoother',
-                        parameters=[configured_params],
-                        remappings=remappings
-                        + [('cmd_vel', 'cmd_vel_nav')],
-                    ),
+                    # velocity_smoother removed (2026-04-26). See standalone
+                    # node above for full rationale.
                     ComposableNode(
                         package='nav2_collision_monitor',
                         plugin='nav2_collision_monitor::CollisionMonitor',

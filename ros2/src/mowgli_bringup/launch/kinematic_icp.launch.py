@@ -91,10 +91,16 @@ def generate_launch_description() -> LaunchDescription:
                 "input_topic": "/wheel_odom",
                 "parent_frame": "wheel_odom_raw",
                 "child_frame": "base_footprint_wheels",
-                # 15 Hz: K-ICP consumes scans at 10 Hz; 1.5× headroom is
-                # plenty. Lower rate also matches the 0.3 m/s robot speed —
-                # at 15 Hz the robot moves 2 cm per TF tick.
-                "rebroadcast_hz": 15.0,
+                # 30 Hz: scans arrive at 10 Hz with end-of-acquisition
+                # timestamps that are slightly *later* than the latest
+                # TF rebroadcast tick. At 15 Hz the K-ICP TF lookup
+                # was racing scan timestamps and failing with
+                # "extrapolation into the future" on every scan,
+                # which kept K-ICP silent (no /kinematic_icp/lidar_odometry
+                # output). 30 Hz puts the TF tick at ~33 ms, comfortably
+                # ahead of any scan arrival, and the wheel-tf integration
+                # is cheap (single transform).
+                "rebroadcast_hz": 30.0,
             }
         ],
     )
