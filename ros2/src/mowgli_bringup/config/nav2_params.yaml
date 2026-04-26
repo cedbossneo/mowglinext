@@ -217,18 +217,27 @@ controller_server:
       # ceiling before steering, which looked like "erratic" to the
       # operator. Smoother still enforces the hard global cap
       # (0.25 m/s, 0.8 rad/s) so nothing reaches the motors uncapped.
-      max_cmd_vel_speed: 0.35
-      max_cmd_vel_ang: 1.5
+      max_cmd_vel_speed: 0.30
+      # 2026-04-26: dropped from 1.5 → 0.8 to align with smoother cap. Trace
+      # showed the FTC PID requesting ±1.5 rad/s on 19% of mowing samples,
+      # which the smoother was clipping anyway — but the unclipped PID
+      # output drove a yaw-only mode where the controller chased its own
+      # tail with no forward progress. Capping at the smoother value lets
+      # the PID settle instead of saturating.
+      max_cmd_vel_ang: 0.8
       max_goal_distance_error: 0.10  # goal reached within 10cm
       max_goal_angle_error: 15.0     # goal angle tolerance (deg)
       goal_timeout: 10.0
       max_follow_distance: 2.0
-      # 2026-04-25: forced to true. F9P RTK Kalman lags ~1.5 s on direction
-      # reversals (verified ros2/scripts/gps_log.py), which fed garbage map→odom
-      # back to the controller and was the root cause of the boundary breach in
-      # the 2026-04-25 mow run. Reverse remains available for undock (Nav2
-      # BackUp) and recovery — those use their own cmd_vel paths via twist_mux.
-      forward_only: true
+      # 2026-04-26: reverted to false after a live test — forward_only=true
+      # broke the FTCController's lateral-error recovery: when the PID overshot
+      # the carrot, vx clamped to 0 instead of reversing to recenter, leaving
+      # only wz to chase a moving carrot → the robot drove in circles. The
+      # F9P RTK lag on direction reversals (1.5 s, ~0.30 m bias) is real but
+      # is not the right thing to fix at the controller layer. Smoothing the
+      # cmd_vel transitions via velocity_smoother accel/decel limits is the
+      # better mitigation; the EKF already handles bounded GPS lag.
+      forward_only: false
       # Obstacles: check the local_costmap obstacle_layer for the next
       # `obstacle_lookahead` path poses and abort the strip when one
       # of them falls on a LETHAL cell. Previously disabled, which let
@@ -348,8 +357,12 @@ velocity_smoother:
     # The robot needs a burst of power to start moving on thick terrain.
     # Angular accel 4.0 rad/s² — the smoother was a hidden ceiling that made
     # short turns crawl even after bumping controller-side max_angular_accel.
-    max_accel: [0.8, 0.0, 4.0]
-    max_decel: [-0.5, 0.0, -4.0]
+    # 2026-04-26: angular accel/decel halved (4.0 → 2.0) to smooth the yaw
+    # transitions. With max_cmd_vel_ang=0.8, ramping to full speed in 0.4 s
+    # is plenty responsive without producing the pop-snap zigzags that
+    # made the trajectory feel chaotic.
+    max_accel: [0.8, 0.0, 2.0]
+    max_decel: [-0.5, 0.0, -2.0]
     odom_topic: /wheel_odom
     odom_duration: 0.1
     # Match motor deadband (PWM ~40 of 300 → 0.13 m/s). Commanded vel below

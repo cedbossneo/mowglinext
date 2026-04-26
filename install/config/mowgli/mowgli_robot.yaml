@@ -27,10 +27,10 @@ mowgli:
         dock_max_retries: 3
         dock_pose_x: 0
         dock_pose_y: 0
-        dock_pose_yaw: 3.8307
+        dock_pose_yaw: 4.163
         dock_use_charger_detection: true
-        emergency_stop_on_lift: true
-        emergency_stop_on_tilt: true
+        emergency_stop_on_lift: false
+        emergency_stop_on_tilt: false
         gps_antenna_x: 0.3
         gps_antenna_y: 0
         gps_baudrate: 460800
@@ -65,7 +65,7 @@ mowgli:
         mow_angle_offset_deg: -1
         mower_model: YardForce500
         mowing_enabled: true
-        mowing_speed: 0.3
+        mowing_speed: 0.20
         ntrip_enabled: true
         ntrip_host: crtk.net
         ntrip_mountpoint: OUIL
@@ -83,7 +83,7 @@ mowgli:
         slam_mode: lifelong
         ticks_per_revolution: 1050
         tool_width: 0.18
-        transit_speed: 0.4
+        transit_speed: 0.25
         undock_distance: 1.5
         undock_speed: 0.15
         use_lidar: true
