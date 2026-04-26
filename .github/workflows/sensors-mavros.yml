@@ -2,7 +2,7 @@ name: Sensors — MAVROS
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, 'feat/**']
     paths:
       - 'sensors/mavros/**'
       - '.github/workflows/sensors-mavros.yml'
