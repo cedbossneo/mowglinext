@@ -180,21 +180,20 @@ class MagYawPublisher(Node):
         by = (by_uT - self._cal["offset_y_uT"]) * self._cal["scale_y"]
         bz = (bz_uT - self._cal["offset_z_uT"]) * self._cal["scale_z"]
 
-        # 2) tilt from the accelerometer currently at rest-ish. If the
-        # robot is accelerating hard this biases roll/pitch, but during
-        # normal mowing cruise this is well below the noise of the mag
-        # itself.
-        ax = self._latest_imu.linear_acceleration.x
-        ay = self._latest_imu.linear_acceleration.y
-        az = self._latest_imu.linear_acceleration.z
-        if abs(az) < 1e-6 and abs(ax) < 1e-6 and abs(ay) < 1e-6:
+        ax_imu = self._latest_imu.linear_acceleration.x
+        ay_imu = self._latest_imu.linear_acceleration.y
+        az_imu = self._latest_imu.linear_acceleration.z
+        if (abs(az_imu) < 1e-6 and abs(ax_imu) < 1e-6
+                and abs(ay_imu) < 1e-6):
             self._rejected_no_imu += 1
             return
-        roll = math.atan2(ay, az)
-        pitch = math.atan2(-ax, math.sqrt(ay * ay + az * az))
 
-        # 3) Rotate the calibrated mag vector from imu_link to base_footprint
-        # so the yaw we extract is in the robot's frame, not the sensor's.
+        # Rotate both the mag vector AND the accel vector from imu_link to
+        # base_footprint, so roll/pitch are derived in the same frame as
+        # the mag projection. If imu_pitch/imu_roll in mowgli_robot.yaml are
+        # non-zero, computing roll/pitch from raw imu_link accel would bake
+        # the static mounting tilt into the tilt-compensation formula and
+        # leak yaw error.
         try:
             tf = self._tf_buffer.lookup_transform(
                 "base_footprint", "imu_link",
@@ -207,15 +206,12 @@ class MagYawPublisher(Node):
         bx_b, by_b, bz_b = self._rotate_vector_by_quaternion(
             bx, by, bz, tf.transform.rotation
         )
-
-        # Also rotate accel's implied roll/pitch into base — for a
-        # robot that is level (our 2D case) this is identity but done
-        # properly for tilt robustness.
-        # We ignore this second rotation in the horizontal-projection
-        # formula below — the body frame is assumed to be base_footprint
-        # after the mag rotation, and roll/pitch are measured about
-        # base_footprint's X/Y already if the IMU is mounted level.
-        _ = (roll, pitch)
+        ax_b, ay_b, az_b = self._rotate_vector_by_quaternion(
+            ax_imu, ay_imu, az_imu, tf.transform.rotation
+        )
+        roll = math.atan2(ay_b, az_b)
+        pitch = math.atan2(-ax_b,
+                           math.sqrt(ay_b * ay_b + az_b * az_b))
 
         # 4) Tilt-compensated horizontal components — from Pololu's
         # MinIMU-9 AHRS reference (Compass.ino) which uses exactly the
