@@ -150,26 +150,41 @@ controller_server:
       speed_fast: 0.5              # carrot speed when far from path (m/s)
       speed_fast_threshold: 0.5    # distance threshold for fast/slow (m)
       speed_fast_threshold_angle: 10.0  # angle threshold for fast (deg)
-      speed_slow: 0.3             # carrot speed when close/turning (m/s)
-      speed_angular: 60.0          # rotation speed for in-place turns (deg/s)
-      acceleration: 1.0            # carrot acceleration (m/s²) — higher to overcome grass
-      # PID longitudinal
-      kp_lon: 2.0
+      speed_slow: 0.12             # carrot speed when close/turning (m/s)
+      speed_angular: 45.0          # rotation speed for in-place turns (deg/s)
+                                   # Matches OpenMower ftc_local_planner.yaml
+                                   # (45°/s). Previously 60°/s — 33% higher
+                                   # than both OM (45) and mowgli (40), and
+                                   # clipping against max_cmd_vel_ang=1.0 rad/s
+                                   # (60°/s = 1.05 rad/s > cap) → saturation
+                                   # that showed up as erratic tracking.
+      # Carrot acceleration. Was 1.0 m/s² ("higher to overcome grass") which
+      # is 10× the legacy mowgli FTCPlanner (0.1 m/s²) and reaches the 0.20
+      # speed_fast target in 0.2 s instead of 2 s — the operator-visible
+      # "robot lurches forward too fast" symptom. 0.2 m/s² gives a smooth
+      # 1 s ramp without losing grass authority once moving.
+      acceleration: 0.2
+      # PID longitudinal — kp halved to 1.0 (legacy mowgli value). The
+      # previous 2.0 paired with the 1.0 m/s² acceleration produced a
+      # controller that fired hard corrections at every tick.
+      kp_lon: 1.0
       ki_lon: 0.0
       kd_lon: 0.0
-      # PID lateral — kp=2.0 (original). A bump to 3.0 was attempted on
-      # 2026-04-24 post firmware-deadband-fix; in combination with the more
-      # aggressive kp_ang/kd_ang it caused visible oscillation during a
-      # live mow, so reverted to 2.0 (confirmed stable live before stop).
+      # PID lateral — kp=2.0 matches both legacy mowgli and OM. Re-enable
+      # a moderate kd_lat (1.0, vs legacy 5.0) to damp lateral oscillation
+      # caused by GPS-noise-induced position jitter feeding the lateral
+      # error PID. 5.0 (legacy) was too high for our RTK-σ ~3 mm noise
+      # floor and amplified jitter; 1.0 bleeds off overshoot without
+      # turning the derivative into a noise pump.
       kp_lat: 2.0
       ki_lat: 0.0
-      kd_lat: 0.0
-      # PID angular — kp=2.5, kd=0.0 (mild bump from original 2.0). The
-      # 4.0 + kd=0.5 combo tried on 2026-04-24 caused the controller to
-      # amplify GPS-noise-induced yaw measurement jitter, producing
-      # physical vibration during live mow. 2.5 sans kd keeps snappy
-      # tracking without the derivative kick.
-      kp_ang: 2.5
+      kd_lat: 1.0
+      # PID angular — kp=1.5 (between legacy 1.0 and previous 2.5). The 2.5
+      # value combined with kp_lon=2.0 / accel=1.0 was tuned for a stack
+      # that was visually "too fast"; with the slower carrot ramp it can
+      # come back down. kd kept at 0 — derivative on yaw amplified GPS
+      # measurement noise on 2026-04-24.
+      kp_ang: 1.5
       ki_ang: 0.0
       kd_ang: 0.0
       # Limits — cap angular command at 1.0 rad/s (was 3.0). The UKF
