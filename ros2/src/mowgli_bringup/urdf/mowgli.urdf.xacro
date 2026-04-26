@@ -10,8 +10,8 @@
     z  up
 
   Key dimensions (from real YardForce Classic 500 URDF):
-    Base:          0.60 m long, 0.40 m wide, 0.19 m high
-    Drive wheels:  radius 0.04475 m, width 0.04 m, track 0.40 m (rear)
+    Base:          0.54 m long, 0.40 m wide, 0.19 m high
+    Drive wheels:  radius 0.04475 m, width 0.04 m, track 0.325 m (rear)
     Front casters: radius 0.03 m, width 0.03 m
     Blade disc:    radius 0.09 m, height 0.01 m (centred under base)
     Wheel ground clearance sets base_link at z = drive_wheel_radius = 0.04475 m
@@ -22,10 +22,13 @@
   <!-- ================================================================
        Configurable arguments (can be overridden via xacro command-line)
        ================================================================ -->
-  <xacro:arg name="lidar_x"   default="0.38"/>
-  <xacro:arg name="lidar_y"   default="0.0"/>
+  <!-- LiDAR mount defaults match mowgli_robot.yaml as of 2026-04-26
+       (lidar at base centre, ~π rotated mount). Launch overrides these
+       at runtime from the operator's calibrated yaml. -->
+  <xacro:arg name="lidar_x"   default="0.0"/>
+  <xacro:arg name="lidar_y"   default="0.024"/>
   <xacro:arg name="lidar_z"   default="0.22"/>
-  <xacro:arg name="lidar_yaw" default="0.0"/>
+  <xacro:arg name="lidar_yaw" default="3.1408"/>
 
   <xacro:arg name="imu_x"     default="0.18"/>
   <xacro:arg name="imu_y"     default="0.0"/>

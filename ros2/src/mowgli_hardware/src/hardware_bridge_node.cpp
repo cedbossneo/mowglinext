@@ -178,6 +178,17 @@ private:
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
 
+    // Wheel kinematics — single source of truth lives in mowgli_robot.yaml.
+    // Previously hardcoded as kWheelBase=0.325 / kTicksPerMetre=300.0; that
+    // duplicated the URDF args and the firmware TICKS_PER_M, so any
+    // re-calibration touched three places. wheel_track is the centre-to-
+    // centre drive-wheel distance; ticks_per_metre is what the STM32
+    // firmware advertises in board.h and uses when reporting cumulative
+    // tick deltas in the odom packet (so the conversion m = ticks /
+    // ticks_per_metre matches the firmware-side scaling).
+    wheel_track_ = declare_parameter<double>("wheel_track", 0.325);
+    ticks_per_metre_ = declare_parameter<double>("ticks_per_metre", 300.0);
+
     // Override the config-file dock pose with the runtime calibration
     // persisted by calibrate_imu_yaw_node's dock pre-phase. The file wins
     // over the parameter so that a redeploy after the calibration does
@@ -1211,13 +1222,11 @@ private:
                   pkt.left_ticks, pkt.right_ticks);
     }
 
-    constexpr double kWheelBase = 0.325;
-    constexpr double kTicksPerMetre = 300.0;
     const double dt_sec = static_cast<double>(acc_dt_ms) / 1000.0;
-    const double d_left_m  = static_cast<double>(acc_d_left)  / kTicksPerMetre;
-    const double d_right_m = static_cast<double>(acc_d_right) / kTicksPerMetre;
+    const double d_left_m  = static_cast<double>(acc_d_left)  / ticks_per_metre_;
+    const double d_right_m = static_cast<double>(acc_d_right) / ticks_per_metre_;
     double vx   = (d_left_m + d_right_m) * 0.5 / dt_sec;
-    double vyaw = (d_right_m - d_left_m) / kWheelBase / dt_sec;
+    double vyaw = (d_right_m - d_left_m) / wheel_track_ / dt_sec;
 
     auto msg = nav_msgs::msg::Odometry{};
     msg.header.stamp = stamp;
@@ -1458,6 +1467,8 @@ private:
   double dock_x_{0.0};
   double dock_y_{0.0};
   double dock_yaw_{0.0};
+  double wheel_track_{0.325};
+  double ticks_per_metre_{300.0};
   bool mow_enabled_{false};
   bool is_charging_{false};
   uint8_t current_mode_{0};

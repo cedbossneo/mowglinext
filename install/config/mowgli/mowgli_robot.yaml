@@ -80,14 +80,13 @@ mowgli:
         rain_debounce_sec: 10
         rain_delay_minutes: 30
         rain_mode: 2
-        # slam_mode: lifelong  # DEPRECATED — SLAM has been removed from the stack
-        # Informational only — no active code path consumes this. The
-        # firmware uses TICKS_PER_M=300 directly (board.h) and
-        # hardware_bridge_node converts ticks→metres via the same 300
-        # constant. With wheel_radius=0.04475 (circumference 0.281 m),
-        # 300 ticks/m implies ~84 ticks per revolution; the legacy
-        # 1050 here was a 12× off mismatch but harmless because nothing
-        # reads it.
+        # ticks_per_metre is read by hardware_bridge_node to convert raw
+        # encoder tick deltas (from the STM32 firmware odom packet) into
+        # metres. MUST match the firmware constant TICKS_PER_M in
+        # firmware/stm32/ros_usbnode/include/board.h.
+        ticks_per_metre: 300.0
+        # Informational cross-check: with wheel_radius=0.04475
+        # (circumference 0.281 m), 300 ticks/m ≈ 84 ticks per revolution.
         ticks_per_revolution: 84
         tool_width: 0.18
         transit_speed: 0.25
