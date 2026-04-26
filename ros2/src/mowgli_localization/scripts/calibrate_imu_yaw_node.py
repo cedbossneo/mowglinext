@@ -233,21 +233,18 @@ class ImuYawCalibrator(Node):
         self._emergency_active = False
         self._bt_state: int = HL_STATE_NULL
 
-        self._imu_sub = self.create_subscription(
-            Imu, "/imu/data", self._imu_cb, imu_qos, callback_group=self._cb_group
-        )
-        self._mag_sub = self.create_subscription(
-            MagneticField, "/imu/mag_raw", self._mag_cb, imu_qos,
-            callback_group=self._cb_group,
-        )
-        self._gps_sub = self.create_subscription(
-            AbsolutePose, "/gps/absolute_pose", self._gps_cb, imu_qos,
-            callback_group=self._cb_group,
-        )
-        self._odom_sub = self.create_subscription(
-            Odometry, "/wheel_odom", self._odom_cb, odom_qos,
-            callback_group=self._cb_group
-        )
+        # High-rate sensor subscriptions are created lazily — they only run
+        # while a calibration drive is in progress. Subscribing to /imu/data
+        # + /imu/mag_raw at 91 Hz × 2 just to bail out at the top of every
+        # callback when self._collecting is False burned ~45% of one core
+        # for nothing. Stash the QoS profiles so the calibrate_cb can
+        # subscribe on demand.
+        self._imu_qos = imu_qos
+        self._odom_qos = odom_qos
+        self._imu_sub = None
+        self._mag_sub = None
+        self._gps_sub = None
+        self._odom_sub = None
         self._status_sub = self.create_subscription(
             HwStatus, "/hardware_bridge/status", self._status_cb, state_qos,
             callback_group=self._cb_group,
@@ -680,6 +677,9 @@ class ImuYawCalibrator(Node):
                 return response
             need_exit_recording = True
 
+        # Spin up high-rate sensor subs only for the duration of the drive.
+        self._activate_sensor_subs()
+
         with self._lock:
             self._imu_samples.clear()
             self._odom_samples.clear()
@@ -701,6 +701,7 @@ class ImuYawCalibrator(Node):
                     "insufficient GPS displacement during the 2 m reverse. "
                     "Check the dock area visibility and retry."
                 )
+                self._deactivate_sensor_subs()
                 return response
 
         # --- Stationary baseline ---
@@ -756,6 +757,7 @@ class ImuYawCalibrator(Node):
                 self._call_hlc(HL_CMD_RECORD_CANCEL, "cancel after drive error")
             response.success = False
             response.message = f"Drive profile errored: {exc}"
+            self._deactivate_sensor_subs()
             return response
         finally:
             # Belt-and-braces stop: one last zero command after the profile.
@@ -879,7 +881,35 @@ class ImuYawCalibrator(Node):
         else:
             self.get_logger().warn(f"Calibration failed: {response.message}")
 
+        self._deactivate_sensor_subs()
         return response
+
+    def _activate_sensor_subs(self) -> None:
+        if self._imu_sub is not None:
+            return
+        self._imu_sub = self.create_subscription(
+            Imu, "/imu/data", self._imu_cb, self._imu_qos,
+            callback_group=self._cb_group,
+        )
+        self._mag_sub = self.create_subscription(
+            MagneticField, "/imu/mag_raw", self._mag_cb, self._imu_qos,
+            callback_group=self._cb_group,
+        )
+        self._gps_sub = self.create_subscription(
+            AbsolutePose, "/gps/absolute_pose", self._gps_cb, self._imu_qos,
+            callback_group=self._cb_group,
+        )
+        self._odom_sub = self.create_subscription(
+            Odometry, "/wheel_odom", self._odom_cb, self._odom_qos,
+            callback_group=self._cb_group,
+        )
+
+    def _deactivate_sensor_subs(self) -> None:
+        for attr in ("_imu_sub", "_mag_sub", "_gps_sub", "_odom_sub"):
+            sub = getattr(self, attr, None)
+            if sub is not None:
+                self.destroy_subscription(sub)
+                setattr(self, attr, None)
 
     # ------------------------------------------------------------------
     # Numerical core — pure function over collected samples

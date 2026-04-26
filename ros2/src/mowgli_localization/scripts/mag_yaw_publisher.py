@@ -77,20 +77,20 @@ class MagYawPublisher(Node):
 
         self._cal = self._load_calibration(self._cal_path)
 
-        qos_sensor = QoSProfile(
+        self._qos_sensor = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=10,
         )
         self._latest_imu: Imu | None = None
-        self.create_subscription(
-            Imu, "/imu/data", self._on_imu, qos_sensor
-        )
-        self.create_subscription(
-            MagneticField, "/imu/mag_raw", self._on_mag, qos_sensor
-        )
-        self._pub = self.create_publisher(Imu, "/imu/mag_yaw", qos_sensor)
+        # High-rate subs are created only when a calibration is loaded, so
+        # the node sits at ~0% CPU when no calibration exists. Without this,
+        # subscribing to /imu/data + /imu/mag_raw at 91 Hz × 2 just to
+        # bail out at the top of every callback burned ~35% of one core.
+        self._imu_sub = None
+        self._mag_sub = None
+        self._pub = self.create_publisher(Imu, "/imu/mag_yaw", self._qos_sensor)
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -102,14 +102,18 @@ class MagYawPublisher(Node):
         self._rejected_no_imu = 0
         self._rejected_no_tf = 0
         self.create_timer(30.0, self._log_stats)
+        # Watch the calibration file so we pick it up automatically once
+        # the user runs the magnetometer calibration via the GUI.
+        self._reload_timer = self.create_timer(30.0, self._reload_cal_if_needed)
 
         if self._cal is None:
             self.get_logger().warn(
-                "No mag calibration found at {} — mag_yaw_publisher will "
-                "stay silent until /calibrate_imu_yaw_node/calibrate runs.".format(
+                "No mag calibration found at {} — mag_yaw_publisher idle, "
+                "polling every 30 s for the calibration file.".format(
                     self._cal_path)
             )
         else:
+            self._activate_subs()
             self.get_logger().info(
                 "Mag calibration loaded: offset=({:+.2f}, {:+.2f}, {:+.2f}) µT, "
                 "scale=({:.3f}, {:.3f}, {:.3f}), |B|cal={:.2f} µT".format(
@@ -118,6 +122,27 @@ class MagYawPublisher(Node):
                     self._cal["scale_x"], self._cal["scale_y"], self._cal["scale_z"],
                     self._cal["magnitude_mean_uT"])
             )
+
+    def _activate_subs(self) -> None:
+        if self._imu_sub is not None:
+            return
+        self._imu_sub = self.create_subscription(
+            Imu, "/imu/data", self._on_imu, self._qos_sensor
+        )
+        self._mag_sub = self.create_subscription(
+            MagneticField, "/imu/mag_raw", self._on_mag, self._qos_sensor
+        )
+
+    def _reload_cal_if_needed(self) -> None:
+        if self._cal is not None:
+            return
+        cal = self._load_calibration(self._cal_path)
+        if cal is None:
+            return
+        self._cal = cal
+        self._activate_subs()
+        self.get_logger().info(
+            "Mag calibration appeared — subscriptions activated.")
 
     def _load_calibration(self, path: str) -> dict | None:
         if not os.path.exists(path):
