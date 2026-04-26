@@ -421,6 +421,28 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # Inverse-variance fusion of /wheel_odom and K-ICP /encoder2/odom into
+    # /wheel_odom_fused. ekf_odom_node subscribes to /wheel_odom_fused as
+    # its sole odom input — robot_localization's odom1 fusion path caps
+    # the EKF publisher at 5 Hz whenever any publisher is alive on it, so
+    # we fold K-ICP into the wheel input upstream and skip odom1 entirely.
+    # Falls back to wheel-only when K-ICP is silent (>250 ms stale), so
+    # this node is also safe with use_lidar:=false (just transparently
+    # republishes wheel as fused).
+    wheel_kicp_blend = Node(
+        package="mowgli_localization",
+        executable="wheel_kicp_blend.py",
+        name="wheel_kicp_blend",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "kicp_max_age_sec": 0.25,
+                "output_topic": "/wheel_odom_fused",
+            }
+        ],
+    )
+
     # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
@@ -436,6 +458,7 @@ def generate_launch_description() -> LaunchDescription:
             dock_yaw_to_set_pose,
             cog_to_imu,
             mag_yaw_publisher,
+            wheel_kicp_blend,
             # Kinematic-ICP (LiDAR drift correction feeding ekf_odom via
             # /encoder2/odom — retained under the robot_localization
             # backend to shore up dead-reckoning during GPS degradation).

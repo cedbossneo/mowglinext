@@ -161,7 +161,9 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 4. Encoder-twist adapter: K-ICP Odometry -> ekf_odom_node odom1.
+    # 4. Encoder-twist adapter: K-ICP Odometry -> /encoder2/odom (body-
+    #    frame twist input to the wheel/K-ICP blend node, not directly
+    #    to the EKF — see wheel_kicp_blend below).
     # ------------------------------------------------------------------
     kicp_encoder_adapter = Node(
         package="mowgli_localization",

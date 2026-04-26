@@ -66,10 +66,19 @@ ekf_odom_node:
     #   twist.linear.y   = 0.0     (cov=1e-4 → tight non-holo constraint)
     # The cov on linear.y is what gives us the non-holonomic lock without
     # needing a separate pseudo-measurement node.
-    odom0: /wheel_odom
+    # Pre-blended wheel + K-ICP body-frame twist. wheel_kicp_blend fuses
+    # /wheel_odom (15 Hz) with /encoder2/odom (10 Hz K-ICP) by inverse-
+    # variance weighting per axis and republishes at /wheel_odom_fused
+    # with a fresh stamp. Falls back to wheel-only when K-ICP goes silent.
+    # We do this upstream because robot_localization's odom1 fusion path
+    # itself caps the EKF publisher at 5 Hz when it has *any* publisher
+    # on it, regardless of source/cadence/stamps. Folding K-ICP into the
+    # wheel input keeps the K-ICP information in the state without using
+    # odom1 at all, and the EKF runs at its 25 Hz target.
+    odom0: /wheel_odom_fused
     odom0_config: [false, false, false,   # x, y, z         — no abs position
                    false, false, false,   # roll, pitch, yaw — no abs orientation
-                   true,  true,  false,   # vx, vy, vz      — fuse vx + vy=0
+                   true,  true,  false,   # vx, vy, vz      — fuse vx + vy
                    false, false, true,    # vroll, vpitch, vyaw — fuse wz
                    false, false, false]   # ax, ay, az      — not available
     odom0_queue_size: 3
@@ -99,22 +108,8 @@ ekf_odom_node:
     imu0_remove_gravitational_acceleration: true
     imu0_nodelay: false
 
-    # ─ Kinematic-ICP twist ─
-    # 2026-04-26 RE-ENABLED. Previous CPU saturation was at 50 Hz EKF +
-    # velocity_smoother in the pipeline. We're now at 20 Hz EKF and the
-    # smoother is gone, so the per-sample filter step has plenty of
-    # headroom. K-ICP body-frame twist (vx, vy=0, wz) gives us a second
-    # velocity source that closes the lateral-drift hole on featureless
-    # grass and cuts wheel-slip impact during sharp yaw corrections.
-    odom1: /encoder2/odom
-    odom1_config: [false, false, false,
-                   false, false, false,
-                   true,  true,  false,
-                   false, false, true,
-                   false, false, false]
-    odom1_queue_size: 3
-    odom1_differential: false
-    odom1_relative: false
+    # K-ICP fusion is now folded into odom0 upstream by wheel_kicp_blend,
+    # not given to the EKF as a separate odom1. See odom0 comment above.
 
     # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
     # Starting with defaults; tune after we have a session to compare.

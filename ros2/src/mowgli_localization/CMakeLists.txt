@@ -129,6 +129,7 @@ install(
     scripts/kinematic_icp_encoder_adapter.py
     scripts/kinematic_icp_scan_frame_relay.py
     scripts/mag_yaw_publisher.py
+    scripts/wheel_kicp_blend.py
     scripts/wheel_odom_tf_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
