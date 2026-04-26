@@ -608,7 +608,7 @@ collision_monitor:
     # straight to twist_mux on cmd_vel_monitored.
     cmd_vel_out_topic: cmd_vel_monitored
     state_topic: collision_monitor_state
-    transform_tolerance: 0.2
+    transform_tolerance: 0.5
     # Source timeout: how long before stale sensor data triggers a stop.
     # ARM boards can have TF/scan timing jitter — 5s avoids false stops
     # while still catching genuinely dead sensors.
