@@ -438,42 +438,10 @@ check_lidar() {
   fi
 }
 
-check_slam() {
-  step "Check: SLAM & Navigation"
-
-  if ! docker inspect -f '{{.State.Status}}' mowgli-ros2 2>/dev/null | grep -q running; then
-    warn "mowgli-ros2 not running — skipping SLAM check"
-    return
-  fi
-
-  local slam_state
-  slam_state="$(
-    docker exec mowgli-ros2 bash -lc \
-      "source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && ros2 topic info /slam_toolbox/pose 2>/dev/null" \
-      2>/dev/null || echo ""
-  )"
-
-  if echo "$slam_state" | grep -q "Publisher count: [1-9]"; then
-    info "SLAM toolbox active"
-  else
-    warn "SLAM toolbox not publishing poses"
-    add_issue "SLAM not active. It needs LiDAR data on /scan to start mapping."
-  fi
-
-  local map_exists
-  map_exists="$(
-    docker exec mowgli-ros2 bash -lc \
-      "ls /ros2_ws/maps/garden_map.posegraph 2>/dev/null && echo yes || echo no" \
-      2>/dev/null || echo "no"
-  )"
-
-  if [[ "$map_exists" == *"yes"* ]]; then
-    info "Saved map found (lifelong/localisation mode available)"
-  else
-    warn "No saved map — SLAM running in mapping mode"
-    echo -e "       ${DIM}Drive the mower around to create a map, then dock to save it${NC}"
-  fi
-}
+# check_slam() — REMOVED. SLAM (slam_toolbox, Cartographer, etc.) has been
+# removed from the MowgliNext stack. The map frame is provided by
+# navsat_transform + RTK GPS via robot_localization's dual EKF.
+# See CLAUDE.md "Architecture Invariants" for details.
 
 check_rangefinders() {
   step "Check: Rangefinders"
@@ -509,8 +477,8 @@ check_gui() {
   local ip
   ip="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")"
 
-  if curl -sf -o /dev/null --connect-timeout 3 "http://$ip:80" 2>/dev/null || \
-     curl -sf -o /dev/null --connect-timeout 3 "http://localhost:80" 2>/dev/null; then
+  if curl -sf -o /dev/null --connect-timeout 3 "http://$ip:4006" 2>/dev/null || \
+     curl -sf -o /dev/null --connect-timeout 3 "http://localhost:4006" 2>/dev/null; then
     info "GUI accessible at http://$ip"
   else
     warn "GUI might be starting up — try http://$ip in your browser"

@@ -262,33 +262,42 @@ void ADC_input(void)
 {
     float l_fTmp;
 
+    /* Snapshot volatile ADC values under interrupt lock to avoid torn reads */
+    __disable_irq();
+    uint16_t raw_battery       = adc_u16BatteryVoltage;
+    uint16_t raw_charger       = adc_u16ChargerVoltage;
+    uint16_t raw_current       = adc_u16Current;
+    uint16_t raw_chargerInput  = adc_u16ChargerInputVoltage;
+    uint16_t raw_ntc           = adc_u16Input_NTC;
+    __enable_irq();
+
     /* battery volatge calculation */
-    l_fTmp = ((float)adc_u16BatteryVoltage / 4095.0f) * 3.3f * 10.09 + 0.6f;
+    l_fTmp = ((float)raw_battery / 4095.0f) * 3.3f * 10.09 + 0.6f;
     battery_voltage = 0.2 * l_fTmp + 0.8 * battery_voltage;
 
      /*charger voltage calculation */
-    l_fTmp = ((float)adc_u16ChargerVoltage / 4095.0f) * 3.3f * 16;
+    l_fTmp = ((float)raw_charger / 4095.0f) * 3.3f * 16;
     charge_voltage = 0.8 * l_fTmp + 0.2 * charge_voltage;
 
     /*charge current calculation */
-    l_fTmp = (((float)adc_u16Current / 4095.0f) * 3.3f - 2.5f) * 100 / 12.0;
-    current_without_offset =   0.8 * l_fTmp + 0.2 * current_without_offset;          
+    l_fTmp = (((float)raw_current / 4095.0f) * 3.3f - 2.5f) * 100 / 12.0;
+    current_without_offset =   0.8 * l_fTmp + 0.2 * current_without_offset;
 
     /*remove offset*/
     current = current_without_offset - charge_current_offset.f;
 
     /*blade motor temperature calculation */
-    l_fTmp = (adc_u16Input_NTC/4095.0f)*3.3f;
+    l_fTmp = (raw_ntc/4095.0f)*3.3f;
     ntc_voltage = 0.5*l_fTmp + 0.5*ntc_voltage;
 
     /*calculation for NTC temperature*/
     l_fTmp = ntc_voltage * 10000;               //Resistance of RT
     l_fTmp = log(l_fTmp / f_RTO);
     l_fTmp = (1 / ((l_fTmp / beta) + (1 / (273.15+25)))); //Temperature from thermistor
-    blade_temperature = l_fTmp - 273.15;                 //Conversion to Celsius  
+    blade_temperature = l_fTmp - 273.15;                 //Conversion to Celsius
 
     /* Input voltage from the external supply*/
-    l_fTmp = (adc_u16ChargerInputVoltage / 4095.0f) * 3.3f * (32 / 2);
+    l_fTmp = (raw_chargerInput / 4095.0f) * 3.3f * (32 / 2);
     chargerInputVoltage = 0.5 * l_fTmp + 0.5 * chargerInputVoltage;
 
 }

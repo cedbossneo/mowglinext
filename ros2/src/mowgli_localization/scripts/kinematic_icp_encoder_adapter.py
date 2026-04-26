@@ -166,8 +166,9 @@ class KinematicIcpEncoderAdapter(Node):
             vy_body = float(in_tw.linear.y)
             wz = float(in_tw.angular.z)
         else:
-            c = math.cos(-self._prev_yaw)
-            s = math.sin(-self._prev_yaw)
+            mid_yaw = self._prev_yaw + dyaw / 2.0
+            c = math.cos(-mid_yaw)
+            s = math.sin(-mid_yaw)
             vx_body = (c * dx - s * dy) / dt
             vy_body = (s * dx + c * dy) / dt
             wz = dyaw / dt

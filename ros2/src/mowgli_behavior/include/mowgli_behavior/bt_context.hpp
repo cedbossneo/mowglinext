@@ -56,7 +56,7 @@ struct BTContext
   mowgli_interfaces::msg::Power latest_power;
 
   /// Timestamp of the last emergency message received.
-  std::chrono::steady_clock::time_point last_emergency_time{};
+  std::chrono::steady_clock::time_point last_emergency_time{std::chrono::steady_clock::now()};
 
   // -----------------------------------------------------------------------
   // Thread safety

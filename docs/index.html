@@ -143,7 +143,7 @@
       <div class="flow-step">
         <div class="flow-icon">📡</div>
         <h3>See</h3>
-        <p>LiDAR scans the surroundings 10x/second. RTK-GPS pinpoints position to centimeter accuracy. The robot builds a live map of your garden.</p>
+        <p>LiDAR scans the surroundings 10x/second. Required for obstacle avoidance and optional Kinematic-ICP drift correction. RTK-GPS pinpoints position to centimeter accuracy.</p>
       </div>
       <div class="flow-arrow">→</div>
       <div class="flow-step">
@@ -318,7 +318,7 @@
       <!-- LiDAR -->
       <div class="composer-group">
         <h3>LiDAR Sensor</h3>
-        <p class="composer-hint">Required for obstacle avoidance and SLAM mapping</p>
+        <p class="composer-hint">Required for obstacle avoidance and optional Kinematic-ICP drift correction</p>
         <div class="composer-options" data-group="lidar">
           <button class="composer-option active" data-value="ldlidar-uart">
             <span class="option-icon">🔴</span>

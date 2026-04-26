@@ -36,11 +36,11 @@ Mowgli ROS2 is organized as a **12-package ecosystem** with clear separation of 
 │  │                  │  │                  │  │  - Diagnostics       │   │
 │  └──────────────────┘  └──────────────────┘  └──────────────────────┘   │
 │                                                                           │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────┐ │
-│  │  mowgli_brv_planner           │  │  mowgli_monitoring               │ │
-│  │  (B-RV algorithm, action     │  │  (Diagnostics aggregator,        │ │
-│  │   server, Voronoi transit)   │  │   MQTT bridge)                   │ │
-│  └──────────────────────────────┘  └──────────────────────────────────┘ │
+│  ┌──────────────────────────────────┐                                    │
+│  │  mowgli_monitoring               │                                    │
+│  │  (Diagnostics aggregator,        │                                    │
+│  │   MQTT bridge)                   │                                    │
+│  └──────────────────────────────────┘                                    │
 └──────────────────────────────────────────────────────────────────────────┘
                                      │
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -77,7 +77,7 @@ Mowgli ROS2 is organized as a **12-package ecosystem** with clear separation of 
 | **mowgli_hardware** | Serial bridge to STM32 firmware (COBS + CRC-16 protocol) | mowgli_interfaces |
 | **mowgli_localization** | Helper nodes around robot_localization's dual EKF (wheel odometry, NavSatFix→pose conversion, COG-to-IMU absolute yaw, magnetometer yaw, dock-yaw auto-capture, localization monitor) | mowgli_interfaces, robot_localization |
 | **mowgli_nav2_plugins** | Nav2 controller plugins (FTC, RPP + RotationShimController, goal checkers) | nav2_core, mowgli_interfaces |
-| **mowgli_brv_planner** | Coverage path planning using B-RV algorithm (MBB sweep direction, grid-based boustrophedon, Voronoi roadmap transit) | mowgli_interfaces, nav_msgs |
+| **mowgli_map** | Map server with cell-based strip coverage planner (`~/get_next_strip` service), area storage/persistence, mow progress tracking (`mow_progress` grid layer), and obstacle_tracker_node | mowgli_interfaces, nav_msgs, nav2_map_server |
 | **mowgli_behavior** | Reactive behavior tree control (BehaviorTree.CPP v4) | mowgli_interfaces, nav2_msgs |
 | **mowgli_monitoring** | Diagnostics aggregation and MQTT bridge for external monitoring | diagnostic_msgs |
 | **mowgli_simulation** | Gazebo Harmonic worlds, robot models, and ros_gz_bridge configuration | mowgli_bringup, ros_gz_sim, ros_gz_bridge |
@@ -100,9 +100,6 @@ mowgli_interfaces (base layer)
     │       └──→ mowgli_bringup
     │
     ├──→ mowgli_behavior
-    │       └──→ mowgli_bringup
-    │
-    ├──→ mowgli_brv_planner
     │       └──→ mowgli_bringup
     │
     ├──→ mowgli_monitoring
@@ -1259,7 +1256,7 @@ class RecordArea : public BT::StatefulActionNode
 - `/mower_control` – Enable/disable blade
 - `/emergency_stop` – Release latched emergency
 - `/navigate_to_pose` (Nav2) – Send navigation goals
-- `/plan_coverage` (mowgli_brv_planner) – Generate coverage paths
+- `~/get_next_strip` (mowgli_map/map_server_node) – Fetch next coverage strip on demand
 
 **Publishing:**
 - `/high_level_status` (std_msgs/UInt8) – Current state (IDLE, UNDOCKING, MOWING, etc.)
@@ -1327,83 +1324,27 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory) {
 
 ---
 
-### 7. mowgli_brv_planner
+### 7. Coverage Planning (mowgli_map/map_server_node)
 
-**Purpose:** Autonomous coverage path planning using the B-RV algorithm (Huang et al., 2021: "A novel solution with rapid Voronoi-based coverage path planning in irregular environment for robotic mowing systems").
+**Purpose:** Cell-based strip coverage planning, integrated into `map_server_node`. Strips are planned on demand via the `~/get_next_strip` service — no pre-planned full path.
 
-**Location:** `src/mowgli_brv_planner/`
+**Location:** `src/mowgli_map/`
 
-**Architecture:**
+**Coverage Loop (driven by BT nodes):**
 
-```
-Coverage Planner Node (ROS2)
-    │
-    ├── Inputs:
-    │   ├── /plan_coverage action server (PlanCoverage.action)
-    │   │   └── Goal: outer_boundary (geometry_msgs/Polygon), obstacles, mow_angle_deg, skip_outline
-    │   │   └── Feedback: progress_percent (0-100), phase (string)
-    │   │   └── Result: path (nav_msgs/Path), outline_path, total_distance, coverage_area
-    │   │
-    │   └── Parameters:
-    │       ├── tool_width (m) – mower cutting width (grid cell size)
-    │       ├── headland_passes – number of perimeter passes
-    │       ├── headland_width (m) – offset distance per pass
-    │       └── map_frame – coordinate frame
-    │
-    ├── B-RV Algorithm Pipeline:
-    │   ├── 1. Headland pass generation (perimeter coverage)
-    │   ├── 2. MBB (Minimum Bounding Box) – rotating calipers on convex hull for optimal sweep direction
-    │   ├── 3. Grid-based coverage – discretize area into cells (size = tool_width), boustrophedon zigzag
-    │   ├── 4. Obstacle handling – sweep full columns, skip obstacle cells
-    │   ├── 5. Voronoi roadmap – Boost.Polygon Voronoi from boundary/obstacle samples, kd-tree KNN, Dijkstra shortest path for inter-region transit
-    │   └── 6. B-RV orchestrator – Headland → MBB → Grid → Sweep+Voronoi loop
-    │
-    └── Outputs:
-        ├── /coverage_planner_node/coverage_path (nav_msgs/Path, transient_local QoS)
-        │   └── Full coverage path with poses for FTCController
-        ├── /coverage_planner_node/coverage_outline (nav_msgs/Path, transient_local QoS)
-        │   └── Headland outline for visualization in RViz
-        └── GeoJSON output compatible with Nav2 route_server
-```
+1. `GetNextUnmowedArea` — outer loop, iterates through all mowing areas
+2. `GetNextStrip` — inner loop, fetches the next strip for the current area
+3. `TransitToStrip` — navigates to strip start (RPP controller)
+4. `FollowStrip` — follows strip with FTCController (PID on 3 axes)
 
-**Algorithm: B-RV Workflow**
+Progress is tracked in the `mow_progress` grid layer (survives restarts). Coverage status is available via `~/get_coverage_status` service and `/map_server_node/coverage_cells` OccupancyGrid topic.
 
-The coverage planner follows this pipeline:
-
-1. **Headland Generation:**
-   - Offset the outer boundary inward by `headland_passes * headland_width`
-   - Creates a nested ring of passes around the perimeter
-   - Used for edge coverage (e.g., trim grass borders)
-
-2. **MBB (Minimum Bounding Box):**
-   - Compute convex hull of the mowing area
-   - Apply rotating calipers to find the minimum bounding box
-   - Determines optimal sweep direction for minimal turns
-
-3. **Grid-based Coverage:**
-   - Discretize the interior area into grid cells (cell size = tool_width)
-   - Generate boustrophedon zigzag sweep pattern across full columns
-   - Skip cells that overlap with obstacle polygons
-
-4. **Voronoi Roadmap Transit:**
-   - Build Voronoi diagram from boundary and obstacle sample points using Boost.Polygon
-   - Connect Voronoi vertices via kd-tree KNN
-   - Use Dijkstra shortest path for inter-region transit between disconnected sweep segments
-
-5. **Path Assembly:**
-   - Combine headland passes, sweep segments, and Voronoi transit paths
-   - Generate poses with orientations for in-place rotation at swath turns
-   - Output path suitable for FTCController (differential drive, in-place turns)
-
-**Parameters (coverage_planner.yaml):**
+**Key Parameters (mowgli_robot.yaml):**
 
 ```yaml
-coverage_planner_node:
-  ros__parameters:
-    tool_width: 0.18                  # m – mower blade width and grid cell size
-    headland_passes: 2                # number of perimeter passes
-    headland_width: 0.18              # m – offset per pass
-    map_frame: "map"
+path_spacing: 0.13          # m – distance between parallel swath centrelines
+mow_angle_offset_deg: -1    # swath angle; -1 = auto-detect optimal
+tool_width: 0.18            # m – effective cut width
 ```
 
 **Action Feedback:**
@@ -1714,14 +1655,11 @@ foxglove_bridge:
    └─→ MowingSequence triggered:
        ├─ SetMowerEnabled(true) → blade motor on
        ├─ PublishHighLevelStatus(UNDOCKING)
-       └─ PlanCoveragePath action:
-            └─→ mowgli_brv_planner processes goal
-                ├─ 1. Headland generation (perimeter passes)
-                ├─ 2. MBB optimal sweep direction (rotating calipers)
-                ├─ 3. Grid-based boustrophedon sweep (obstacle-aware)
-                ├─ 4. Voronoi roadmap transit (inter-region Dijkstra)
-                └─ 5. Publishes coverage_path and coverage_outline
-                    [BT receives path in result]
+       └─ Cell-based strip coverage loop:
+            └─→ map_server_node (mowgli_map) plans strips on demand
+                ├─ GetNextUnmowedArea (outer loop, iterates all areas)
+                ├─ GetNextStrip → TransitToStrip → FollowStrip (inner loop)
+                └─ Progress tracked in mow_progress grid layer
 
 3. Navigation to coverage start:
    NavigateToPose(first_waypoint):
@@ -1971,7 +1909,7 @@ This lets costmap, collision_monitor, Kinematic-ICP, and every other node use st
 | Action | Type | Server | Client | Purpose |
 |--------|------|--------|--------|---------|
 | `/navigate_to_pose` | nav2_msgs/NavigateToPose | nav2_behavior_tree_navigator | behavior_tree_node (NavigateToPose BT node) | Non-blocking navigation goal |
-| `/plan_coverage` | mowgli_interfaces/PlanCoverage | coverage_planner_node (mowgli_brv_planner) | behavior_tree_node (PlanCoveragePath BT node) | Coverage path planning with feedback |
+| `~/get_next_strip` | mowgli_interfaces/GetNextStrip | map_server_node (mowgli_map) | behavior_tree_node (GetNextStrip BT node) | On-demand strip planning for cell-based coverage |
 
 ---
 
@@ -1982,7 +1920,7 @@ This lets costmap, collision_monitor, Kinematic-ICP, and every other node use st
    - **Hardware:** mowgli_hardware (STM32 bridge via COBS)
    - **Perception:** mowgli_localization (EKF fusion, multi-sensor)
    - **Control:** mowgli_nav2_plugins (RPP for transit, FTCController for coverage)
-   - **Planning:** mowgli_brv_planner (B-RV algorithm, Voronoi roadmap transit)
+   - **Planning:** mowgli_map (cell-based strip coverage planner, on-demand via `~/get_next_strip`)
    - **Behavior:** mowgli_behavior (BehaviorTree.CPP, 10 Hz reactive control)
    - **Monitoring:** mowgli_monitoring (diagnostics, MQTT bridge)
    - **Simulation:** mowgli_simulation (Gazebo Harmonic, ros_gz_bridge)
@@ -2047,7 +1985,7 @@ This lets costmap, collision_monitor, Kinematic-ICP, and every other node use st
 | Kinematic-ICP Config | src/mowgli_bringup/config/kinematic_icp.yaml | 2D LiDAR voxel/registration/threshold tuning |
 | Nav2 Config | src/mowgli_bringup/config/nav2_params.yaml | Planner, controller, costmap tuning |
 | Behavior Tree | src/mowgli_behavior/trees/main_tree.xml | High-level state machine and sequencing |
-| Coverage Config | src/mowgli_brv_planner/config/coverage_planner.yaml | B-RV planner parameters (tool width, headland) |
+| Coverage Config | src/mowgli_bringup/config/mowgli_robot.yaml | Coverage parameters (path_spacing, mow_angle_offset_deg, tool_width) |
 | Gazebo Worlds | src/mowgli_simulation/worlds/ | garden.sdf (realistic), empty_garden.sdf (testing) |
 
 **Testing Workflow:**

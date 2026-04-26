@@ -220,7 +220,7 @@ ros2 service call /behavior_tree_node/high_level_control \
 ros2 service call /behavior_tree_node/high_level_control \
   mowgli_interfaces/srv/HighLevelControl "{command: 2}"
 
-# Start area recording (COMMAND_S1)
+# Start area recording (COMMAND_RECORD_AREA)
 ros2 service call /behavior_tree_node/high_level_control \
   mowgli_interfaces/srv/HighLevelControl "{command: 3}"
 ```
@@ -229,7 +229,12 @@ ros2 service call /behavior_tree_node/high_level_control \
 |---------|----------|--------|
 | `1` | `COMMAND_START` | Begin mowing sequence |
 | `2` | `COMMAND_HOME` | Navigate to dock and charge |
-| `3` | `COMMAND_S1` | Enter recording mode |
+| `3` | `COMMAND_RECORD_AREA` | Start area boundary recording |
+| `5` | `COMMAND_RECORD_FINISH` | Finish recording, save polygon |
+| `6` | `COMMAND_RECORD_CANCEL` | Cancel recording, discard trajectory |
+| `7` | `COMMAND_MANUAL_MOW` | Enter manual mowing mode (teleop + blade) |
+| `254` | `COMMAND_RESET_EMERGENCY` | Reset latched emergency |
+| `255` | `COMMAND_DELETE_MAPS` | Delete all maps |
 
 ### AbsolutePose GPS Flags
 
@@ -275,7 +280,7 @@ All dimensions are in **metres**, angles in **radians**, speeds in **m/s**.
 | `wheel_track` | `0.325` | Drive wheel centre-to-centre track width |
 | `wheel_x_offset` | `0.0` | Drive wheel x offset from `base_link` (0 = at wheel axis) |
 | `chassis_center_x` | `0.18` | Chassis geometric centre forward of wheel axis |
-| `ticks_per_revolution` | `1050` | Encoder ticks per full wheel revolution |
+| `ticks_per_revolution` | `84` | Encoder ticks per full wheel revolution (informational only — not used by runtime) |
 | `caster_radius` | `0.03` | Front caster radius |
 | `blade_radius` | `0.09` | Cutting blade disc radius |
 | `tool_width` | `0.18` | Effective cut width (2 x blade_radius) |
@@ -322,8 +327,8 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `mowing_speed` | `0.5` | Speed during coverage paths (m/s) |
-| `transit_speed` | `0.5` | Speed during point-to-point navigation (m/s) |
+| `mowing_speed` | `0.20` | Speed during coverage paths (m/s) |
+| `transit_speed` | `0.25` | Speed during point-to-point navigation (m/s) |
 | `path_spacing` | `0.18` | Distance between parallel swath centrelines |
 | `headland_width` | `0.18` | Width of one headland pass (1 x tool_width) |
 | `mow_angle_offset_deg` | `-1.0` | Swath angle; -1 = auto-detect optimal |

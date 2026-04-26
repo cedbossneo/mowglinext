@@ -132,7 +132,6 @@ main() {
   check_gps
   check_lidar
   check_rangefinders
-  check_slam
   check_gui
 
   print_summary

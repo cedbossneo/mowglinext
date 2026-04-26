@@ -75,7 +75,10 @@ public:
     RCLCPP_INFO(get_logger(), "mowgli_behavior_node ready");
   }
 
-  std::shared_ptr<BTContext> context() const { return context_; }
+  std::shared_ptr<BTContext> context() const
+  {
+    return context_;
+  }
 
 private:
   // ------------------------------------------------------------------
@@ -119,8 +122,10 @@ private:
                                      const float v_max = battery_full_voltage_;
                                      const float v_min = battery_empty_voltage_;
                                      const float clamped = std::clamp(msg->v_battery, v_min, v_max);
+                                     const float range = v_max - v_min;
                                      context_->battery_percent =
-                                         100.0f * (clamped - v_min) / (v_max - v_min);
+                                         (range > 0.01f) ? 100.0f * (clamped - v_min) / range
+                                                         : 0.0f;
                                    });
 
     // Replan / boundary signals from map_server_node
@@ -154,13 +159,14 @@ private:
     // When this trips, BoundaryGuard emergency-stops instead of trying
     // to navigate back inside — too far gone for safe recovery.
     lethal_boundary_violation_sub_ =
-        create_subscription<std_msgs::msg::Bool>(
-            "/map_server_node/lethal_boundary_violation", 10,
-            [this](std_msgs::msg::Bool::ConstSharedPtr msg)
-            {
-              std::lock_guard<std::mutex> lock(context_->context_mutex);
-              context_->lethal_boundary_violation = msg->data;
-            });
+        create_subscription<std_msgs::msg::Bool>("/map_server_node/lethal_boundary_violation",
+                                                 10,
+                                                 [this](std_msgs::msg::Bool::ConstSharedPtr msg)
+                                                 {
+                                                   std::lock_guard<std::mutex> lock(
+                                                       context_->context_mutex);
+                                                   context_->lethal_boundary_violation = msg->data;
+                                                 });
 
     // GPS position and quality for heading calibration during undock
     gps_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(

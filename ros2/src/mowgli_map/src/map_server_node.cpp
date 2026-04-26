@@ -695,7 +695,7 @@ void MapServerNode::on_odom(nav_msgs::msg::Odometry::ConstSharedPtr /*msg*/)
   {
     try
     {
-      auto tf = tf_buffer_->lookupTransform(map_frame_, "base_link", tf2::TimePointZero);
+      auto tf = tf_buffer_->lookupTransform(map_frame_, "base_footprint", tf2::TimePointZero);
       x = tf.transform.translation.x;
       y = tf.transform.translation.y;
     }
@@ -941,6 +941,8 @@ void MapServerNode::on_load_map(const std_srvs::srv::Trigger::Request::SharedPtr
     dat.close();
 
     last_decay_time_ = now();
+    strip_layouts_.clear();
+    current_strip_idx_.clear();
 
     res->success = true;
     res->message = "Map loaded from " + map_file_path_;
@@ -963,6 +965,8 @@ void MapServerNode::on_clear_map(const std_srvs::srv::Trigger::Request::SharedPt
   }
   areas_.clear();
   obstacle_polygons_.clear();
+  strip_layouts_.clear();
+  current_strip_idx_.clear();
   docking_pose_set_ = false;
   keepout_filter_info_sent_ = false;
   speed_filter_info_sent_ = false;
@@ -1032,7 +1036,10 @@ void MapServerNode::on_add_area(const mowgli_interfaces::srv::AddMowingArea::Req
     }
   }
 
-  areas_.push_back(std::move(entry));
+  {
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    areas_.push_back(std::move(entry));
+  }
   resize_map_to_areas();
   masks_dirty_ = true;
 
@@ -1732,7 +1739,7 @@ void MapServerNode::on_get_recovery_point(
   }
   try
   {
-    auto tf = tf_buffer_->lookupTransform(map_frame_, "base_link", tf2::TimePointZero);
+    auto tf = tf_buffer_->lookupTransform(map_frame_, "base_footprint", tf2::TimePointZero);
     rx = tf.transform.translation.x;
     ry = tf.transform.translation.y;
   }
@@ -1926,15 +1933,18 @@ void MapServerNode::diff_and_update_obstacles(
   }
 
   replan_pending_ = false;
+  size_t new_count = 0;
+  for (const auto& id : current_persistent_ids)
+  {
+    if (planned_obstacle_ids_.find(id) == planned_obstacle_ids_.end())
+      ++new_count;
+  }
   planned_obstacle_ids_ = current_persistent_ids;
   std_msgs::msg::Bool msg;
   msg.data = true;
   replan_needed_pub_->publish(msg);
   last_replan_time_ = now();
-  RCLCPP_INFO(get_logger(),
-              "Replan triggered: %zu new persistent obstacles",
-              current_persistent_ids.size() -
-                  (planned_obstacle_ids_.size() - current_persistent_ids.size()));
+  RCLCPP_INFO(get_logger(), "Replan triggered: %zu new persistent obstacles", new_count);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2158,6 +2168,8 @@ void MapServerNode::load_areas_from_file(const std::string& path)
   // Clear existing areas and reload from file.
   areas_.clear();
   obstacle_polygons_.clear();
+  strip_layouts_.clear();
+  current_strip_idx_.clear();
 
   const int area_count = get_int("area_count", 0);
   for (int i = 0; i < area_count; ++i)

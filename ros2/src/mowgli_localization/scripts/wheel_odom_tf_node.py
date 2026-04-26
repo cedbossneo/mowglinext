@@ -115,7 +115,19 @@ class WheelOdomTfNode(Node):
 
     def _on_rebroadcast_tick(self) -> None:
         """Re-send the current pose at a fresh timestamp so consumers always
-        have a recent TF available for interpolation/extrapolation."""
+        have a recent TF available for interpolation/extrapolation.
+
+        Clock skew note: The 100 Hz rebroadcast rate is chosen to mitigate
+        cross-container clock skew between this node and Kinematic-ICP.
+        K-ICP lookupTransform() uses the scan timestamp, which originates
+        from the LiDAR driver (possibly in a different container with its
+        own NTP discipline). If a scan arrives with a timestamp slightly
+        ahead of the latest rebroadcast, the TF lookup will extrapolate.
+        At 100 Hz the maximum extrapolation is ~10 ms, well within tf2's
+        default tolerance. If the rebroadcast rate were lower (e.g. 10 Hz),
+        scans could land 50-100 ms ahead, triggering extrapolation failures
+        and causing K-ICP to drop frames.
+        """
         if not self._have_odom:
             return
         self._broadcast(self.get_clock().now().to_msg())

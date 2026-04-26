@@ -23,9 +23,9 @@ mowgli:
         dock_use_charger_detection: true
         emergency_stop_on_lift: true
         emergency_stop_on_tilt: true
-        gps_antenna_x: 0.173
-        gps_antenna_y: -0.004
-        gps_antenna_z: 0.2
+        gps_x: 0.173
+        gps_y: -0.004
+        gps_z: 0.2
         gps_baudrate: 921600
         gps_port: /dev/gps
         gps_protocol: UBX
@@ -65,14 +65,13 @@ mowgli:
         rain_debounce_sec: 10
         rain_delay_minutes: 30
         rain_mode: 2
-        slam_mode: lifelong
-        ticks_per_revolution: 1050
+        ticks_per_revolution: 84
         tool_width: 0.18
         transit_speed: 0.4
         undock_distance: 1.5
         undock_speed: 0.15
         wheel_radius: 0.04475
         wheel_track: 0.325
-        wheel_x_offset: -0.18
+        wheel_x_offset: 0.0
         xy_goal_tolerance: 0.75
         yaw_goal_tolerance: 1

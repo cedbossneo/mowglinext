@@ -85,6 +85,9 @@ func ContainerCommandRoutes(group *gin.RouterGroup, provider types2.IDockerProvi
 			err = provider.ContainerStop(c.Request.Context(), containerID)
 		case "start":
 			err = provider.ContainerStart(c.Request.Context(), containerID)
+		default:
+			c.JSON(400, ErrorResponse{Error: fmt.Sprintf("unknown command: %s", command)})
+			return
 		}
 		if err != nil {
 			c.JSON(500, ErrorResponse{Error: err.Error()})

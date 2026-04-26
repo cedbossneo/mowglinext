@@ -17,8 +17,9 @@
 # Role in the stack
 #   Kinematic-ICP's output (`/kinematic_icp/lidar_odometry`) is finite-
 #   differenced by kinematic_icp_encoder_adapter.py into a body-frame twist
-#   and published on `/encoder2/odom` which `ekf_odom_node` fuses as
-#   `odom1`. Kinematic-ICP does NOT publish the `odom` TF — robot_localization
+#   and published on `/encoder2/odom`. `wheel_kicp_blend.py` blends this with
+#   `/wheel_odom` into `/wheel_odom_fused`, which feeds `ekf_odom_node` as
+#   `odom0`. Kinematic-ICP does NOT publish the `odom` TF — robot_localization
 #   owns that. The node still
 #   publishes its own lidar_odom frame (here named `odom_kicp`) which we
 #   isolate via publish_odom_tf=false anyway.

@@ -171,7 +171,7 @@ class CogToImu(Node):
             min(sigma_yaw * sigma_yaw, self._max_yaw_var),
         )
 
-        self._publish_imu(msg.header.stamp, yaw, yaw_var)
+        self._publish_imu(self.get_clock().now().to_msg(), yaw, yaw_var)
         self._published += 1
 
     def _publish_imu(self, stamp, yaw: float, yaw_var: float) -> None:
