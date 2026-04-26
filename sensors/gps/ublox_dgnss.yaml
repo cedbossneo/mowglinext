@@ -27,6 +27,14 @@ ublox_dgnss:
   ros__parameters:
     FRAME_ID: gps
 
+    # Transport backend: "usb" (libusb, default upstream behaviour) or
+    # "serial" (kernel CDC ACM via DEVICE_PATH). 2026-04-26: switched to
+    # serial because the libusb path introduces ~3.5 s of pipeline lag
+    # between F9P measurement (iTOW) and host-side header.stamp — measured
+    # directly via /dev/ttyACM1 raw probe, latency dropped to ~140 ms.
+    TRANSPORT: serial
+    DEVICE_PATH: /dev/ttyACM1
+
     # USB: accept UBX + NMEA + RTCM3 in (NTRIP injects RTCM3 via USB),
     # publish UBX + NMEA out. RTCM3 out is off (we're a rover, not a base).
     CFG_USBINPROT_NMEA: true

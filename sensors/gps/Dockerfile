@@ -19,7 +19,7 @@
 FROM ros:kilted-ros-base AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG UBLOX_DGNSS_REF=main
+ARG UBLOX_DGNSS_REF=feat/serial-transport
 # cedbossneo fork (itself a fork of privatedocs000/ublox_dgnss). Layered
 # customisations over upstream:
 #   * privatedocs000 base — RTK-Fixed detection via UBX-NAV-STATUS.carr_soln:
