@@ -277,14 +277,23 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
   // correction starts amplifying the antenna arc instead of cancelling
   // it (empirically: /gps/pose_cov residual grew 10cm → 21cm between
   // back-to-back 360° spins on 2026-04-26, with sweep > raw antenna
-  // radius). The feedback-loop concern about ekf_map consuming its own
-  // yaw doesn't materialise in 2D mode: yaw_map covariance is bounded,
-  // GPS σ at RTK Fixed (~5 mm) dwarfs the residual, and the lever-arm
-  // is a fixed ≤30cm × Δyaw_rad — feedback gain is effectively zero.
+  // radius).
+  //
+  // Using the SAME EKF's own map yaw to lever-arm-correct an observation
+  // we then feed back to that EKF would naively be a feedback loop. The
+  // proper Kalman-filter treatment is to propagate yaw uncertainty
+  // through the (nonlinear) lever-arm Jacobian into the pose_cov
+  // covariance — see the inflation block below. With that in place, the
+  // EKF correctly down-weights pose_cov when its own yaw is uncertain,
+  // and there is no runaway because the feedback is mediated by the
+  // filter's own σ²_yaw which is bounded.
+  //
   // If the TF is not yet available, fall back to publishing the raw
   // antenna position — matches legacy /gps/absolute_pose behavior.
   double base_x = east;
   double base_y = north;
+  double cos_yaw = 1.0;  // captured for covariance inflation below
+  double sin_yaw = 0.0;
   bool lever_arm_applied = false;
   if (lever_arm_known_)
   {
@@ -299,10 +308,10 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
       tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
       // antenna_enu = base_enu + R(yaw) · lever_arm_body
       // → base_enu = antenna_enu - R(yaw) · lever_arm_body
-      const double cy = std::cos(yaw);
-      const double sy = std::sin(yaw);
-      const double delta_x = cy * lever_arm_x_ - sy * lever_arm_y_;
-      const double delta_y = sy * lever_arm_x_ + cy * lever_arm_y_;
+      cos_yaw = std::cos(yaw);
+      sin_yaw = std::sin(yaw);
+      const double delta_x = cos_yaw * lever_arm_x_ - sin_yaw * lever_arm_y_;
+      const double delta_y = sin_yaw * lever_arm_x_ + cos_yaw * lever_arm_y_;
       base_x = east - delta_x;
       base_y = north - delta_y;
       lever_arm_applied = true;
@@ -343,15 +352,41 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
   twin.pose.pose.position.y = base_y;
   twin.pose.pose.position.z = msg->altitude;
   twin.pose.pose.orientation.w = 1.0;
-  const double var_xy = static_cast<double>(out.position_accuracy) * out.position_accuracy;
-  twin.pose.covariance[0] = var_xy;  // x variance
-  twin.pose.covariance[7] = var_xy;  // y variance
-  twin.pose.covariance[14] = var_xy * 4.0;  // z — looser, two_d_mode ignores
+  double var_x = static_cast<double>(out.position_accuracy) * out.position_accuracy;
+  double var_y = var_x;
+  double cov_xy = 0.0;
+
+  // Lever-arm covariance propagation — see header doc and the lookup block
+  // above. The base position is base = antenna - R(ψ)·L, so its uncertainty
+  // gets a contribution from σ²_ψ via the Jacobian J = ∂base/∂ψ:
+  //
+  //   J = [+sin(ψ)·L_x + cos(ψ)·L_y,
+  //        -cos(ψ)·L_x + sin(ψ)·L_y]
+  //   Σ_xy_added = J · σ²_ψ · Jᵀ (rank-1 inflation along the lever-arm sweep)
+  //
+  // current_yaw_var_ comes from /odometry/filtered_map.covariance[35] and
+  // tracks the EKF's own confidence in yaw. Bootstrap is large (10° σ),
+  // so before the EKF starts publishing every GPS sample is treated as
+  // having an unreliable lever-arm correction — safe.
+  if (lever_arm_applied)
+  {
+    const double Jx = sin_yaw * lever_arm_x_ + cos_yaw * lever_arm_y_;
+    const double Jy = -cos_yaw * lever_arm_x_ + sin_yaw * lever_arm_y_;
+    const double yaw_var = lever_arm_yaw_sigma_ * lever_arm_yaw_sigma_;
+    var_x += Jx * Jx * yaw_var;
+    var_y += Jy * Jy * yaw_var;
+    cov_xy = Jx * Jy * yaw_var;
+  }
+
+  twin.pose.covariance[0] = var_x;       // xx
+  twin.pose.covariance[1] = cov_xy;      // xy
+  twin.pose.covariance[6] = cov_xy;      // yx (symmetric)
+  twin.pose.covariance[7] = var_y;       // yy
+  twin.pose.covariance[14] = var_x * 4.0;  // z — looser, two_d_mode ignores
   twin.pose.covariance[21] = 1.0e3;  // roll — "unknown"
   twin.pose.covariance[28] = 1.0e3;  // pitch — "unknown"
   twin.pose.covariance[35] = 1.0e3;  // yaw  — "unknown"
   pose_cov_pub_->publish(twin);
-  (void)lever_arm_applied;  // silence unused var if logs are disabled
 }
 
 // ---------------------------------------------------------------------------

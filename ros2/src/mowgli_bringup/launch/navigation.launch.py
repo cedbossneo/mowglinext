@@ -143,6 +143,8 @@ def generate_launch_description() -> LaunchDescription:
     #                      for discoverability).
     transit_speed = 0.3
     mowing_speed = 0.25
+    datum_lat = 0.0
+    datum_lon = 0.0
     runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
     if os.path.isfile(runtime_robot_config):
         with open(runtime_robot_config, "r") as f:
@@ -153,6 +155,8 @@ def generate_launch_description() -> LaunchDescription:
         dock_pose_yaw = float(rt_rp.get("dock_pose_yaw", 0.0))
         transit_speed = float(rt_rp.get("transit_speed", transit_speed))
         mowing_speed = float(rt_rp.get("mowing_speed", mowing_speed))
+        datum_lat = float(rt_rp.get("datum_lat", 0.0))
+        datum_lon = float(rt_rp.get("datum_lon", 0.0))
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -403,7 +407,9 @@ def generate_launch_description() -> LaunchDescription:
         name="cog_to_imu",
         output="screen",
         parameters=[
-            {"use_sim_time": use_sim_time},
+            {"use_sim_time": use_sim_time,
+             "datum_lat": datum_lat,
+             "datum_lon": datum_lon},
         ],
     )
 

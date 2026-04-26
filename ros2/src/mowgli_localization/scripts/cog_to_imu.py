@@ -17,11 +17,25 @@ Why this node exists:
   for robot_localization without needing a custom EKF fork.
 
 Design:
-  Input : /gps/absolute_pose (already projected to map-frame ENU, carries
-                              RTK fix flags and position_accuracy).
-          /wheel_odom        (sign of linear.x to distinguish forward
-                              motion from reverse — COG flips 180° in
-                              reverse, which would corrupt the yaw seed).
+  Input : /gps/fix           (raw NavSatFix — RAW antenna ENU positions
+                              are projected here so the lever-arm
+                              compensation is NOT applied. Otherwise we
+                              create a positive-feedback loop: the
+                              compensated base position depends on the
+                              fused yaw being estimated → COG inherits
+                              that yaw error → ekf_map_node reinforces
+                              it. The lever-arm is a constant offset
+                              between antenna and base; for translation
+                              it does not change the *direction* of
+                              motion, only the position, so atan2 on
+                              raw antenna ENU == atan2 on lever-arm-
+                              corrected base ENU.)
+          /wheel_odom        (sign of linear.x to disambiguate direction:
+                              the antenna trajectory in ENU is the same
+                              line whether we're going forward or reverse,
+                              we use the wheel sign to know which end of
+                              that line is the robot's nose. Reverse is
+                              fully supported — yaw is just flipped 180°.)
   Output: /imu/cog_heading   (sensor_msgs/Imu with orientation set from
                               the heading, orientation_covariance[8] set
                               from the finite-difference uncertainty).
@@ -46,7 +60,6 @@ import math
 
 import rclpy
 from geometry_msgs.msg import Quaternion
-from mowgli_interfaces.msg import AbsolutePose
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import (
@@ -55,10 +68,12 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, NavSatFix, NavSatStatus
 
 
-FLAG_GPS_RTK_FIXED = AbsolutePose.FLAG_GPS_RTK_FIXED
+# Flat-earth ENU projection (matches navsat_to_absolute_pose_node.cpp).
+DEG_TO_RAD = math.pi / 180.0
+METERS_PER_DEG = 111319.49079327357
 
 
 class CogToImu(Node):
@@ -68,10 +83,12 @@ class CogToImu(Node):
         # OpenMower-style adaptive-covariance fusion: we NEVER reject a
         # sample for being slow. Instead σ_yaw grows with 1/displacement
         # so low-speed samples have near-zero weight in the EKF, matching
-        # the natural signal-to-noise. The only gate is direction: we
-        # still skip reverse motion because atan2(dy, dx) flips by π and
-        # would corrupt the yaw observation.
-        self._min_fwd_wheel = self.declare_parameter("min_forward_wheel_ms", 0.05).value
+        # the natural signal-to-noise. The only gate is |wheel_vx| above
+        # a deadband — below that the wheel sign is ambiguous (transition,
+        # stiction) and atan2 might publish the wrong direction. Reverse
+        # motion IS supported: when wheel_vx < 0 we flip the COG by π so
+        # the published yaw always represents the robot's forward axis.
+        self._min_abs_wheel = self.declare_parameter("min_abs_wheel_ms", 0.05).value
         self._max_pos_accuracy = self.declare_parameter("max_pos_accuracy_m", 0.05).value
         self._min_dt = self.declare_parameter("min_sample_dt_s", 0.05).value
         self._max_dt = self.declare_parameter("max_sample_dt_s", 0.50).value
@@ -83,21 +100,30 @@ class CogToImu(Node):
         self._max_yaw_var = self.declare_parameter("max_yaw_variance", 3.0).value
         self._min_yaw_var = self.declare_parameter("min_yaw_variance", 7.6e-5).value
 
+        # Datum for flat-earth ENU projection. Same convention as
+        # navsat_to_absolute_pose_node — read from mowgli_robot.yaml and
+        # injected by the launch file. If absent (0.0), we self-seed on
+        # the first RTK-Fixed sample.
+        self._datum_lat = float(self.declare_parameter("datum_lat", 0.0).value)
+        self._datum_lon = float(self.declare_parameter("datum_lon", 0.0).value)
+        self._datum_seeded = self._datum_lat != 0.0 or self._datum_lon != 0.0
+        self._cos_datum_lat = math.cos(self._datum_lat * DEG_TO_RAD)
+
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
             depth=10,
         )
-        self.create_subscription(AbsolutePose, "/gps/absolute_pose",
-                                 self._on_pose, qos)
+        self.create_subscription(NavSatFix, "/gps/fix", self._on_fix, qos)
         self.create_subscription(Odometry, "/wheel_odom", self._on_wheel, qos)
         self._pub = self.create_publisher(Imu, "/imu/cog_heading", qos)
 
         self._prev: tuple[float, float, float, float] | None = None  # (t, x, y, pos_acc)
         self._wheel_vx = 0.0
-        self._published = 0
-        self._rejected_reverse = 0
+        self._published_fwd = 0
+        self._published_rev = 0
+        self._rejected_stationary = 0
         self._rejected_accuracy = 0
         self._rejected_fix = 0
         self._rejected_displacement = 0
@@ -108,24 +134,51 @@ class CogToImu(Node):
 
         self.get_logger().info(
             "cog_to_imu started — publish /imu/cog_heading on every "
-            "RTK-Fixed sample with forward wheel > {:.2f} m/s (adaptive "
-            "covariance, no hard speed gate)".format(self._min_fwd_wheel))
+            "RTK-Fixed sample with |wheel_vx| > {:.2f} m/s (forward + "
+            "reverse, adaptive covariance, no hard speed gate)".format(
+                self._min_abs_wheel))
 
     def _on_wheel(self, msg: Odometry) -> None:
         self._wheel_vx = msg.twist.twist.linear.x
 
-    def _on_pose(self, msg: AbsolutePose) -> None:
-        if not (msg.flags & FLAG_GPS_RTK_FIXED):
+    def _on_fix(self, msg: NavSatFix) -> None:
+        # RTK-Fixed only: NavSatStatus.STATUS_GBAS_FIX (=2) per the
+        # convention used in navsat_to_absolute_pose_node.
+        if msg.status.status < NavSatStatus.STATUS_GBAS_FIX:
             self._rejected_fix += 1
             return
-        if msg.position_accuracy > self._max_pos_accuracy:
+
+        # position_accuracy ≈ sqrt(mean(var_lat, var_lon)) — same as
+        # navsat_to_absolute_pose_node.
+        var_lat = msg.position_covariance[0]
+        var_lon = msg.position_covariance[4]
+        if var_lat <= 0.0 or var_lon <= 0.0:
+            pos_acc = 10.0  # unknown — treat as bad
+        else:
+            pos_acc = math.sqrt((var_lat + var_lon) * 0.5)
+        if pos_acc > self._max_pos_accuracy:
             self._rejected_accuracy += 1
             return
 
+        # Self-seed datum on first valid sample if launch did not provide one.
+        if not self._datum_seeded:
+            self._datum_lat = msg.latitude
+            self._datum_lon = msg.longitude
+            self._cos_datum_lat = math.cos(self._datum_lat * DEG_TO_RAD)
+            self._datum_seeded = True
+            self.get_logger().info(
+                "datum self-seeded from first RTK fix: lat=%.8f lon=%.8f"
+                % (self._datum_lat, self._datum_lon))
+
+        # RAW antenna ENU — no lever-arm correction. The lever-arm offset
+        # is a constant body-frame vector; during translation the antenna
+        # and base move in parallel so atan2(dy, dx) is identical for
+        # both, and we avoid the feedback loop that the compensated
+        # /gps/absolute_pose introduces.
+        x = (msg.longitude - self._datum_lon) * self._cos_datum_lat * METERS_PER_DEG
+        y = (msg.latitude - self._datum_lat) * METERS_PER_DEG
         t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        x = msg.pose.pose.position.x
-        y = msg.pose.pose.position.y
-        pos_acc = max(msg.position_accuracy, 0.002)  # guard for pathological 0
+        pos_acc = max(pos_acc, 0.002)  # guard for pathological 0
 
         if self._prev is None:
             self._prev = (t, x, y, pos_acc)
@@ -153,13 +206,26 @@ class CogToImu(Node):
             self._rejected_displacement += 1
             return
 
-        if self._wheel_vx < self._min_fwd_wheel:
-            # wheels say we are not moving forward — either standing still
-            # despite GPS drift, or reversing. Skip so COG doesn't flip.
-            self._rejected_reverse += 1
+        if abs(self._wheel_vx) < self._min_abs_wheel:
+            # below the deadband — wheels are stationary or in a sign-
+            # ambiguous transition (stiction, direction change). GPS
+            # drift would produce a fake COG. Skip.
+            self._rejected_stationary += 1
             return
 
-        yaw = math.atan2(dy, dx)
+        # Direction-aware COG. Antenna trajectory in ENU points along the
+        # robot's velocity vector. In forward motion that's the heading;
+        # in reverse it's heading + π. We flip dx/dy when reversing so
+        # the published yaw is always the robot's *forward axis*, which
+        # is what robot_localization expects from an orientation
+        # observation.
+        if self._wheel_vx >= 0:
+            yaw = math.atan2(dy, dx)
+            self._published_fwd += 1
+        else:
+            yaw = math.atan2(-dy, -dx)
+            self._published_rev += 1
+
         # σ_yaw ≈ atan2(2σ_pos, displacement). Factor 2 accounts for
         # independent noise on both endpoints. At displacement → 0 this
         # approaches π/2 (no info), which matches OpenMower's vector
@@ -172,7 +238,6 @@ class CogToImu(Node):
         )
 
         self._publish_imu(self.get_clock().now().to_msg(), yaw, yaw_var)
-        self._published += 1
 
     def _publish_imu(self, stamp, yaw: float, yaw_var: float) -> None:
         imu = Imu()
@@ -193,17 +258,19 @@ class CogToImu(Node):
 
     def _log_stats(self) -> None:
         self.get_logger().info(
-            "cog_to_imu stats: published={}, rejected fix={} accuracy={} "
-            "reverse={} displacement={}".format(
-                self._published,
+            "cog_to_imu stats: published fwd={} rev={}, rejected fix={} "
+            "accuracy={} stationary={} displacement={}".format(
+                self._published_fwd,
+                self._published_rev,
                 self._rejected_fix,
                 self._rejected_accuracy,
-                self._rejected_reverse,
+                self._rejected_stationary,
                 self._rejected_displacement))
-        self._published = 0
+        self._published_fwd = 0
+        self._published_rev = 0
         self._rejected_fix = 0
         self._rejected_accuracy = 0
-        self._rejected_reverse = 0
+        self._rejected_stationary = 0
         self._rejected_displacement = 0
 
 
