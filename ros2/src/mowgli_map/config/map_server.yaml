@@ -34,6 +34,11 @@ map_server_node:
     # the robot crosses the polygon.
     strip_boundary_margin_m: 0.40
 
+    # Mowing strip angle in degrees. NaN (default) = auto-compute from
+    # polygon shape (minimum bounding rectangle — strips align with the
+    # longest axis to minimise turns). 0 = north-south, 90 = east-west.
+    mow_angle_deg: .nan
+
     # Inner-boundary margin. Cells INSIDE a mowing area but within this
     # distance of the nearest edge are marked LETHAL in the keepout mask.
     # Intended to push Nav2 transit paths away from the polygon edge, but

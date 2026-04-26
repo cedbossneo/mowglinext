@@ -49,17 +49,18 @@ struct DockCalibrationFile
   double yaw_rad{0.0};
 };
 
-inline std::optional<double> parse_yaml_double(const std::string& content,
-                                               const std::string& key)
+inline std::optional<double> parse_yaml_double(const std::string& content, const std::string& key)
 {
   const std::string needle = key + ":";
   auto pos = content.find(needle);
-  if (pos == std::string::npos) return std::nullopt;
+  if (pos == std::string::npos)
+    return std::nullopt;
   pos += needle.size();
-  while (pos < content.size() &&
-         (content[pos] == ' ' || content[pos] == '\t')) ++pos;
+  while (pos < content.size() && (content[pos] == ' ' || content[pos] == '\t'))
+    ++pos;
   auto end = pos;
-  while (end < content.size() && content[end] != '\n' && content[end] != '\r') ++end;
+  while (end < content.size() && content[end] != '\n' && content[end] != '\r')
+    ++end;
   try
   {
     return std::stod(content.substr(pos, end - pos));
@@ -70,18 +71,19 @@ inline std::optional<double> parse_yaml_double(const std::string& content,
   }
 }
 
-inline std::optional<DockCalibrationFile> load_dock_calibration_file(
-    const std::string& path)
+inline std::optional<DockCalibrationFile> load_dock_calibration_file(const std::string& path)
 {
   std::ifstream f(path);
-  if (!f.good()) return std::nullopt;
+  if (!f.good())
+    return std::nullopt;
   std::stringstream ss;
   ss << f.rdbuf();
   const std::string content = ss.str();
   auto x = parse_yaml_double(content, "dock_pose_x");
   auto y = parse_yaml_double(content, "dock_pose_y");
   auto yaw = parse_yaml_double(content, "dock_pose_yaw_rad");
-  if (!x || !y || !yaw) return std::nullopt;
+  if (!x || !y || !yaw)
+    return std::nullopt;
   return DockCalibrationFile{*x, *y, *yaw};
 }
 
@@ -117,12 +119,11 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   // moment the robot grazes the edge, producing endless transit/abort
   // recovery loops with 30-60 s gaps between strips.
   soft_boundary_margin_m_ = declare_parameter<double>("soft_boundary_margin_m", 0.10);
-  boundary_recovery_offset_m_ =
-      declare_parameter<double>("boundary_recovery_offset_m", 0.8);
-  boundary_inner_margin_m_ =
-      declare_parameter<double>("boundary_inner_margin_m", 0.3);
-  strip_boundary_margin_m_ =
-      declare_parameter<double>("strip_boundary_margin_m", 0.5);
+  boundary_recovery_offset_m_ = declare_parameter<double>("boundary_recovery_offset_m", 0.8);
+  boundary_inner_margin_m_ = declare_parameter<double>("boundary_inner_margin_m", 0.3);
+  strip_boundary_margin_m_ = declare_parameter<double>("strip_boundary_margin_m", 0.5);
+  mow_angle_override_deg_ =
+      declare_parameter<double>("mow_angle_deg", std::numeric_limits<double>::quiet_NaN());
 
   // Dock approach corridor — extends the no-mow zone in front of the dock
   // so coverage strips stop before the 1.5 m straight-line alignment that
@@ -299,8 +300,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   boundary_violation_pub_ =
       create_publisher<std_msgs::msg::Bool>("~/boundary_violation", rclcpp::QoS(1));
   lethal_boundary_violation_pub_ =
-      create_publisher<std_msgs::msg::Bool>("~/lethal_boundary_violation",
-                                            rclcpp::QoS(1));
+      create_publisher<std_msgs::msg::Bool>("~/lethal_boundary_violation", rclcpp::QoS(1));
 
   docking_pose_pub_ =
       create_publisher<geometry_msgs::msg::PoseStamped>("~/docking_pose",
@@ -349,8 +349,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     // available. The file is written by /calibrate_imu_yaw_node/calibrate
     // and carries a GPS-derived yaw with ~1° σ — considerably better than
     // the phone-compass value a user enters once at install time.
-    if (auto file_cal = load_dock_calibration_file(
-            "/ros2_ws/maps/dock_calibration.yaml"))
+    if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
     {
       dock_x = file_cal->x;
       dock_y = file_cal->y;
@@ -401,15 +400,14 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     const double half_width = dock_approach_corridor_half_width_m_;
     const double d_x = docking_pose_.position.x;
     const double d_y = docking_pose_.position.y;
-    const double d_yaw = 2.0 * std::atan2(docking_pose_.orientation.z,
-                                           docking_pose_.orientation.w);
+    const double d_yaw = 2.0 * std::atan2(docking_pose_.orientation.z, docking_pose_.orientation.w);
     const double cy = std::cos(d_yaw);
     const double sy = std::sin(d_yaw);
     const double corners[][2] = {
-        { dock_forward,  half_width},
-        { dock_forward, -half_width},
+        {dock_forward, half_width},
+        {dock_forward, -half_width},
         {-approach_back, -half_width},
-        {-approach_back,  half_width},
+        {-approach_back, half_width},
     };
     for (const auto& c : corners)
     {
@@ -424,8 +422,12 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     RCLCPP_INFO(get_logger(),
                 "Dock exclusion zone (with approach corridor): pose=(%.2f, %.2f) "
                 "yaw=%.2f, forward=%.2fm, approach=%.2fm, half_width=%.2fm",
-                d_x, d_y, d_yaw,
-                dock_forward, approach_back, half_width);
+                d_x,
+                d_y,
+                d_yaw,
+                dock_forward,
+                approach_back,
+                half_width);
   }
 
   // ── Publish timer ────────────────────────────────────────────────────────
@@ -1290,7 +1292,8 @@ struct ClosestEdge
   double distance{std::numeric_limits<double>::max()};
 };
 
-static ClosestEdge closest_edge_point(double px, double py,
+static ClosestEdge closest_edge_point(double px,
+                                      double py,
                                       const geometry_msgs::msg::Polygon& polygon)
 {
   ClosestEdge best;
@@ -1679,19 +1682,27 @@ void MapServerNode::check_boundary_violation(double x, double y)
   {
     if (lethal_msg.data)
     {
-      RCLCPP_ERROR_THROTTLE(
-          get_logger(), *get_clock(), 2000,
-          "LETHAL BOUNDARY VIOLATION: robot at (%.2f, %.2f) — %.2fm outside "
-          "nearest allowed area (margin=%.2fm)",
-          x, y, min_edge_dist, lethal_boundary_margin_m_);
+      RCLCPP_ERROR_THROTTLE(get_logger(),
+                            *get_clock(),
+                            2000,
+                            "LETHAL BOUNDARY VIOLATION: robot at (%.2f, %.2f) — %.2fm outside "
+                            "nearest allowed area (margin=%.2fm)",
+                            x,
+                            y,
+                            min_edge_dist,
+                            lethal_boundary_margin_m_);
     }
     else
     {
-      RCLCPP_WARN_THROTTLE(
-          get_logger(), *get_clock(), 2000,
-          "BOUNDARY VIOLATION: robot at (%.2f, %.2f) — %.2fm outside nearest "
-          "allowed area (lethal at %.2fm)",
-          x, y, min_edge_dist, lethal_boundary_margin_m_);
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           2000,
+                           "BOUNDARY VIOLATION: robot at (%.2f, %.2f) — %.2fm outside nearest "
+                           "allowed area (lethal at %.2fm)",
+                           x,
+                           y,
+                           min_edge_dist,
+                           lethal_boundary_margin_m_);
     }
   }
 }
@@ -1802,7 +1813,12 @@ void MapServerNode::on_get_recovery_point(
   RCLCPP_INFO(get_logger(),
               "GetRecoveryPoint: robot=(%.2f, %.2f) outside by %.2fm → "
               "target=(%.2f, %.2f) yaw=%.2f",
-              rx, ry, best.distance, tx, ty, yaw);
+              rx,
+              ry,
+              best.distance,
+              tx,
+              ty,
+              yaw);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2269,6 +2285,89 @@ void MapServerNode::mark_mowed(double x, double y)
 // Strip planner
 // ─────────────────────────────────────────────────────────────────────────────
 
+std::vector<std::pair<double, double>> MapServerNode::convex_hull(
+    std::vector<std::pair<double, double>> pts)
+{
+  auto cross = [](const auto& O, const auto& A, const auto& B)
+  {
+    return (A.first - O.first) * (B.second - O.second) -
+           (A.second - O.second) * (B.first - O.first);
+  };
+
+  int n = static_cast<int>(pts.size());
+  if (n < 3)
+    return pts;
+
+  std::sort(pts.begin(), pts.end());
+
+  std::vector<std::pair<double, double>> hull(2 * n);
+  int k = 0;
+
+  // Lower hull
+  for (int i = 0; i < n; ++i)
+  {
+    while (k >= 2 && cross(hull[k - 2], hull[k - 1], pts[i]) <= 0)
+      k--;
+    hull[k++] = pts[i];
+  }
+
+  // Upper hull
+  for (int i = n - 2, t = k + 1; i >= 0; i--)
+  {
+    while (k >= t && cross(hull[k - 2], hull[k - 1], pts[i]) <= 0)
+      k--;
+    hull[k++] = pts[i];
+  }
+
+  hull.resize(k - 1);
+  return hull;
+}
+
+double MapServerNode::compute_optimal_mow_angle(const geometry_msgs::msg::Polygon& poly)
+{
+  std::vector<std::pair<double, double>> pts;
+  pts.reserve(poly.points.size());
+  for (const auto& p : poly.points)
+    pts.emplace_back(static_cast<double>(p.x), static_cast<double>(p.y));
+
+  auto hull = convex_hull(std::move(pts));
+  if (hull.size() < 3)
+    return 0.0;
+
+  double best_angle = 0.0;
+  double min_perp_extent = 1e9;
+  int nh = static_cast<int>(hull.size());
+
+  for (int i = 0; i < nh; ++i)
+  {
+    int j = (i + 1) % nh;
+    double edge_dx = hull[j].first - hull[i].first;
+    double edge_dy = hull[j].second - hull[i].second;
+    double edge_angle = std::atan2(edge_dy, edge_dx);
+
+    double cos_a = std::cos(-edge_angle);
+    double sin_a = std::sin(-edge_angle);
+
+    // Compute bounding box of hull rotated to align this edge with X axis
+    double min_y = 1e9, max_y = -1e9;
+    for (const auto& [hx, hy] : hull)
+    {
+      double ry = sin_a * hx + cos_a * hy;
+      min_y = std::min(min_y, ry);
+      max_y = std::max(max_y, ry);
+    }
+
+    double perp_extent = max_y - min_y;
+    if (perp_extent < min_perp_extent)
+    {
+      min_perp_extent = perp_extent;
+      best_angle = edge_angle;
+    }
+  }
+
+  return best_angle;
+}
+
 void MapServerNode::ensure_strip_layout(size_t area_index)
 {
   if (area_index >= areas_.size())
@@ -2287,24 +2386,46 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
   if (poly.points.size() < 3)
     return;
 
-  // Compute bounding box and optimal mow angle (MBB = longest edge direction)
-  double min_x = 1e9, max_x = -1e9, min_y = 1e9, max_y = -1e9;
+  // ── 1. Determine mow angle ────────────────────────────────────────────────
+  // Auto-compute from polygon MBR or use manual override.
+  double mow_angle;
+  if (std::isnan(mow_angle_override_deg_))
+  {
+    mow_angle = compute_optimal_mow_angle(poly);
+  }
+  else
+  {
+    mow_angle = mow_angle_override_deg_ * M_PI / 180.0;
+  }
+  layout.mow_angle = mow_angle;
+
+  // ── 2. Rotate polygon so optimal strip direction aligns with Y axis ───────
+  // Strips currently run along Y (vertical scan). Rotation angle:
+  //   rot = π/2 - mow_angle
+  // maps the desired strip direction onto the Y axis.
+  double rot = M_PI / 2.0 - mow_angle;
+  double cos_r = std::cos(rot);
+  double sin_r = std::sin(rot);
+
+  int n_pts = static_cast<int>(poly.points.size());
+  std::vector<std::pair<double, double>> rotated_pts;
+  rotated_pts.reserve(n_pts);
   for (const auto& p : poly.points)
   {
-    min_x = std::min(min_x, static_cast<double>(p.x));
-    max_x = std::max(max_x, static_cast<double>(p.x));
-    min_y = std::min(min_y, static_cast<double>(p.y));
-    max_y = std::max(max_y, static_cast<double>(p.y));
+    double rx = cos_r * static_cast<double>(p.x) - sin_r * static_cast<double>(p.y);
+    double ry = sin_r * static_cast<double>(p.x) + cos_r * static_cast<double>(p.y);
+    rotated_pts.emplace_back(rx, ry);
   }
 
-  layout.mow_angle = 0.0;
+  // Bounding box of rotated polygon (X only — for scan line range)
+  double min_x = 1e9, max_x = -1e9;
+  for (const auto& [rx, ry] : rotated_pts)
+  {
+    min_x = std::min(min_x, rx);
+    max_x = std::max(max_x, rx);
+  }
 
-  // Inset boundary by strip_boundary_margin_m_. Previously used
-  // mower_width_ (~0.18 m), but real FTC tracking error during transit
-  // exceeds 0.5 m — strip endpoints that close to the polygon edge get
-  // overshot and trigger boundary violations. A larger margin sacrifices
-  // a small strip of un-mowed perimeter for reliable inside-polygon
-  // coverage paths.
+  // ── 3. Inset and scan ─────────────────────────────────────────────────────
   double inset = strip_boundary_margin_m_;
   double inner_min_x = min_x + inset;
   double inner_max_x = max_x - inset;
@@ -2315,23 +2436,25 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
     return;
   }
 
-  // Generate strips clipped to the actual polygon boundary.
-  // For each vertical scan line at x=const, find Y intersections with polygon edges.
+  // Inverse rotation to map strip endpoints back to the original frame.
+  // cos(-rot) = cos(rot), sin(-rot) = -sin(rot)
+  double cos_back = cos_r;
+  double sin_back = -sin_r;
+
   layout.strips.clear();
   int col = 0;
-  int n_pts = static_cast<int>(poly.points.size());
 
   for (double x = inner_min_x + mower_width_ / 2; x <= inner_max_x; x += mower_width_)
   {
-    // Find Y intersections of vertical line x=const with polygon edges
+    // Find Y intersections of vertical line x=const with rotated polygon edges
     std::vector<double> y_intersections;
     for (int i = 0; i < n_pts; ++i)
     {
       int j = (i + 1) % n_pts;
-      double x1 = static_cast<double>(poly.points[i].x);
-      double y1 = static_cast<double>(poly.points[i].y);
-      double x2 = static_cast<double>(poly.points[j].x);
-      double y2 = static_cast<double>(poly.points[j].y);
+      double x1 = rotated_pts[i].first;
+      double y1 = rotated_pts[i].second;
+      double x2 = rotated_pts[j].first;
+      double y2 = rotated_pts[j].second;
 
       if ((x1 < x && x2 >= x) || (x2 < x && x1 >= x))
       {
@@ -2341,40 +2464,48 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
     }
 
     if (y_intersections.size() < 2)
+    {
+      col++;
       continue;
+    }
 
     std::sort(y_intersections.begin(), y_intersections.end());
 
-    // Take the first pair as the interior interval (even-odd fill)
-    // Inset by mower_width/2 to stay inside boundary
-    double y_lo = y_intersections.front() + inset;
-    double y_hi = y_intersections.back() - inset;
+    // Even-odd fill: pair consecutive intersections [0,1], [2,3], ...
+    // This correctly handles concave polygons (L, U shapes) by producing
+    // multiple strip segments per scan line instead of spanning the gap.
+    for (size_t k = 0; k + 1 < y_intersections.size(); k += 2)
+    {
+      double y_lo = y_intersections[k] + inset;
+      double y_hi = y_intersections[k + 1] - inset;
 
-    if (y_hi - y_lo < mower_width_)
-      continue;
+      if (y_hi - y_lo < mower_width_)
+        continue;
 
-    Strip strip;
-    strip.start.x = x;
-    strip.start.y = y_lo;
-    strip.start.z = 0.0;
-    strip.end.x = x;
-    strip.end.y = y_hi;
-    strip.end.z = 0.0;
-    strip.column_index = col++;
-    layout.strips.push_back(strip);
+      // Rotate strip endpoints back to map frame
+      Strip strip;
+      strip.start.x = cos_back * x - sin_back * y_lo;
+      strip.start.y = sin_back * x + cos_back * y_lo;
+      strip.start.z = 0.0;
+      strip.end.x = cos_back * x - sin_back * y_hi;
+      strip.end.y = sin_back * x + cos_back * y_hi;
+      strip.end.z = 0.0;
+      strip.column_index = col;
+      layout.strips.push_back(strip);
+    }
+    col++;
   }
 
   layout.valid = true;
   RCLCPP_INFO(get_logger(),
-              "Strip layout for area '%s': %zu strips, mow_angle=%.1f°, "
-              "bbox=(%.2f,%.2f)-(%.2f,%.2f), inner_x=[%.2f, %.2f]",
+              "Strip layout for area '%s': %zu strips, mow_angle=%.1f° (%s), "
+              "rotated bbox X=[%.2f, %.2f], inner_x=[%.2f, %.2f]",
               area.name.c_str(),
               layout.strips.size(),
               layout.mow_angle * 180.0 / M_PI,
+              std::isnan(mow_angle_override_deg_) ? "auto-MBR" : "manual",
               min_x,
-              min_y,
               max_x,
-              max_y,
               inner_min_x,
               inner_max_x);
   if (!layout.strips.empty())
@@ -2382,12 +2513,15 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
     const auto& first = layout.strips.front();
     const auto& last = layout.strips.back();
     RCLCPP_INFO(get_logger(),
-                "  First strip: x=%.2f y=[%.2f, %.2f], Last strip: x=%.2f y=[%.2f, %.2f]",
+                "  First strip: (%.2f,%.2f)→(%.2f,%.2f), "
+                "Last strip: (%.2f,%.2f)→(%.2f,%.2f)",
                 first.start.x,
                 first.start.y,
+                first.end.x,
                 first.end.y,
                 last.start.x,
                 last.start.y,
+                last.end.x,
                 last.end.y);
   }
 }
@@ -2510,7 +2644,8 @@ bool MapServerNode::find_next_unmowed_strip(
     for (int i = 0; i < n; ++i)
     {
       double mid_x = (layout.strips[i].start.x + layout.strips[i].end.x) / 2;
-      double d = std::abs(mid_x - robot_x);
+      double mid_y = (layout.strips[i].start.y + layout.strips[i].end.y) / 2;
+      double d = std::hypot(mid_x - robot_x, mid_y - robot_y);
       if (d < nearest_dist)
       {
         nearest_dist = d;

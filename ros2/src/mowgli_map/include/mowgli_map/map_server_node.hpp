@@ -16,10 +16,13 @@
 #ifndef MOWGLI_MAP__MAP_SERVER_NODE_HPP_
 #define MOWGLI_MAP__MAP_SERVER_NODE_HPP_
 
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <geometry_msgs/msg/point.hpp>
@@ -120,6 +123,17 @@ public:
   /// Build coverage cells OccupancyGrid (test-only accessor).
   nav_msgs::msg::OccupancyGrid coverage_cells_to_occupancy_grid() const;
 
+  /// Compute convex hull of 2D points (Andrew's monotone chain).
+  static std::vector<std::pair<double, double>> convex_hull(
+      std::vector<std::pair<double, double>> pts);
+
+  /// Compute optimal mow angle from polygon via Minimum Bounding Rectangle.
+  /// Returns angle in radians: the direction strips should run parallel to.
+  static double compute_optimal_mow_angle(const geometry_msgs::msg::Polygon& poly);
+
+  /// Compute or retrieve cached strip layout for an area (test-only).
+  void ensure_strip_layout(size_t area_index);
+
 private:
   // ── ROS callbacks ────────────────────────────────────────────────────────
 
@@ -183,9 +197,8 @@ private:
   /// point on the nearest polygon edge, offsets `boundary_recovery_offset_m_`
   /// further along the inward direction (robot → edge), and returns a Pose
   /// facing into the area.
-  void on_get_recovery_point(
-      const mowgli_interfaces::srv::GetRecoveryPoint::Request::SharedPtr req,
-      mowgli_interfaces::srv::GetRecoveryPoint::Response::SharedPtr res);
+  void on_get_recovery_point(const mowgli_interfaces::srv::GetRecoveryPoint::Request::SharedPtr req,
+                             mowgli_interfaces::srv::GetRecoveryPoint::Response::SharedPtr res);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -266,9 +279,6 @@ private:
     bool valid{false};
   };
 
-  /// Compute or retrieve cached strip layout for an area.
-  void ensure_strip_layout(size_t area_index);
-
   /// Find next unmowed strip. Returns false if coverage is complete.
   bool find_next_unmowed_strip(
       size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool prefer_headland);
@@ -343,6 +353,10 @@ private:
   /// which let coverage paths land well past the polygon edge during
   /// tracker overshoot.
   double strip_boundary_margin_m_{0.5};
+
+  /// Mowing strip angle override (degrees). NaN = auto-compute from polygon
+  /// shape via Minimum Bounding Rectangle. 0 = north-south, 90 = east-west.
+  double mow_angle_override_deg_{std::numeric_limits<double>::quiet_NaN()};
 
   /// Extent of the dock approach corridor along -X in dock local frame (m).
   /// Cells within this rectangle in front of the dock are marked
