@@ -18,7 +18,7 @@ jobs:
           - Yardforce500
           - Yardforce500B
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/cache@v4
         with:
