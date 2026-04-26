@@ -149,13 +149,13 @@ run_compose_stack() {
   info "Using env file: $INSTALL_DIR/.env"
 
   info "Pulling selected images..."
-  docker compose --env-file "$INSTALL_DIR/.env" pull
+  docker_run docker compose --env-file "$INSTALL_DIR/.env" pull
 
   echo ""
   info "Starting stack..."
-  docker compose --env-file "$INSTALL_DIR/.env" up -d
+  docker_run docker compose --env-file "$INSTALL_DIR/.env" up -d
 
   echo ""
   info "Current containers:"
-  docker compose --env-file "$INSTALL_DIR/.env" ps
+  docker_run docker compose --env-file "$INSTALL_DIR/.env" ps
 }
