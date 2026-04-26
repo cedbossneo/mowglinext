@@ -179,7 +179,18 @@ class KinematicIcpEncoderAdapter(Node):
             var_vx, var_vy, var_wz = self.VAR_VX_BAD, self.VAR_VY_BAD, self.VAR_WZ_BAD
 
         out = Odometry()
+        # Stamp with `now` instead of the K-ICP scan time. K-ICP carries the
+        # original LaserScan timestamp through ICP (~80 ms) + transport into
+        # the adapter (~280 ms more), so msg.header.stamp lands ~350 ms in
+        # the past at the EKF. robot_localization treats that as a delayed
+        # measurement, rewinds its state, replays every newer measurement —
+        # under our 10 Hz K-ICP load this collapsed ekf_odom from 25 Hz
+        # target to a steady 5 Hz publish. The twist we publish is a body-
+        # frame velocity that's approximately constant over the 100 ms
+        # K-ICP cycle, so attributing it to "now" instead of "350 ms ago"
+        # has negligible effect on the fused state.
         out.header = msg.header
+        out.header.stamp = self.get_clock().now().to_msg()
         out.child_frame_id = msg.child_frame_id
         out.pose = msg.pose   # pass pose through (EKF ignores it — only twist fields are configured for fusion)
         out.twist.twist.linear.x = vx_body
