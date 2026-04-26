@@ -5,8 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
@@ -20,7 +23,15 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser clients
+		}
+		// Allow same-host connections
+		host := r.Host
+		return strings.Contains(origin, host)
+	},
 }
 
 func MowgliNextRoutes(r *gin.RouterGroup, provider types.IRosProvider) {
@@ -137,7 +148,11 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		}
 
 		// Persist areas to disk so they survive container restarts
-		_ = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
+		err = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
+		if err != nil {
+			c.JSON(500, ErrorResponse{Error: fmt.Sprintf("areas added but save_areas failed: %v", err)})
+			return
+		}
 
 		c.JSON(200, OkResponse{})
 	})
@@ -294,10 +309,13 @@ func PublisherRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 func subscribe(provider types.IRosProvider, c *gin.Context, conn *websocket.Conn, topic string, interval int) (func(), error) {
 	id := uuid.Generate()
 	uidString := id.String()
+	var writeMu sync.Mutex
 	err := provider.Subscribe(topic, uidString, func(msg []byte) {
 		if interval > 0 {
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		writer, err := conn.NextWriter(websocket.TextMessage)
 		if err != nil {
 			c.Error(err)

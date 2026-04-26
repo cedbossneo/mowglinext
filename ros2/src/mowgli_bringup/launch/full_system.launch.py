@@ -111,7 +111,7 @@ def generate_launch_description() -> LaunchDescription:
     behavior_params = os.path.join(behavior_dir, "config", "behavior_tree.yaml")
     map_params = os.path.join(map_dir, "config", "map_server.yaml")
     nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
-    localization_params = os.path.join(bringup_dir, "config", "localization.yaml")
+    localization_params = os.path.join(bringup_dir, "config", "robot_localization.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
     mqtt_params = os.path.join(monitoring_dir, "config", "mqtt_bridge.yaml")
     # Robot-specific config (bind-mounted from mowgli-docker/config/mowgli/)

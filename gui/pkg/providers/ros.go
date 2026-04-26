@@ -298,7 +298,8 @@ func (r *RosProvider) fanOut(logicalKey string, msg []byte) {
 	}
 	// Track mowing sessions from high-level status transitions
 	if logicalKey == "highLevelStatus" && r.sessionTracker != nil {
-		go r.sessionTracker.OnHighLevelStatus(msg)
+		msgCopy := append([]byte(nil), msg...)
+		go r.sessionTracker.OnHighLevelStatus(msgCopy)
 	}
 }
 

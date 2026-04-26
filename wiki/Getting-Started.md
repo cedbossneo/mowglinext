@@ -168,10 +168,7 @@ Access the diagnostics dashboard at `http://<mower-ip>:4006/#/diagnostics`.
 - **Behavior Tree:** Current active node, execution state, mode
 - **Coverage:** Areas remaining, current strip progress, cells mowed
 - **ROS Diagnostics:** Aggregated health status (OK, WARN, ERROR, STALE) for all subsystems
-- **SLAM Map Tools:**
-  - View map info (resolution, dimensions, origin)
-  - Save map to persistent storage
-  - Delete map to reset SLAM
+- **Map Management:** View/edit mowing areas, clear mow progress, manage dock pose calibration.
 
 **Configuration Cross-Checks:**
 Verifies consistency between:

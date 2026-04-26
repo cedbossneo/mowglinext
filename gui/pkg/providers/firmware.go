@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"regexp"
 	"text/template"
 
 	"github.com/cedbossneo/mowglinext/pkg/types"
@@ -137,10 +138,19 @@ func (fp *FirmwareProvider) flashMowgli(writer io.Writer, config types.FirmwareC
 	return nil
 }
 
+var safeShellArgRe = regexp.MustCompile(`^[a-zA-Z0-9._:/-]+$`)
+
 func (fp *FirmwareProvider) flashVermut(writer io.Writer, config types.FirmwareConfig) error {
 	// Download the firmware from https://github.com/ClemensElflein/MowgliNext/releases/download/latest/firmware.zip to /tmp/firmware.zip
 	// Unzip /tmp/firmware.zip to /tmp/firmware
 	// Flash the firmware by running command openocd -f interface/raspberrypi-swd.cfg -f target/rp2040.cfg -c "program ./firmware_download/firmware/$OM_HARDWARE_VERSION/firmware.elf verify reset exit"
+
+	if !safeShellArgRe.MatchString(config.Version) {
+		return xerrors.Errorf("invalid firmware version: %q", config.Version)
+	}
+	if !safeShellArgRe.MatchString(config.File) {
+		return xerrors.Errorf("invalid firmware file: %q", config.File)
+	}
 
 	_, _ = writer.Write([]byte("------> Downloading firmware...\n"))
 	cmd := execabs.Command("/bin/bash", "-c", "wget -O "+os.TempDir()+"/firmware.zip "+config.File)

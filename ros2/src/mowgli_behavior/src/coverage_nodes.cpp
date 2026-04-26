@@ -340,7 +340,7 @@ void TransitToStrip::onHalted()
 // GetNextUnmowedArea — iterate areas, find first with strips remaining
 // ===========================================================================
 
-BT::NodeStatus GetNextUnmowedArea::tick()
+BT::NodeStatus GetNextUnmowedArea::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
   auto helper = ctx->helper_node;
@@ -351,105 +351,117 @@ BT::NodeStatus GetNextUnmowedArea::tick()
         "/map_server_node/get_coverage_status");
   }
 
-  if (!client_->wait_for_service(std::chrono::seconds(2)))
+  if (!client_->service_is_ready())
   {
     RCLCPP_ERROR(ctx->node->get_logger(),
                  "GetNextUnmowedArea: get_coverage_status service not available");
     return BT::NodeStatus::FAILURE;
   }
 
-  uint32_t max_areas = 20;
-  getInput<uint32_t>("max_areas", max_areas);
+  // Reset per-run state
+  getInput<uint32_t>("max_areas", max_areas_);
+  current_area_idx_ = 0;
+  areas_queried_ = 0;
+  areas_complete_ = 0;
 
-  uint32_t areas_queried = 0;
-  uint32_t areas_complete = 0;
+  // Fire off the first async request
+  auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
+  request->area_index = current_area_idx_;
+  pending_future_.emplace(client_->async_send_request(request));
+  call_start_ = std::chrono::steady_clock::now();
 
-  for (uint32_t i = 0; i < max_areas; ++i)
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus GetNextUnmowedArea::onRunning()
+{
+  // Check if current async call has completed
+  if (pending_future_->future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
   {
-    auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
-    request->area_index = i;
-
-    auto future = client_->async_send_request(request);
-    // Poll future without spinning (avoids executor deadlock)
+    // Still waiting — check 2s timeout
+    if (std::chrono::steady_clock::now() - call_start_ > std::chrono::seconds(2))
     {
-      auto timeout = std::chrono::seconds(2);
-      auto start = std::chrono::steady_clock::now();
-      bool completed = false;
-      while (rclcpp::ok())
-      {
-        if (future.wait_for(std::chrono::milliseconds(10)) == std::future_status::ready)
-        {
-          completed = true;
-          break;
-        }
-        if (std::chrono::steady_clock::now() - start > timeout)
-        {
-          break;
-        }
-      }
-      if (!completed)
-      {
-        // Service call timed out. This is DIFFERENT from "no more areas";
-        // we must NOT conclude mowing is done. FAIL loudly so the BT can
-        // retry instead of falling through to the dock-return branch.
-        RCLCPP_ERROR(ctx->node->get_logger(),
-                     "GetNextUnmowedArea: get_coverage_status timed out for area %u after 2s — "
-                     "returning FAILURE (BT should retry, not assume mowing complete)",
-                     i);
-        return BT::NodeStatus::FAILURE;
-      }
+      auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+      RCLCPP_ERROR(ctx->node->get_logger(),
+                   "GetNextUnmowedArea: get_coverage_status timed out for area %u after 2s — "
+                   "returning FAILURE (BT should retry, not assume mowing complete)",
+                   current_area_idx_);
+      return BT::NodeStatus::FAILURE;
     }
+    return BT::NodeStatus::RUNNING;
+  }
 
-    auto response = future.get();
-    if (!response->success)
+  return processResponse();
+}
+
+BT::NodeStatus GetNextUnmowedArea::processResponse()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  auto response = pending_future_->future.get();
+
+  if (!response->success)
+  {
+    // Area index out of range — no more areas to check.
+    if (areas_queried_ == 0)
     {
-      // Area index out of range — no more areas to check.
-      // If we haven't queried any area yet, this means map_server has no
-      // areas defined at all — distinct from "all areas mowed".
-      if (areas_queried == 0)
-      {
-        RCLCPP_WARN(ctx->node->get_logger(),
-                    "GetNextUnmowedArea: no mowing areas defined in map_server "
-                    "(first get_coverage_status returned success=false). "
-                    "Record an area via the GUI before starting mowing.");
-      }
-      break;
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "GetNextUnmowedArea: no mowing areas defined in map_server "
+                  "(first get_coverage_status returned success=false). "
+                  "Record an area via the GUI before starting mowing.");
     }
-
-    areas_queried++;
-
-    if (response->strips_remaining > 0)
+    else
     {
-      setOutput("area_index", i);
-      ctx->current_area = static_cast<int>(i);
-
       RCLCPP_INFO(ctx->node->get_logger(),
-                  "GetNextUnmowedArea: area %u has %u strips remaining (%.1f%% done)",
-                  i,
-                  response->strips_remaining,
-                  response->coverage_percent);
-      return BT::NodeStatus::SUCCESS;
+                  "GetNextUnmowedArea: all %u area(s) complete",
+                  areas_complete_);
     }
-
-    areas_complete++;
-    RCLCPP_INFO(ctx->node->get_logger(),
-                "GetNextUnmowedArea: area %u complete (%.1f%%)",
-                i,
-                response->coverage_percent);
+    return BT::NodeStatus::FAILURE;
   }
 
-  if (areas_queried == 0)
+  areas_queried_++;
+
+  if (response->strips_remaining > 0)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "GetNextUnmowedArea: no areas to mow (none defined)");
+    setOutput("area_index", current_area_idx_);
+    ctx->current_area = static_cast<int>(current_area_idx_);
+
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "GetNextUnmowedArea: area %u has %u strips remaining (%.1f%% done)",
+                current_area_idx_,
+                response->strips_remaining,
+                response->coverage_percent);
+    return BT::NodeStatus::SUCCESS;
   }
-  else
+
+  areas_complete_++;
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "GetNextUnmowedArea: area %u complete (%.1f%%)",
+              current_area_idx_,
+              response->coverage_percent);
+
+  // Move to the next area
+  current_area_idx_++;
+  if (current_area_idx_ >= max_areas_)
   {
     RCLCPP_INFO(ctx->node->get_logger(),
                 "GetNextUnmowedArea: all %u area(s) complete",
-                areas_complete);
+                areas_complete_);
+    return BT::NodeStatus::FAILURE;
   }
-  return BT::NodeStatus::FAILURE;
+
+  // Fire off the next async request
+  auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
+  request->area_index = current_area_idx_;
+  pending_future_.emplace(client_->async_send_request(request));
+  call_start_ = std::chrono::steady_clock::now();
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void GetNextUnmowedArea::onHalted()
+{
+  // Nothing to cancel — service calls complete on their own.
+  // State will be reset in onStart() on next invocation.
 }
 
 }  // namespace mowgli_behavior

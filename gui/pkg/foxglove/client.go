@@ -212,13 +212,12 @@ func (c *Client) Subscribe(topic, msgType, id string, cb func(json.RawMessage), 
 // subscribeTopic sends the subscribe message if the channel is known,
 // otherwise marks the topic as pending.
 func (c *Client) subscribeTopic(topic string) {
-	c.chanMu.RLock()
+	c.chanMu.Lock()
 	ch, ok := c.channels[topic]
-	c.chanMu.RUnlock()
-
 	if ok && c.connected.Load() {
 		subID := c.subIDCounter.Add(1)
 		ch.subscriptionID = subID
+		c.chanMu.Unlock()
 
 		msg := clientSubscribe{
 			Op: "subscribe",
@@ -231,6 +230,7 @@ func (c *Client) subscribeTopic(topic string) {
 				Warn("foxglove: failed to subscribe")
 		}
 	} else {
+		c.chanMu.Unlock()
 		c.pendingMu.Lock()
 		c.pendingTopics[topic] = true
 		c.pendingMu.Unlock()

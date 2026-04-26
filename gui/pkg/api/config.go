@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+
 	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
 )
@@ -64,7 +66,12 @@ func ConfigSetKeysRoute(r *gin.RouterGroup, db types.IDBProvider) gin.IRoutes {
 			return
 		}
 		for key, value := range body {
-			err := db.Set(key, []byte(value.(string)))
+			str, ok := value.(string)
+			if !ok {
+				context.JSON(400, gin.H{"error": fmt.Sprintf("key %s: value must be a string", key)})
+				return
+			}
+			err := db.Set(key, []byte(str))
 			if err != nil {
 				continue
 			}

@@ -16,7 +16,9 @@
 #pragma once
 
 #include <chrono>
+#include <future>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "behaviortree_cpp/behavior_tree.h"
@@ -132,11 +134,11 @@ private:
 // GetNextUnmowedArea — find next area with remaining strips
 // ---------------------------------------------------------------------------
 
-class GetNextUnmowedArea : public BT::SyncActionNode
+class GetNextUnmowedArea : public BT::StatefulActionNode
 {
 public:
   GetNextUnmowedArea(const std::string& name, const BT::NodeConfig& config)
-      : BT::SyncActionNode(name, config)
+      : BT::StatefulActionNode(name, config)
   {
   }
 
@@ -148,10 +150,24 @@ public:
     };
   }
 
-  BT::NodeStatus tick() override;
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
 
 private:
+  /// Process a completed service response. Returns SUCCESS if an unmowed area
+  /// was found, FAILURE if all areas are done / no areas defined, or RUNNING
+  /// if more areas need to be checked (launches next async call internally).
+  BT::NodeStatus processResponse();
+
   rclcpp::Client<mowgli_interfaces::srv::GetCoverageStatus>::SharedPtr client_;
+  std::optional<rclcpp::Client<mowgli_interfaces::srv::GetCoverageStatus>::FutureAndRequestId>
+      pending_future_;
+  std::chrono::steady_clock::time_point call_start_;
+  uint32_t current_area_idx_{0};
+  uint32_t max_areas_{20};
+  uint32_t areas_queried_{0};
+  uint32_t areas_complete_{0};
 };
 
 }  // namespace mowgli_behavior

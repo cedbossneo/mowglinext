@@ -72,21 +72,22 @@
  * ---------------------------------------------------------------------------*/
 /* Signed per-wheel PWM commands. Positive = forward, negative = reverse,
  * 0 = stop. Replaces the old (unsigned magnitude, direction bit) pair so
- * "stop" has exactly one representation on each wheel. */
-static int16_t left_pwm_signed  = 0;
-static int16_t right_pwm_signed = 0;
+ * "stop" has exactly one representation on each wheel.
+ * Written from USB ISR packet handlers, read from motors_handler() in main loop. */
+static volatile int16_t left_pwm_signed  = 0;
+static volatile int16_t right_pwm_signed = 0;
 
 /* ---------------------------------------------------------------------------
  * Blade motor control state
  * ---------------------------------------------------------------------------*/
-static uint8_t target_blade_on_off = 0;
+static volatile uint8_t target_blade_on_off = 0;
 static uint8_t blade_on_off        = 0;
 static uint8_t blade_direction     = 0;
 
 /* ---------------------------------------------------------------------------
  * cmd_vel timeout tracking (replaces ros::Time)
  * ---------------------------------------------------------------------------*/
-static uint32_t last_cmd_vel_tick = 0;
+static volatile uint32_t last_cmd_vel_tick = 0;
 
 /* ---------------------------------------------------------------------------
  * High-level state received from host
@@ -97,7 +98,7 @@ static uint8_t hl_gps_quality  = 0;
 /* ---------------------------------------------------------------------------
  * Heartbeat watchdog
  * ---------------------------------------------------------------------------*/
-static uint32_t last_heartbeat_tick   = 0;
+static volatile uint32_t last_heartbeat_tick   = 0;
 #define HEARTBEAT_TIMEOUT_MS 2000u
 
 /* ---------------------------------------------------------------------------
@@ -141,7 +142,15 @@ static void on_heartbeat(const uint8_t *data, size_t len)
         Emergency_SetState(1);
     }
     if (pkt->emergency_release_requested) {
-        Emergency_SetState(0);
+        /* Only clear emergency if no physical sensor is still asserted.
+         * Firmware is the sole safety authority — never bypass hardware. */
+        if (!Emergency_StopButtonYellow() && !Emergency_StopButtonWhite() &&
+            !Emergency_WheelLiftBlue() && !Emergency_WheelLiftRed() &&
+            !Emergency_Tilt() && !Emergency_LowZAccelerometer()) {
+            Emergency_SetState(0);
+        } else {
+            debug_printf("emergency release rejected: physical sensor still active\r\n");
+        }
     }
 }
 
@@ -298,20 +307,29 @@ extern "C" void chatter_handler()
 extern "C" void motors_handler()
 {
     if (NBT_handler(&motors_nbt)) {
-        blade_on_off = target_blade_on_off;
+        /* Snapshot ISR-written variables under interrupt lock */
+        __disable_irq();
+        int16_t  snap_left_pwm     = left_pwm_signed;
+        int16_t  snap_right_pwm    = right_pwm_signed;
+        uint8_t  snap_target_blade = target_blade_on_off;
+        uint32_t snap_heartbeat    = last_heartbeat_tick;
+        uint32_t snap_cmd_vel      = last_cmd_vel_tick;
+        __enable_irq();
+
+        blade_on_off = snap_target_blade;
 
         if (Emergency_State()) {
             DRIVEMOTOR_SetSpeedSigned(0, 0);
             blade_on_off = 0;
         } else {
-            const uint32_t cmd_vel_age_ms = HAL_GetTick() - last_cmd_vel_tick;
+            const uint32_t cmd_vel_age_ms = HAL_GetTick() - snap_cmd_vel;
 
             if (cmd_vel_age_ms > 200u) {
                 /* Command-vel watchdog: zero motors if the host hasn't
                  * sent a twist in 200 ms (Pi hang, USB glitch, etc). */
                 DRIVEMOTOR_SetSpeedSigned(0, 0);
             } else {
-                DRIVEMOTOR_SetSpeedSigned(left_pwm_signed, right_pwm_signed);
+                DRIVEMOTOR_SetSpeedSigned(snap_left_pwm, snap_right_pwm);
             }
 
             if (cmd_vel_age_ms > 25000u) {
@@ -320,8 +338,8 @@ extern "C" void motors_handler()
         }
 
         // Heartbeat watchdog: if no heartbeat for HEARTBEAT_TIMEOUT_MS, emergency stop
-        if (last_heartbeat_tick != 0 &&
-            (HAL_GetTick() - last_heartbeat_tick) > HEARTBEAT_TIMEOUT_MS) {
+        if (snap_heartbeat != 0 &&
+            (HAL_GetTick() - snap_heartbeat) > HEARTBEAT_TIMEOUT_MS) {
             Emergency_SetState(1);
         }
 
@@ -574,7 +592,7 @@ extern "C" void init_ROS()
     NBT_init(&blade_nbt,   BLADE_NBT_TIME_MS);
 
     last_odom_tick      = HAL_GetTick();
-    last_heartbeat_tick = HAL_GetTick();
+    last_heartbeat_tick = 0;
     last_cmd_vel_tick   = 0;
 }
 

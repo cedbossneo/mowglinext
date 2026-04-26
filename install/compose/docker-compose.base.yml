@@ -33,8 +33,7 @@ services:
     command: >
       ros2 launch mowgli_bringup full_system.launch.py
       enable_foxglove:=${ENABLE_FOXGLOVE:-true}
-      enable_coverage:=true
-      use_lidar:=${LIDAR_ENABLED}
+      use_lidar:=${LIDAR_ENABLED:-true}
     volumes:
       - /dev:/dev
       - mowgli_maps:/ros2_ws/maps

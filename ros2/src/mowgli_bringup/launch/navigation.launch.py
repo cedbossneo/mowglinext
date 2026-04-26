@@ -202,11 +202,11 @@ def generate_launch_description() -> LaunchDescription:
         fp["desired_linear_vel"] = transit_speed
 
         # FollowCoveragePath (FTC: coverage strip controller). Its speed
-        # knob is desired_linear_vel; mowing_speed overrides it.
+        # knob is speed_fast; mowing_speed overrides it.
         fcp = (doc.setdefault("controller_server", {})
                   .setdefault("ros__parameters", {})
                   .setdefault("FollowCoveragePath", {}))
-        fcp["desired_linear_vel"] = mowing_speed
+        fcp["speed_fast"] = mowing_speed
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", prefix="mowgli_nav2_", suffix=".yaml", delete=False)
@@ -411,7 +411,11 @@ def generate_launch_description() -> LaunchDescription:
     # sensor_msgs/Imu on /imu/mag_yaw. Active as soon as mag_calibration.yaml
     # exists (written by /calibrate_imu_yaw_node/calibrate). Unlike
     # cog_to_imu this works with the robot stationary or rotating in place.
+    # Only launch if magnetometer calibration exists — without it the node
+    # publishes nothing and wastes a process.
+    mag_cal_path = "/ros2_ws/maps/mag_calibration.yaml"
     mag_yaw_publisher = Node(
+        condition=IfCondition(str(os.path.isfile(mag_cal_path)).lower()),
         package="mowgli_localization",
         executable="mag_yaw_publisher.py",
         name="mag_yaw_publisher",

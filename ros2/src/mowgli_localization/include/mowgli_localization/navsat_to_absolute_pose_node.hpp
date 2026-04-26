@@ -89,7 +89,7 @@ private:
   ///
   /// UNLIKE pose_pub_ this publishes BASE FRAME (base_footprint) position —
   /// not antenna position. Lever arm is subtracted using the latest
-  /// map→base_footprint TF for the yaw at GPS-fix time. Required so the
+  /// odom→base_footprint TF for the yaw at GPS-fix time. Required so the
   /// EKF tracks the robot body and not the 30-cm antenna circle traced
   /// during pure rotation.
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_pub_;

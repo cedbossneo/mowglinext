@@ -12,7 +12,7 @@
   HighLevelControl commands (HighLevelControl.srv):
     COMMAND_START      = 1
     COMMAND_HOME       = 2
-    COMMAND_S1         = 3   (recording)
+    COMMAND_RECORD_AREA = 3   (area recording)
     COMMAND_S2         = 4   (mow next area)
     COMMAND_MANUAL_MOW = 7
 -->

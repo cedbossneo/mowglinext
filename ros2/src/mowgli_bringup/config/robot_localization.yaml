@@ -221,7 +221,10 @@ ekf_map_node:
     imu1_relative: false
     imu1_remove_gravitational_acceleration: false
 
-    # Process noise — same as ekf_odom
+    # Process noise — copied from ekf_odom (25 Hz). ekf_map_node runs at
+    # 10 Hz but robot_localization internally scales Q by dt, so the same
+    # spectral-density values should be correct.
+    # TODO: verify during next tuning session with GPS dropout test data.
     process_noise_covariance:
       [0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
        0.0,    0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
