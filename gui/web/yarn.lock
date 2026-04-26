@@ -276,10 +276,10 @@
   resolved "https://registry.yarnpkg.com/@biomejs/js-api/-/js-api-4.0.0.tgz#1dac807c2c8e580a69bce141a0628e1a036598dd"
   integrity sha512-EOArR/6drRzM1/hwOIz1pZw90FL31Ud4Y7hEHGWVtMNmAwS9SrwZ8hMENGlLVXCeGW/kL46p8kX7eO6x9Nmezg==
 
-"@biomejs/wasm-nodejs@2.4.10":
-  version "2.4.10"
-  resolved "https://registry.yarnpkg.com/@biomejs/wasm-nodejs/-/wasm-nodejs-2.4.10.tgz#25f2810fd027ffcf4718e6a43a2577c68ff843db"
-  integrity sha512-WG+5mniFUNery9qnByTR2fKkOVroZYbwiJby2B/o8X7/pVA/3dr1EJSCHOearjC26rgjaXXkfb6kmfHiO2cOhA==
+"@biomejs/wasm-nodejs@2.4.12":
+  version "2.4.12"
+  resolved "https://registry.yarnpkg.com/@biomejs/wasm-nodejs/-/wasm-nodejs-2.4.12.tgz#b68b89e40cfe3af112c57b1cb99eb58b82915bea"
+  integrity sha512-3SGczq2LKHJw9TYhJEmNwgBY767wSu+nRZVkp+oDiczYn2u7Xekb4smn/r3KJpaxGKkxxtTV4h6RTwBUKzf8Fw==
 
 "@bramus/specificity@^2.4.2":
   version "2.4.2"
@@ -1289,13 +1289,6 @@
   version "0.1.69"
   resolved "https://registry.yarnpkg.com/@webgpu/types/-/types-0.1.69.tgz#6b849bf370a1f29c78bd3aeba8e84c1150b237f2"
   integrity sha512-RPmm6kgRbI8e98zSD3RVACvnuktIja5+yLgDAkTmxLr90BEwdTXRQWNLF3ETTTyH/8mKhznZuN5AveXYFEsMGQ==
-
-"@welldone-software/why-did-you-render@^10.0.1":
-  version "10.0.1"
-  resolved "https://registry.yarnpkg.com/@welldone-software/why-did-you-render/-/why-did-you-render-10.0.1.tgz#4513c1883add0496b98bcdcdcd243ff10c0f5ece"
-  integrity sha512-tMgGkt30iVYeLMUKExNmtm019QgyjLtA7lwB0QAizYNEuihlCG2eoAWBBaz/bDeI7LeqAJ9msC6hY3vX+JB97g==
-  dependencies:
-    lodash "^4"
 
 acorn-jsx@^5.3.2:
   version "5.3.2"
@@ -2415,11 +2408,6 @@ lodash.merge@^4.6.2:
   version "4.6.2"
   resolved "https://registry.yarnpkg.com/lodash.merge/-/lodash.merge-4.6.2.tgz#558aa53b43b661e1925a0afdfa36a9a1085fe57a"
   integrity sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==
-
-lodash@^4:
-  version "4.18.1"
-  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.18.1.tgz#ff2b66c1f6326d59513de2407bf881439812771c"
-  integrity sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==
 
 loose-envify@^1.4.0:
   version "1.4.0"
@@ -3602,14 +3590,14 @@ swagger-schema-official@2.0.0-bab6bed:
   resolved "https://registry.yarnpkg.com/swagger-schema-official/-/swagger-schema-official-2.0.0-bab6bed.tgz#70070468d6d2977ca5237b2e519ca7d06a2ea3fd"
   integrity sha512-rCC0NWGKr/IJhtRuPq/t37qvZHI/mH4I4sxflVM+qgVe5Z2uOCivzWaVbuioJaB61kvm5UvB7b49E+oBY0M8jA==
 
-swagger-typescript-api@^13.6.6:
-  version "13.6.6"
-  resolved "https://registry.yarnpkg.com/swagger-typescript-api/-/swagger-typescript-api-13.6.6.tgz#60ff81621117e06b5fb42031d8e42ca922d2890a"
-  integrity sha512-gWkZKeX546EVUyTtQqynI9QBB2u+A4jfWQ9LZaXsT0wseKNFBMAfxQqTMz7eC/vyDbP/oWVeoBG81EhxuNuxrA==
+swagger-typescript-api@^13.6.10:
+  version "13.6.10"
+  resolved "https://registry.yarnpkg.com/swagger-typescript-api/-/swagger-typescript-api-13.6.10.tgz#e5ebacbd1a8948756a04911c4e01613e1c9eb69d"
+  integrity sha512-X+DenKK2txtI0LdNcpmWddcZWiWaf6erIZ+m9Wz7vk/yMFmPJ9EljSuX+dnJQ9YuzjV1imaRCDKsHA4CG2wUZA==
   dependencies:
     "@apidevtools/swagger-parser" "12.1.0"
     "@biomejs/js-api" "4.0.0"
-    "@biomejs/wasm-nodejs" "2.4.10"
+    "@biomejs/wasm-nodejs" "2.4.12"
     "@types/swagger-schema-official" "^2.0.25"
     c12 "^3.3.3"
     citty "^0.2.1"
@@ -3623,7 +3611,7 @@ swagger-typescript-api@^13.6.6:
     type-fest "^5.4.4"
     typescript "~6.0.2"
     yaml "^2.8.2"
-    yummies "7.12.0"
+    yummies "7.18.0"
 
 swagger2openapi@^7.0.8:
   version "7.0.8"
@@ -3979,10 +3967,10 @@ yocto-queue@^0.1.0:
   resolved "https://registry.yarnpkg.com/yocto-queue/-/yocto-queue-0.1.0.tgz#0294eb3dee05028d31ee1a5fa2c556a6aaf10a1b"
   integrity sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==
 
-yummies@7.12.0:
-  version "7.12.0"
-  resolved "https://registry.yarnpkg.com/yummies/-/yummies-7.12.0.tgz#a24dd400732cfbfcfca374fa4291be77fbc0d8e8"
-  integrity sha512-X0blIlCAeuQHUaDXzMkpp343R6Op79jzK6/kW98BW/qZpueAodBEkAU2ljNk1nO40KGGJXJZ1Ib8jE41sQENjA==
+yummies@7.18.0:
+  version "7.18.0"
+  resolved "https://registry.yarnpkg.com/yummies/-/yummies-7.18.0.tgz#b7c113191b6f57bce84cf9e508178bf699c3eed2"
+  integrity sha512-fgldINrxPi20XJjIa1LOniyqHROm5HwDmmq0VZtQml4u3cMerm8H7H2BM8kMhHilgd8l7rg3mN4xt2apc2l/xA==
   dependencies:
     class-variance-authority "^0.7.1"
     clsx "^2.1.1"
