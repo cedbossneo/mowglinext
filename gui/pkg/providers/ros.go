@@ -46,6 +46,7 @@ var topicMap = map[string]topicDef{
 	"obstacles":           {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray"},
 	"robotDescription":    {"/robot_description", "std_msgs/msg/String"},                       // published once
 	"recordingTrajectory": {"/behavior_tree_node/recording_trajectory", "nav_msgs/msg/Path"},   // area recording preview
+	"calibrateStatus":     {"/calibrate_imu_yaw_node/calibrate_status", "mowgli_interfaces/msg/CalibrateImuYawStatus"}, // result topic for the IMU-yaw calibration (see CalibrateImuYaw.srv for why)
 }
 
 // ---------------------------------------------------------------------------

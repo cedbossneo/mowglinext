@@ -27,8 +27,7 @@
   <!-- FusionCore is launched by this package but not compiled against -->
   <exec_depend>fusioncore_ros</exec_depend>
 
-  <!-- Python runtime deps for calibrate_imu_yaw_node.py,
-       kinematic_icp_encoder_adapter.py,
+  <!-- Python runtime deps for kinematic_icp_encoder_adapter.py,
        kinematic_icp_scan_frame_relay.py, and
        wheel_odom_tf_node.py.
        sensor_msgs / nav_msgs / mowgli_interfaces are already declared

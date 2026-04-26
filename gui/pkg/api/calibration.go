@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -12,6 +13,14 @@ import (
 	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
 )
+
+// statusTopic is the logical key registered in providers.topicMap for the
+// CalibrateImuYawStatus topic — NOT the raw ROS topic name. The provider
+// translates this to /calibrate_imu_yaw_node/calibrate_status and creates a
+// foxglove_bridge subscription. See mowgli_interfaces/msg/CalibrateImuYawStatus
+// and the discussion in mowgli_interfaces/srv/CalibrateImuYaw for why the
+// result moved off the service response.
+const statusTopic = "calibrateStatus"
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -273,18 +282,55 @@ func postCalibrateImuYaw(rosProvider types.IRosProvider, store *calibrationJobSt
 // Worker
 // ---------------------------------------------------------------------------
 
-// runImuYawCalibration runs the long-blocking ROS service call and writes
-// the result back to the job store. Always called from a fresh goroutine so
-// foxglove_bridge's per-call timeout (or any other downstream stall) cannot
-// block the HTTP response.
+// runImuYawCalibration triggers the calibrate_imu_yaw_node service (which
+// returns immediately with bool success only) and waits for the full result
+// to arrive on the status topic. Always called from a fresh goroutine so
+// neither the service's foxglove_bridge call nor the status wait blocks the
+// HTTP request.
+//
+// Why the indirection? The service response originally carried 12 mixed-type
+// fields (yaw / pitch / roll / sample counts / message). That shape tickled
+// a foxglove_bridge ↔ rmw_cyclonedds GenericClient typesupport-dispatch bug
+// that made the GUI calibration button silently fail (#19). Splitting the
+// result onto a topic — which doesn't go through the same dispatch path —
+// is the workaround. job_id matching prevents a stale `transient_local`
+// status from a previous run from being mistaken for ours.
 func runImuYawCalibration(rosProvider types.IRosProvider, store *calibrationJobStore, jobID string, durationSec float64) {
-	// Generous timeout: the calibration itself runs for up to 120s, plus
-	// foxglove_bridge round-trip overhead.
+	// Generous timeout: the calibration drive itself runs ~30 s and we add a
+	// margin for foxglove_bridge round-trip + RECORDING/IDLE BT transitions.
 	timeout := time.Duration(clampDuration(durationSec)+60.0) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	req := mowgli.CalibrateImuYawReq{DurationSec: durationSec}
+	// Subscribe BEFORE invoking the service — we don't want to race the
+	// node's terminal publish.
+	statusCh := make(chan *mowgli.CalibrateImuYawStatus, 4)
+	subErr := rosProvider.Subscribe(statusTopic, jobID, func(msg []byte) {
+		var s mowgli.CalibrateImuYawStatus
+		if err := json.Unmarshal(msg, &s); err != nil {
+			return // malformed; foxglove_bridge will keep retrying
+		}
+		// Filter stale/cached statuses from a previous run.
+		if s.JobId != jobID {
+			return
+		}
+		select {
+		case statusCh <- &s:
+		default:
+			// Buffer is full (we only need the terminal Done message).
+			// Drop intermediates rather than block the bridge thread.
+		}
+	})
+	if subErr != nil {
+		store.markFailed(jobID, "Failed to subscribe to calibration status: "+subErr.Error())
+		return
+	}
+	defer rosProvider.UnSubscribe(statusTopic, jobID)
+
+	req := mowgli.CalibrateImuYawReq{
+		DurationSec: durationSec,
+		JobId:       jobID,
+	}
 	var res mowgli.CalibrateImuYawRes
 	if err := rosProvider.CallService(
 		ctx,
@@ -296,21 +342,39 @@ func runImuYawCalibration(rosProvider types.IRosProvider, store *calibrationJobS
 		store.markFailed(jobID, "Failed to call calibration service: "+err.Error())
 		return
 	}
+	if !res.Success {
+		// Preflight rejected the request OR another run is in flight. The
+		// node will have published a status with done=true success=false on
+		// the same topic; we still wait for it so the user sees the actual
+		// reason rather than a generic failure.
+	}
 
-	store.markDone(jobID, &CalibrateImuYawResponse{
-		Success:               res.Success,
-		Message:               res.Message,
-		ImuYawRad:             res.ImuYawRad,
-		ImuYawDeg:             res.ImuYawDeg,
-		SamplesUsed:           res.SamplesUsed,
-		StdDevDeg:             res.StdDevDeg,
-		ImuPitchRad:           res.ImuPitchRad,
-		ImuPitchDeg:           res.ImuPitchDeg,
-		ImuRollRad:            res.ImuRollRad,
-		ImuRollDeg:            res.ImuRollDeg,
-		StationarySamplesUsed: res.StationarySamplesUsed,
-		GravityMagMps2:        res.GravityMagMps2,
-	})
+	for {
+		select {
+		case s := <-statusCh:
+			if !s.Done {
+				continue // progress update; ignore for now
+			}
+			store.markDone(jobID, &CalibrateImuYawResponse{
+				Success:               s.Success,
+				Message:               s.Message,
+				ImuYawRad:             s.ImuYawRad,
+				ImuYawDeg:             s.ImuYawDeg,
+				SamplesUsed:           s.SamplesUsed,
+				StdDevDeg:             s.StdDevDeg,
+				ImuPitchRad:           s.ImuPitchRad,
+				ImuPitchDeg:           s.ImuPitchDeg,
+				ImuRollRad:            s.ImuRollRad,
+				ImuRollDeg:            s.ImuRollDeg,
+				StationarySamplesUsed: s.StationarySamplesUsed,
+				GravityMagMps2:        s.GravityMagMps2,
+			})
+			return
+		case <-ctx.Done():
+			store.markFailed(jobID, "Timed out waiting for calibration status")
+			return
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

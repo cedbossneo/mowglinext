@@ -95,6 +95,28 @@ ament_target_dependencies(localization_monitor_node
 )
 
 # ---------------------------------------------------------------------------
+# Executable: calibrate_imu_yaw_node
+# ---------------------------------------------------------------------------
+# Ported from rclpy to rclcpp to dodge a foxglove_bridge ↔ rclpy ↔ cyclonedds
+# cross-language service typesupport dispatch bug (closes #19). All other
+# custom services in mowgli_* are rclcpp and work via the GUI; only this one
+# was hosted by rclpy.
+
+add_executable(calibrate_imu_yaw_node
+  src/calibrate_imu_yaw_node.cpp
+)
+
+target_include_directories(calibrate_imu_yaw_node PUBLIC ${INCLUDE_DIR})
+
+ament_target_dependencies(calibrate_imu_yaw_node
+  rclcpp
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  mowgli_interfaces
+)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
 
@@ -108,6 +130,7 @@ install(
     wheel_odometry_node
     navsat_to_absolute_pose_node
     localization_monitor_node
+    calibrate_imu_yaw_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -126,7 +149,6 @@ install(
 # Python nodes (installed executable, run via `ros2 run mowgli_localization ...`)
 install(
   PROGRAMS
-    scripts/calibrate_imu_yaw_node.py
     scripts/kinematic_icp_encoder_adapter.py
     scripts/kinematic_icp_scan_frame_relay.py
     scripts/wheel_odom_tf_node.py

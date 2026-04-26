@@ -23,6 +23,24 @@ type AbsolutePose struct {
 	MotionHeading             float64                        `json:"motion_heading"`
 }
 
+// CalibrateImuYawStatus matches mowgli_interfaces/msg/CalibrateImuYawStatus.
+type CalibrateImuYawStatus struct {
+	JobId                     string                         `json:"job_id"`
+	Done                      bool                           `json:"done"`
+	Success                   bool                           `json:"success"`
+	Message                   string                         `json:"message"`
+	ImuYawRad                 float64                        `json:"imu_yaw_rad"`
+	ImuYawDeg                 float64                        `json:"imu_yaw_deg"`
+	SamplesUsed               int32                          `json:"samples_used"`
+	StdDevDeg                 float64                        `json:"std_dev_deg"`
+	ImuPitchRad               float64                        `json:"imu_pitch_rad"`
+	ImuPitchDeg               float64                        `json:"imu_pitch_deg"`
+	ImuRollRad                float64                        `json:"imu_roll_rad"`
+	ImuRollDeg                float64                        `json:"imu_roll_deg"`
+	StationarySamplesUsed     int32                          `json:"stationary_samples_used"`
+	GravityMagMps2            float64                        `json:"gravity_mag_mps2"`
+}
+
 // CoveragePath matches mowgli_interfaces/msg/CoveragePath.
 type CoveragePath struct {
 	IsOutline                 bool                           `json:"is_outline"`

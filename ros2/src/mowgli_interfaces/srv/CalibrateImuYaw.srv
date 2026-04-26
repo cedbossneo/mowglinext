@@ -1,21 +1,21 @@
 # Request
-float64 duration_sec    # 0 = default 30s
+float64 duration_sec    # ignored — kept for caller-API compat. The motion
+                        # profile fixed in the calibrate_imu_yaw_node now
+                        # dictates how long sample collection takes.
+string job_id           # caller-issued identifier, echoed in the published
+                        # CalibrateImuYawStatus messages so a subscriber can
+                        # ignore stale `transient_local` cached statuses from
+                        # a previous run.
 ---
 # Response
+# This service ONLY indicates whether the calibration was accepted to start.
+# The full result (yaw / pitch / roll / sample counts / etc.) is published on
+# the `~/calibrate_status` topic when the run finishes — see
+# mowgli_interfaces/msg/CalibrateImuYawStatus.
+#
+# Why split? When this service's response carried 12 mixed-type fields, the
+# foxglove_bridge ↔ rmw_cyclonedds GenericClient dispatch path failed to
+# resolve the response typesupport, breaking the GUI's calibrate button (#19).
+# A single-bool response goes through the same dispatch happily — that's the
+# pattern used elsewhere in this package (see SetDockingPoint).
 bool success
-string message
-float64 imu_yaw_rad     # computed yaw (chip frame)
-float64 imu_yaw_deg     # same in degrees
-int32 samples_used      # valid motion samples used for yaw
-float64 std_dev_deg     # yaw confidence (lower = more consistent)
-
-# Pitch/roll computed from stationary samples collected during the same
-# drive (baseline + inter-cycle pauses). Set these into mowgli_robot.yaml
-# as imu_pitch / imu_roll; applied in URDF before imu_yaw so the values
-# are in chip frame (matching hardware_bridge's dock-calibration log).
-float64 imu_pitch_rad
-float64 imu_pitch_deg
-float64 imu_roll_rad
-float64 imu_roll_deg
-int32 stationary_samples_used   # samples contributing to pitch/roll
-float64 gravity_mag_mps2        # |accel| during stationary; expect ~9.81

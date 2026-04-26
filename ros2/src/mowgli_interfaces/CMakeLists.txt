@@ -26,6 +26,7 @@ set(msg_files
   "msg/MapArea.msg"
   "msg/ObstacleArray.msg"
   "msg/TrackedObstacle.msg"
+  "msg/CalibrateImuYawStatus.msg"
 )
 
 # Declare service files

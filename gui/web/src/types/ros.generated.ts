@@ -149,6 +149,23 @@ export type AbsolutePose = {
   motion_heading?: number;
 };
 
+export type CalibrateImuYawStatus = {
+  job_id?: string;
+  done?: boolean;
+  success?: boolean;
+  message?: string;
+  imu_yaw_rad?: number;
+  imu_yaw_deg?: number;
+  samples_used?: number;
+  std_dev_deg?: number;
+  imu_pitch_rad?: number;
+  imu_pitch_deg?: number;
+  imu_roll_rad?: number;
+  imu_roll_deg?: number;
+  stationary_samples_used?: number;
+  gravity_mag_mps2?: number;
+};
+
 export type CoveragePath = {
   is_outline?: boolean;
   path?: Path;
