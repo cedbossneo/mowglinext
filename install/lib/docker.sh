@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+docker_cmd() {
+  if id -nG | grep -qw docker 2>/dev/null; then
+    docker "$@"
+  else
+    sg docker -c "$(printf '%q ' docker "$@")"
+  fi
+}
+
 install_docker() {
   step "1/6  Docker"
 
@@ -18,9 +26,9 @@ install_docker() {
     exit 1
   fi
 
-  if ! groups "$USER" | grep -qw docker 2>/dev/null; then
+  if ! id -nG "$USER" | grep -qw docker 2>/dev/null; then
     require_root_for "docker group"
     $SUDO usermod -aG docker "$USER"
-    warn "Added $USER to docker group — log out/in for it to take effect"
+    warn "Added $USER to docker group — current shell may not have access yet"
   fi
 }

@@ -1,12 +1,37 @@
 #!/usr/bin/env bash
+
 setup_directory() {
   step "Preparing repository"
 
   if [ -d "$REPO_DIR/.git" ]; then
     info "Updating existing git repository in $REPO_DIR"
-    git -C "$REPO_DIR" fetch origin
-    git -C "$REPO_DIR" reset --hard "origin/$REPO_BRANCH"
-    return
+
+    if ! git -C "$REPO_DIR" fetch origin "$REPO_BRANCH"; then
+      error "Failed to fetch branch '$REPO_BRANCH' from origin"
+      return 1
+    fi
+
+    if ! git -C "$REPO_DIR" rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+      error "Fetched branch '$REPO_BRANCH' is not available"
+      return 1
+    fi
+
+    if ! git -C "$REPO_DIR" checkout -B "$REPO_BRANCH" FETCH_HEAD; then
+      error "Failed to check out branch '$REPO_BRANCH'"
+      return 1
+    fi
+
+    if ! git -C "$REPO_DIR" reset --hard FETCH_HEAD; then
+      error "Failed to reset repository to fetched branch '$REPO_BRANCH'"
+      return 1
+    fi
+
+    if [ ! -d "$INSTALL_DIR" ]; then
+      error "Install directory not found in existing repository: $INSTALL_DIR"
+      return 1
+    fi
+
+    return 0
   fi
 
   if [ -d "$REPO_DIR" ]; then
@@ -23,12 +48,17 @@ setup_directory() {
   fi
 
   info "Cloning repository into $REPO_DIR"
-  git clone --branch "$REPO_BRANCH" --depth 1 "$REPO_URL" "$REPO_DIR"
-
-  if [ ! -d "$INSTALL_DIR" ]; then
-    error "Docker directory not found after clone: $INSTALL_DIR"
+  if ! git clone --branch "$REPO_BRANCH" --depth 1 "$REPO_URL" "$REPO_DIR"; then
+    error "Failed to clone branch '$REPO_BRANCH' from $REPO_URL"
     return 1
   fi
+
+  if [ ! -d "$INSTALL_DIR" ]; then
+    error "Install directory not found after clone: $INSTALL_DIR"
+    return 1
+  fi
+
+  return 0
 }
 
 run_startup_step_live() {
@@ -38,4 +68,50 @@ run_startup_step_live() {
   if ! $SKIP_WRITE_CONFIG; then
     auto_detect_position
   fi
+}
+
+backup_path_if_exists() {
+  local path="$1"
+  if [ -e "$path" ]; then
+    local backup="${path}.old.$(date +%Y%m%d_%H%M%S)"
+    mv "$path" "$backup"
+    info "Moved old runtime path: $path -> $backup"
+  fi
+}
+
+fix_path_type_conflict() {
+  local path="$1"
+  local expected_type="$2"   # file | dir
+
+  if [ "$expected_type" = "file" ] && [ -d "$path" ]; then
+    backup_path_if_exists "$path"
+  fi
+
+  if [ "$expected_type" = "dir" ] && [ -f "$path" ]; then
+    backup_path_if_exists "$path"
+  fi
+}
+
+migrate_runtime_paths() {
+  step "Preparing runtime directory"
+
+  # Only runtime files under docker/
+  backup_path_if_exists "$DOCKER_DIR/.env"
+  backup_path_if_exists "$DOCKER_DIR/docker-compose.yaml"
+
+  # Optional: backup generated runtime config folders only if you want a clean regen
+  # backup_path_if_exists "$DOCKER_DIR/config/mqtt"
+  # backup_path_if_exists "$DOCKER_DIR/config/mowgli"
+  # backup_path_if_exists "$DOCKER_DIR/config/om"
+  # backup_path_if_exists "$DOCKER_DIR/config/db"
+
+  mkdir -p "$DOCKER_DIR"
+  mkdir -p "$DOCKER_DIR/config/mqtt"
+  mkdir -p "$DOCKER_DIR/config/mowgli"
+  mkdir -p "$DOCKER_DIR/config/om"
+  mkdir -p "$DOCKER_DIR/config/db"
+
+  # Fix bad old mounts that created directories instead of files
+  fix_path_type_conflict "$DOCKER_DIR/config/mqtt/mosquitto.conf" "file"
+  fix_path_type_conflict "$DOCKER_DIR/config/cyclonedds.xml" "file"
 }
