@@ -15,16 +15,20 @@ upsert_env_key() {
 setup_env() {
   step "Environment (.env)"
 
-  local env_file="$INSTALL_DIR/.env"
+  local env_file="$REPO_DIR/docker/.env"
+  mkdir -p "$REPO_DIR/docker"
 
   : "${ROS_DOMAIN_ID:=0}"
   : "${MOWER_IP:=10.0.0.161}"
   : "${DISABLE_BLUETOOTH:=true}"
+  : "${ENABLE_FOXGLOVE:=true}"
 
   # GPS
+  : "${GNSS_BACKEND:=gps}"
   : "${GPS_CONNECTION:=uart}"
   : "${GPS_PROTOCOL:=UBX}"
   : "${GPS_PORT:=/dev/gps}"
+  : "${GPS_BY_ID:=}"
   : "${GPS_UART_DEVICE:=/dev/ttyAMA4}"
   : "${GPS_BAUD:=460800}"
 
@@ -58,6 +62,7 @@ setup_env() {
   : "${GPS_IMAGE:=${GPS_IMAGE_DEFAULT}}"
   : "${GUI_IMAGE:=${GUI_IMAGE_DEFAULT}}"
   : "${MAVROS_IMAGE:=${MAVROS_IMAGE_DEFAULT}}"
+
   if [[ -z "${LIDAR_IMAGE:-}" ]]; then
     case "${LIDAR_TYPE:-ldlidar}" in
       rplidar) LIDAR_IMAGE="${LIDAR_RPLIDAR_IMAGE_DEFAULT}" ;;
@@ -66,15 +71,39 @@ setup_env() {
     esac
   fi
 
+  # MAVROS / backend
+  : "${HARDWARE_BACKEND:=mowgli}"
+  : "${MAVROS_AUTOPILOT:=ardupilot}"
+  : "${MAVROS_BY_ID:=}"
+  : "${MAVROS_PORT:=/dev/mavros}"
+  : "${MAVROS_BAUD:=921600}"
+  : "${MAVROS_GCS_URL:=udp-b://@255.255.255.255:14550}" # udp-b = broadcast, udp = unicast, empty = disabled
+  : "${MAVROS_TGT_SYSTEM:=1}"
+  : "${MAVROS_TGT_COMPONENT:=1}"
+
+  # Si MAVROS → GNSS backend désactivé
+  if [[ "$HARDWARE_BACKEND" == "mavros" ]]; then
+    GNSS_BACKEND="disabled"
+  fi
+
+  local enable_mavros="false"
+  if [[ "$HARDWARE_BACKEND" == "mavros" ]]; then
+    enable_mavros="true"
+  fi
+  MAVROS_ENABLED="$enable_mavros"
+
   touch "$env_file"
 
   upsert_env_key "$env_file" "ROS_DOMAIN_ID" "$ROS_DOMAIN_ID"
   upsert_env_key "$env_file" "MOWER_IP" "$MOWER_IP"
   upsert_env_key "$env_file" "DISABLE_BLUETOOTH" "$DISABLE_BLUETOOTH"
+  upsert_env_key "$env_file" "ENABLE_FOXGLOVE" "$ENABLE_FOXGLOVE"
 
+  upsert_env_key "$env_file" "GNSS_BACKEND" "$GNSS_BACKEND"
   upsert_env_key "$env_file" "GPS_CONNECTION" "$GPS_CONNECTION"
   upsert_env_key "$env_file" "GPS_PROTOCOL" "$GPS_PROTOCOL"
   upsert_env_key "$env_file" "GPS_PORT" "$GPS_PORT"
+  upsert_env_key "$env_file" "GPS_BY_ID" "$GPS_BY_ID"
   upsert_env_key "$env_file" "GPS_UART_DEVICE" "$GPS_UART_DEVICE"
   upsert_env_key "$env_file" "GPS_BAUD" "$GPS_BAUD"
   upsert_env_key "$env_file" "GPS_DEBUG_ENABLED" "$GPS_DEBUG_ENABLED"
@@ -106,5 +135,16 @@ setup_env() {
   upsert_env_key "$env_file" "MAVROS_IMAGE" "$MAVROS_IMAGE"
   upsert_env_key "$env_file" "GUI_IMAGE" "$GUI_IMAGE"
 
+  upsert_env_key "$env_file" "HARDWARE_BACKEND" "$HARDWARE_BACKEND"
+  upsert_env_key "$env_file" "MAVROS_ENABLED" "$MAVROS_ENABLED"
+  upsert_env_key "$env_file" "MAVROS_BY_ID" "$MAVROS_BY_ID"
+  upsert_env_key "$env_file" "MAVROS_PORT" "$MAVROS_PORT"
+  upsert_env_key "$env_file" "MAVROS_BAUD" "$MAVROS_BAUD"
+  upsert_env_key "$env_file" "MAVROS_GCS_URL" "$MAVROS_GCS_URL"
+  upsert_env_key "$env_file" "MAVROS_TGT_SYSTEM" "$MAVROS_TGT_SYSTEM"
+  upsert_env_key "$env_file" "MAVROS_TGT_COMPONENT" "$MAVROS_TGT_COMPONENT"
+  upsert_env_key "$env_file" "MAVROS_AUTOPILOT" "$MAVROS_AUTOPILOT"
+  
+  info "Backend selection : HARDWARE_BACKEND=$HARDWARE_BACKEND GNSS_BACKEND=$GNSS_BACKEND"
   info "Updated $env_file"
 }
