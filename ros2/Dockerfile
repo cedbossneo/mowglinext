@@ -113,13 +113,7 @@ COPY src/mowgli_simulation/package.xml    src/mowgli_simulation/package.xml
 COPY src/mowgli_simulation/CMakeLists.txt src/mowgli_simulation/CMakeLists.txt
 COPY src/mowgli_bringup/package.xml       src/mowgli_bringup/package.xml
 COPY src/mowgli_bringup/CMakeLists.txt    src/mowgli_bringup/CMakeLists.txt
-# FusionCore (source-built sensor fusion)
-COPY src/fusioncore/fusioncore_core/package.xml    src/fusioncore/fusioncore_core/package.xml
-COPY src/fusioncore/fusioncore_core/CMakeLists.txt src/fusioncore/fusioncore_core/CMakeLists.txt
-COPY src/fusioncore/fusioncore_ros/package.xml     src/fusioncore/fusioncore_ros/package.xml
-COPY src/fusioncore/fusioncore_ros/CMakeLists.txt  src/fusioncore/fusioncore_ros/CMakeLists.txt
-COPY src/fusioncore/compass_msgs/package.xml       src/fusioncore/compass_msgs/package.xml
-COPY src/fusioncore/compass_msgs/CMakeLists.txt    src/fusioncore/compass_msgs/CMakeLists.txt
+# FusionCore removed 2026-04-26 — replaced by robot_localization stack.
 
 # Resolve rosdep dependencies (cached until package.xml changes)
 RUN rosdep update --rosdistro kilted \
@@ -159,13 +153,6 @@ ARG BUILD_TYPE=Release
 # Now copy the rest of the source tree
 COPY src/ src/
 
-# FusionCore monorepo has a top-level CMakeLists.txt that colcon treats as a
-# single cmake package, shadowing the sub-packages. Symlink sub-packages to
-# workspace root so colcon discovers them individually.
-RUN ln -sf fusioncore/fusioncore_core src/fusioncore_core \
- && ln -sf fusioncore/fusioncore_ros  src/fusioncore_ros \
- && ln -sf fusioncore/compass_msgs    src/compass_msgs
-
 # kinematic_icp is a cpp+ros monorepo (cpp/, ros/). Unlike KISS-ICP it has no
 # top-level CMakeLists.txt, so colcon's recursive scan finds
 # kinematic_icp/ros/package.xml directly — no symlink needed. The ros
@@ -177,7 +164,6 @@ RUN /bin/bash -c "\
     source /opt/ros/kilted/setup.bash && \
     source install/setup.bash && \
     colcon build \
-      --packages-ignore fusioncore fusioncore_gazebo \
       --cmake-args -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DBUILD_TESTING=OFF \
       --parallel-workers \$(nproc) \
       --event-handlers console_cohesion+ \
