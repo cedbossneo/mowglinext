@@ -26,8 +26,8 @@ export const SensorsSection: React.FC<Props> = ({ values, onChange }) => {
                         </Paragraph>
                     </div>
                     <Switch
-                        checked={values.use_lidar ?? false}
-                        onChange={(v) => onChange("use_lidar", v)}
+                        checked={values.lidar_enabled ?? false}
+                        onChange={(v) => onChange("lidar_enabled", v)}
                     />
                 </div>
             </Card>

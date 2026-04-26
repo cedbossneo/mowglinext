@@ -1,6 +1,6 @@
 import {Col, Row, Statistic} from "antd";
 import {useGPS} from "../hooks/useGPS.ts";
-import { booleanFormatter, booleanFormatterInverted } from "./utils.tsx";
+import { booleanFormatter, booleanFormatterInverted, gpsFixTypeLabel } from "./utils.tsx";
 import { AbsolutePoseConstants as Flags } from "../types/ros.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 
@@ -11,14 +11,7 @@ export function GpsComponent() {
     const flags = gps.flags ?? 0;
     // RTK is active when FIXED or FLOAT bit is set (not just the base RTK/GPS-fix bit)
     const hasRtk = !!((flags & Flags.FLAG_GPS_RTK_FIXED) || (flags & Flags.FLAG_GPS_RTK_FLOAT));
-    let fixType = "\u2013";
-    if ((flags & Flags.FLAG_GPS_RTK_FIXED) != 0) {
-        fixType = "RTK FIX";
-    } else if ((flags & Flags.FLAG_GPS_RTK_FLOAT) != 0) {
-        fixType = "RTK FLOAT";
-    } else if ((flags & Flags.FLAG_GPS_RTK) != 0) {
-        fixType = "GPS FIX";
-    }
+    const fixType = gpsFixTypeLabel(flags);
 
     return <>
         <Row gutter={[16, 16]}>

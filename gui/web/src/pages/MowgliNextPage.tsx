@@ -19,6 +19,7 @@ import {ImuComponent} from "../components/ImuComponent.tsx";
 import {GpsComponent} from "../components/GpsComponent.tsx";
 import {WheelTicksComponent} from "../components/WheelTicksComponent.tsx";
 import {SystemInfoComponent} from "../components/SystemInfoComponent.tsx";
+import {gpsFixTypeHint} from "../components/utils.tsx";
 
 function useMowerData() {
   const {highLevelStatus} = useHighLevelStatus();
@@ -67,6 +68,7 @@ function useMowerData() {
     charging: isCharging,
     emergency: isEmergency,
     gps: gpsQuality,
+    gpsFlags: gps.flags ?? 0,
     vBattery: power.v_battery ?? 0,
     current: power.charge_current ?? 0,
     rpm: status.mower_motor_rpm ?? 0,
@@ -117,12 +119,11 @@ export const MowgliNextPage = () => {
     currentArea: data.currentArea,
   };
 
-  const gpsHint = (() => {
-    if (data.gps >= 100) return 'RTK fixed';
-    if (data.gps >= 50) return 'RTK float';
-    if (data.gps > 0) return 'GPS fix';
-    return 'No GPS';
-  })();
+  // Always derive the hint from the authoritative AbsolutePose flags, never from
+  // the gps_quality_percent number — that one is a heuristic (HDOP-derived) and
+  // would round 60-99 % down to "RTK float" while the device is actually FIXED.
+  // See issue #24.
+  const gpsHint = gpsFixTypeHint(data.gpsFlags);
 
   if (isMobile) {
     return (

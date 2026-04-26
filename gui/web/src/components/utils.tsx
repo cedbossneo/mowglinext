@@ -1,6 +1,26 @@
 import {CheckCircleTwoTone, CloseCircleTwoTone} from "@ant-design/icons";
 import {Progress} from "antd";
 import {COLORS} from "../theme/colors.ts";
+import {AbsolutePoseConstants as Flags} from "../types/ros.ts";
+
+// Single source of truth for the GPS fix-type string. All UI surfaces (GPS card,
+// dashboard hint, diagnostics) MUST go through this helper so the dashboard never
+// shows "RTK float" while the diagnostics panel shows "RTK FIX" again.
+export const gpsFixTypeLabel = (flags: number | null | undefined): string => {
+    const f = flags ?? 0;
+    if (f & Flags.FLAG_GPS_RTK_FIXED) return "RTK FIX";
+    if (f & Flags.FLAG_GPS_RTK_FLOAT) return "RTK FLOAT";
+    if (f & Flags.FLAG_GPS_RTK) return "GPS FIX";
+    return "No Fix";
+};
+
+export const gpsFixTypeHint = (flags: number | null | undefined): string => {
+    const f = flags ?? 0;
+    if (f & Flags.FLAG_GPS_RTK_FIXED) return "RTK fixed";
+    if (f & Flags.FLAG_GPS_RTK_FLOAT) return "RTK float";
+    if (f & Flags.FLAG_GPS_RTK) return "GPS fix";
+    return "No GPS";
+};
 
 export const booleanFormatter = (value: any) => (value === "On" || value === "Yes") ?
     <CheckCircleTwoTone twoToneColor={COLORS.primary}/> : <CloseCircleTwoTone

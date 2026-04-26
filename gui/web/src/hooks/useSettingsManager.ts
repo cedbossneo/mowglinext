@@ -55,7 +55,7 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
             "lidar_enabled", "lidar_x", "lidar_y", "lidar_z", "lidar_yaw",
             "imu_x", "imu_y", "imu_z", "imu_yaw", "imu_pitch", "imu_roll",
             "gps_x", "gps_y", "gps_z",
-            "use_lidar", "dock_pose_yaw",
+            "dock_pose_yaw",
         ],
     },
     {

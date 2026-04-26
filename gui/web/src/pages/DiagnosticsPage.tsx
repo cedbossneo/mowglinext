@@ -37,10 +37,10 @@ import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
 import {useDiagnostics} from "../hooks/useDiagnostics.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useIsMobile} from "../hooks/useIsMobile";
-import {AbsolutePoseConstants} from "../types/ros.ts";
 import {useMemo} from "react";
 import {useSettings} from "../hooks/useSettings.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
+import {gpsFixTypeLabel} from "../components/utils.tsx";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,12 +107,7 @@ export const DiagnosticsPage = () => {
     );
 
     const gpsFlags = gps.flags ?? 0;
-    const gpsFixType = useMemo(() => {
-        if (gpsFlags & AbsolutePoseConstants.FLAG_GPS_RTK_FIXED) return "RTK FIX";
-        if (gpsFlags & AbsolutePoseConstants.FLAG_GPS_RTK_FLOAT) return "RTK FLOAT";
-        if (gpsFlags & AbsolutePoseConstants.FLAG_GPS_RTK) return "GPS FIX";
-        return "No Fix";
-    }, [gpsFlags]);
+    const gpsFixType = useMemo(() => gpsFixTypeLabel(gpsFlags), [gpsFlags]);
 
     const orientation = pose.pose?.pose?.orientation;
     const qx = orientation?.x ?? 0;
