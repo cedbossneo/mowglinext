@@ -335,45 +335,39 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   // Resize map to fit loaded areas (if any).
   resize_map_to_areas();
 
-  // If no docking pose was loaded from the persisted file, initialise from
-  // the dock_pose_x/y/yaw parameters in mowgli_robot.yaml. This ensures the
-  // GUI and BT always have a dock pose on first boot.
-  if (!docking_pose_set_)
+  // Dock pose: single source of truth is /ros2_ws/maps/dock_calibration.yaml.
+  // Falls back to dock_pose_x/y/yaw parameters from mowgli_robot.yaml if the
+  // file is missing or unparseable (first boot, before any calibration or
+  // manual placement via the GUI).
+  double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
+  double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
+  double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
+  const char* dock_source = "parameters";
+
+  if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
   {
-    double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
-    double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
-    double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
-    const char* dock_source = "parameters";
+    dock_x = file_cal->x;
+    dock_y = file_cal->y;
+    dock_yaw = file_cal->yaw_rad;
+    dock_source = "dock_calibration.yaml";
+  }
 
-    // Override the config-file dock pose with the calibrated value when
-    // available. The file is written by /calibrate_imu_yaw_node/calibrate
-    // and carries a GPS-derived yaw with ~1° σ — considerably better than
-    // the phone-compass value a user enters once at install time.
-    if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
-    {
-      dock_x = file_cal->x;
-      dock_y = file_cal->y;
-      dock_yaw = file_cal->yaw_rad;
-      dock_source = "dock_calibration.yaml";
-    }
-
-    if (dock_x != 0.0 || dock_y != 0.0 || dock_yaw != 0.0)
-    {
-      docking_pose_.position.x = dock_x;
-      docking_pose_.position.y = dock_y;
-      docking_pose_.position.z = 0.0;
-      docking_pose_.orientation.w = std::cos(dock_yaw / 2.0);
-      docking_pose_.orientation.z = std::sin(dock_yaw / 2.0);
-      docking_pose_.orientation.x = 0.0;
-      docking_pose_.orientation.y = 0.0;
-      docking_pose_set_ = true;
-      RCLCPP_INFO(get_logger(),
-                  "Dock pose from %s: (%.3f, %.3f) yaw=%.3f",
-                  dock_source,
-                  dock_x,
-                  dock_y,
-                  dock_yaw);
-    }
+  if (dock_x != 0.0 || dock_y != 0.0 || dock_yaw != 0.0)
+  {
+    docking_pose_.position.x = dock_x;
+    docking_pose_.position.y = dock_y;
+    docking_pose_.position.z = 0.0;
+    docking_pose_.orientation.w = std::cos(dock_yaw / 2.0);
+    docking_pose_.orientation.z = std::sin(dock_yaw / 2.0);
+    docking_pose_.orientation.x = 0.0;
+    docking_pose_.orientation.y = 0.0;
+    docking_pose_set_ = true;
+    RCLCPP_INFO(get_logger(),
+                "Dock pose from %s: (%.3f, %.3f) yaw=%.3f",
+                dock_source,
+                dock_x,
+                dock_y,
+                dock_yaw);
   }
 
   // Publish docking pose if available (transient_local ensures late subscribers get it).
@@ -1975,17 +1969,32 @@ void MapServerNode::on_set_docking_point(
               docking_pose_.orientation.z,
               docking_pose_.orientation.w);
 
-  // Auto-save if persistence path is set.
-  if (!areas_file_path_.empty())
+  // Persist to dock_calibration.yaml — single source of truth for dock pose.
+  // Manual placements via the GUI land here; calibrate_imu_yaw and
+  // dock_yaw_to_set_pose write the same file from their own paths.
+  try
   {
-    try
+    const double yaw_rad =
+        2.0 * std::atan2(docking_pose_.orientation.z, docking_pose_.orientation.w);
+    std::ofstream out("/ros2_ws/maps/dock_calibration.yaml");
+    if (out.is_open())
     {
-      save_areas_to_file(areas_file_path_);
+      out << "dock_calibration:\n";
+      out << "  dock_pose_x: " << docking_pose_.position.x << "\n";
+      out << "  dock_pose_y: " << docking_pose_.position.y << "\n";
+      out << "  dock_pose_yaw_rad: " << yaw_rad << "\n";
+      out << "  dock_pose_yaw_deg: " << (yaw_rad * 180.0 / M_PI) << "\n";
+      out << "  source: manual_set_docking_point\n";
+      out.close();
     }
-    catch (const std::exception& ex)
+    else
     {
-      RCLCPP_WARN(get_logger(), "Auto-save after docking point change failed: %s", ex.what());
+      RCLCPP_WARN(get_logger(), "Could not open dock_calibration.yaml for writing");
     }
+  }
+  catch (const std::exception& ex)
+  {
+    RCLCPP_WARN(get_logger(), "Failed to persist dock_calibration.yaml: %s", ex.what());
   }
 
   res->success = true;
@@ -2094,17 +2103,10 @@ void MapServerNode::save_areas_to_file(const std::string& path)
     out << "\n";
   }
 
-  out << "docking_pose_set: " << (docking_pose_set_ ? 1 : 0) << "\n";
-  if (docking_pose_set_)
-  {
-    out << "dock_x: " << docking_pose_.position.x << "\n";
-    out << "dock_y: " << docking_pose_.position.y << "\n";
-    out << "dock_z: " << docking_pose_.position.z << "\n";
-    out << "dock_qx: " << docking_pose_.orientation.x << "\n";
-    out << "dock_qy: " << docking_pose_.orientation.y << "\n";
-    out << "dock_qz: " << docking_pose_.orientation.z << "\n";
-    out << "dock_qw: " << docking_pose_.orientation.w << "\n";
-  }
+  // Dock pose intentionally NOT serialized here. The single source of truth
+  // is /ros2_ws/maps/dock_calibration.yaml — written by dock_yaw_to_set_pose,
+  // calibrate_imu_yaw, or on_set_docking_point. Storing it in areas.dat too
+  // led to a stale all-zero pose taking precedence over the calibrated value.
 
   out.close();
 }
@@ -2202,23 +2204,9 @@ void MapServerNode::load_areas_from_file(const std::string& path)
     }
   }
 
-  // Load docking point.
-  docking_pose_set_ = (get_int("docking_pose_set", 0) != 0);
-  if (docking_pose_set_)
-  {
-    docking_pose_.position.x = get_double("dock_x", 0.0);
-    docking_pose_.position.y = get_double("dock_y", 0.0);
-    docking_pose_.position.z = get_double("dock_z", 0.0);
-    docking_pose_.orientation.x = get_double("dock_qx", 0.0);
-    docking_pose_.orientation.y = get_double("dock_qy", 0.0);
-    docking_pose_.orientation.z = get_double("dock_qz", 0.0);
-    docking_pose_.orientation.w = get_double("dock_qw", 1.0);
-
-    RCLCPP_INFO(get_logger(),
-                "Loaded docking point: (%.3f, %.3f)",
-                docking_pose_.position.x,
-                docking_pose_.position.y);
-  }
+  // Dock pose is loaded from dock_calibration.yaml at construction, never
+  // from areas.dat. Old areas.dat files may still contain dock_x/dock_qw
+  // keys — they are ignored on purpose.
 
   // Resize map to fit new areas and reset masks.
   resize_map_to_areas();
