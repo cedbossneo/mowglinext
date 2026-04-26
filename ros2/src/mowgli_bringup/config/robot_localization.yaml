@@ -37,13 +37,15 @@
 # smooth, high-rate pose.
 ekf_odom_node:
   ros__parameters:
-    # 10 Hz: with K-ICP fusion re-enabled (odom1) higher target rates
-    # collapsed under per-tick CPU pressure (20 Hz → 2 Hz, 15 Hz → 4 Hz).
-    # 10 Hz aligns the filter tick with K-ICP and ekf_map arrivals so
-    # they're processed in the same step instead of bouncing the
-    # filter state between them. Nav2 controller runs at 10 Hz so we
-    # match its consumption rate. Live measurement: ~9 Hz publish.
-    frequency: 10.0
+    # 25 Hz target. 10 Hz config landed at ~5 Hz live (timer underrun under
+    # the K-ICP load), which made odom→base_footprint TF arrive with
+    # 200–350 ms gaps. collision_monitor and controller_server both have
+    # transform_tolerance ≤ 0.5 s and were rejecting every lookup, so cmd_vel
+    # was being dropped at the safety stage and the robot froze in transit.
+    # Earlier history: 20 Hz once collapsed to 2 Hz, 15 Hz to 4 Hz under
+    # heavier per-tick load — re-evaluate live and back off if this one
+    # collapses too.
+    frequency: 25.0
     sensor_timeout: 0.5
     two_d_mode: true            # forces Z=0, roll=0, pitch=0
     transform_time_offset: 0.0
@@ -70,7 +72,7 @@ ekf_odom_node:
                    true,  true,  false,   # vx, vy, vz      — fuse vx + vy=0
                    false, false, true,    # vroll, vpitch, vyaw — fuse wz
                    false, false, false]   # ax, ay, az      — not available
-    odom0_queue_size: 10
+    odom0_queue_size: 3
     odom0_differential: false   # not integrating abs pose anyway
     odom0_relative: false
     odom0_nodelay: false
@@ -85,10 +87,13 @@ ekf_odom_node:
                   false, false, false,    # vx, vy, vz
                   false, false, true,     # vroll, vpitch, vyaw — fuse gyro_z
                   false, false, false]    # ax, ay, az — not fusing; drift-prone
-    # IMU at 91 Hz × queue 50 = 0.55 s buffered, way more than the EKF
-    # ever uses on a single tick. Trimmed to 15 = ~165 ms of buffer,
-    # plenty for jitter without dragging the filter step.
-    imu0_queue_size: 15
+    # IMU at 91 Hz × queue 5 = 55 ms of buffer. Earlier 15 (~165 ms)
+    # combined with K-ICP odom1 saturated the single-thread executor and
+    # collapsed the EKF publisher to ~5 Hz — odom→base_footprint TF then
+    # arrived 200–350 ms late and Nav2's collision_monitor / controller
+    # rejected every lookup. The filter only needs the latest sample to
+    # predict; deeper queues just feed it stale work.
+    imu0_queue_size: 5
     imu0_differential: false
     imu0_relative: false
     imu0_remove_gravitational_acceleration: true
@@ -107,7 +112,7 @@ ekf_odom_node:
                    true,  true,  false,
                    false, false, true,
                    false, false, false]
-    odom1_queue_size: 10
+    odom1_queue_size: 3
     odom1_differential: false
     odom1_relative: false
 
@@ -195,10 +200,13 @@ ekf_map_node:
                   false, false, false,
                   false, false, true,
                   false, false, false]
-    # IMU at 91 Hz × queue 50 = 0.55 s buffered, way more than the EKF
-    # ever uses on a single tick. Trimmed to 15 = ~165 ms of buffer,
-    # plenty for jitter without dragging the filter step.
-    imu0_queue_size: 15
+    # IMU at 91 Hz × queue 5 = 55 ms of buffer. Earlier 15 (~165 ms)
+    # combined with K-ICP odom1 saturated the single-thread executor and
+    # collapsed the EKF publisher to ~5 Hz — odom→base_footprint TF then
+    # arrived 200–350 ms late and Nav2's collision_monitor / controller
+    # rejected every lookup. The filter only needs the latest sample to
+    # predict; deeper queues just feed it stale work.
+    imu0_queue_size: 5
     imu0_remove_gravitational_acceleration: true
 
     # ─ IMU 1 — GPS course-over-ground derived absolute yaw ─
