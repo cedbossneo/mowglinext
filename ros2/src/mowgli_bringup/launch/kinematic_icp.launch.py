@@ -136,6 +136,8 @@ def generate_launch_description() -> LaunchDescription:
         name="kinematic_icp_online_node",
         namespace="kinematic_icp",
         output="screen",
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[
             kicp_config,
             {
