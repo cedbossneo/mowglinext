@@ -163,6 +163,28 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # ------------------------------------------------------------------
+    # 5. Charging-aware lifecycle coordinator (issue #29 Layer 1).
+    #    Listens to /hardware_bridge/status; when is_charging stays true
+    #    for >= debounce, calls lifecycle DEACTIVATE on ldlidar_node and
+    #    on this kinematic_icp_online_node so the LD19 driver and the
+    #    ICP main loop stop drawing CPU on the dock. Reactivates the
+    #    moment is_charging clears (no debounce — wake before undock).
+    #    Layer 2 (LD19 motor PWM control) lives in a follow-up node and
+    #    needs hardware wiring; this is software-only.
+    # ------------------------------------------------------------------
+    charging_coordinator = Node(
+        package="mowgli_localization",
+        executable="charging_lidar_coordinator.py",
+        name="charging_lidar_coordinator",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+            }
+        ],
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -170,5 +192,6 @@ def generate_launch_description() -> LaunchDescription:
             scan_relay,
             kinematic_icp_node,
             kicp_encoder_adapter,
+            charging_coordinator,
         ]
     )

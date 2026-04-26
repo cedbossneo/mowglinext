@@ -149,6 +149,7 @@ install(
 # Python nodes (installed executable, run via `ros2 run mowgli_localization ...`)
 install(
   PROGRAMS
+    scripts/charging_lidar_coordinator.py
     scripts/kinematic_icp_encoder_adapter.py
     scripts/kinematic_icp_scan_frame_relay.py
     scripts/wheel_odom_tf_node.py
