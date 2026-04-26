@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cedbossneo/mowglinext/pkg/foxglove"
-	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
 	"github.com/cedbossneo/mowglinext/pkg/msgs/mowgli"
 	types2 "github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/sirupsen/logrus"
@@ -143,7 +142,6 @@ type RosProvider struct {
 	dockHeading float64
 
 	// Charging state from hardware_bridge/status (guarded by mtx)
-	isCharging bool
 
 	dbProvider      types2.IDBProvider
 	sessionTracker  *SessionTracker
@@ -204,14 +202,6 @@ func (r *RosProvider) initFoxgloveSubscriptions() {
 					logrus.Errorf("RosProvider: adapt %s: %v", key, err)
 					return
 				}
-				// When docked, override "pose" with the known dock position
-				// so the map marker doesn't drift from GPS/EKF noise.
-				if key == "pose" {
-					if override := r.dockPoseOverride(); override != nil {
-						r.fanOut(key, override)
-						return
-					}
-				}
 				r.fanOut(key, adapted)
 			})
 			if err != nil {
@@ -221,10 +211,6 @@ func (r *RosProvider) initFoxgloveSubscriptions() {
 			}
 		} else {
 			err := r.client.Subscribe(def.ROS2Topic, def.MsgType, "gui-"+key, func(msg json.RawMessage) {
-				// Track charging state from hardware_bridge/status.
-				if key == "status" {
-					r.updateChargingState([]byte(msg))
-				}
 				r.fanOut(key, []byte(msg))
 			})
 			if err != nil {
@@ -234,57 +220,6 @@ func (r *RosProvider) initFoxgloveSubscriptions() {
 			}
 		}
 	}
-}
-
-// updateChargingState parses the is_charging field from a hardware_bridge/status
-// JSON message and caches it for use by dockPoseOverride.
-func (r *RosProvider) updateChargingState(msg []byte) {
-	var status struct {
-		IsCharging bool `json:"is_charging"`
-	}
-	if err := json.Unmarshal(msg, &status); err != nil {
-		return
-	}
-	r.mtx.Lock()
-	r.isCharging = status.IsCharging
-	r.mtx.Unlock()
-}
-
-// dockPoseOverride returns a synthetic AbsolutePose JSON if the robot is
-// charging and the dock pose is known. Returns nil otherwise.
-func (r *RosProvider) dockPoseOverride() []byte {
-	r.mtx.Lock()
-	charging := r.isCharging
-	hasDock := r.dockPoseSet
-	dx, dy, dh := r.dockX, r.dockY, r.dockHeading
-	r.mtx.Unlock()
-
-	if !charging || !hasDock {
-		return nil
-	}
-
-	// Build a synthetic AbsolutePose with the dock position/heading.
-	sinH := math.Sin(dh / 2)
-	cosH := math.Cos(dh / 2)
-	pose := mowgli.AbsolutePose{
-		Pose: geometry.PoseWithCovariance{
-			Pose: geometry.Pose{
-				Position: geometry.Point{X: dx, Y: dy, Z: 0},
-				Orientation: geometry.Quaternion{
-					X: 0, Y: 0,
-					Z: sinH,
-					W: cosH,
-				},
-			},
-		},
-		MotionHeading: dh,
-	}
-
-	data, err := json.Marshal(pose)
-	if err != nil {
-		return nil
-	}
-	return data
 }
 
 // fanOut stores msg as the latest value for logicalKey and delivers it to all
