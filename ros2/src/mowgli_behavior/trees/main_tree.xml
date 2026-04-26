@@ -76,16 +76,18 @@
              drift on idle can falsely put the reported pose outside the
              polygon. No reason to run any boundary handler in that state. -->
         <IsCharging/>
-        <!-- Short-circuit during manual mowing (COMMAND_MANUAL_MOW = 7)
-             and area recording (COMMAND_RECORD_AREA = 3). In both modes
-             the operator is driving via joystick and is the authority
-             on where the robot can go — forcibly stopping with a
-             boundary emergency would lock the robot mid-recording and
-             ruin the session. The blade is still governed by firmware
-             safety, and collision_monitor still stops for physical
-             obstacles. -->
+        <!-- Short-circuit during manual mowing (COMMAND_MANUAL_MOW = 7),
+             area recording (COMMAND_RECORD_AREA = 3), and going home
+             (COMMAND_HOME = 2). In all three modes the destination is
+             expected to lie outside the mowing polygon (joystick area
+             for manual/record, dock for home), so a boundary handler
+             would fire spuriously and cancel DockRobot mid-approach,
+             which is what was breaking auto-redock. The blade is still
+             governed by firmware safety, and collision_monitor still
+             stops for physical obstacles. -->
         <IsCommand command="7"/>
         <IsCommand command="3"/>
+        <IsCommand command="2"/>
         <Inverter><IsBoundaryViolation/></Inverter>
 
         <!-- Lethal path: stop immediately, latch -->
