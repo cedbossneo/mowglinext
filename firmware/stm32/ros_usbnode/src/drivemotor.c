@@ -110,15 +110,57 @@ static uint8_t right_speed_req;
 static uint8_t left_dir_req;
 static uint8_t right_dir_req;
 
-/* No host-side PWM deadband: the PAC5210 drive-motor controller runs its
- * own internal loop and handles sub-threshold commands gracefully (this
- * is how the original cedbossneo/mowgli firmware behaved, and it worked
- * fine). Adding a host-side deadband promotion on 2026-04-19 introduced
- * a 2.5× angular overshoot at low wz — any command between [-34, -1] ∪
- * [1, 34] got snapped to ±35, so wz=0.30 rad/s produced physical rotation
- * at ~0.72 rad/s. Confirmed in Voie C Test 2026-04-24 (commanded 90°
- * → measured 225° physical). The fix is to pass PWM through unchanged
- * and let the motor controller handle its own dynamics. */
+/* PWM stiction-overcome offset.
+ *
+ * History:
+ *   - 2026-04-19: removed a host-side ±35 PWM snap-up that caused 2.5×
+ *     angular overshoot at low wz (Voie C Test: commanded 90° → measured
+ *     225°). The snap promoted any |x| in [1,34] to exactly ±35 — fine for
+ *     pure forward motion but a disaster for small differential commands.
+ *   - 2026-04-25: nav2_velocity_smoother deadband lowered 0.13 → 0.04 m/s
+ *     (PR #17) so undock could push small reverse commands through. This
+ *     left a window where commands of 0.04–0.10 m/s reach the firmware as
+ *     12–30 PWM units — under typical static-friction threshold for the
+ *     drive motors, so the wheels twitch but do not actually rotate.
+ *
+ * Today's compromise: a SMOOTH additive offset that decays linearly with
+ * commanded magnitude. Any non-zero command is bumped up just enough to
+ * overcome stiction; above STICTION_TAPER_END_PWM the bump is zero and
+ * the command passes through unchanged.
+ *
+ *   effective = magnitude + STICTION_PWM * max(0, TAPER_END - magnitude) / TAPER_END
+ *
+ * Tuning targets:
+ *   - STICTION_PWM: just enough to overcome static friction on a level
+ *     surface (motor-dependent, empirical). Too low → wheels still
+ *     twitch. Too high → angular overshoot creeps back in. Bench-test
+ *     by sending small wz commands and measuring physical rotation.
+ *   - STICTION_TAPER_END_PWM: where the help should disappear entirely.
+ *     Too low → small commands still under-power. Too high → distortion
+ *     of the lower dynamic range, which re-introduces overshoot at low wz.
+ *
+ * Values below are conservative defaults; tune per bench observation. */
+#define STICTION_PWM             20
+#define STICTION_TAPER_END_PWM   30
+
+static int16_t apply_stiction_offset(int16_t pwm_signed)
+{
+    if (pwm_signed == 0) {
+        return 0;
+    }
+    int16_t magnitude = (pwm_signed < 0) ? -pwm_signed : pwm_signed;
+    int16_t offset = 0;
+    if (magnitude < STICTION_TAPER_END_PWM) {
+        offset = (int16_t)(((int32_t)STICTION_PWM *
+                            (STICTION_TAPER_END_PWM - magnitude)) /
+                           STICTION_TAPER_END_PWM);
+    }
+    int16_t result = magnitude + offset;
+    if (result > 255) {
+        result = 255;
+    }
+    return (pwm_signed > 0) ? result : -result;
+}
 
 /******************************************************************************
  * Function Prototypes
@@ -497,14 +539,21 @@ void DRIVEMOTOR_App_Rx(void)
  * forward, negative = reverse, 0 = stop. The motor-controller PCB's legacy
  * (|speed|, direction-bit) interface is produced internally by this function.
  *
- * No host-side deadband: the PAC5210 motor controller handles sub-threshold
- * commands on its own. Saturates to 8-bit motor-controller magnitude range.
+ * Applies a smooth stiction-overcome offset (see apply_stiction_offset
+ * comment block above) so small commands actually break static friction
+ * instead of just buzzing the motor. Saturates to 8-bit motor-controller
+ * magnitude range.
  *
  * @param  left_pwm_signed   signed PWM command for the left wheel
  * @param  right_pwm_signed  signed PWM command for the right wheel
  */
 void DRIVEMOTOR_SetSpeedSigned(int16_t left_pwm_signed, int16_t right_pwm_signed)
 {
+    /* Friction-overcome offset BEFORE saturation so the offset can push
+     * a borderline command up into the moving range without exceeding 255. */
+    left_pwm_signed  = apply_stiction_offset(left_pwm_signed);
+    right_pwm_signed = apply_stiction_offset(right_pwm_signed);
+
     /* Saturate to the 8-bit motor-controller magnitude. */
     if (left_pwm_signed  >  255) left_pwm_signed  =  255;
     if (left_pwm_signed  < -255) left_pwm_signed  = -255;
