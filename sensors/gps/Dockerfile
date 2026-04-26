@@ -84,7 +84,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libusb-1.0-0 \
       libcurl4 \
       ros-kilted-rmw-cyclonedds-cpp \
-      ros-kilted-rtcm-msgs
+      ros-kilted-rtcm-msgs \
+      ros-kilted-nmea-navsat-driver
 
 COPY --from=builder /ws/install /opt/ublox_dgnss
 

@@ -23,6 +23,13 @@ parse_yaml() {
   grep -E "^\s+${1}:" "$CONFIG" | head -1 | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
 }
 
+GPS_PROTOCOL=$(parse_yaml gps_protocol)
+GPS_PROTOCOL="${GPS_PROTOCOL:-UBX}"
+GPS_PORT=$(parse_yaml gps_port)
+GPS_PORT="${GPS_PORT:-/dev/gps}"
+GPS_BAUD=$(parse_yaml gps_baudrate)
+GPS_BAUD="${GPS_BAUD:-460800}"
+
 NTRIP_ENABLED=$(parse_yaml ntrip_enabled)
 NTRIP_HOST=$(parse_yaml ntrip_host)
 NTRIP_PORT=$(parse_yaml ntrip_port)
@@ -36,56 +43,76 @@ source /opt/ros/kilted/setup.bash
 source /opt/ublox_dgnss/setup.bash
 set -u
 
-parse_driver_yaml() {
-  grep -E "^\s+${1}:" /ublox_dgnss.yaml | head -1 | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
+GPS_PID=""
+HP_PID=""
+NTRIP_PID=""
+
+cleanup() {
+  [ -n "$GPS_PID" ] && kill "$GPS_PID" 2>/dev/null || true
+  [ -n "$HP_PID" ] && kill "$HP_PID" 2>/dev/null || true
+  [ -n "$NTRIP_PID" ] && kill "$NTRIP_PID" 2>/dev/null || true
 }
+trap cleanup EXIT INT TERM
 
-TRANSPORT=$(parse_driver_yaml TRANSPORT)
-TRANSPORT="${TRANSPORT:-usb}"
-
-if [ "$TRANSPORT" = "serial" ]; then
-  DEVICE_PATH=$(parse_driver_yaml DEVICE_PATH)
-  DEVICE_PATH="${DEVICE_PATH:-/dev/ttyACM1}"
-  echo "[start_gps.sh] Transport=serial, device=$DEVICE_PATH"
-
-  # Ensure the kernel CDC ACM driver is bound to the F9P USB interfaces.
-  # On many Linux setups the F9P boots with Driver=[none] (especially after
-  # libusb has previously claimed it) and ttyACM* doesn't get created.
-  for IF in 6-1:1.0 6-1:1.1; do
-    if [ -e "/sys/bus/usb/devices/$IF" ] && [ ! -L "/sys/bus/usb/devices/$IF/driver" ]; then
-      echo "[start_gps.sh] binding cdc_acm to $IF"
-      echo "$IF" > /sys/bus/usb/drivers/cdc_acm/bind 2>/dev/null || true
-    fi
-  done
-
-  # Wait for the device path to appear (up to 5 s)
-  for i in $(seq 1 50); do
-    [ -c "$DEVICE_PATH" ] && break
-    sleep 0.1
-  done
-  if [ ! -c "$DEVICE_PATH" ]; then
-    echo "[start_gps.sh] ERROR: $DEVICE_PATH did not appear after 5s"
-    exit 1
-  fi
+if [ "$GPS_PROTOCOL" = "NMEA" ]; then
+  # ── NMEA mode ──────────────────────────────────────────────────────────────
+  # Generic NMEA GPS (LC29H, BN-220, etc.) — serial only.
+  echo "[start_gps.sh] Protocol=NMEA, device=$GPS_PORT @ ${GPS_BAUD} baud"
+  ros2 run nmea_navsat_driver nmea_serial_driver --ros-args \
+    -p port:="${GPS_PORT}" \
+    -p baud:=${GPS_BAUD} \
+    -p frame_id:=gps_link \
+    -r /fix:=/gps/fix &
+  GPS_PID=$!
 else
-  echo "[start_gps.sh] Transport=usb (libusb)"
+  # ── UBX mode (default) ────────────────────────────────────────────────────
+  # u-blox F9P via ublox_dgnss (libusb or serial).
+  parse_driver_yaml() {
+    grep -E "^\s+${1}:" /ublox_dgnss.yaml | head -1 | sed 's/.*:\s*//' | tr -d '"' | tr -d "'"
+  }
+
+  TRANSPORT=$(parse_driver_yaml TRANSPORT)
+  TRANSPORT="${TRANSPORT:-usb}"
+
+  if [ "$TRANSPORT" = "serial" ]; then
+    DEVICE_PATH=$(parse_driver_yaml DEVICE_PATH)
+    DEVICE_PATH="${DEVICE_PATH:-/dev/ttyACM1}"
+    echo "[start_gps.sh] Transport=serial, device=$DEVICE_PATH"
+
+    # Ensure the kernel CDC ACM driver is bound to the F9P USB interfaces.
+    for IF in 6-1:1.0 6-1:1.1; do
+      if [ -e "/sys/bus/usb/devices/$IF" ] && [ ! -L "/sys/bus/usb/devices/$IF/driver" ]; then
+        echo "[start_gps.sh] binding cdc_acm to $IF"
+        echo "$IF" > /sys/bus/usb/drivers/cdc_acm/bind 2>/dev/null || true
+      fi
+    done
+
+    # Wait for the device path to appear (up to 5 s)
+    for i in $(seq 1 50); do
+      [ -c "$DEVICE_PATH" ] && break
+      sleep 0.1
+    done
+    if [ ! -c "$DEVICE_PATH" ]; then
+      echo "[start_gps.sh] ERROR: $DEVICE_PATH did not appear after 5s"
+      exit 1
+    fi
+  else
+    echo "[start_gps.sh] Transport=usb (libusb)"
+  fi
+
+  ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args \
+    --params-file /ublox_dgnss.yaml &
+  GPS_PID=$!
+
+  # UBX HP → NavSatFix — remap /fix → /gps/fix for downstream consumers.
+  ros2 run ublox_nav_sat_fix_hp_node ublox_nav_sat_fix_hp --ros-args \
+    --params-file /ublox_dgnss.yaml \
+    -r /fix:=/gps/fix &
+  HP_PID=$!
 fi
-
-# ublox_dgnss driver
-ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args \
-  --params-file /ublox_dgnss.yaml &
-GPS_PID=$!
-
-# UBX HP → NavSatFix — remap /fix → /gps/fix to keep downstream consumers
-# (navsat_transform_node, navsat_to_absolute_pose, GUI) on the current topic name.
-ros2 run ublox_nav_sat_fix_hp_node ublox_nav_sat_fix_hp --ros-args \
-  --params-file /ublox_dgnss.yaml \
-  -r /fix:=/gps/fix &
-HP_PID=$!
 
 if [ "$NTRIP_ENABLED" = "true" ]; then
   echo "[start_gps.sh] NTRIP enabled: ${NTRIP_HOST}:${NTRIP_PORT}/${NTRIP_MOUNTPOINT}"
-  # Wait for driver to open the USB device before pushing RTCM.
   sleep 3
   ros2 run ntrip_client_node ntrip_client_node --ros-args \
     --params-file /ublox_dgnss.yaml \
@@ -98,6 +125,5 @@ if [ "$NTRIP_ENABLED" = "true" ]; then
 fi
 
 wait -n || true
-kill "$GPS_PID" "$HP_PID" 2>/dev/null || true
-[ -n "${NTRIP_PID:-}" ] && kill "$NTRIP_PID" 2>/dev/null || true
+cleanup
 wait
