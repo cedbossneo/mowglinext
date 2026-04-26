@@ -20,17 +20,17 @@ mowgli:
         chassis_mass_kg: 8.76
         chassis_width: 0.4
         coverage_xy_tolerance: 0.5
-        datum_alt: 27
-        datum_lat: 48.87965155
-        datum_lon: 2.17285422
+        datum_alt: 70
+        datum_lat: 48.87964988
+        datum_lon: 2.17281321
         dock_approach_distance: 1
         dock_max_retries: 3
-        dock_pose_x: 0.179
-        dock_pose_y: 0.258
-        dock_pose_yaw: 3.8307   # -2.4525 rad / -140.52° — measured from /fusion/odom while docked (RTK Fixed σ=4 mm)
+        dock_pose_x: 0
+        dock_pose_y: 0
+        dock_pose_yaw: 4.163
         dock_use_charger_detection: true
-        emergency_stop_on_lift: true
-        emergency_stop_on_tilt: true
+        emergency_stop_on_lift: false
+        emergency_stop_on_tilt: false
         gps_antenna_x: 0.3
         gps_antenna_y: 0
         gps_baudrate: 460800
@@ -42,11 +42,11 @@ mowgli:
         gps_y: 0
         gps_z: 0.2
         headland_width: 0.18
-        imu_pitch: 0
-        imu_roll: 0
+        imu_pitch: -0.002857317037019718
+        imu_roll: 0.010526236043029748
         imu_x: 0.285
         imu_y: -0.17
-        imu_yaw: -3.0718
+        imu_yaw: 2.8410264041692064
         imu_z: 0.095
         lidar_enabled: true
         lidar_x: 0
@@ -65,7 +65,7 @@ mowgli:
         mow_angle_offset_deg: -1
         mower_model: YardForce500
         mowing_enabled: true
-        mowing_speed: 0.3
+        mowing_speed: 0.20
         ntrip_enabled: true
         ntrip_host: crtk.net
         ntrip_mountpoint: OUIL
@@ -81,11 +81,19 @@ mowgli:
         rain_delay_minutes: 30
         rain_mode: 2
         slam_mode: lifelong
-        ticks_per_revolution: 1050
+        # Informational only — no active code path consumes this. The
+        # firmware uses TICKS_PER_M=300 directly (board.h) and
+        # hardware_bridge_node converts ticks→metres via the same 300
+        # constant. With wheel_radius=0.04475 (circumference 0.281 m),
+        # 300 ticks/m implies ~84 ticks per revolution; the legacy
+        # 1050 here was a 12× off mismatch but harmless because nothing
+        # reads it.
+        ticks_per_revolution: 84
         tool_width: 0.18
-        transit_speed: 0.4
+        transit_speed: 0.25
         undock_distance: 1.5
         undock_speed: 0.15
+        use_lidar: true
         wheel_radius: 0.04475
         wheel_track: 0.325
         wheel_width: 0.04

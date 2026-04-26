@@ -52,7 +52,15 @@
 /* ---------------------------------------------------------------------------
  * Timer intervals
  * ---------------------------------------------------------------------------*/
-#define IMU_NBT_TIME_MS    20
+/*
+ * 10 ms (100 Hz) IMU rate. The MEMS sensor (LSM6DS33 / WT901 / LIS3MDL)
+ * I2C read takes <1 ms, leaving plenty of CPU headroom in the 10 ms
+ * window. At 115200 baud the additional ~50-byte IMU packet costs
+ * ~4 ms wire time per second, so total serial usage stays comfortably
+ * under the 11.5 KB/s budget alongside the existing 47 Hz odom and
+ * 4 Hz status streams.
+ */
+#define IMU_NBT_TIME_MS    10
 #define MOTORS_NBT_TIME_MS 20
 #define STATUS_NBT_TIME_MS 250
 #define PANEL_NBT_TIME_MS  100

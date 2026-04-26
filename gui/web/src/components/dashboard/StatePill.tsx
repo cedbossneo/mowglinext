@@ -9,9 +9,13 @@ interface StatePillProps {
 export function StatePill({state, compact = false, pulse = true}: StatePillProps) {
   const info = MOWER_STATES[state] ?? {label: state, tone: 'info' as const};
   const bg = info.tone === 'danger' ? 'rgba(255,107,107,0.14)'
+    : info.tone === 'warning' ? 'rgba(255,197,103,0.14)'
+    : info.tone === 'success' ? 'rgba(62,224,132,0.14)'
     : info.tone === 'primary' ? 'rgba(44,199,107,0.14)'
     : 'rgba(255,255,255,0.08)';
   const fg = info.tone === 'danger' ? '#ff6b6b'
+    : info.tone === 'warning' ? '#ffc567'
+    : info.tone === 'success' ? '#3ee084'
     : info.tone === 'primary' ? '#4ade80'
     : 'rgba(255,255,255,0.85)';
   return (

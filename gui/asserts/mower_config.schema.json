@@ -98,6 +98,97 @@
         }
       }
     },
+    "sensor_extrinsics": {
+      "title": "Sensor Mounting",
+      "description": "Where the sensors sit on the robot (body-frame offsets and rotations). IMU rotation is normally set via the Auto-calibrate button; edit here only for manual overrides.",
+      "type": "object",
+      "properties": {
+        "imu_x": {
+          "type": "number",
+          "title": "IMU Offset X",
+          "default": 0.18,
+          "description": "Body-frame forward offset of IMU from base_footprint (metres)."
+        },
+        "imu_y": {
+          "type": "number",
+          "title": "IMU Offset Y",
+          "default": 0.0,
+          "description": "Body-frame left offset of IMU from base_footprint (metres)."
+        },
+        "imu_z": {
+          "type": "number",
+          "title": "IMU Offset Z",
+          "default": 0.095,
+          "description": "Body-frame up offset of IMU from base_footprint (metres)."
+        },
+        "imu_roll": {
+          "type": "number",
+          "title": "IMU Roll",
+          "default": 0.0,
+          "description": "IMU mounting roll (radians). Applied in URDF as rpy; set by /calibration/imu-yaw service."
+        },
+        "imu_pitch": {
+          "type": "number",
+          "title": "IMU Pitch",
+          "default": 0.0,
+          "description": "IMU mounting pitch (radians). Applied in URDF as rpy; set by /calibration/imu-yaw service."
+        },
+        "imu_yaw": {
+          "type": "number",
+          "title": "IMU Yaw",
+          "default": 0.0,
+          "description": "IMU mounting yaw (radians). Applied in URDF as rpy; set by /calibration/imu-yaw service."
+        },
+        "lidar_enabled": {
+          "type": "boolean",
+          "title": "Enable LiDAR",
+          "default": true,
+          "description": "Enable LiDAR and Kinematic-ICP drift correction. Disable for non-LiDAR builds."
+        },
+        "lidar_x": {
+          "type": "number",
+          "title": "LiDAR Offset X",
+          "default": 0.38,
+          "description": "Body-frame forward offset of LiDAR from base_footprint (metres)."
+        },
+        "lidar_y": {
+          "type": "number",
+          "title": "LiDAR Offset Y",
+          "default": 0.0,
+          "description": "Body-frame left offset of LiDAR from base_footprint (metres)."
+        },
+        "lidar_z": {
+          "type": "number",
+          "title": "LiDAR Offset Z",
+          "default": 0.22,
+          "description": "Body-frame up offset of LiDAR from base_footprint (metres)."
+        },
+        "lidar_yaw": {
+          "type": "number",
+          "title": "LiDAR Yaw",
+          "default": 0.0,
+          "description": "LiDAR mounting yaw (radians)."
+        },
+        "gps_x": {
+          "type": "number",
+          "title": "GPS Antenna Offset X",
+          "default": 0.3,
+          "description": "Body-frame forward offset of GPS antenna from base_footprint (metres). Used by navsat_transform (robot_localization) for lever-arm correction."
+        },
+        "gps_y": {
+          "type": "number",
+          "title": "GPS Antenna Offset Y",
+          "default": 0.0,
+          "description": "Body-frame left offset of GPS antenna from base_footprint (metres)."
+        },
+        "gps_z": {
+          "type": "number",
+          "title": "GPS Antenna Offset Z",
+          "default": 0.2,
+          "description": "Body-frame up offset of GPS antenna from base_footprint (metres)."
+        }
+      }
+    },
     "gps_settings": {
       "title": "GPS / Positioning",
       "type": "object",
@@ -113,6 +204,11 @@
           "title": "Datum Longitude",
           "default": 0.0,
           "description": "Map origin longitude (WGS84). Set near your docking station."
+        },
+        "datum_alt": {
+          "type": "number",
+          "title": "Datum Altitude",
+          "description": "Map origin altitude (WGS84 ellipsoidal, metres) — site-specific; no default. Used by navsat_transform (robot_localization) as the altitude reference."
         },
         "gps_protocol": {
           "type": "string",
@@ -362,6 +458,42 @@
           "title": "Max Obstacle Detour",
           "default": 2.0,
           "description": "Maximum detour distance around obstacles (metres)."
+        },
+        "lift_blade_resume_delay_sec": {
+          "type": "number",
+          "title": "Lift Blade Resume Delay",
+          "default": 1.0,
+          "description": "Seconds to keep the blade off after a lift event clears before resuming."
+        },
+        "lift_recovery_mode": {
+          "type": "boolean",
+          "title": "Lift Recovery Mode",
+          "default": false,
+          "description": "Allow autonomous resume after a lift event (default: stay stopped until operator ack)."
+        }
+      }
+    },
+    "mapping_settings": {
+      "title": "Mapping",
+      "type": "object",
+      "properties": {
+        "slam_mode": {
+          "type": "string",
+          "title": "SLAM Mode",
+          "enum": ["lifelong", "mapping", "localization"],
+          "default": "lifelong",
+          "description": "Legacy SLAM toolbox operating mode. Unused — robot_localization (dual-EKF) is the primary localizer and there is no SLAM backend. Kept for config backward compatibility."
+        },
+        "map_save_on_dock": {
+          "type": "boolean",
+          "title": "Save Map on Dock",
+          "default": true,
+          "description": "Persist map artefacts when the robot returns to the dock."
+        },
+        "map_save_path": {
+          "type": "string",
+          "title": "Map Save Path",
+          "description": "Container path where map artefacts are written."
         }
       }
     },

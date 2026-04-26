@@ -24,10 +24,10 @@
  * optional random position drift is injected to mimic real-world float/no-fix
  * behaviour.
  *
- * The inflated covariance causes FusionCore's UKF to down-weight (or
+ * The inflated covariance causes ekf_map_node to down-weight (or
  * effectively ignore) the GPS measurement, forcing the system to rely on
- * wheel odometry, IMU dead-reckoning, and Kinematic-ICP twist on the
- * encoder2 slot -- exactly the scenario we want to validate.
+ * wheel odometry, IMU dead-reckoning, and Kinematic-ICP twist on
+ * ekf_odom_node's odom1 input -- exactly the scenario we want to validate.
  */
 
 #include "mowgli_simulation/gps_degradation_sim_node.hpp"

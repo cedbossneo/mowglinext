@@ -400,7 +400,7 @@ export function useMapStreams({
     // Start joy + recording trajectory streams on RECORDING state
     useEffect(() => {
         const stateName = highLevelStatus.highLevelStatus.state_name;
-        if (stateName === "RECORDING" || stateName === "AREA_RECORDING") {
+        if (stateName === "RECORDING") {
             joyStream.start("/api/mowglinext/publish/joy");
             recordingTrajectoryStream.start("/api/mowglinext/subscribe/recordingTrajectory");
             setEditMap(false);

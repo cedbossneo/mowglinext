@@ -367,8 +367,8 @@ private:
 ///   - Battery >= min_battery
 ///   - GPS fix type >= min_gps_fix_type
 ///   - TF chain map -> base_footprint is resolvable within tf_timeout_sec
-///     (implicitly confirms FusionCore is publishing odom→base_footprint
-///      AND RTAB-Map is publishing map→odom)
+///     (implicitly confirms ekf_odom_node is publishing odom→base_footprint
+///      AND ekf_map_node is publishing map→odom)
 ///   - At least one mowing area is defined in map_server (service call
 ///     to /map_server_node/get_coverage_status with area_index=0)
 ///

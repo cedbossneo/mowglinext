@@ -37,6 +37,9 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:
   ros__parameters:
     use_sim_time: false
+    # 10 Hz: 0.3 m/s × 100 ms = 3 cm per tick. See nav2_params.yaml for
+    # the full rationale — needed to close the control loop faster than
+    # the 300-400 ms perception-to-action latency.
     controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
@@ -116,7 +119,7 @@ controller_server:
       max_goal_angle_error: 15.0
       goal_timeout: 10.0
       max_follow_distance: 2.0
-      forward_only: false
+      forward_only: false   # 2026-04-26: reverted, broke PID recovery. See nav2_params.yaml.
       check_obstacles: false
 
 # ---------------------------------------------------------------------------
@@ -199,28 +202,7 @@ waypoint_follower:
       enabled: true
       waypoint_pause_duration: 200
 
-# ---------------------------------------------------------------------------
-# Velocity smoother
-# ---------------------------------------------------------------------------
-velocity_smoother:
-  ros__parameters:
-    use_sim_time: false
-    smoothing_frequency: 20.0
-    scale_velocities: false
-    feedback: "OPEN_LOOP"
-    # Topic flow: controller_server → cmd_vel_nav → velocity_smoother →
-    #             cmd_vel_smoothed → collision_monitor → cmd_vel_monitored →
-    #             twist_mux → cmd_vel → hardware
-    input_topic: cmd_vel_nav
-    output_topic: cmd_vel_smoothed
-    max_velocity: [0.4, 0.0, 1.0]
-    min_velocity: [-0.3, 0.0, -1.0]
-    max_accel: [0.3, 0.0, 1.5]
-    max_decel: [-0.3, 0.0, -1.5]
-    odom_topic: /wheel_odom
-    odom_duration: 0.1
-    deadband_velocity: [0.0, 0.0, 0.0]
-    velocity_timeout: 1.0
+# velocity_smoother removed 2026-04-26 — see nav2_params.yaml.
 
 # ---------------------------------------------------------------------------
 # Global costmap — no obstacle layer (no LiDAR)
@@ -241,13 +223,20 @@ global_costmap:
       width: 200
       height: 200
       # No obstacle_layer — LiDAR is not available.
-      # Only inflation_layer for basic safety margins around static map features.
-      plugins: ["inflation_layer"]
+      # keepout_filter makes the mowing polygon boundary visible to the
+      # planner so transit paths never exit the area. Local costmap stays
+      # filter-free so Nav2 recoveries still function near the dock.
+      plugins: ["keepout_filter", "inflation_layer"]
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 5.0
         inflation_radius: 0.40
+
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: true
+        filter_info_topic: "/costmap_filter_info"
 
 # ---------------------------------------------------------------------------
 # Local costmap — no obstacle layer (no LiDAR)
@@ -340,7 +329,9 @@ collision_monitor:
     use_sim_time: false
     base_frame_id: base_footprint
     odom_frame_id: odom
-    cmd_vel_in_topic: cmd_vel_smoothed
+    # 2026-04-26: smoother removed; collision_monitor reads directly from
+    # the controller output and writes the post-safety topic.
+    cmd_vel_in_topic: cmd_vel_nav
     cmd_vel_out_topic: cmd_vel_monitored
     state_topic: collision_monitor_state
     transform_tolerance: 0.2

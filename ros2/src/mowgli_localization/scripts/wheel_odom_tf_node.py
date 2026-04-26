@@ -7,8 +7,8 @@ wheel_odom_tf_node.py
 
 Publishes a raw wheel-only TF chain that Kinematic-ICP consumes as its motion
 prior. Exists solely to break the feedback loop that would form if Kinematic-
-ICP looked up FusionCore's fused `odom -> base_footprint` TF (Kinematic-ICP's
-output goes back into FusionCore via `/encoder2/odom`).
+ICP looked up the fused `odom -> base_footprint` TF (Kinematic-ICP's
+output goes back into ekf_odom_node via `/encoder2/odom`).
 
     /wheel_odom (nav_msgs/Odometry, twist-only from hardware_bridge)
         -> integrate twist.linear.x / twist.angular.z
@@ -18,7 +18,7 @@ Kinematic-ICP is configured with:
     wheel_odom_frame = wheel_odom_raw
     base_frame       = base_footprint_wheels
 so its motion-prior TF lookup returns the pure wheel dead-reckoning pose
-— independent of FusionCore, GPS, or IMU.
+— independent of robot_localization's fused state, GPS, or IMU.
 
 Safety: this node publishes only TF on a private frame pair. It does not
 touch `odom`, `base_footprint`, any drive command, or any Nav2 input.
@@ -58,12 +58,13 @@ class WheelOdomTfNode(Node):
         self.declare_parameter("input_topic", "/wheel_odom")
         self.declare_parameter("parent_frame", "wheel_odom_raw")
         self.declare_parameter("child_frame", "base_footprint_wheels")
-        # 100 Hz: K-ICP looks up the wheel TF at scan timestamps that can land
-        # 5-20 ms ahead of the latest rebroadcast. At 50 Hz (20 ms) and a
-        # single-threaded executor contended with /wheel_odom callbacks, the
-        # rebroadcast occasionally fell behind — K-ICP dropped every scan and
-        # eventually aborted (SIGABRT). 100 Hz keeps the gap <10 ms and plays
-        # well with the MultiThreadedExecutor below.
+        # 100 Hz rebroadcast. K-ICP performs TF lookups at scan-end timestamps
+        # that can land 5-15 ms ahead of the latest rebroadcast tick; at 50 Hz
+        # (20 ms gap) the lookups frequently fail with "extrapolation into the
+        # future" and K-ICP drops those scans — killing the lidar-based twist
+        # correction that is supposed to guard against non-RTK GPS drift.
+        # 100 Hz brings the gap under 10 ms and is still affordable on ARM
+        # under MultiThreadedExecutor (the real K-ICP starvation fix).
         self.declare_parameter("rebroadcast_hz", 100.0)
 
         input_topic = self.get_parameter("input_topic").value

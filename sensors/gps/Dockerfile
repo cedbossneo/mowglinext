@@ -19,14 +19,20 @@
 FROM ros:kilted-ros-base AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG UBLOX_DGNSS_REF=main
+ARG UBLOX_DGNSS_REF=feat/serial-transport
+# Bump UBLOX_DGNSS_SHA to the current branch tip to bust the docker
+# layer cache when upstream moves. `git clone --branch` accepts only
+# branch/tag names so we clone shallow then checkout the pinned SHA;
+# the SHA also ensures cache-from doesn't reuse a stale layer when
+# the branch moves under us (which is what we hit on 2026-04-26).
+ARG UBLOX_DGNSS_SHA=d768ee4fbeaa0ddcb952298c1b8bfc07fe325995
 # cedbossneo fork (itself a fork of privatedocs000/ublox_dgnss). Layered
 # customisations over upstream:
 #   * privatedocs000 base — RTK-Fixed detection via UBX-NAV-STATUS.carr_soln:
 #     status=2 (STATUS_GBAS_FIX) for RTK Fixed, status=1 (STATUS_SBAS_FIX)
 #     for RTK Float / RTCM-corrected, status=0 (STATUS_FIX) for plain GPS.
-#     FusionCore uses this to classify fixes correctly instead of conflating
-#     every RTCM-corrected fix into DGPS_FIX.
+#     Downstream consumers use this to classify fixes correctly instead of
+#     conflating every RTCM-corrected fix into DGPS_FIX.
 #   * ntrip_client_node exit-check cadence exposed as a ROS parameter
 #     (stream_exit_check_records, default 10000). Upstream's hardcoded 10
 #     forced a full TCP+HTTP reconnect every ~0.6 s at 17 Hz RTCM, which
@@ -55,7 +61,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       ros-kilted-tf2-ros
 
 WORKDIR /ws/src
-RUN git clone --depth 1 --branch ${UBLOX_DGNSS_REF} ${UBLOX_DGNSS_URL}
+RUN git clone --branch ${UBLOX_DGNSS_REF} ${UBLOX_DGNSS_URL} ublox_dgnss \
+ && cd ublox_dgnss && git checkout ${UBLOX_DGNSS_SHA} && cd ..
 
 WORKDIR /ws
 RUN . /opt/ros/kilted/setup.sh \

@@ -29,7 +29,7 @@ Welcome to the MowgliNext documentation wiki — the reference hub for the open-
 
 ```
 mowglinext/
-├── ros2/        ROS2 stack (Nav2, FusionCore UKF, Kinematic-ICP, BT, coverage planner)
+├── ros2/        ROS2 stack (Nav2, robot_localization dual EKF, Kinematic-ICP, BT, coverage planner)
 ├── docker/      Docker Compose deployment and config
 ├── sensors/     Dockerized sensor drivers (GPS, LiDAR)
 ├── gui/         React + Go web interface
@@ -42,7 +42,7 @@ mowglinext/
 ## Key Design Decisions
 
 1. **base_link at rear wheel axis** — OpenMower convention.
-2. **FusionCore is the sole localizer.** `map == odom` is a static identity transform; FusionCore owns `odom → base_footprint` (GPS + IMU + wheels + optional Kinematic-ICP twist fused in a single 22D quaternion UKF). No SLAM.
+2. **robot_localization (dual EKF) is the sole localizer.** `ekf_odom_node` owns `odom → base_footprint` (wheels + gyro, continuous), `ekf_map_node` owns `map → odom` (adds `/gps/pose_cov` + GPS-COG yaw). Both run under `two_d_mode`. Kinematic-ICP's output enters `ekf_odom_node` as a body-frame twist on `/encoder2/odom`. No SLAM.
 3. **Cyclone DDS** — replaces FastRTPS (stale shm on ARM).
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation.
 5. **Firmware is blade safety authority** — ROS2 is fire-and-forget.
@@ -50,5 +50,5 @@ mowglinext/
 7. **Cell-based strip coverage** — no full-path pre-planning, strips fetched one at a time.
 8. **Emergency auto-reset on dock** — firmware decides whether to clear latch.
 9. **Area recording via BT** — drive boundary, Douglas-Peucker simplification, save polygon.
-10. **Kinematic-ICP runs on a parallel TF tree** — no feedback into FusionCore; LiDAR drift correction only.
-11. **Dedicated manual mowing mode** — teleop with collision_monitor, GPS, FusionCore, and Kinematic-ICP active.
+10. **Kinematic-ICP runs on a parallel TF tree** — no feedback into robot_localization; LiDAR drift correction only.
+11. **Dedicated manual mowing mode** — teleop with collision_monitor, GPS, robot_localization, and Kinematic-ICP active.

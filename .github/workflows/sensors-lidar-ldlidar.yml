@@ -1,0 +1,32 @@
+name: Sensors — LiDAR LDLiDAR
+
+on:
+  push:
+    branches: [main, dev, 'feat/**']
+    paths:
+      - 'sensors/lidar-ldlidar/**'
+      - '.github/workflows/sensors-lidar-ldlidar.yml'
+      - '.github/workflows/_sensor-docker.yml'
+  workflow_dispatch:
+    inputs:
+      no-cache:
+        description: 'Build without Docker layer cache'
+        type: boolean
+        default: false
+
+concurrency:
+  group: sensors-lidar-ldlidar-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/_sensor-docker.yml
+    with:
+      image: lidar-ldlidar
+      context: ./sensors/lidar-ldlidar
+      target: runtime
+      no-cache: ${{ inputs.no-cache == true }}

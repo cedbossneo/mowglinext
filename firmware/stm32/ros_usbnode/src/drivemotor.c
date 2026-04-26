@@ -110,15 +110,15 @@ static uint8_t right_speed_req;
 static uint8_t left_dir_req;
 static uint8_t right_dir_req;
 
-/* Motor static-friction deadband — below this PWM the motor sits in the
- * buzz zone (current flowing but no rotation). When a nonzero velocity is
- * commanded below the deadband, boost it to the deadband so the wheel
- * either moves or is deliberately zero. Empirically PWM~30-35 on this
- * drivetrain; 35 adds safety margin.
- */
-#ifndef PWM_DEADBAND
-#define PWM_DEADBAND  35
-#endif
+/* No host-side PWM deadband: the PAC5210 drive-motor controller runs its
+ * own internal loop and handles sub-threshold commands gracefully (this
+ * is how the original cedbossneo/mowgli firmware behaved, and it worked
+ * fine). Adding a host-side deadband promotion on 2026-04-19 introduced
+ * a 2.5× angular overshoot at low wz — any command between [-34, -1] ∪
+ * [1, 34] got snapped to ±35, so wz=0.30 rad/s produced physical rotation
+ * at ~0.72 rad/s. Confirmed in Voie C Test 2026-04-24 (commanded 90°
+ * → measured 225° physical). The fix is to pass PWM through unchanged
+ * and let the motor controller handle its own dynamics. */
 
 /******************************************************************************
  * Function Prototypes
@@ -491,41 +491,20 @@ void DRIVEMOTOR_App_Rx(void)
 }
 
 /**
- * @brief  Apply the motor static-friction deadband: zero stays zero, but
- *         any non-zero command below the deadband is promoted to the
- *         deadband with the same sign. This keeps the drivetrain out of
- *         the buzz-and-don't-move zone.
- */
-__STATIC_INLINE int16_t drivemotor_apply_deadband(int16_t pwm)
-{
-    if (pwm == 0)
-    {
-        return 0;
-    }
-    if (pwm > 0 && pwm <  PWM_DEADBAND) return  PWM_DEADBAND;
-    if (pwm < 0 && pwm > -PWM_DEADBAND) return -PWM_DEADBAND;
-    return pwm;
-}
-
-/**
  * @brief  Set drive motor speeds from a signed PWM command per wheel.
  *
  * Single scalar per wheel encodes both magnitude and direction: positive =
  * forward, negative = reverse, 0 = stop. The motor-controller PCB's legacy
  * (|speed|, direction-bit) interface is produced internally by this function.
  *
- * The static-friction deadband is applied here; values below ±PWM_DEADBAND
- * are promoted to ±PWM_DEADBAND (or left at 0). Saturates to int8_t range so
- * the downstream 8-bit motor-controller field doesn't overflow.
+ * No host-side deadband: the PAC5210 motor controller handles sub-threshold
+ * commands on its own. Saturates to 8-bit motor-controller magnitude range.
  *
  * @param  left_pwm_signed   signed PWM command for the left wheel
  * @param  right_pwm_signed  signed PWM command for the right wheel
  */
 void DRIVEMOTOR_SetSpeedSigned(int16_t left_pwm_signed, int16_t right_pwm_signed)
 {
-    left_pwm_signed  = drivemotor_apply_deadband(left_pwm_signed);
-    right_pwm_signed = drivemotor_apply_deadband(right_pwm_signed);
-
     /* Saturate to the 8-bit motor-controller magnitude. */
     if (left_pwm_signed  >  255) left_pwm_signed  =  255;
     if (left_pwm_signed  < -255) left_pwm_signed  = -255;

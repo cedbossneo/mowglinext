@@ -43,7 +43,17 @@ def generate_launch_description() -> LaunchDescription:
 
     send_buffer_limit_arg = DeclareLaunchArgument(
         "send_buffer_limit",
-        default_value="10000000",
+        # 1 MB (was 10 MB): when a client falls behind on the WebSocket,
+        # the bridge buffers up to this many bytes per client before
+        # dropping old messages. 10 MB at the typical visualisation
+        # bandwidth (~250 KB/s) is ~40 s of backlog, which manifests as
+        # multi-second pose/scan lag in the viewer even though the ROS2
+        # side is real-time. 1 MB caps backlog at ~4 s; combined with
+        # the lower /tf rate after the recent tuning (99 Hz instead of
+        # 190 Hz), the buffer should rarely fill at all on a healthy
+        # link, and when it does the latest pose/scan is preferred over
+        # buffered history.
+        default_value="1000000",
         description="Maximum bytes buffered per client before dropping messages.",
     )
 

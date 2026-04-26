@@ -6,7 +6,7 @@
 kinematic_icp_encoder_adapter.py
 
 Re-publishes Kinematic-ICP's LiDAR-odometry as a "second encoder" twist
-source that FusionCore can fuse alongside the wheel encoders.
+source that ekf_odom_node fuses (as odom1) alongside the wheel encoders.
 
     /kinematic_icp/lidar_odometry (nav_msgs/Odometry, pose + twist)
         -> finite-difference twist (falls back to .twist if populated)
@@ -17,10 +17,10 @@ seeded by the wheel-odom TF delta and penalised for deviating from the
 non-holonomic motion model, so the finite-difference twist cannot
 hallucinate lateral motion the way KISS-ICP did on featureless grass.
 
-FusionCore's UKF treats this topic as a body-frame twist measurement;
-the covariance we advertise gates its influence. Baseline σ values make
+ekf_odom_node treats this topic as a body-frame twist measurement; the
+covariance we advertise gates its influence. Baseline σ values make
 healthy ICP twist tighter than wheel-encoder twist (especially on yaw);
-degraded samples are inflated so FusionCore effectively ignores them.
+degraded samples are inflated so the EKF effectively ignores them.
 
 Safety: this node does not touch drive commands, TF, or any safety
 topic. It is purely a measurement re-packager and can be killed/added
@@ -94,10 +94,10 @@ class KinematicIcpEncoderAdapter(Node):
             depth=10,
             durability=DurabilityPolicy.VOLATILE,
         )
-        # Output: /encoder2/odom — FusionCore subscribes RELIABLE with depth
-        # 50, matching hardware_bridge's /wheel_odom publisher QoS. A
-        # BEST_EFFORT publisher here would be silently dropped ("incompatible
-        # QoS, last policy: RELIABILITY") — we saw this on first deploy.
+        # Output: /encoder2/odom — ekf_odom_node subscribes RELIABLE, matching
+        # hardware_bridge's /wheel_odom publisher QoS. A BEST_EFFORT publisher
+        # here would be silently dropped ("incompatible QoS, last policy:
+        # RELIABILITY") — we saw this on first deploy.
         out_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
@@ -179,9 +179,20 @@ class KinematicIcpEncoderAdapter(Node):
             var_vx, var_vy, var_wz = self.VAR_VX_BAD, self.VAR_VY_BAD, self.VAR_WZ_BAD
 
         out = Odometry()
+        # Stamp with `now` instead of the K-ICP scan time. K-ICP carries the
+        # original LaserScan timestamp through ICP (~80 ms) + transport into
+        # the adapter (~280 ms more), so msg.header.stamp lands ~350 ms in
+        # the past at the EKF. robot_localization treats that as a delayed
+        # measurement, rewinds its state, replays every newer measurement —
+        # under our 10 Hz K-ICP load this collapsed ekf_odom from 25 Hz
+        # target to a steady 5 Hz publish. The twist we publish is a body-
+        # frame velocity that's approximately constant over the 100 ms
+        # K-ICP cycle, so attributing it to "now" instead of "350 ms ago"
+        # has negligible effect on the fused state.
         out.header = msg.header
+        out.header.stamp = self.get_clock().now().to_msg()
         out.child_frame_id = msg.child_frame_id
-        out.pose = msg.pose   # pass pose through (FusionCore ignores it on this topic)
+        out.pose = msg.pose   # pass pose through (EKF ignores it — only twist fields are configured for fusion)
         out.twist.twist.linear.x = vx_body
         out.twist.twist.linear.y = vy_body
         out.twist.twist.angular.z = wz

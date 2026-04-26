@@ -27,7 +27,7 @@
  *   - LiDAR             (freshness of /scan)
  *   - GPS               (/gps/fix quality + satellite count)
  *   - Odometry          (freshness of /wheel_odom)
- *   - FusionCore        (/fusion/odom: rate, position, orientation, z-drift, flat check)
+ *   - EKF Map           (/odometry/filtered_map: rate, position, orientation, z-drift, flat check)
  *   - Motors            (ESC temperatures from /status)
  */
 
@@ -87,7 +87,7 @@ struct DiagnosticsState
   rclcpp::Time last_odom_time{0, 0, RCL_ROS_TIME};
   bool odom_ever_received{false};
 
-  // FusionCore
+  // robot_localization (ekf_map_node output)
   std::optional<nav_msgs::msg::Odometry> last_fusion_odom{};
   rclcpp::Time last_fusion_time{0, 0, RCL_ROS_TIME};
   bool fusion_ever_received{false};

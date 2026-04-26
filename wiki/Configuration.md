@@ -13,8 +13,8 @@ Configuration is centralized in `src/mowgli_bringup/config/`:
 ```
 config/
 ├── hardware_bridge.yaml          # Serial port, baud, publish rate, IMU cal sample count
-├── localization.yaml              # FusionCore UKF: IMU + GPS covariances, ZUPT, adaptive R,
-│                                  #   lever arms (imu_*, gnss.*), apply_lever_arm_pre_heading
+├── robot_localization.yaml       # Dual EKF: ekf_odom (wheels + gyro → odom),
+│                                  #   navsat_transform, ekf_map (+ GPS + COG yaw → map)
 ├── kinematic_icp.yaml             # Kinematic-ICP tuning (voxel, threshold, registration)
 │                                  #   for the 2D LD19 profile
 ├── nav2_params.yaml               # Navigation stack with LiDAR (obstacle layer, FTCController, docking)
@@ -25,7 +25,7 @@ config/
                                    #   install/config/mowgli at /ros2_ws/config/)
 ```
 
-There is **no** `slam_toolbox.yaml`, `ekf_*.yaml`, or `kiss_icp.yaml`. FusionCore (sole UKF localizer) is tuned through `localization.yaml`, and Kinematic-ICP (LiDAR drift correction on a parallel TF tree) is tuned through `kinematic_icp.yaml`.
+There is **no** `slam_toolbox.yaml` or `kiss_icp.yaml`. robot_localization (sole dual-EKF localizer) is tuned through `robot_localization.yaml`, and Kinematic-ICP (LiDAR drift correction on a parallel TF tree) is tuned through `kinematic_icp.yaml`.
 
 All YAML files use the ROS2 `ros__parameters` namespace convention. Parameters can be overridden via command-line:
 
@@ -66,7 +66,7 @@ foxglove_bridge:
     # Subscribed topics (publish to all connected clients)
     subscribed_topics:
       - /scan                         # LiDAR scan
-      - /fusion/odom                  # Robot pose estimate from FusionCore
+      - /odometry/filtered_map        # Robot pose estimate from ekf_map_node
       - /costmap/costmap              # Global costmap
       - /local_costmap/costmap        # Local costmap
       - /path                         # Global plan
@@ -237,115 +237,45 @@ hardware_bridge:
 
 ---
 
-## 2. localization.yaml
+## 2. robot_localization.yaml
 
-**File:** `src/mowgli_bringup/config/localization.yaml`
+**File:** `src/mowgli_bringup/config/robot_localization.yaml`
 
-**Purpose:** Configure FusionCore UKF for sensor fusion (wheel odometry, IMU, GPS).
+**Purpose:** Configure robot_localization's dual EKF for sensor fusion (wheel odometry, IMU, GPS).
 
 ### Architecture
 
-The system uses **FusionCore**, a single Unscented Kalman Filter (UKF) that fuses:
-- Wheel odometry (50 Hz from wheel_odometry_node)
-- IMU data (50 Hz from imu_filter_madgwick)
-- GPS NavSatFix (10-20 Hz directly from GPS driver)
+The system uses **robot_localization** with three cooperating nodes under `two_d_mode` (roll/pitch/Z clamped to zero):
+
+- `ekf_odom_node` (50 Hz) — fuses `/wheel_odom` + `/imu/data` gyro_z, publishes `odom → base_footprint` (continuous dead reckoning, never jumps)
+- `navsat_transform_node` (30 Hz) — converts `/gps/fix` + local pose + IMU → `/odometry/gps` in the map frame using a fixed lat/lon datum from `mowgli_robot.yaml`
+- `ekf_map_node` (30 Hz) — same wheel + gyro inputs plus `/gps/pose_cov` (the PoseWithCovarianceStamped twin of `/gps/absolute_pose`) and `/imu/cog_heading` (GPS-COG absolute yaw), publishes `map → odom`
 
 **Outputs:**
-- `/fusion/odom` (nav_msgs/Odometry) — fused state at 100 Hz
-- `/tf: odom → base_footprint` — transform at 100 Hz
+- `/odometry/filtered` — local EKF pose in odom frame
+- `/odometry/filtered_map` — global EKF pose in map frame
+- `/tf: odom → base_footprint` (from `ekf_odom_node`)
+- `/tf: map → odom` (from `ekf_map_node`)
 
-`map → odom` is a **static identity transform**, published once at launch by `tf2_ros static_transform_publisher` (no SLAM). FusionCore is the only node that publishes `odom → base_footprint`; Kinematic-ICP's output goes into FusionCore via `/encoder2/odom` and never as a TF.
+Non-holonomic motion is enforced by a tight `vy≈0` covariance published on `/wheel_odom`; no pseudo-measurement node is needed. Kinematic-ICP's twist enters `ekf_odom_node` as `odom1: /encoder2/odom`, never as TF.
 
-### FusionCore Configuration
+### Tuning
 
-```yaml
-fusioncore:
-  ros__parameters:
-    # Frequency (Hz)
-    frequency: 50.0
+Full annotated config lives in `src/mowgli_bringup/config/robot_localization.yaml`. Key knobs:
 
-    # Frame names (per REP-105)
-    odom_frame: odom
-    base_frame: base_footprint            # Robot frame for Nav2
-    map_frame: map
+- `process_noise_covariance` (15×15 diagonal under `two_d_mode`): raise x/y/yaw entries if the filter lags the wheels, lower them if GPS updates cause visible snapping.
+- `odom0_config` (wheel_odom) fuses `vx` + `vy` + `vyaw` — do not enable absolute pose fusion on the wheel channel.
+- `imu0_config` fuses roll+pitch (IMU orientation) + gyro_z. Yaw is sourced from `/imu/cog_heading` (imu1 on `ekf_map_node`) since the IMU has no magnetometer.
+- `pose0_config` (`/gps/pose_cov` on `ekf_map_node`) fuses `(x, y)` position only; the EKF honors `NavSatFix.covariance` → RTK-Fixed σ ~3 mm flows through directly.
 
-    # ─────────────────────────────────────────────────────────────
-    # Sensor inputs
-    # ─────────────────────────────────────────────────────────────
-    
-    # Wheel odometry (velocity-based fusion)
-    wheel_odometry_topic: /wheel_odom
-    
-    # IMU (orientation + angular velocity)
-    imu_topic: /imu/data
-    
-    # GPS (absolute position, NavSatFix)
-    gps_topic: /gps/fix
-    
-    # ─────────────────────────────────────────────────────────────
-    # Process noise (UKF motion model)
-    # ─────────────────────────────────────────────────────────────
-    # How much to trust the motion model vs. sensor updates
-    
-    process_noise_std_x: 0.05          # m, process noise for X position
-    process_noise_std_y: 0.05          # m, process noise for Y position
-    process_noise_std_theta: 0.06      # rad, process noise for yaw
-    process_noise_std_vx: 0.025        # m/s, process noise for X velocity
-    process_noise_std_vy: 0.025        # m/s, process noise for Y velocity
-    process_noise_std_vtheta: 0.02     # rad/s, process noise for yaw rate
-    
-    # ─────────────────────────────────────────────────────────────
-    # Measurement noise (sensor reliability)
-    # ─────────────────────────────────────────────────────────────
-    
-    # Wheel odometry measurement noise
-    wheel_odom_std_vx: 0.02            # m/s
-    wheel_odom_std_vy: 0.02            # m/s
-    wheel_odom_std_vtheta: 0.01        # rad/s
-    
-    # IMU measurement noise
-    imu_std_theta: 0.05                # rad (yaw from IMU)
-    imu_std_vtheta: 0.02               # rad/s (yaw rate)
-    
-    # GPS measurement noise (depends on RTK quality)
-    gps_std_x: 0.01                    # m (RTK Fixed ~1cm)
-    gps_std_y: 0.01                    # m
-    gps_outlier_threshold: 100.0       # m (reject fixes > 100m from prediction)
-```
+### Monitoring EKF Health
 
-### Tuning FusionCore
+The diagnostics system monitors `/odometry/filtered_map`:
+- **Rate:** Expect ~30 Hz (warn below 10 Hz)
+- **Position variance:** Converge to GPS fix precision within a few fixes under RTK-Fixed
+- **Orientation:** Yaw covariance should drop once the robot moves forward and `/imu/cog_heading` starts publishing
 
-**Concept:** Adjust process noise and measurement noise to balance sensor trust.
-
-**If odometry drifts too much:**
-- Increase process noise (motion model less trusted)
-- Example: `process_noise_std_x: 0.05` → `0.10`
-- Filter will rely more on sensor measurements (IMU, GPS)
-
-**If filter jumps on sensor noise:**
-- Increase measurement noise (sensors less trusted)
-- Decrease process noise (motion model more trusted)
-- Example: `wheel_odom_std_vx: 0.02` → `0.05`
-
-**GPS outlier handling:**
-- `gps_outlier_threshold`: reject fixes > this distance from prediction
-- Typical: 100 m (accounts for initialization uncertainty)
-- Increase if robot is in GPS-denied area at startup
-- Decrease to 10-20 m in dense urban canyons
-
-**Typical values (for Mowgli):**
-- Position noise: 0.01 m (FusionCore fuses three sources)
-- Yaw noise: 0.05 rad (IMU + wheel differential)
-- GPS outlier: 100 m (stationary initialization)
-
-**Monitoring FusionCore Health:**
-The diagnostics system monitors FusionCore via `/fusion/odom`:
-- **Rate:** Checks for 50 Hz update frequency (warn if < 20 Hz)
-- **Position variance:** Monitors x, y covariance for convergence
-- **Orientation (yaw):** Tracks yaw angle and angular variance
-- **Z-drift detection:** Alerts if vertical variance grows uncontrolled (filter divergence)
-
-Access diagnostics at `http://<mower-ip>:4006/#/diagnostics` → FusionCore section
+Access diagnostics at `http://<mower-ip>:4006/#/diagnostics` → Localization section.
 
 ---
 
@@ -386,7 +316,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_footprint       # REP-105: ground contact point
-    odom_topic: /fusion/odom               # Use FusionCore fused odometry
+    odom_topic: /odometry/filtered         # Use local EKF (continuous, odom frame)
 
     # Behavior tree execution
     bt_loop_duration: 10                   # ms per tick (100 Hz)
@@ -621,7 +551,7 @@ velocity_smoother:
     max_velocity: [0.5, 0.0, 0.8]          # [linear_x, linear_y, angular_z]
     max_accel: [0.4, 0.0, 1.0]             # Acceleration limits (m/s², rad/s²)
     max_decel: [0.4, 0.0, 1.0]             # Deceleration limits
-    odom_topic: "/fusion/odom"
+    odom_topic: "/odometry/filtered"
     cmd_vel_in_topic: "/cmd_vel"
     cmd_vel_out_topic: "/cmd_vel_smoothed"
 ```
@@ -678,7 +608,7 @@ coverage_planner_node:
 
 **File:** `src/mowgli_bringup/config/kinematic_icp.yaml`
 
-**Purpose:** Tune the Kinematic-ICP (PRBonn 2024) LiDAR drift corrector for the LD19 2D LiDAR. The node runs on a parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), consumes `/scan_kicp` (a frame-relayed copy of `/scan`), and publishes `/kinematic_icp/lidar_odometry` which `kinematic_icp_encoder_adapter` finite-differences into `/encoder2/odom` for FusionCore's UKF.
+**Purpose:** Tune the Kinematic-ICP (PRBonn 2024) LiDAR drift corrector for the LD19 2D LiDAR. The node runs on a parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), consumes `/scan_kicp` (a frame-relayed copy of `/scan`), and publishes `/kinematic_icp/lidar_odometry` which `kinematic_icp_encoder_adapter` finite-differences into `/encoder2/odom` for robot_localization's local EKF.
 
 **Full Configuration:**
 
@@ -727,9 +657,9 @@ coverage_planner_node:
 | Lots of "extrapolation into the future" TF warnings | Raise `wheel_odom_tf_node` `rebroadcast_hz` (default 50), or bump `tf_timeout` in the K-ICP launch file (default 0.1 s). |
 | K-ICP output drifts at rest | Voxel map may be accumulating wind-moved foliage. Lower `max_points_per_voxel` (3–4), or reduce `max_range`. |
 | K-ICP output over-corrects during turns | Increase `use_adaptive_odometry_regularization` weight by raising `fixed_regularization` and disabling `use_adaptive_odometry_regularization`. |
-| Encoder2 fixes rejected by FusionCore | Inspect Mahalanobis innovations (`fusioncore_node` logs). Usually means the scene is too feature-poor and K-ICP's twist is inconsistent with the wheel prior — reduce `voxel_size` or increase `fixed_regularization`. |
+| Encoder2 twist inconsistent with EKF | Check `ekf_odom_node` logs for twist rejections. Usually means the scene is too feature-poor and K-ICP's twist is inconsistent with the wheel prior — reduce `voxel_size` or increase `fixed_regularization`. |
 
-See [`CLAUDE.md`](https://github.com/cedbossneo/mowglinext/blob/main/CLAUDE.md) invariant #1 for why K-ICP runs on a parallel TF tree rather than sharing FusionCore's frames (the short version: it prevents the corrector's output from feeding back into its own motion prior).
+See [`CLAUDE.md`](https://github.com/cedbossneo/mowglinext/blob/main/CLAUDE.md) invariant #1 for why K-ICP runs on a parallel TF tree rather than sharing robot_localization's frames (the short version: it prevents the corrector's output from feeding back into its own motion prior).
 
 ---
 
@@ -861,7 +791,7 @@ rviz2 -d src/mowgli_bringup/config/mowgli.rviz
 
 # Check diagnostics
 ros2 topic echo /localization/status
-ros2 topic echo /fusion/odom
+ros2 topic echo /odometry/filtered_map
 ```
 
 ### Step 4: Iterate
@@ -876,7 +806,7 @@ Rerun with adjusted parameters, observe results, adjust again.
 |-----------|---------|------|-------|
 | `serial_port` | `/dev/mowgli` | – | any `/dev/tty*` |
 | `baud_rate` | 115200 | baud | 9600–230400 |
-| `FusionCore` frequency | 50.0 | Hz | 30–100 |
+| `ekf_odom_node` frequency | 50.0 | Hz | 30–100 |
 | `SLAM` frequency | 20.0 | Hz | 5–50 |
 | `controller_frequency` | 10.0 | Hz | 5–50 |
 | `desired_linear_vel` | 0.3 | m/s | 0.1–1.0 |

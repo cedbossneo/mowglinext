@@ -4,7 +4,9 @@ import {
     Card,
     Col,
     Collapse,
+    Descriptions,
     Flex,
+    notification,
     Progress,
     Row,
     Space,
@@ -32,13 +34,16 @@ import {useGPS} from "../hooks/useGPS.ts";
 import {useFusionOdom} from "../hooks/useFusionOdom.ts";
 import {useBTLog} from "../hooks/useBTLog.ts";
 import {useImu} from "../hooks/useImu.ts";
+import {useCogHeading} from "../hooks/useCogHeading.ts";
+import {useMagYaw} from "../hooks/useMagYaw.ts";
+import {useCalibrationStatus} from "../hooks/useCalibrationStatus.ts";
 import {useWheelTicks} from "../hooks/useWheelTicks.ts";
 import {useDiagnosticsSnapshot} from "../hooks/useDiagnosticsSnapshot.ts";
 import {useDiagnostics} from "../hooks/useDiagnostics.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useIsMobile} from "../hooks/useIsMobile";
 import {AbsolutePoseConstants} from "../types/ros.ts";
-import {useMemo} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {useSettings} from "../hooks/useSettings.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
 
@@ -94,7 +99,18 @@ export const DiagnosticsPage = () => {
     const pose = useFusionOdom();
     const btNodeStates = useBTLog();
     const imu = useImu();
+    const {imu: cogImu, lastMessageAt: cogLastAt} = useCogHeading();
+    const {imu: magImu, lastMessageAt: magLastAt} = useMagYaw();
     const wheelTicks = useWheelTicks();
+    const {status: calibrationStatus, refresh: refreshCalibration} = useCalibrationStatus();
+
+    // Tick state once a second so the "Live/Stale" tags update even when no
+    // new message has arrived (staleness is time-based, not message-driven).
+    const [nowMs, setNowMs] = useState(Date.now());
+    useEffect(() => {
+        const id = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, []);
     const {snapshot, loading, refresh} = useDiagnosticsSnapshot();
     const {diagnostics} = useDiagnostics();
     const {settings} = useSettings();
@@ -264,7 +280,7 @@ export const DiagnosticsPage = () => {
     const sectionLocalization = (
         <Row gutter={[12, 12]}>
             <Col xs={24} lg={12}>
-                <Card title={<Space><CompassOutlined/> FusionCore Pose</Space>} size="small"
+                <Card title={<Space><CompassOutlined/> Filtered Pose (map frame)</Space>} size="small"
                       extra={pose.pose?.pose?.position ? <Tag color="success">Live</Tag> : <Tag>Waiting...</Tag>}>
                     <Row gutter={[12, 12]}>
                         <Col span={8}>
@@ -384,6 +400,104 @@ export const DiagnosticsPage = () => {
                                 }
                                
                             />
+                        </Col>
+                    </Row>
+                </Card>
+            </Col>
+        </Row>
+    );
+
+    // ── Section 2b: Heading Sources ──────────────────────────────────────────
+    // Shows the two synthetic absolute-yaw Imu publishers fused by ekf_map
+    // alongside the filter output for comparison. Staleness threshold: 5 s.
+
+    const STALE_MS = 5000;
+    const cogStale = cogLastAt === null || (nowMs - cogLastAt) > STALE_MS;
+    const magStale = magLastAt === null || (nowMs - magLastAt) > STALE_MS;
+
+    const cogYawDeg = cogImu?.orientation
+        ? yawFromQuaternion(cogImu.orientation.x, cogImu.orientation.y, cogImu.orientation.z, cogImu.orientation.w)
+        : null;
+    const magYawDeg = magImu?.orientation
+        ? yawFromQuaternion(magImu.orientation.x, magImu.orientation.y, magImu.orientation.z, magImu.orientation.w)
+        : null;
+
+    // orientation_covariance is a flat length-9 row-major 3×3; yaw variance
+    // sits at index 8 (same convention used by cog_to_imu.py / mag_yaw_publisher.py).
+    const cogYawVar = cogImu?.orientation_covariance?.[8];
+    const magYawVar = magImu?.orientation_covariance?.[8];
+    const cogSigmaDeg = (cogYawVar !== undefined && cogYawVar > 0) ? Math.sqrt(cogYawVar) * (180 / Math.PI) : null;
+    const magSigmaDeg = (magYawVar !== undefined && magYawVar > 0) ? Math.sqrt(magYawVar) * (180 / Math.PI) : null;
+
+    // Wrap angle difference into (-180, 180].
+    const wrap180 = (d: number) => ((d + 180) % 360 + 360) % 360 - 180;
+    const deltaFilterMag = (!magStale && magYawDeg !== null) ? wrap180(yaw - magYawDeg) : null;
+    const deltaFilterCog = (!cogStale && cogYawDeg !== null) ? wrap180(yaw - cogYawDeg) : null;
+
+    const sectionHeadingSources = (
+        <Row gutter={[12, 12]}>
+            <Col span={24}>
+                <Card title={<Space><CompassOutlined/> Heading sources (fused by ekf_map)</Space>} size="small">
+                    <Row gutter={[12, 12]}>
+                        <Col xs={24} md={8}>
+                            <Space direction="vertical" style={{width: "100%"}}>
+                                <Space>
+                                    <Typography.Text strong>Filter</Typography.Text>
+                                    <Tag color="success">/odometry/filtered_map</Tag>
+                                </Space>
+                                <Statistic title="Yaw (deg)" value={yaw} precision={1} suffix="°"/>
+                                <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                    Reference signal for deltas below.
+                                </Typography.Text>
+                            </Space>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Space direction="vertical" style={{width: "100%"}}>
+                                <Space>
+                                    <Typography.Text strong>COG (GPS)</Typography.Text>
+                                    <Tag color={cogStale ? "default" : "processing"}>
+                                        {cogStale ? "Stale" : "Live"}
+                                    </Tag>
+                                </Space>
+                                <Statistic
+                                    title="Yaw (deg)"
+                                    value={cogYawDeg !== null ? cogYawDeg : "-"}
+                                    precision={cogYawDeg !== null ? 1 : undefined}
+                                    suffix={cogYawDeg !== null ? "°" : undefined}
+                                />
+                                <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                    σ: {cogSigmaDeg !== null ? `${cogSigmaDeg.toFixed(2)}°` : "—"}
+                                </Typography.Text>
+                                {deltaFilterCog !== null && (
+                                    <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                        Δ(filter−cog): {deltaFilterCog.toFixed(1)}°
+                                    </Typography.Text>
+                                )}
+                            </Space>
+                        </Col>
+                        <Col xs={24} md={8}>
+                            <Space direction="vertical" style={{width: "100%"}}>
+                                <Space>
+                                    <Typography.Text strong>Magnetometer</Typography.Text>
+                                    <Tag color={magStale ? "default" : "processing"}>
+                                        {magStale ? "Stale" : "Live"}
+                                    </Tag>
+                                </Space>
+                                <Statistic
+                                    title="Yaw (deg)"
+                                    value={magYawDeg !== null ? magYawDeg : "-"}
+                                    precision={magYawDeg !== null ? 1 : undefined}
+                                    suffix={magYawDeg !== null ? "°" : undefined}
+                                />
+                                <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                    σ: {magSigmaDeg !== null ? `${magSigmaDeg.toFixed(2)}°` : "—"}
+                                </Typography.Text>
+                                {deltaFilterMag !== null && (
+                                    <Typography.Text type="secondary" style={{fontSize: 12}}>
+                                        Δ(filter−mag): {deltaFilterMag.toFixed(1)}°
+                                    </Typography.Text>
+                                )}
+                            </Space>
                         </Col>
                     </Row>
                 </Card>
@@ -599,6 +713,194 @@ export const DiagnosticsPage = () => {
         </Row>
     );
 
+    // ── Section 3c: Calibration Status ───────────────────────────────────────
+    // Shows the three on-disk calibration artefacts alongside a run-button
+    // for each. Dock + IMU buttons kick off the same service (the node runs
+    // dock pre-phase, then accel calibration, then optional mag rotation).
+    // Mag is gated on do_mag_calibration at the ROS node, so we just log a
+    // hint — enabling the parameter requires an install-side config change.
+
+    const runImuCalibration = async () => {
+        try {
+            notification.info({
+                message: "Calibration started",
+                description: "Running 3 forward/back cycles plus optional dock pre-phase. This may take up to 2 minutes.",
+            });
+            const res = await fetch("/api/calibration/imu-yaw", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({duration_sec: 30}),
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            }
+            notification.success({message: "Calibration complete", description: "Refreshing status..."});
+            refreshCalibration();
+        } catch (e) {
+            notification.error({
+                message: "Calibration failed",
+                description: e instanceof Error ? e.message : String(e),
+            });
+        }
+    };
+
+    const runMagCalibration = () => {
+        notification.info({
+            message: "Magnetometer calibration",
+            description: "Enable the do_mag_calibration parameter on calibrate_imu_yaw_node to include the magnetometer rotation phase, then run IMU calibration again.",
+            duration: 8,
+        });
+    };
+
+    const formatTs = (ts?: string): string => {
+        if (!ts) return "—";
+        try {
+            return new Date(ts).toLocaleString();
+        } catch {
+            return ts;
+        }
+    };
+
+    const dockCal = calibrationStatus?.dock;
+    const imuCal = calibrationStatus?.imu;
+    const magCal = calibrationStatus?.mag;
+
+    const sectionCalibrationStatus = (
+        <Row gutter={[12, 12]}>
+            <Col xs={24} lg={8}>
+                <Card
+                    title={<Space><CompassOutlined/> Dock calibration</Space>}
+                    size="small"
+                    extra={
+                        <Tag color={dockCal?.present ? "success" : "warning"}>
+                            {dockCal?.present ? "Present" : "Missing"}
+                        </Tag>
+                    }
+                    actions={[
+                        <Button
+                            key="run"
+                            size="small"
+                            type="link"
+                            onClick={runImuCalibration}
+                        >
+                            Run calibration
+                        </Button>,
+                    ]}
+                >
+                    {dockCal?.present && !dockCal?.error ? (
+                        <Descriptions size="small" column={1}>
+                            <Descriptions.Item label="Yaw">
+                                {dockCal.dock_pose_yaw_deg?.toFixed(2)}° ± {dockCal.yaw_sigma_deg?.toFixed(2)}°
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Undock">
+                                {dockCal.undock_displacement_m?.toFixed(2)} m
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Calibrated at">
+                                {formatTs(dockCal.calibrated_at)}
+                            </Descriptions.Item>
+                        </Descriptions>
+                    ) : dockCal?.error ? (
+                        <Alert type="error" showIcon message={dockCal.error}/>
+                    ) : (
+                        <Typography.Text type="secondary" style={{fontSize: 12}}>
+                            No dock_calibration.yaml on disk. Run the calibration while the robot is docked to capture it.
+                        </Typography.Text>
+                    )}
+                </Card>
+            </Col>
+            <Col xs={24} lg={8}>
+                <Card
+                    title={<Space><CompassOutlined/> IMU bias calibration</Space>}
+                    size="small"
+                    extra={
+                        <Tag color={imuCal?.present ? "success" : "warning"}>
+                            {imuCal?.present ? "Present" : "Missing"}
+                        </Tag>
+                    }
+                    actions={[
+                        <Button
+                            key="run"
+                            size="small"
+                            type="link"
+                            onClick={runImuCalibration}
+                        >
+                            Run calibration
+                        </Button>,
+                    ]}
+                >
+                    {imuCal?.present && !imuCal?.error ? (
+                        <Descriptions size="small" column={1}>
+                            <Descriptions.Item label="Calibrated at">
+                                {formatTs(imuCal.calibrated_at)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Samples">
+                                {imuCal.samples_used ?? "—"}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Gyro bias (rad/s)">
+                                [{imuCal.gyro_bias_x?.toFixed(5) ?? "—"},{" "}
+                                {imuCal.gyro_bias_y?.toFixed(5) ?? "—"},{" "}
+                                {imuCal.gyro_bias_z?.toFixed(5) ?? "—"}]
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Implied pitch/roll">
+                                {imuCal.implied_pitch_deg?.toFixed(2)}° / {imuCal.implied_roll_deg?.toFixed(2)}°
+                            </Descriptions.Item>
+                        </Descriptions>
+                    ) : imuCal?.error ? (
+                        <Alert type="error" showIcon message={imuCal.error}/>
+                    ) : (
+                        <Typography.Text type="secondary" style={{fontSize: 12}}>
+                            No imu_calibration.txt yet — hardware_bridge will auto-calibrate on the next dock.
+                        </Typography.Text>
+                    )}
+                </Card>
+            </Col>
+            <Col xs={24} lg={8}>
+                <Card
+                    title={<Space><CompassOutlined/> Magnetometer calibration</Space>}
+                    size="small"
+                    extra={
+                        <Tag color={magCal?.present ? "success" : "default"}>
+                            {magCal?.present ? "Present" : "Disabled"}
+                        </Tag>
+                    }
+                    actions={[
+                        <Button
+                            key="run"
+                            size="small"
+                            type="link"
+                            onClick={runMagCalibration}
+                        >
+                            Enable & run
+                        </Button>,
+                    ]}
+                >
+                    {magCal?.present && !magCal?.error ? (
+                        <Descriptions size="small" column={1}>
+                            <Descriptions.Item label="Calibrated at">
+                                {formatTs(magCal.calibrated_at)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="|B| mean">
+                                {magCal.magnitude_mean_uT?.toFixed(2)} µT
+                            </Descriptions.Item>
+                            <Descriptions.Item label="|B| std">
+                                {magCal.magnitude_std_uT?.toFixed(2)} µT
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Samples">
+                                {magCal.sample_count ?? "—"}
+                            </Descriptions.Item>
+                        </Descriptions>
+                    ) : magCal?.error ? (
+                        <Alert type="error" showIcon message={magCal.error}/>
+                    ) : (
+                        <Typography.Text type="secondary" style={{fontSize: 12}}>
+                            Magnetometer fusion is off. Enable <Typography.Text code>do_mag_calibration</Typography.Text> on calibrate_imu_yaw_node to include the rotation phase.
+                        </Typography.Text>
+                    )}
+                </Card>
+            </Col>
+        </Row>
+    );
+
     // ── Section 4: Sensors ───────────────────────────────────────────────────
 
     const sectionSensors = (
@@ -628,19 +930,35 @@ export const DiagnosticsPage = () => {
                 </Card>
             </Col>
             <Col xs={24} lg={12}>
-                <Card title="Wheel Ticks" size="small">
+                <Card title="Wheel Odometry" size="small">
                     <Row gutter={[12, 8]}>
                         <Col span={12}>
-                            <Statistic title="Rear Left" value={wheelTicks.wheel_ticks_rl}/>
+                            <Statistic
+                                title="Linear Vel (m/s)"
+                                value={(wheelTicks as any).linear_velocity_x}
+                                precision={3}
+                            />
                         </Col>
                         <Col span={12}>
-                            <Statistic title="Rear Right" value={wheelTicks.wheel_ticks_rr}/>
+                            <Statistic
+                                title="Angular Vel (rad/s)"
+                                value={(wheelTicks as any).angular_velocity_z}
+                                precision={3}
+                            />
                         </Col>
                         <Col span={12}>
-                            <Statistic title="RL Direction" value={wheelTicks.wheel_direction_rl}/>
+                            <Statistic
+                                title="Pose X (m)"
+                                value={(wheelTicks as any).pose_x}
+                                precision={3}
+                            />
                         </Col>
                         <Col span={12}>
-                            <Statistic title="RR Direction" value={wheelTicks.wheel_direction_rr}/>
+                            <Statistic
+                                title="Pose Y (m)"
+                                value={(wheelTicks as any).pose_y}
+                                precision={3}
+                            />
                         </Col>
                     </Row>
                 </Card>
@@ -774,6 +1092,11 @@ export const DiagnosticsPage = () => {
                             children: sectionLocalization,
                         },
                         {
+                            key: "heading_sources",
+                            label: <Space><CompassOutlined/> Heading sources</Space>,
+                            children: sectionHeadingSources,
+                        },
+                        {
                             key: "bt",
                             label: <Space><ApiOutlined/> BT State & Coverage</Space>,
                             children: sectionBtCoverage,
@@ -782,6 +1105,11 @@ export const DiagnosticsPage = () => {
                             key: "cross_checks",
                             label: "Configuration Cross-checks",
                             children: sectionCrossChecks,
+                        },
+                        {
+                            key: "calibration_status",
+                            label: "Calibration status",
+                            children: sectionCalibrationStatus,
                         },
                         {
                             key: "sensors",
@@ -805,8 +1133,10 @@ export const DiagnosticsPage = () => {
             {sectionAlerts && <Col span={24}>{sectionAlerts}</Col>}
             <Col span={24}>{sectionSystem}</Col>
             <Col span={24}>{sectionLocalization}</Col>
+            <Col span={24}>{sectionHeadingSources}</Col>
             <Col span={24}>{sectionBtCoverage}</Col>
             <Col span={24}>{sectionCrossChecks}</Col>
+            <Col span={24}>{sectionCalibrationStatus}</Col>
             <Col span={24}>{sectionSensors}</Col>
             <Col span={24}>{sectionRosDiagnostics}</Col>
         </Row>

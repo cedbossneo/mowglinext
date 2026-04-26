@@ -132,7 +132,7 @@ export const MapToolbarMobile = ({
     };
 
     const isIdle = stateName === "IDLE" || stateName === "IDLE_DOCKED";
-    const isRecording = stateName === "RECORDING" || stateName === "AREA_RECORDING";
+    const isRecording = stateName === "RECORDING";
 
     const safeCall = (fn?: () => Promise<void>) => {
         fn?.().catch((e: Error) => {

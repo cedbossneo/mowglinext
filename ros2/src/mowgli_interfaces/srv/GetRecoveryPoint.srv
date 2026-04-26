@@ -1,0 +1,6 @@
+# Request: empty. The map server knows the current robot pose via TF.
+---
+bool success
+string message
+geometry_msgs/Pose recovery_pose  # target inside the nearest mowing area
+float64 distance_outside          # how far past the nearest edge (m)

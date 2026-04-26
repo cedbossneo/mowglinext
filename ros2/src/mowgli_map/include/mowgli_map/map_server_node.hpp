@@ -16,10 +16,13 @@
 #ifndef MOWGLI_MAP__MAP_SERVER_NODE_HPP_
 #define MOWGLI_MAP__MAP_SERVER_NODE_HPP_
 
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <geometry_msgs/msg/point.hpp>
@@ -45,6 +48,7 @@
 #include <mowgli_interfaces/srv/get_coverage_status.hpp>
 #include <mowgli_interfaces/srv/get_mowing_area.hpp>
 #include <mowgli_interfaces/srv/get_next_strip.hpp>
+#include <mowgli_interfaces/srv/get_recovery_point.hpp>
 #include <mowgli_interfaces/srv/set_docking_point.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
@@ -119,6 +123,17 @@ public:
   /// Build coverage cells OccupancyGrid (test-only accessor).
   nav_msgs::msg::OccupancyGrid coverage_cells_to_occupancy_grid() const;
 
+  /// Compute convex hull of 2D points (Andrew's monotone chain).
+  static std::vector<std::pair<double, double>> convex_hull(
+      std::vector<std::pair<double, double>> pts);
+
+  /// Compute optimal mow angle from polygon via Minimum Bounding Rectangle.
+  /// Returns angle in radians: the direction strips should run parallel to.
+  static double compute_optimal_mow_angle(const geometry_msgs::msg::Polygon& poly);
+
+  /// Compute or retrieve cached strip layout for an area (test-only).
+  void ensure_strip_layout(size_t area_index);
+
 private:
   // ── ROS callbacks ────────────────────────────────────────────────────────
 
@@ -174,6 +189,16 @@ private:
   void on_get_coverage_status(
       const mowgli_interfaces::srv::GetCoverageStatus::Request::SharedPtr req,
       mowgli_interfaces::srv::GetCoverageStatus::Response::SharedPtr res);
+
+  /// Compute a recovery pose inside the nearest mowing area.
+  ///
+  /// Called by the BT SoftBoundaryHandler when the robot has drifted past a
+  /// polygon edge but is still inside the lethal margin. Finds the closest
+  /// point on the nearest polygon edge, offsets `boundary_recovery_offset_m_`
+  /// further along the inward direction (robot → edge), and returns a Pose
+  /// facing into the area.
+  void on_get_recovery_point(const mowgli_interfaces::srv::GetRecoveryPoint::Request::SharedPtr req,
+                             mowgli_interfaces::srv::GetRecoveryPoint::Response::SharedPtr res);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -254,9 +279,6 @@ private:
     bool valid{false};
   };
 
-  /// Compute or retrieve cached strip layout for an area.
-  void ensure_strip_layout(size_t area_index);
-
   /// Find next unmowed strip. Returns false if coverage is complete.
   bool find_next_unmowed_strip(
       size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool prefer_headland);
@@ -303,6 +325,45 @@ private:
   /// violation is classified as "lethal" (emergency stop) rather than
   /// just "soft" (attempt recovery back inside).
   double lethal_boundary_margin_m_{0.5};
+
+  /// Deadband for the soft boundary violation flag — RTK noise + FTC
+  /// tracking error must push the robot more than this many metres
+  /// outside any polygon before /boundary_violation fires.
+  double soft_boundary_margin_m_{0.10};
+
+  /// How far inside the polygon the soft-recovery pose should sit, measured
+  /// along the robot → edge direction. Large enough that subsequent controller
+  /// jitter doesn't immediately cross the boundary again.
+  double boundary_recovery_offset_m_{0.8};
+
+  /// Cells inside a mowing area but within this distance of the polygon edge
+  /// are marked LETHAL in the keepout mask, so the Smac planner keeps the
+  /// transit/coverage path that much away from the real boundary. This gives
+  /// the FTC controller room to track without overshooting past the edge.
+  /// Default 0.3 m — pairs with inflation_radius 0.4 m for a total soft-wall
+  /// of ~0.7 m inside the polygon.
+  double boundary_inner_margin_m_{0.3};
+
+  /// How far inside the polygon strip endpoints must sit. Applied when the
+  /// coverage planner generates strips: the axis-aligned bounding-box
+  /// y-intersections are shrunk by this value on both ends. Must cover the
+  /// controller's worst-case lateral tracking error — field test showed
+  /// ~0.5 m overshoot at 0.3 m/s transit, so default 0.5 m is the minimum
+  /// safe margin. Was previously hard-coded to mower_width_ (~0.18 m)
+  /// which let coverage paths land well past the polygon edge during
+  /// tracker overshoot.
+  double strip_boundary_margin_m_{0.5};
+
+  /// Mowing strip angle override (degrees). NaN = auto-compute from polygon
+  /// shape via Minimum Bounding Rectangle. 0 = north-south, 90 = east-west.
+  double mow_angle_override_deg_{std::numeric_limits<double>::quiet_NaN()};
+
+  /// Extent of the dock approach corridor along -X in dock local frame (m).
+  /// Cells within this rectangle in front of the dock are marked
+  /// NO_GO_ZONE so coverage strips stop before the straight-line alignment
+  /// corridor that opennav_docking needs for the final approach.
+  double dock_approach_corridor_length_m_{1.5};
+  double dock_approach_corridor_half_width_m_{0.40};
 
   // ── State ─────────────────────────────────────────────────────────────────
   grid_map::GridMap map_;
@@ -390,6 +451,7 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr load_areas_srv_;
   rclcpp::Service<mowgli_interfaces::srv::GetNextStrip>::SharedPtr get_next_strip_srv_;
   rclcpp::Service<mowgli_interfaces::srv::GetCoverageStatus>::SharedPtr get_coverage_status_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::GetRecoveryPoint>::SharedPtr get_recovery_point_srv_;
 
   // ── TF ────────────────────────────────────────────────────────────────────
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;

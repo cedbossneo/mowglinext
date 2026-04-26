@@ -392,12 +392,18 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         onEmergencyOff: mowerAction("emergency", {Emergency: 0}),
         onAreaRecording: mowerAction("high_level_control", {Command: 3}),
         onMowNextArea: mowerAction("high_level_control", {Command: 4}),
-        onContinueOrPause: highLevelStatus.highLevelStatus.state_name === "IDLE"
-            ? async () => {
-                await mowerAction("mower_logic", {Config: {Bools: [{Name: "manual_pause_mowing", Value: false}]}})();
-                await mowerAction("high_level_control", {Command: 1})();
-            }
-            : mowerAction("mower_logic", {Config: {Bools: [{Name: "manual_pause_mowing", Value: true}]}}),
+        // Match MapToolbar's isIdle: the BT publishes IDLE_DOCKED as the
+        // primary resting state; "IDLE" without a suffix only appears as the
+        // manual-mow fallthrough. Continue unpauses then re-starts; Pause
+        // only flips the pause flag — the BT handles the rest.
+        onContinueOrPause:
+            highLevelStatus.highLevelStatus.state_name === "IDLE_DOCKED" ||
+            highLevelStatus.highLevelStatus.state_name === "IDLE"
+                ? async () => {
+                    await mowerAction("mower_logic", {Config: {Bools: [{Name: "manual_pause_mowing", Value: false}]}})();
+                    await mowerAction("high_level_control", {Command: 1})();
+                }
+                : mowerAction("mower_logic", {Config: {Bools: [{Name: "manual_pause_mowing", Value: true}]}}),
         onBladeForward: mowerAction("mow_enabled", {MowEnabled: 1, MowDirection: 0}),
         onBladeBackward: mowerAction("mow_enabled", {MowEnabled: 1, MowDirection: 1}),
         onBladeOff: mowerAction("mow_enabled", {MowEnabled: 0, MowDirection: 0}),
@@ -706,8 +712,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     </Source>
                 </Map> : <Spinner/>}
                 <JoystickOverlay
-                    visible={highLevelStatus.highLevelStatus.state_name === "RECORDING" || highLevelStatus.highLevelStatus.state_name === "AREA_RECORDING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING" || manualMode}
-                    isRecording={highLevelStatus.highLevelStatus.state_name === "RECORDING" || highLevelStatus.highLevelStatus.state_name === "AREA_RECORDING"}
+                    visible={highLevelStatus.highLevelStatus.state_name === "RECORDING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING" || manualMode}
+                    isRecording={highLevelStatus.highLevelStatus.state_name === "RECORDING"}
                     onMove={handleJoyMove}
                     onStop={handleJoyStop}
                     onFinishRecording={mowerActions.onRecordFinish}

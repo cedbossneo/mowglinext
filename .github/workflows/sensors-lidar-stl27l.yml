@@ -1,0 +1,32 @@
+name: Sensors — LiDAR STL27L
+
+on:
+  push:
+    branches: [main, dev, 'feat/**']
+    paths:
+      - 'sensors/lidar-stl27l/**'
+      - '.github/workflows/sensors-lidar-stl27l.yml'
+      - '.github/workflows/_sensor-docker.yml'
+  workflow_dispatch:
+    inputs:
+      no-cache:
+        description: 'Build without Docker layer cache'
+        type: boolean
+        default: false
+
+concurrency:
+  group: sensors-lidar-stl27l-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/_sensor-docker.yml
+    with:
+      image: lidar-stl27l
+      context: ./sensors/lidar-stl27l
+      target: runtime
+      no-cache: ${{ inputs.no-cache == true }}

@@ -6,6 +6,7 @@ import React from "react";
 import styled from "styled-components";
 import AsyncDropDownButton from "./AsyncDropDownButton.tsx";
 import {useHighLevelStatus} from "../hooks/useHighLevelStatus.ts";
+import {HighLevelStatusConstants} from "../types/ros.ts";
 
 const ActionsCard = styled(Card)`
   .ant-card-body > button {
@@ -58,9 +59,11 @@ export const MowerActions: React.FC<React.PropsWithChildren<{bare?: boolean}>> =
             }]
         },
         {
-            key: highLevelStatus.state_name == "IDLE" ? "continue" : "pause",
-            label: highLevelStatus.state_name == "IDLE" ? "Continue" : "Pause",
-            actions: highLevelStatus.state_name == "IDLE" ? [{
+            // Match MapToolbar: resting state is IDLE_DOCKED (BT never emits
+            // plain IDLE except as the manual-mow fallthrough).
+            key: (highLevelStatus.state_name == "IDLE_DOCKED" || highLevelStatus.state_name == "IDLE") ? "continue" : "pause",
+            label: (highLevelStatus.state_name == "IDLE_DOCKED" || highLevelStatus.state_name == "IDLE") ? "Continue" : "Pause",
+            actions: (highLevelStatus.state_name == "IDLE_DOCKED" || highLevelStatus.state_name == "IDLE") ? [{
                 command: "mower_logic", args: {
                     Config: {
                         Bools: [{
@@ -135,9 +138,16 @@ export const MowerActions: React.FC<React.PropsWithChildren<{bare?: boolean}>> =
             {children}
             {children ? <Col><Divider type={"vertical"}/></Col> : null}
             <Col>
-                {(highLevelStatus.state_name === "IDLE" || highLevelStatus.state_name === "IDLE_DOCKED") ? <AsyncButton icon={<PlayCircleOutlined/>} type="primary" key="btnHLC1"
-                                                                          onAsyncClick={mowerAction("high_level_control", {Command: 1})}
-                >Start</AsyncButton> : null}
+                {/* Gate Start on the numeric HL state, not the string state_name:
+                    while the BT is AUTONOMOUS (state=2) another COMMAND_START is
+                    a no-op at best and re-kicks the mission at worst. Operator
+                    should use HOME or STOP instead. */}
+                {highLevelStatus.state !== HighLevelStatusConstants.HIGH_LEVEL_STATE_AUTONOMOUS &&
+                 (highLevelStatus.state_name === "IDLE" || highLevelStatus.state_name === "IDLE_DOCKED") ? (
+                    <AsyncButton icon={<PlayCircleOutlined/>} type="primary" key="btnHLC1"
+                                 onAsyncClick={mowerAction("high_level_control", {Command: 1})}
+                    >Start</AsyncButton>
+                ) : null}
                 {highLevelStatus.state_name !== "IDLE" && highLevelStatus.state_name !== "IDLE_DOCKED" ? <AsyncButton icon={<HomeOutlined/>} type="primary" key="btnHLC2"
                                                                            onAsyncClick={mowerAction("high_level_control", {Command: 2})}
                 >Home</AsyncButton> : null}

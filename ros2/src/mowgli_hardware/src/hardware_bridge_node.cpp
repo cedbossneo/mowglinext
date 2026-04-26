@@ -49,8 +49,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -78,6 +81,7 @@ static constexpr uint8_t HL_MODE_MANUAL_MOWING  = 4u;  ///< Manual teleop with b
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/battery_state.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/magnetic_field.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -85,6 +89,58 @@ namespace mowgli_hardware
 {
 
 using namespace std::chrono_literals;
+
+// Simple parser for /ros2_ws/maps/dock_calibration.yaml. Written by
+// calibrate_imu_yaw_node's dock pre-phase, this file carries the
+// GPS-derived dock pose with ~1° accuracy — significantly better than
+// the phone-compass value stored in mowgli_robot.yaml at install time.
+// Both hardware_bridge_node and map_server_node read it at startup.
+//
+// Avoids a yaml-cpp dependency by scanning for the three numeric keys
+// we care about. Returns nullopt if any are missing or the file cannot
+// be read, in which case the caller falls back to the ROS parameter.
+struct DockCalibrationFile
+{
+  double x{0.0};
+  double y{0.0};
+  double yaw_rad{0.0};
+};
+
+inline std::optional<double> parse_yaml_double(const std::string& content,
+                                               const std::string& key)
+{
+  const std::string needle = key + ":";
+  auto pos = content.find(needle);
+  if (pos == std::string::npos) return std::nullopt;
+  pos += needle.size();
+  while (pos < content.size() &&
+         (content[pos] == ' ' || content[pos] == '\t')) ++pos;
+  auto end = pos;
+  while (end < content.size() && content[end] != '\n' && content[end] != '\r') ++end;
+  try
+  {
+    return std::stod(content.substr(pos, end - pos));
+  }
+  catch (...)
+  {
+    return std::nullopt;
+  }
+}
+
+inline std::optional<DockCalibrationFile> load_dock_calibration_file(
+    const std::string& path)
+{
+  std::ifstream f(path);
+  if (!f.good()) return std::nullopt;
+  std::stringstream ss;
+  ss << f.rdbuf();
+  const std::string content = ss.str();
+  auto x = parse_yaml_double(content, "dock_pose_x");
+  auto y = parse_yaml_double(content, "dock_pose_y");
+  auto yaw = parse_yaml_double(content, "dock_pose_yaw_rad");
+  if (!x || !y || !yaw) return std::nullopt;
+  return DockCalibrationFile{*x, *y, *yaw};
+}
 
 class HardwareBridgeNode : public rclcpp::Node
 {
@@ -98,6 +154,10 @@ public:
     create_services();
     open_serial_port();
     create_timers();
+    // Must run after declare_parameters — reads imu_cal_persist_path_. Runs
+    // before any IMU packet arrives because the serial port callbacks are
+    // dispatched by the executor from main(), not from the constructor.
+    load_persisted_imu_calibration();
   }
 
   ~HardwareBridgeNode() override = default;
@@ -117,10 +177,48 @@ private:
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
+
+    // Override the config-file dock pose with the runtime calibration
+    // persisted by calibrate_imu_yaw_node's dock pre-phase. The file wins
+    // over the parameter so that a redeploy after the calibration does
+    // not roll back to the old phone-compass value. Falls back silently
+    // to the parameter if the file is missing or unparseable.
+    if (auto file_cal = load_dock_calibration_file(
+            "/ros2_ws/maps/dock_calibration.yaml"))
+    {
+      RCLCPP_INFO(get_logger(),
+                  "Using dock calibration from file: pose=(%.3f, %.3f) "
+                  "yaw=%.4f rad (%.2f°) — overrides config",
+                  file_cal->x, file_cal->y, file_cal->yaw_rad,
+                  file_cal->yaw_rad * 180.0 / M_PI);
+      dock_x_ = file_cal->x;
+      dock_y_ = file_cal->y;
+      dock_yaw_ = file_cal->yaw_rad;
+    }
     lift_recovery_mode_ = declare_parameter<bool>("lift_recovery_mode", false);
     lift_blade_resume_delay_sec_ = declare_parameter<double>("lift_blade_resume_delay_sec", 1.0);
     // imu_yaw parameter is used by URDF for mounting rotation, not needed here
     imu_cal_samples_ = declare_parameter<int>("imu_cal_samples", 200);
+    // Persist the last successful calibration so container restarts don't
+    // leave the filter running on an uncalibrated IMU until the next dock
+    // (Voie C Test 1 on 2026-04-24 caught this: container restart after
+    // image update + no dock since → gyro_z bias 0.05 rad/s, fusion yaw
+    // drifting 2.9°/s, σ_xy inflated to 50 cm because GPS innovations kept
+    // getting rejected by the outlier gate).
+    imu_cal_persist_path_ = declare_parameter<std::string>(
+        "imu_cal_persist_path", "/ros2_ws/maps/imu_calibration.txt");
+    // Auto-calibrate at rest: if the robot is stationary and NOT charging
+    // for this many seconds AND we don't have a calibration yet, trigger
+    // the same 20 s sample collection used on dock. Lets the robot recover
+    // from boot-without-previous-calibration without requiring a dock.
+    imu_cal_auto_rest_sec_ = declare_parameter<double>("imu_cal_auto_rest_sec", 15.0);
+    // Periodic recalibration while docked: temperature drifts between a
+    // morning dock session and afternoon mowing, so bias drift accumulates
+    // (Voie C Test 2026-04-24 measured ~0.003 rad/s residual after dock cal,
+    // → 7°/min of yaw drift during mowing). Re-running the cal every N
+    // seconds while the robot is stationary on dock keeps the offsets
+    // fresh for temperature. Set to 0 to disable.
+    imu_cal_periodic_recal_sec_ = declare_parameter<double>("imu_cal_periodic_recal_sec", 600.0);
 
     RCLCPP_INFO(get_logger(),
                 "Parameters: serial_port=%s baud_rate=%d heartbeat_rate=%.1f Hz "
@@ -138,27 +236,29 @@ private:
     pub_emergency_ =
         create_publisher<mowgli_interfaces::msg::Emergency>("~/emergency", rclcpp::QoS(10));
     pub_power_ = create_publisher<mowgli_interfaces::msg::Power>("~/power", rclcpp::QoS(10));
-    // RELIABLE, not SensorDataQoS — FusionCore subscribes RELIABLE and
-    // refuses BEST_EFFORT publishers with "incompatible QoS policy",
-    // which starved the filter of IMU/wheel data.
+    // RELIABLE, not SensorDataQoS — robot_localization's EKF nodes
+    // subscribe RELIABLE and refuse BEST_EFFORT publishers with
+    // "incompatible QoS policy", which starves the filter of IMU/wheel data.
     pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("~/imu/data_raw", rclcpp::QoS(10));
+    // Raw magnetometer µT → Tesla for mag_yaw_publisher (calibration
+    // gated on /ros2_ws/maps/mag_calibration.yaml). Also used
+    // diagnostically to inspect the chip and see chassis distortion.
+    pub_mag_raw_ = create_publisher<sensor_msgs::msg::MagneticField>(
+        "~/imu/mag_raw", rclcpp::QoS(10));
     pub_wheel_odom_ =
         create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
     pub_battery_state_ =
         create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", rclcpp::QoS(10));
-    // Dock heading for FusionCore: while charging, publish dock yaw at
-    // 1 Hz so FusionCore has a heading anchor. Remapped to /gnss/heading
-    // in mowgli.launch.py. Stops automatically when robot undocks.
+    // Dock heading: publish dock_yaw at 1 Hz while charging so
+    // dock_yaw_to_set_pose.py (robot_localization helper) can bridge it
+    // into ekf_map/ekf_odom set_pose. Remapped to /gnss/heading in
+    // mowgli.launch.py. Stops automatically when the robot undocks.
     pub_dock_heading_ = create_publisher<sensor_msgs::msg::Imu>("~/dock_heading", rclcpp::QoS(10));
     timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
                                             [this]()
                                             {
                                               publish_dock_heading();
                                             });
-
-    // FusionCore reset client: called on is_charging false→true transition
-    // to clear stale filter state before the wide-σ dock_heading anchors yaw.
-    fusion_reset_client_ = create_client<std_srvs::srv::Trigger>("/fusioncore_node/reset");
   }
 
   void create_subscribers()
@@ -380,65 +480,46 @@ private:
       is_charging_ = (pkt.status_bitmask & STATUS_BIT_CHARGING) != 0u;
       msg.is_charging = is_charging_;
 
-      // Dock heading anchor trigger: on charging transition, reset FusionCore
-      // and start the wide-σ dock_heading window so the Mahalanobis gate
-      // accepts the first heading update (lever arm gated on heading_validated).
+      // Dock heading anchor trigger: on charging transition, start the
+      // wide-σ dock_heading window so dock_yaw_to_set_pose picks up the
+      // current heading. The robot_localization stack does not require a
+      // filter reset — set_pose on both EKFs is issued by
+      // dock_yaw_to_set_pose when it sees the rising edge.
       if (is_charging_ && !was_charging)
       {
         charging_anchor_start_ = now();
         charging_anchor_active_ = true;
-        if (fusion_reset_client_ && fusion_reset_client_->service_is_ready())
-        {
-          auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-          fusion_reset_client_->async_send_request(req);
-          RCLCPP_INFO(get_logger(),
-                      "Charging transition: FusionCore reset + dock_heading "
-                      "anchor window (%.1fs) opened.",
-                      kChargingAnchorWindowSec);
-        }
-        else
-        {
-          RCLCPP_INFO(get_logger(),
-                      "Charging transition: anchor window opened (FusionCore "
-                      "reset service not ready; wide-σ heading alone).");
-        }
+        RCLCPP_INFO(get_logger(),
+                    "Charging transition: dock_heading anchor window "
+                    "(%.1fs) opened.",
+                    kChargingAnchorWindowSec);
       }
 
       // Start IMU calibration when charging and not already calibrating.
       // Triggers on: (1) dock transition, (2) first status packet if
-      // already on dock at boot.
-      if (is_charging_ && !imu_cal_collecting_ && !imu_cal_ready_)
+      // already on dock at boot. A freshly-docked cal overrides a loaded-
+      // from-file cal because the dock is the most trustworthy at-rest
+      // environment (bias may have drifted since the file was written).
+      if (is_charging_ && !imu_cal_collecting_ && (!imu_cal_ready_ || (!was_charging && imu_cal_ready_)))
       {
-        imu_cal_collecting_ = true;
-        imu_cal_count_ = 0;
-        imu_cal_sum_ax_ = imu_cal_sum_ay_ = imu_cal_sum_az_ = 0.0;
-        imu_cal_sum_gx_ = imu_cal_sum_gy_ = imu_cal_sum_gz_ = 0.0;
-        imu_cal_samples_ax_.clear();
-        imu_cal_samples_ay_.clear();
-        imu_cal_samples_gx_.clear();
-        imu_cal_samples_gy_.clear();
-        imu_cal_samples_gz_.clear();
-        RCLCPP_INFO(get_logger(),
-                    "On dock — starting IMU calibration (%d samples)",
-                    imu_cal_samples_);
+        start_imu_calibration(was_charging ? "on dock (boot)" : "dock transition");
       }
 
-      // Re-calibrate when robot re-docks after a mowing session
-      if (is_charging_ && !was_charging && imu_cal_ready_)
+      // Periodic recalibration while docked. The motor-controller chip's
+      // temperature shifts between a morning charge and afternoon mowing;
+      // bias drifts accordingly (measured ~0.003 rad/s residual → 7°/min
+      // yaw-integration error). While the robot sits stationary on dock,
+      // refresh the cal every imu_cal_periodic_recal_sec_ seconds so the
+      // offsets match current-temperature.
+      if (is_charging_ && imu_cal_ready_ && !imu_cal_collecting_ && wheels_stationary_
+          && imu_cal_periodic_recal_sec_ > 0.0
+          && imu_cal_last_completed_.nanoseconds() > 0)
       {
-        imu_cal_ready_ = false;
-        imu_cal_collecting_ = true;
-        imu_cal_count_ = 0;
-        imu_cal_sum_ax_ = imu_cal_sum_ay_ = imu_cal_sum_az_ = 0.0;
-        imu_cal_sum_gx_ = imu_cal_sum_gy_ = imu_cal_sum_gz_ = 0.0;
-        imu_cal_samples_ax_.clear();
-        imu_cal_samples_ay_.clear();
-        imu_cal_samples_gx_.clear();
-        imu_cal_samples_gy_.clear();
-        imu_cal_samples_gz_.clear();
-        RCLCPP_INFO(get_logger(),
-                    "Re-docked — restarting IMU calibration (%d samples)",
-                    imu_cal_samples_);
+        const double age_sec = (now() - imu_cal_last_completed_).seconds();
+        if (age_sec >= imu_cal_periodic_recal_sec_)
+        {
+          start_imu_calibration("periodic recal while docked");
+        }
       }
       msg.rain_detected = (pkt.status_bitmask & STATUS_BIT_RAIN) != 0u;
       msg.sound_module_available = (pkt.status_bitmask & STATUS_BIT_SOUND_AVAIL) != 0u;
@@ -575,6 +656,133 @@ private:
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // IMU calibration persistence
+  //
+  // The at-dock calibration lives only in RAM — a ros2 container restart
+  // (e.g. pulling a new image) throws it away, and the filter then runs on
+  // the raw gyro until the robot next docks. The raw WT901 gyro bias is
+  // around 0.05 rad/s → 2.9°/s phantom yaw drift → GPS-innovation rejection
+  // spiral → σ_xy inflates to 50 cm while the robot is literally still.
+  //
+  // We persist offsets + variances to a small text file on the maps volume
+  // (survives container/host restarts) and load them at boot. Line format:
+  //   # mowgli_imu_calibration_v1
+  //   <timestamp_unix> <n_samples>
+  //   <off_ax> <off_ay> <off_gx> <off_gy> <off_gz>
+  //   <cov_ax> <cov_ay> <cov_gx> <cov_gy> <cov_gz>
+  //   <implied_pitch_deg> <implied_roll_deg>
+  // Human-inspectable, no YAML/JSON dependency, easy to delete if bad.
+  // ---------------------------------------------------------------------------
+
+  void persist_imu_calibration(double implied_pitch_deg, double implied_roll_deg)
+  {
+    std::ofstream f(imu_cal_persist_path_, std::ios::trunc);
+    if (!f.is_open())
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Could not open %s for write — IMU cal NOT persisted.",
+                  imu_cal_persist_path_.c_str());
+      return;
+    }
+    f << "# mowgli_imu_calibration_v1\n";
+    f << std::fixed;
+    f.precision(6);
+    f << static_cast<int64_t>(std::time(nullptr)) << " " << imu_cal_count_ << "\n";
+    f << imu_cal_offset_ax_ << " " << imu_cal_offset_ay_ << " "
+      << imu_cal_offset_gx_ << " " << imu_cal_offset_gy_ << " " << imu_cal_offset_gz_
+      << "\n";
+    f << imu_cal_cov_ax_ << " " << imu_cal_cov_ay_ << " "
+      << imu_cal_cov_gx_ << " " << imu_cal_cov_gy_ << " " << imu_cal_cov_gz_
+      << "\n";
+    f << implied_pitch_deg << " " << implied_roll_deg << "\n";
+    f.close();
+    RCLCPP_INFO(get_logger(), "Persisted IMU calibration to %s",
+                imu_cal_persist_path_.c_str());
+  }
+
+  void load_persisted_imu_calibration()
+  {
+    std::ifstream f(imu_cal_persist_path_);
+    if (!f.is_open())
+    {
+      RCLCPP_INFO(get_logger(),
+                  "No persisted IMU calibration at %s — will auto-cal on dock "
+                  "or after %.0f s stationary off-dock.",
+                  imu_cal_persist_path_.c_str(), imu_cal_auto_rest_sec_);
+      return;
+    }
+    std::string header;
+    std::getline(f, header);
+    if (header != "# mowgli_imu_calibration_v1")
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Persisted IMU cal header mismatch (got '%s') — ignoring, "
+                  "will re-calibrate.", header.c_str());
+      return;
+    }
+    int64_t ts = 0;
+    int n = 0;
+    if (!(f >> ts >> n)
+        || !(f >> imu_cal_offset_ax_ >> imu_cal_offset_ay_
+               >> imu_cal_offset_gx_ >> imu_cal_offset_gy_ >> imu_cal_offset_gz_)
+        || !(f >> imu_cal_cov_ax_ >> imu_cal_cov_ay_
+               >> imu_cal_cov_gx_ >> imu_cal_cov_gy_ >> imu_cal_cov_gz_))
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Persisted IMU cal parse failed — ignoring, will re-calibrate.");
+      return;
+    }
+    // Sanity: if a previous cal ran while the robot was actually rotating
+    // (false at-rest detection, dock glitch, whatever), the saved gyro
+    // offset will be huge. Reject to force a clean re-cal rather than
+    // systematically miscorrecting every /imu/data sample. 0.2 rad/s ~=
+    // 11.5°/s; real chip bias on WT901 is empirically < 0.1 rad/s.
+    const double max_plausible = 0.2;
+    if (std::abs(imu_cal_offset_gx_) > max_plausible
+        || std::abs(imu_cal_offset_gy_) > max_plausible
+        || std::abs(imu_cal_offset_gz_) > max_plausible)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Persisted IMU cal rejected — gyro offset implausible "
+                  "[%.4f, %.4f, %.4f] rad/s > %.2f. Will re-calibrate.",
+                  imu_cal_offset_gx_, imu_cal_offset_gy_, imu_cal_offset_gz_,
+                  max_plausible);
+      imu_cal_offset_gx_ = imu_cal_offset_gy_ = imu_cal_offset_gz_ = 0.0;
+      imu_cal_offset_ax_ = imu_cal_offset_ay_ = 0.0;
+      return;
+    }
+    imu_cal_count_ = n;
+    imu_cal_ready_ = true;
+    imu_cal_loaded_from_file_ = true;
+    imu_cal_last_completed_ = now();  // grace period before periodic recal fires
+    const double age_hours = (static_cast<double>(std::time(nullptr)) - static_cast<double>(ts)) / 3600.0;
+    RCLCPP_INFO(get_logger(),
+                "Loaded IMU calibration from %s (%.1f h old, %d samples) — "
+                "gyro offset [%.5f, %.5f, %.5f] rad/s, "
+                "accel offset [%.4f, %.4f] m/s². "
+                "Will re-calibrate at next dock.",
+                imu_cal_persist_path_.c_str(), age_hours, n,
+                imu_cal_offset_gx_, imu_cal_offset_gy_, imu_cal_offset_gz_,
+                imu_cal_offset_ax_, imu_cal_offset_ay_);
+  }
+
+  void start_imu_calibration(const char* reason)
+  {
+    imu_cal_ready_ = false;
+    imu_cal_collecting_ = true;
+    imu_cal_count_ = 0;
+    imu_cal_sum_ax_ = imu_cal_sum_ay_ = imu_cal_sum_az_ = 0.0;
+    imu_cal_sum_gx_ = imu_cal_sum_gy_ = imu_cal_sum_gz_ = 0.0;
+    imu_cal_samples_ax_.clear();
+    imu_cal_samples_ay_.clear();
+    imu_cal_samples_gx_.clear();
+    imu_cal_samples_gy_.clear();
+    imu_cal_samples_gz_.clear();
+    RCLCPP_INFO(get_logger(), "Starting IMU calibration (%d samples) — %s",
+                imu_cal_samples_, reason);
+  }
+
   void handle_imu(const uint8_t* data, std::size_t len)
   {
     if (len < sizeof(LlImu))
@@ -596,6 +804,35 @@ private:
     double gx = static_cast<double>(pkt.gyro_rads[0]);
     double gy = static_cast<double>(pkt.gyro_rads[1]);
     double gz = static_cast<double>(pkt.gyro_rads[2]);
+
+    // Auto-calibrate off-dock when stationary. Covers the "image pulled,
+    // container restarted, robot has not docked since" case that leaves
+    // the filter running on raw gyro (2-3°/s bias → yaw diverges in seconds).
+    // Gate: no cal yet + not charging + wheels stationary for auto_rest_sec.
+    if (!imu_cal_ready_ && !imu_cal_collecting_ && !is_charging_)
+    {
+      if (wheels_stationary_)
+      {
+        if (imu_cal_at_rest_since_.nanoseconds() == 0)
+        {
+          imu_cal_at_rest_since_ = now();
+        }
+        else
+        {
+          const double at_rest_sec =
+              (now() - imu_cal_at_rest_since_).seconds();
+          if (at_rest_sec >= imu_cal_auto_rest_sec_)
+          {
+            start_imu_calibration("off-dock auto-cal after stationary window");
+            imu_cal_at_rest_since_ = rclcpp::Time{};
+          }
+        }
+      }
+      else
+      {
+        imu_cal_at_rest_since_ = rclcpp::Time{};
+      }
+    }
 
     // IMU calibration: collect samples while docked and idle, then compute
     // offsets (mean) and covariances (variance). Same algorithm as firmware
@@ -646,6 +883,7 @@ private:
 
         imu_cal_collecting_ = false;
         imu_cal_ready_ = true;
+        imu_cal_last_completed_ = now();
         RCLCPP_INFO(get_logger(),
                     "IMU calibration complete (%d samples) — "
                     "accel offset [%.4f, %.4f] m/s², "
@@ -688,6 +926,10 @@ private:
                     "If magnitudes exceed ~1° set imu_pitch / imu_roll in "
                     "mowgli_robot.yaml and redeploy.",
                     implied_pitch_deg, implied_roll_deg, a_mag, az_mean);
+
+        // Persist to disk so container restarts don't lose the calibration
+        // (this is the fix for the "stale gyro bias after pull" class of bugs).
+        persist_imu_calibration(implied_pitch_deg, implied_roll_deg);
 
         // Free sample buffers
         imu_cal_samples_ax_.clear();
@@ -743,10 +985,11 @@ private:
     }
 
     // Flat-ground constraint: the robot is always on a level surface, so
-    // roll=0 and pitch=0. Yaw is left to FusionCore (GPS+gyro).
+    // roll=0 and pitch=0. Yaw comes from gyro_z integration in the
+    // local EKF plus GPS-COG absolute yaw in the global EKF.
     // Set orientation to identity with tight roll/pitch covariance and
-    // loose yaw covariance so FusionCore constrains roll/pitch to zero
-    // without fighting its own yaw estimate.
+    // loose yaw covariance so robot_localization constrains roll/pitch
+    // to zero without fighting its own yaw estimate.
     msg.orientation.w = 1.0;
     msg.orientation_covariance[0] = 0.001;  // roll  variance (tight)
     msg.orientation_covariance[4] = 0.001;  // pitch variance (tight)
@@ -789,6 +1032,25 @@ private:
     }
 
     pub_imu_->publish(msg);
+
+    // Raw magnetometer on a diagnostic-only topic. Not fused anywhere —
+    // the chip sits inside a metal chassis so uncalibrated heading is
+    // ~229° off true north; this topic only lets an operator inspect the
+    // live field vector to check the sensor is alive or measure local
+    // distortion. µT on the wire → Tesla for sensor_msgs/MagneticField.
+    if (pub_mag_raw_->get_subscription_count() > 0)
+    {
+      sensor_msgs::msg::MagneticField mag_msg;
+      mag_msg.header.stamp = msg.header.stamp;
+      mag_msg.header.frame_id = "imu_link";
+      mag_msg.magnetic_field.x = pkt.mag_uT[0] * 1.0e-6;
+      mag_msg.magnetic_field.y = pkt.mag_uT[1] * 1.0e-6;
+      mag_msg.magnetic_field.z = pkt.mag_uT[2] * 1.0e-6;
+      // Covariance unknown (chip distortion is large and unmeasured).
+      // ROS convention: set the first element to -1.0 to signal "no data".
+      mag_msg.magnetic_field_covariance[0] = -1.0;
+      pub_mag_raw_->publish(mag_msg);
+    }
   }
 
   void publish_dock_heading()
@@ -797,17 +1059,16 @@ private:
       return;
 
     // Publish dock heading as sensor_msgs/Imu on ~/dock_heading
-    // (remapped to /gnss/heading in launch). FusionCore interprets the
-    // orientation quaternion as heading in ENU.
+    // (remapped to /gnss/heading in launch). dock_yaw_to_set_pose
+    // consumes it and seeds both EKFs via their set_pose services.
+    // The orientation quaternion is heading in ENU.
     // dock_yaw_ is compass heading; convert to ENU: yaw_enu = pi/2 - compass
     const double enu_yaw = M_PI / 2.0 - dock_yaw_;
 
     // During the anchor window after a charging transition, publish with
-    // σ=π so FusionCore's Mahalanobis gate accepts the first heading update
-    // no matter how far the filter's initial yaw is from the dock. Without
-    // this, a filter that initialises at yaw≈0 would reject the true dock
-    // heading (~2.6 rad innovation ≫ 4σ at σ=0.1 rad) and heading_validated_
-    // would stay false, leaving the GPS lever arm disabled indefinitely.
+    // σ=π so dock_yaw_to_set_pose accepts the first heading update as a
+    // wide-σ seed no matter how far the filter's initial yaw is from the
+    // dock.
     double yaw_cov = 0.01;  // steady-state: σ ≈ 0.1 rad (~6°)
     if (charging_anchor_active_)
     {
@@ -875,22 +1136,34 @@ private:
       return;
     }
 
-    // Sanity-clamp to physically plausible deltas. Firmware packets arrive
-    // every ~21 ms; at a hard upper bound of 2 m/s the robot would move
-    // ~0.042 m = ~13 ticks per packet (TICKS_PER_M = 300). Anything above
-    // kTickSpikeLimit is a firmware glitch — typically the motor-controller
-    // PCB's encoder reset on direction change not happening in lockstep with
-    // the firmware's own prev_*_encoder_val reset, giving a phantom delta of
-    // ~tens-of-thousands-of-ticks (observed as 1000+ m/s velocity spikes in
-    // wheel_odom). Dropping the offending packet's delta is far safer than
-    // letting FusionCore integrate that into a position/yaw jump.
+    // 16-bit unsigned-counter wraparound recovery. Firmware packets carry
+    // int32_t left_ticks / right_ticks but the underlying motor-controller
+    // encoder counter is 16-bit and wraps 0xFFFF↔0x0000. After a wrap a
+    // raw subtraction produces a delta of ±65535 (with small ±N noise from
+    // the actual motion that occurred during the wrap), which is the
+    // signature we observe ("dL=-65528", "dR=65535" etc.). Unwrap any
+    // delta whose magnitude is closer to 65536 than to 0 by adding/
+    // subtracting 65536 — this recovers the true small physical delta
+    // instead of dropping the packet and losing position information.
+    auto unwrap_16bit = [](int32_t d) {
+      if (d > 32768) return d - 65536;
+      if (d < -32768) return d + 65536;
+      return d;
+    };
+    d_left  = unwrap_16bit(d_left);
+    d_right = unwrap_16bit(d_right);
+
+    // Sanity-clamp residual implausible deltas. After wrap-recovery the
+    // remaining oversize deltas are firmware glitches (e.g. motor-controller
+    // encoder reset on direction change not in lockstep with the firmware's
+    // own prev tracking). Drop those — at 21 ms packet period and a hard
+    // 2 m/s upper bound the physical max is ~13 ticks; 100 leaves margin.
     constexpr int32_t kTickSpikeLimit = 100;
     if (std::abs(d_left) > kTickSpikeLimit || std::abs(d_right) > kTickSpikeLimit)
     {
       RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
-          "Dropping wheel tick spike: dL=%d dR=%d (limit=%d). Likely a "
-          "direction-change encoder-reset mismatch from the motor controller.",
+          "Dropping residual wheel tick spike: dL=%d dR=%d (limit=%d).",
           d_left, d_right, kTickSpikeLimit);
       d_left = 0;
       d_right = 0;
@@ -900,14 +1173,19 @@ private:
     // Firmware packets arrive at ~47 Hz (every ~21 ms). At slow speeds this
     // gives only 0-3 ticks per window, so single-tick encoder noise (1 tick
     // = ~167 mm/s over 21 ms!) gets amplified into phantom velocity spikes
-    // that FusionCore trusts thanks to the tight wheel covariance. Sum 5
+    // that robot_localization trusts thanks to the tight wheel covariance. Sum 5
     // packets (~100 ms, ~15 ticks at 0.5 m/s) so the velocity denominator
     // grows and single-tick noise collapses to ~7 % relative error.
     odom_acc_delta_left_  += d_left;
     odom_acc_delta_right_ += d_right;
     odom_acc_dt_ms_       += pkt.dt_millis;
 
-    static constexpr uint32_t kAggregateMs = 100;
+    // 50 ms aggregation → ~20 Hz /wheel_odom. Tested: 33 ms (30 Hz)
+    // saturated the EKF on this ARM CPU and produced "Failed to meet
+    // update rate" errors on every cycle. 50 ms is twice the GPS rate
+    // and twice the controller rate — sufficient for closed-loop
+    // velocity control without choking the filter.
+    static constexpr uint32_t kAggregateMs = 50;
     if (odom_acc_dt_ms_ < kAggregateMs)
     {
       return;
@@ -954,7 +1232,7 @@ private:
     // still mode=AUTONOMOUS(2) but the robot has already re-docked and
     // is physically stationary. Without the zero constraint, gyro_z
     // bias (~0.01 rad/s on the WT901) integrates into fusion yaw at
-    // ~30°/min, which then corrupts FusionCore's heading estimate and
+    // ~30°/min, which then corrupts the fused heading estimate and
     // manifests as a slowly-rotating robot icon while on the dock.
     //
     // Edge case: the charger bit can briefly stay high during a BackUp
@@ -977,7 +1255,7 @@ private:
     const double vel_var = force_zero ? 1e-6 : 0.01;
     msg.twist.covariance[0] = vel_var;  // vx variance
     // Non-holonomic constraint: diff-drive can't slide sideways. Tight
-    // variance on VY=0 tells FusionCore to treat this as a hard constraint;
+    // variance on VY=0 tells robot_localization to treat this as a hard constraint;
     // leaving at 1e6 ("unknown") lets GPS+IMU noise accumulate as apparent
     // lateral drift during outdoor runs.
     msg.twist.covariance[7] = 1e-4;  // vy (enforce VY = 0)
@@ -1051,18 +1329,35 @@ private:
 
   void on_cmd_vel(geometry_msgs::msg::TwistStamped::ConstSharedPtr msg)
   {
+    double vx = msg->twist.linear.x;
+    double wz = msg->twist.angular.z;
+
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive (from Nav2 or teleop), ensure the firmware is in AUTONOMOUS mode.
-    if (current_mode_ == 0u && (msg->twist.linear.x != 0.0 || msg->twist.angular.z != 0.0))
+    if (current_mode_ == 0u && (vx != 0.0 || wz != 0.0))
     {
       current_mode_ = 1u;  // AUTONOMOUS
       send_high_level_state();
     }
 
+    // Motor deadband boost: at low |ω| with no linear motion, each wheel
+    // gets PWM ≈ |ω|·L/2·PWM_PER_MPS. With L=0.325 and PWM_PER_MPS=300,
+    // |ω|=0.5 rad/s → PWM 24, well below the firmware deadband (~PWM 40)
+    // → motors buzz and the robot doesn't rotate. Boost sub-threshold pure
+    // rotations to MIN_ROT_VEL so the wheels actually engage. Forward
+    // motion supplies its own PWM via vx, so we only boost when the
+    // robot is essentially stationary in linear.
+    constexpr double kMinRotVel = 0.85;          // rad/s, ≈ wheel 0.14 m/s
+    constexpr double kVxStationaryThreshold = 0.05;
+    if (std::abs(vx) < kVxStationaryThreshold && wz != 0.0 && std::abs(wz) < kMinRotVel)
+    {
+      wz = std::copysign(kMinRotVel, wz);
+    }
+
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
-    pkt.linear_x = static_cast<float>(msg->twist.linear.x);
-    pkt.angular_z = static_cast<float>(msg->twist.angular.z);
+    pkt.linear_x = static_cast<float>(vx);
+    pkt.angular_z = static_cast<float>(wz);
 
     send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdVel) - sizeof(uint16_t));
   }
@@ -1115,6 +1410,7 @@ private:
   rclcpp::Publisher<mowgli_interfaces::msg::Emergency>::SharedPtr pub_emergency_;
   rclcpp::Publisher<mowgli_interfaces::msg::Power>::SharedPtr pub_power_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_imu_;
+  rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr pub_mag_raw_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
   rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_state_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_dock_heading_;
@@ -1167,11 +1463,9 @@ private:
   uint8_t current_mode_{0};
   uint8_t gps_quality_{0};
 
-  // Dock heading anchor: on is_charging false→true transition, reset FusionCore
-  // and publish dock_heading with wide σ=π for a short window so the filter's
-  // Mahalanobis gate accepts the first heading update. After the window,
-  // dock_heading narrows to the steady-state tight covariance.
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr fusion_reset_client_;
+  // Dock heading anchor: on is_charging false→true transition, publish
+  // dock_heading with wide σ=π for a short window so dock_yaw_to_set_pose
+  // has time to grab a sample before it narrows to the steady-state σ.
   rclcpp::Time charging_anchor_start_;
   bool charging_anchor_active_{false};
   static constexpr double kChargingAnchorWindowSec = 5.0;
@@ -1194,8 +1488,15 @@ private:
   int32_t  odom_acc_delta_right_{0};
   uint32_t odom_acc_dt_ms_{0};
 
-  // IMU calibration state (computed while docked and idle)
+  // IMU calibration state (computed while docked and idle, OR when stationary
+  // off-dock via auto-cal, OR loaded from the persisted file at boot)
   int imu_cal_samples_{200};
+  std::string imu_cal_persist_path_{"/ros2_ws/maps/imu_calibration.txt"};
+  double imu_cal_auto_rest_sec_{15.0};
+  double imu_cal_periodic_recal_sec_{600.0};  // 0 disables; default 10 min
+  rclcpp::Time imu_cal_at_rest_since_{};   // default-constructed (nanoseconds=0) = "not at rest yet"
+  rclcpp::Time imu_cal_last_completed_{};  // when the last successful cal finished
+  bool imu_cal_loaded_from_file_{false};
   bool imu_cal_collecting_{false};
   bool imu_cal_ready_{false};
   int imu_cal_count_{0};

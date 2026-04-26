@@ -30,8 +30,12 @@ var topicMap = map[string]topicDef{
 	"status":              {"/hardware_bridge/status", "mowgli_interfaces/msg/Status"},
 	"highLevelStatus":     {"/behavior_tree_node/high_level_status", "mowgli_interfaces/msg/HighLevelStatus"},
 	"gps":                 {"/gps/absolute_pose", "mowgli_interfaces/msg/AbsolutePose"},
-	"pose":                {"/fusion/odom", "nav_msgs/msg/Odometry"},
-	"fusionRaw":           {"/fusion/odom", "nav_msgs/msg/Odometry"},
+	// The robot's global pose comes from ekf_map_node (robot_localization
+	// dual-EKF) since the 2026-04-24 migration away from FusionCore. The
+	// "fusionRaw" key is retained for legacy symmetry but now also points
+	// at the same ekf_map output — there is no separate FusionCore stream.
+	"pose":                {"/odometry/filtered_map", "nav_msgs/msg/Odometry"},
+	"fusionRaw":           {"/odometry/filtered_map", "nav_msgs/msg/Odometry"},
 	"btLog":               {"/behavior_tree_log", "nav2_msgs/msg/BehaviorTreeLog"},
 	"imu":                 {"/imu/data", "sensor_msgs/msg/Imu"},
 	"ticks":               {"/wheel_odom", "nav_msgs/msg/Odometry"},
@@ -46,6 +50,11 @@ var topicMap = map[string]topicDef{
 	"obstacles":           {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray"},
 	"robotDescription":    {"/robot_description", "std_msgs/msg/String"},                       // published once
 	"recordingTrajectory": {"/behavior_tree_node/recording_trajectory", "nav_msgs/msg/Path"},   // area recording preview
+	// Synthetic heading sources fused by ekf_map (robot_localization). Both
+	// carry sensor_msgs/Imu with only `orientation` and `orientation_covariance[8]`
+	// populated — see cog_to_imu.py and mag_yaw_publisher.py in mowgli_localization.
+	"cogHeading":          {"/imu/cog_heading", "sensor_msgs/msg/Imu"},
+	"magYaw":              {"/imu/mag_yaw", "sensor_msgs/msg/Imu"},
 }
 
 // ---------------------------------------------------------------------------

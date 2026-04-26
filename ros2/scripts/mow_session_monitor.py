@@ -101,6 +101,33 @@ QOS_RELIABLE = QoSProfile(
 
 
 # -----------------------------------------------------------------------------
+# RTK-covariance-drop check
+#
+# With RTK Fixed (σ~3 mm raw GPS), every GPS update accepted by ekf_map_node
+# should pull /odometry/filtered_map's xx/yy covariance down to roughly fix
+# precision within one publish tick (~33 ms at 30 Hz).
+#
+# If RTK Fixed is streaming at 5 Hz but /odometry/filtered_map covariance stays
+# loose (σ > ~5 cm), something is rejecting or diluting the fix (covariance
+# mismatch, navsat_transform datum drift, or the EKF saturating process noise).
+#
+# Thresholds below are tuned for RTK Fixed specifically. Looser fix types
+# (Float / DGPS) are not checked — their larger covariance is expected.
+# -----------------------------------------------------------------------------
+
+# Consider a raw GPS fix "RTK Fixed-class" when σ_xy below this.
+# RTK Fixed typically reports 3-10 mm → 1e-4 m²; pad generously.
+RTK_FIXED_GPS_COV_THRESHOLD = 1.0e-3      # var (σ ≤ ~3.2 cm)
+
+# Expect /odometry/filtered_map σ_xy to sit under this shortly after RTK Fixed.
+FUSION_COV_TARGET = 1.0e-3                # var (σ ≤ ~3.2 cm)
+
+# Window after an RTK-Fixed GPS arrival within which fusion cov must drop.
+# One GPS tick (200 ms @ 5 Hz) + a few fusion ticks (20 ms each) is plenty.
+RTK_COV_WINDOW_SEC = 0.30
+
+
+# -----------------------------------------------------------------------------
 # Sample record — each subscription updates a slot; the periodic timer
 # snapshots the whole state into a JSON line.
 # -----------------------------------------------------------------------------
@@ -108,7 +135,7 @@ QOS_RELIABLE = QoSProfile(
 
 @dataclass
 class LatestState:
-    # --- FusionCore ---
+    # --- Fused pose (ekf_map_node output) ---
     fusion_x: Optional[float] = None
     fusion_y: Optional[float] = None
     fusion_z: Optional[float] = None
@@ -116,6 +143,8 @@ class LatestState:
     fusion_vx: Optional[float] = None
     fusion_vy: Optional[float] = None
     fusion_wz: Optional[float] = None
+    fusion_cov_xx: Optional[float] = None
+    fusion_cov_yy: Optional[float] = None
 
     # --- Wheel (hardware_bridge) ---
     wheel_vx: Optional[float] = None
@@ -208,6 +237,21 @@ class MowSessionMonitor(Node):
         self.peak_fusion_gps_err = 0.0
         self.peak_wheel_gyro_yaw_drift = 0.0
 
+        # --- RTK covariance-drop check state ---
+        # See the comment block above RTK_FIXED_GPS_COV_THRESHOLD for why this
+        # matters. The check is armed on every RTK-Fixed GPS arrival and fires
+        # on the next /odometry/filtered_map sample within RTK_COV_WINDOW_SEC:
+        # if fusion cov hasn't dropped to FUSION_COV_TARGET, count it as a
+        # suspected rejection/dilution. A non-zero count at end of session is
+        # a red flag worth correlating with the EKF tuning.
+        self._last_rtk_fixed_at: Optional[float] = None   # wallclock seconds
+        self._last_rtk_fixed_cov_xx: Optional[float] = None
+        self.rtk_fixed_arrivals = 0
+        self.rtk_cov_checks_ok = 0
+        self.rtk_cov_checks_violations = 0
+        self.rtk_cov_check_pending = False       # true between arrival and first fusion tick
+        self.peak_fusion_cov_post_rtk = 0.0      # worst cov seen during a pending check
+
         # --- write metadata header ---
         self._write_metadata()
 
@@ -217,8 +261,8 @@ class MowSessionMonitor(Node):
         def sub(topic: str, msg_type, callback, qos=QOS_RELIABLE):
             self.create_subscription(msg_type, topic, callback, qos, callback_group=cb)
 
-        # FusionCore output
-        sub("/fusion/odom", Odometry, self._fusion_odom_cb, QOS_RELIABLE)
+        # Fused pose output (ekf_map_node / map frame).
+        sub("/odometry/filtered_map", Odometry, self._fusion_odom_cb, QOS_RELIABLE)
 
         # Wheels + IMU (hardware_bridge publishes RELIABLE; IMU is sensor QoS from
         # some sources, so accept both with best-effort as a fallback subscriber)
@@ -283,8 +327,36 @@ class MowSessionMonitor(Node):
             s.fusion_vx = msg.twist.twist.linear.x
             s.fusion_vy = msg.twist.twist.linear.y
             s.fusion_wz = msg.twist.twist.angular.z
+            # Position covariance diagonal: 6×6 row-major, xx=0, yy=7.
+            s.fusion_cov_xx = float(msg.pose.covariance[0])
+            s.fusion_cov_yy = float(msg.pose.covariance[7])
             if self.start_fusion_xy is None and s.fusion_x is not None:
                 self.start_fusion_xy = (s.fusion_x, s.fusion_y)
+
+            # --- RTK covariance-drop check ---
+            # If an RTK-Fixed GPS arrived recently, this fusion tick should
+            # show σ_xy ≤ FUSION_COV_TARGET; otherwise the UKF rejected it
+            # (Mahalanobis outlier gate at outlier_threshold_gnss=16.27).
+            if (
+                self.rtk_cov_check_pending
+                and self._last_rtk_fixed_at is not None
+            ):
+                elapsed = time.time() - self._last_rtk_fixed_at
+                cov_max = max(s.fusion_cov_xx or 0.0, s.fusion_cov_yy or 0.0)
+                if elapsed > RTK_COV_WINDOW_SEC:
+                    # Window elapsed without cov dropping below target: count
+                    # as violation and disarm the check until next RTK fix.
+                    self.rtk_cov_checks_violations += 1
+                    self.rtk_cov_check_pending = False
+                elif cov_max <= FUSION_COV_TARGET:
+                    # Cov dropped inside the window — healthy, disarm.
+                    self.rtk_cov_checks_ok += 1
+                    self.rtk_cov_check_pending = False
+                else:
+                    # Still pending within window — track worst cov seen.
+                    self.peak_fusion_cov_post_rtk = max(
+                        self.peak_fusion_cov_post_rtk, cov_max
+                    )
 
     def _wheel_odom_cb(self, msg: Odometry) -> None:
         with self.state_lock:
@@ -329,6 +401,28 @@ class MowSessionMonitor(Node):
             s.gps_cov_xx = float(msg.position_covariance[0])
             s.gps_cov_yy = float(msg.position_covariance[4])
             s.gps_cov_type = msg.position_covariance_type
+
+            # --- RTK-Fixed detection: arm the cov-drop check ---
+            # u-blox drivers usually set status.status=2 (GBAS/RTK) for RTK
+            # Fixed, but that isn't guaranteed — use the covariance itself
+            # as a fallback: RTK Fixed reports σ ≤ a few mm (var ≤ 1e-3).
+            # Both paths arm the check; false positives are harmless because
+            # the fusion cov floor for any Float/DGPS fix is looser anyway.
+            is_rtk_fixed = (
+                msg.status.status == 2
+                or (
+                    s.gps_cov_xx is not None
+                    and s.gps_cov_xx > 0.0
+                    and s.gps_cov_xx <= RTK_FIXED_GPS_COV_THRESHOLD
+                )
+            )
+            if is_rtk_fixed:
+                # If a previous check is still pending, the next fusion tick
+                # will see a newer arrival anyway — just overwrite the arm.
+                self._last_rtk_fixed_at = time.time()
+                self._last_rtk_fixed_cov_xx = s.gps_cov_xx
+                self.rtk_cov_check_pending = True
+                self.rtk_fixed_arrivals += 1
 
     def _gps_abs_cb(self, msg: PoseWithCovarianceStamped) -> None:
         with self.state_lock:
@@ -433,9 +527,9 @@ class MowSessionMonitor(Node):
             fusion_carto_dist = None
             fusion_carto_yaw_diff = None
             if carto is not None and s.fusion_yaw_rad is not None:
-                # Cartographer's map→base_footprint vs FusionCore's idea (fusion
-                # yaw is in odom frame; to compare yaws we'd need map→odom too,
-                # which we have). Filter yaw in map frame = m2o.yaw + fusion_yaw.
+                # Cartographer's map→base_footprint vs the EKF's map-frame yaw.
+                # We fuse /odometry/filtered_map (already in map frame), so no
+                # composition with map→odom is needed here.
                 if m2o is not None:
                     f_yaw_in_map_deg = (
                         m2o["yaw_deg"] + math.degrees(s.fusion_yaw_rad)
@@ -473,10 +567,18 @@ class MowSessionMonitor(Node):
                     "x": s.fusion_x, "y": s.fusion_y, "z": s.fusion_z,
                     "yaw_deg": math.degrees(s.fusion_yaw_rad) if s.fusion_yaw_rad is not None else None,
                     "vx": s.fusion_vx, "vy": s.fusion_vy, "wz": s.fusion_wz,
+                    "cov_xx": s.fusion_cov_xx,
+                    "cov_yy": s.fusion_cov_yy,
+                    "sigma_xy_m": (
+                        math.sqrt(max((s.fusion_cov_xx or 0.0)
+                                      + (s.fusion_cov_yy or 0.0), 0.0) * 0.5)
+                        if s.fusion_cov_xx is not None and s.fusion_cov_yy is not None
+                        else None
+                    ),
                 },
                 "cartographer_map_base": carto,        # map → base_footprint
                 "map_to_odom": m2o,                    # Cartographer correction
-                "odom_to_base": o2bf,                  # FusionCore output as TF
+                "odom_to_base": o2bf,                  # ekf_odom_node output as TF
                 "wheel": {
                     "vx": s.wheel_vx, "wz": s.wheel_wz,
                     "var_vx": s.wheel_vx_var, "var_wz": s.wheel_wz_var,
@@ -549,6 +651,19 @@ class MowSessionMonitor(Node):
                     ),
                     "fusion_carto_yaw_diff_deg": fusion_carto_yaw_diff,
                     "wheel_gyro_yaw_drift_deg": wheel_gyro_drift,
+                    # RTK covariance-drop health (see file-top constants).
+                    # violations > 0 ⇒ outlier gate rejecting RTK fixes.
+                    "rtk_cov_check": {
+                        "arrivals": self.rtk_fixed_arrivals,
+                        "ok": self.rtk_cov_checks_ok,
+                        "violations": self.rtk_cov_checks_violations,
+                        "pending": self.rtk_cov_check_pending,
+                        "last_rtk_fixed_age_sec": (
+                            now_unix - self._last_rtk_fixed_at
+                            if self._last_rtk_fixed_at is not None
+                            else None
+                        ),
+                    },
                 },
             }
 
@@ -589,6 +704,12 @@ class MowSessionMonitor(Node):
                     s.fusion_x - self.start_fusion_xy[0],
                     s.fusion_y - self.start_fusion_xy[1],
                 )
+            total_rtk_checks = self.rtk_cov_checks_ok + self.rtk_cov_checks_violations
+            rtk_ok_ratio = (
+                self.rtk_cov_checks_ok / total_rtk_checks
+                if total_rtk_checks > 0
+                else None
+            )
             summary = {
                 "type": "summary",
                 "ended_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -598,6 +719,18 @@ class MowSessionMonitor(Node):
                 "session_straight_line_displacement_m": fusion_xy_travel,
                 "peak_fusion_gps_error_m": self.peak_fusion_gps_err,
                 "peak_wheel_gyro_yaw_drift_deg": self.peak_wheel_gyro_yaw_drift,
+                "rtk_cov_check": {
+                    "rtk_fixed_arrivals": self.rtk_fixed_arrivals,
+                    "ok": self.rtk_cov_checks_ok,
+                    "violations": self.rtk_cov_checks_violations,
+                    "ok_ratio": rtk_ok_ratio,
+                    "peak_fusion_cov_xx_post_rtk": self.peak_fusion_cov_post_rtk,
+                    "verdict": _rtk_cov_verdict(
+                        self.rtk_fixed_arrivals,
+                        self.rtk_cov_checks_violations,
+                        total_rtk_checks,
+                    ),
+                },
                 "final_battery_voltage": s.battery_voltage,
                 "final_bt_state_name": s.bt_state_name,
             }
@@ -619,6 +752,29 @@ def _json_default(o: Any) -> Any:
     if isinstance(o, (bytes, bytearray)):
         return o.hex()
     return str(o)
+
+
+def _rtk_cov_verdict(arrivals: int, violations: int, total_checks: int) -> str:
+    """One-word verdict for the RTK cov-drop health check, used in the
+    summary record so `jq '.rtk_cov_check.verdict'` gives a fast readout.
+
+    - "no_rtk": session never saw an RTK Fixed fix (under cover, RTK down)
+    - "healthy": ≥95% of arrivals saw fusion cov drop to target in the
+      window — GPS updates are flowing through the outlier gate normally
+    - "gate_rejecting": violations ≥ 5% of checks — consistent with the
+      UKF rejecting fixes. Correlate with localization.yaml's
+      outlier_threshold_gnss (16.27 as of this writing).
+    """
+    if arrivals == 0:
+        return "no_rtk"
+    if total_checks == 0:
+        return "insufficient_data"
+    violation_ratio = violations / total_checks
+    if violation_ratio <= 0.05:
+        return "healthy"
+    if violation_ratio <= 0.20:
+        return "intermittent"
+    return "gate_rejecting"
 
 
 def _git(cmd: list[str], cwd: Optional[str] = None) -> Optional[str]:

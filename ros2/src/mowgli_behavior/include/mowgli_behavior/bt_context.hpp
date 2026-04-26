@@ -137,6 +137,18 @@ struct BTContext
   bool undock_start_recorded{false};
 
   // -----------------------------------------------------------------------
+  // Per-session flags reset by ClearCommand at session end
+  // -----------------------------------------------------------------------
+
+  /// True after any seeding node (CalibrateHeadingFromUndock or
+  /// SeedYawFromMotion) has successfully published a set_pose to ekf_map
+  /// during the current autonomous session. Prevents the forward-drive
+  /// SeedYawFromMotion from re-triggering when the root ReactiveSequence
+  /// halts MowingSequence (e.g., BoundaryGuard or GpsMode transition) and
+  /// later re-enters it from the top.
+  bool yaw_seeded_this_session{false};
+
+  // -----------------------------------------------------------------------
   // Docking point (set from parameter or service call)
   // -----------------------------------------------------------------------
 

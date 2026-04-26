@@ -20,7 +20,7 @@
 
 - Node-internal topics: use relative names (`~/status`, `~/cmd_vel`)
 - Remap to `/mowgli/` namespace in launch files, not in C++ source
-- Shared system topics: absolute (`/scan`, `/cmd_vel`, `/fusion/odom`)
+- Shared system topics: absolute (`/scan`, `/cmd_vel`, `/odometry/filtered_map`)
 
 ## Launch Files
 

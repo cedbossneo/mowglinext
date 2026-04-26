@@ -20,24 +20,27 @@ navigation.launch.py
 Navigation stack launch file for the Mowgli robot mower.
 
 Brings up:
-  1. Static identity map -> odom (published once; the odom frame IS the
-     GPS-ENU frame so map and odom are literally the same).
-  2. FusionCore (UKF: GPS + IMU + wheels, optionally blended with Kinematic-ICP
-     on /encoder2/odom) owns odom -> base_footprint at 50 Hz.
+  1. robot_localization dual-EKF — ekf_odom (wheels + gyro → odom→base_footprint
+     TF, continuous) and ekf_map (+ GPS via navsat_transform → map→odom
+     correction). Sub-cm σ_xy under RTK-Fixed.
+  2. Three helper nodes — dock_yaw_to_set_pose (seeds both EKFs with the dock
+     heading on the is_charging rising edge), cog_to_imu (GPS COG as a
+     continuous absolute-yaw observation with adaptive covariance), and
+     mag_yaw_publisher (tilt-compensated LIS3MDL magnetometer yaw, gated on
+     /ros2_ws/maps/mag_calibration.yaml existing).
   3. Kinematic-ICP (optional, gated on use_lidar) runs on a decoupled parallel
      TF tree (wheel_odom_raw -> base_footprint_wheels -> lidar_link_wheels)
-     and feeds FusionCore via the encoder2 adapter.
+     and feeds ekf_odom via the encoder2 adapter.
   4. Nav2 bringup — full navigation stack (controllers, planners, recoveries,
      BT navigator, costmaps, lifecycle).
 
 Architecture (REP-105):
-  map == odom (static identity) → base_footprint (FusionCore) → base_link → sensors
-  There is no SLAM. GPS is fused directly by FusionCore; Kinematic-ICP provides
-  LiDAR-derived twist on encoder2 to shore up dead-reckoning during GPS
-  degradation.
+  map → (ekf_map) → odom → (ekf_odom) → base_footprint → base_link → sensors
+  There is no SLAM. GPS is fused through navsat_transform into ekf_map.
+  Kinematic-ICP provides LiDAR-derived twist on encoder2 for dead-reckoning
+  during GPS degradation.
 """
 
-import math
 import os
 
 import yaml
@@ -45,21 +48,16 @@ from ament_index_python.packages import get_package_prefix, get_package_share_di
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
-    EmitEvent,
     ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
     RegisterEventHandler,
-    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import LifecycleNode, Node, SetParameter
-from launch_ros.event_handlers import OnStateTransition
-from launch_ros.events.lifecycle import ChangeState
-from lifecycle_msgs.msg import Transition
+from launch_ros.actions import Node, SetParameter
 from nav2_common.launch import RewrittenYaml
 
 
@@ -81,7 +79,7 @@ def generate_launch_description() -> LaunchDescription:
     use_ekf_arg = DeclareLaunchArgument(
         "use_ekf",
         default_value="True",
-        description="Run FusionCore. Set to False in simulation where Gazebo provides odom TF.",
+        description="Run the robot_localization dual EKF. Set to False in simulation where Gazebo provides the odom TF directly.",
     )
 
     use_lidar_arg = DeclareLaunchArgument(
@@ -100,7 +98,6 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # Config paths
     # ------------------------------------------------------------------
-    localization_params = os.path.join(bringup_dir, "config", "localization.yaml")
     nav2_params_lidar = os.path.join(bringup_dir, "config", "nav2_params.yaml")
     nav2_params_no_lidar = os.path.join(bringup_dir, "config", "nav2_params_no_lidar.yaml")
 
@@ -127,25 +124,13 @@ def generate_launch_description() -> LaunchDescription:
             f"[{fp_r:.3f}, {fp_hw:.3f}]]"
         )
 
-    # Read GPS + IMU lever arms, dock pose, and the WGS84 datum from the
-    # runtime config. Lever arms act as explicit overrides for FusionCore;
-    # when zero, it auto-resolves them from TF (base_footprint -> sensor
-    # frame). Dock pose feeds docking_server's home_dock.pose below. The
-    # datum is converted to ECEF and pinned as the FusionCore reference so
-    # the ENU origin survives restarts (instead of drifting with the first
-    # post-boot GPS fix).
-    gps_x = 0.0
-    gps_y = 0.0
-    gps_z = 0.0
-    imu_lever_x = 0.0
-    imu_lever_y = 0.0
-    imu_lever_z = 0.0
+    # Read dock pose and Nav2 speed knobs from the runtime config. Dock
+    # pose feeds docking_server's home_dock.pose below. The WGS84 datum
+    # is read by full_system.launch.py and passed to navsat_to_absolute_pose_node
+    # directly — not needed here.
     dock_pose_x = 0.0
     dock_pose_y = 0.0
     dock_pose_yaw = 0.0
-    datum_lat_deg = 0.0
-    datum_lon_deg = 0.0
-    datum_alt_m = 0.0
     # Speeds are operator-facing knobs in mowgli_robot.yaml. Nothing read
     # them before — they were orphan params — so editing them looked like
     # it should do something but didn't. Load here and inject into the
@@ -163,47 +148,11 @@ def generate_launch_description() -> LaunchDescription:
         with open(runtime_robot_config, "r") as f:
             rt_cfg = yaml.safe_load(f) or {}
         rt_rp = rt_cfg.get("mowgli", {}).get("ros__parameters", {})
-        gps_x = float(rt_rp.get("gps_x", 0.0))
-        gps_y = float(rt_rp.get("gps_y", 0.0))
-        gps_z = float(rt_rp.get("gps_z", 0.0))
-        imu_lever_x = float(rt_rp.get("imu_x", 0.0))
-        imu_lever_y = float(rt_rp.get("imu_y", 0.0))
-        imu_lever_z = float(rt_rp.get("imu_z", 0.0))
         dock_pose_x = float(rt_rp.get("dock_pose_x", 0.0))
         dock_pose_y = float(rt_rp.get("dock_pose_y", 0.0))
         dock_pose_yaw = float(rt_rp.get("dock_pose_yaw", 0.0))
-        datum_lat_deg = float(rt_rp.get("datum_lat", 0.0))
-        datum_lon_deg = float(rt_rp.get("datum_lon", 0.0))
-        datum_alt_m = float(rt_rp.get("datum_alt", 0.0))
         transit_speed = float(rt_rp.get("transit_speed", transit_speed))
         mowing_speed = float(rt_rp.get("mowing_speed", mowing_speed))
-
-    # WGS84 lat/lon/alt -> ECEF (EPSG:4978). FusionCore's `output.crs` is
-    # EPSG:4978, so `reference.x/y/z` must be in ECEF. Inline math (no
-    # pyproj dep) — the formulas are trivial and don't belong in a helper
-    # file for a single callsite.
-    def _wgs84_to_ecef(lat_deg: float, lon_deg: float, alt_m: float):
-        a = 6378137.0                         # semi-major axis (m)
-        e2 = 6.69437999014e-3                 # first eccentricity squared
-        lat = math.radians(lat_deg)
-        lon = math.radians(lon_deg)
-        sin_lat = math.sin(lat)
-        cos_lat = math.cos(lat)
-        n = a / math.sqrt(1.0 - e2 * sin_lat * sin_lat)
-        x = (n + alt_m) * cos_lat * math.cos(lon)
-        y = (n + alt_m) * cos_lat * math.sin(lon)
-        z = (n * (1.0 - e2) + alt_m) * sin_lat
-        return x, y, z
-
-    # Only pin the reference when the datum is actually configured.
-    # A zero/zero datum would place the ENU origin in the Gulf of Guinea;
-    # fall back to use_first_fix=true so the filter still works in that
-    # case (e.g. bench testing without a configured garden).
-    use_fixed_datum = abs(datum_lat_deg) > 1e-6 or abs(datum_lon_deg) > 1e-6
-    if use_fixed_datum:
-        datum_ecef = _wgs84_to_ecef(datum_lat_deg, datum_lon_deg, datum_alt_m)
-    else:
-        datum_ecef = (0.0, 0.0, 0.0)
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -251,14 +200,6 @@ def generate_launch_description() -> LaunchDescription:
                  .setdefault("ros__parameters", {})
                  .setdefault("FollowPath", {}))
         fp["desired_linear_vel"] = transit_speed
-        # RPP has no max_speed_xy knob itself, but velocity_smoother
-        # clamps downstream — set it here so both match the robot-yaml
-        # value.
-        vs = (doc.setdefault("velocity_smoother", {})
-                 .setdefault("ros__parameters", {}))
-        max_vels = vs.get("max_velocity", [0.5, 0.0, 2.0])
-        max_vels[0] = max(transit_speed, mowing_speed)
-        vs["max_velocity"] = max_vels
 
         # FollowCoveragePath (FTC: coverage strip controller). Its speed
         # knob is desired_linear_vel; mowing_speed overrides it.
@@ -301,105 +242,12 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 1. FusionCore — single UKF (GPS + IMU + wheels[+ LiDAR twist later])
-    #    Publishes odom → base_footprint TF. GPS-RTK anchored.
-    # ------------------------------------------------------------------
-    fusioncore_node = LifecycleNode(
-        condition=IfCondition(use_ekf),
-        package="fusioncore_ros",
-        executable="fusioncore_node",
-        name="fusioncore_node",
-        namespace="",
-        output="screen",
-        parameters=[
-            localization_params,
-            {"use_sim_time": use_sim_time},
-            # GPS lever arm from mowgli_robot.yaml (gps_x/y/z)
-            {"gnss.lever_arm_x": gps_x},
-            {"gnss.lever_arm_y": gps_y},
-            {"gnss.lever_arm_z": gps_z},
-            # IMU lever arm from mowgli_robot.yaml (imu_x/y/z). 0 means
-            # "let FusionCore auto-resolve from the TF base_footprint ->
-            # imu_link translation"; non-zero overrides that.
-            {"imu.lever_arm_x": imu_lever_x},
-            {"imu.lever_arm_y": imu_lever_y},
-            {"imu.lever_arm_z": imu_lever_z},
-            # Pin the ENU reference to the WGS84 datum from
-            # mowgli_robot.yaml. Without this, use_first_fix=true made the
-            # origin jump to wherever the first post-boot GPS fix landed —
-            # so saved dock_pose_x/y and every area polygon drifted 20-30 cm
-            # between restarts, and BT goals landed meters off physical
-            # positions. A pinned ECEF reference keeps (0,0) fixed so
-            # persisted world coords stay valid across reboots.
-            {"reference.use_first_fix": not use_fixed_datum},
-            {"reference.x": datum_ecef[0]},
-            {"reference.y": datum_ecef[1]},
-            {"reference.z": datum_ecef[2]},
-        ],
-        remappings=[
-            ("/odom/wheels", "/wheel_odom"),
-            ("/gnss/fix", "/gps/fix"),
-        ],
-    )
-
-    # Auto-configure and activate the lifecycle node after startup
-    fusioncore_configure = RegisterEventHandler(
-        OnStateTransition(
-            target_lifecycle_node=fusioncore_node,
-            start_state="configuring",
-            goal_state="inactive",
-            entities=[
-                EmitEvent(
-                    event=ChangeState(
-                        lifecycle_node_matcher=lambda node: node == fusioncore_node,
-                        transition_id=Transition.TRANSITION_ACTIVATE,
-                    )
-                ),
-            ],
-        )
-    )
-
-    fusioncore_start = TimerAction(
-        period=2.0,
-        actions=[
-            EmitEvent(
-                event=ChangeState(
-                    lifecycle_node_matcher=lambda node: node == fusioncore_node,
-                    transition_id=Transition.TRANSITION_CONFIGURE,
-                )
-            ),
-        ],
-    )
-
-    # ------------------------------------------------------------------
-    # 2. Static map→odom identity
-    #    FusionCore's odom is GPS-RTK anchored (σ ~3mm when Fixed), so the
-    #    map frame IS the GPS ENU frame. No SLAM correction needed when
-    #    GPS is healthy. During GPS degradation, Kinematic-ICP shores up
-    #    dead-reckoning by feeding FusionCore's encoder2 slot (see
-    #    kinematic_icp.launch.py, gated on use_lidar).
-    # ------------------------------------------------------------------
-    static_map_odom_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_map_odom_tf",
-        output="screen",
-        arguments=[
-            "--x", "0", "--y", "0", "--z", "0",
-            "--roll", "0", "--pitch", "0", "--yaw", "0",
-            "--frame-id", "map",
-            "--child-frame-id", "odom",
-        ],
-        parameters=[{"use_sim_time": use_sim_time}],
-    )
-
-    # ------------------------------------------------------------------
-    # 3. Kinematic-ICP LiDAR odometry
+    # 1. Kinematic-ICP LiDAR odometry
     #    Launched by kinematic_icp.launch.py: wheel_odom_tf_node +
     #    kinematic_icp_online_node + kinematic_icp_encoder_adapter.
     #    Gated entirely on use_lidar. Kinematic-ICP does NOT publish the
     #    odom TF; the adapter republishes /kinematic_icp/lidar_odometry as
-    #    /encoder2/odom so FusionCore can fuse it as a wheel-odom-like
+    #    /encoder2/odom so ekf_odom can fuse it as a wheel-odom-like
     #    source, with the kinematic prior enforcing non-holonomic motion.
     # ------------------------------------------------------------------
     kinematic_icp_group = IncludeLaunchDescription(
@@ -459,6 +307,143 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # Alternative localization backend: robot_localization
+    # ------------------------------------------------------------------
+    # Three nodes. Active only when localization_backend == "robot_localization".
+    # ekf_odom_node         : wheels + IMU gyro → odom → base_footprint TF
+    # navsat_transform_node : /gps/fix + /odometry/filtered → /odometry/gps
+    # ekf_map_node          : wheels + IMU + /odometry/gps → map → odom TF
+    robot_localization_params = os.path.join(
+        bringup_dir, "config", "robot_localization.yaml"
+    )
+
+    # navsat_transform_node looks up a TF from base_footprint to the frame
+    # named in the NavSatFix header. Our URDF calls that frame gps_link,
+    # but the ublox_dgnss driver publishes frame_id=gps. Alias gps_link →
+    # gps as a static identity so the lookup finds a chain.
+    static_gps_link_alias = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_gps_link_to_gps_alias",
+        output="screen",
+        arguments=[
+            "--x", "0", "--y", "0", "--z", "0",
+            "--roll", "0", "--pitch", "0", "--yaw", "0",
+            "--frame-id", "gps_link",
+            "--child-frame-id", "gps",
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    ekf_odom_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_odom_node",
+        output="screen",
+        parameters=[
+            robot_localization_params,
+            {"use_sim_time": use_sim_time},
+        ],
+        remappings=[
+            ("odometry/filtered", "/odometry/filtered"),
+        ],
+    )
+
+    # Datum triple [lat, lon, yaw]. yaw stays 0 — our IMU has no
+    # magnetometer so yaw can't be anchored to true north at boot;
+    # robot yaw will align to GPS track after the first straight
+    # motion, and to dock_pose_yaw at dock reset. Datum lat/lon must
+    # match what was used to save areas / dock pose, otherwise saved
+    # coordinates shift.
+    # navsat_transform_node removed 2026-04-26 — its only output (/odometry/gps)
+    # had no subscribers in the active fusion path. /gps/pose_cov from the
+    # custom navsat_to_absolute_pose_node (which applies the lever-arm
+    # correction with map yaw) is what ekf_map actually fuses.
+    # /gps/filtered (foxglove visualisation) is replaced by /gps/absolute_pose.
+
+    ekf_map_node = Node(
+        package="robot_localization",
+        executable="ekf_node",
+        name="ekf_map_node",
+        output="screen",
+        parameters=[
+            robot_localization_params,
+            {"use_sim_time": use_sim_time},
+        ],
+        remappings=[
+            ("odometry/filtered", "/odometry/filtered_map"),
+            # robot_localization defaults to a global /set_pose topic shared
+            # by both EKFs. Remap ekf_map's subscription to a node-unique
+            # name so seeding ekf_map does not also reset ekf_odom.
+            ("set_pose", "/ekf_map_node/set_pose"),
+        ],
+    )
+
+    # Seeds ekf_map with the dock heading on rising edges of is_charging.
+    # Fires once per docking event plus once at boot if the robot is
+    # already docked.
+    dock_yaw_to_set_pose = Node(
+        package="mowgli_localization",
+        executable="dock_yaw_to_set_pose.py",
+        name="dock_yaw_to_set_pose",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # Publishes GPS course-over-ground as a synthetic sensor_msgs/Imu on
+    # /imu/cog_heading so ekf_map_node can fuse it as an absolute-yaw
+    # observation. Once the session is seeded and the robot is driving
+    # forward faster than min_speed_ms with RTK-Fixed, this node corrects
+    # gyro drift every /gps/absolute_pose sample.
+    cog_to_imu = Node(
+        package="mowgli_localization",
+        executable="cog_to_imu.py",
+        name="cog_to_imu",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # Publishes tilt-compensated magnetic heading as a synthetic
+    # sensor_msgs/Imu on /imu/mag_yaw. Active as soon as mag_calibration.yaml
+    # exists (written by /calibrate_imu_yaw_node/calibrate). Unlike
+    # cog_to_imu this works with the robot stationary or rotating in place.
+    mag_yaw_publisher = Node(
+        package="mowgli_localization",
+        executable="mag_yaw_publisher.py",
+        name="mag_yaw_publisher",
+        output="screen",
+        parameters=[
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    # Inverse-variance fusion of /wheel_odom and K-ICP /encoder2/odom into
+    # /wheel_odom_fused. ekf_odom_node subscribes to /wheel_odom_fused as
+    # its sole odom input — robot_localization's odom1 fusion path caps
+    # the EKF publisher at 5 Hz whenever any publisher is alive on it, so
+    # we fold K-ICP into the wheel input upstream and skip odom1 entirely.
+    # Falls back to wheel-only when K-ICP is silent (>250 ms stale), so
+    # this node is also safe with use_lidar:=false (just transparently
+    # republishes wheel as fused).
+    wheel_kicp_blend = Node(
+        package="mowgli_localization",
+        executable="wheel_kicp_blend.py",
+        name="wheel_kicp_blend",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "kicp_max_age_sec": 0.25,
+                "output_topic": "/wheel_odom_fused",
+            }
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -466,10 +451,17 @@ def generate_launch_description() -> LaunchDescription:
             use_sim_time_arg,
             use_ekf_arg,
             use_lidar_arg,
-            static_map_odom_tf,
-            fusioncore_node,
-            fusioncore_configure,
-            fusioncore_start,
+            # robot_localization dual EKF + helpers
+            static_gps_link_alias,
+            ekf_odom_node,
+            ekf_map_node,
+            dock_yaw_to_set_pose,
+            cog_to_imu,
+            mag_yaw_publisher,
+            wheel_kicp_blend,
+            # Kinematic-ICP (LiDAR drift correction feeding ekf_odom via
+            # /encoder2/odom — retained under the robot_localization
+            # backend to shore up dead-reckoning during GPS degradation).
             kinematic_icp_group,
             wait_for_map_odom_tf,
             nav2_after_tf,

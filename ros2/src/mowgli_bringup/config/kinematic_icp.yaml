@@ -17,8 +17,9 @@
 # Role in the stack
 #   Kinematic-ICP's output (`/kinematic_icp/lidar_odometry`) is finite-
 #   differenced by kinematic_icp_encoder_adapter.py into a body-frame twist
-#   and published on `/encoder2/odom` for FusionCore's UKF. Kinematic-ICP
-#   does NOT publish the `odom` TF — FusionCore owns that. The node still
+#   and published on `/encoder2/odom` which `ekf_odom_node` fuses as
+#   `odom1`. Kinematic-ICP does NOT publish the `odom` TF — robot_localization
+#   owns that. The node still
 #   publishes its own lidar_odom frame (here named `odom_kicp`) which we
 #   isolate via publish_odom_tf=false anyway.
 
@@ -41,18 +42,23 @@
     max_points_per_voxel: 5
 
     # Correspondence threshold — Kinematic-ICP's adaptive threshold scales
-    # ICP's max-correspondence distance with observed model error. Keep
-    # adaptive on; fixed_threshold is the fallback if disabled.
-    use_adaptive_threshold: true
-    fixed_threshold: 0.3
+    # ICP's max-correspondence distance with observed model error. The
+    # adaptive policy under-estimates during fast yaw on a sparse 2D scan
+    # (the LD19 has only ~1.7° of new content per frame at 17°/s rotation),
+    # which causes the registration to drop frames and freeze the K-ICP
+    # pose for ~1 s at a time. Force a permissive fixed window so every
+    # scan finds correspondences during rotation.
+    use_adaptive_threshold: false
+    fixed_threshold: 0.6
 
     # Registration
     # Kinematic-ICP uses far fewer ICP iterations than KISS-ICP because the
     # wheel-kinematic prior puts the initial guess very close to truth.
-    # 10 iterations × tighter convergence is typical upstream; keep defaults.
-    max_num_iterations: 10
+    # Bumped to 20 (from 10) so ICP can still converge under fast yaw when
+    # correspondences require more steps to settle.
+    max_num_iterations: 20
     convergence_criterion: 0.001
-    # ARM is CPU-bound with Nav2 + FusionCore running; single-threaded ICP
+    # ARM is CPU-bound with Nav2 + robot_localization running; single-threaded ICP
     # is fine for 2D sparse clouds and leaves cores for controllers.
     max_num_threads: 1
 

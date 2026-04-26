@@ -35,7 +35,7 @@ interface HeroCardProps {
 export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, onResumeFromBoundary, onResetEmergency}: HeroCardProps) {
   const {colors} = useThemeMode();
   const {state} = data;
-  const critical = state === 'BOUNDARY_VIOLATION' || state === 'EMERGENCY';
+  const critical = state === 'BOUNDARY_EMERGENCY_STOP' || state === 'EMERGENCY';
 
   // Critical: boundary violation or emergency
   if (critical) {
@@ -60,17 +60,17 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
               Mower needs you
             </div>
             <div style={{fontSize: compact ? 17 : 22, fontWeight: 700, color: colors.text, marginTop: 4, letterSpacing: '-0.02em'}}>
-              {state === 'BOUNDARY_VIOLATION' ? 'Crossed the boundary' : 'Emergency stop'}
+              {state === 'BOUNDARY_EMERGENCY_STOP' ? 'Crossed the boundary' : 'Emergency stop'}
             </div>
             <div style={{fontSize: compact ? 13 : 14, color: colors.textDim, marginTop: 6, lineHeight: 1.5}}>
-              {state === 'BOUNDARY_VIOLATION'
+              {state === 'BOUNDARY_EMERGENCY_STOP'
                 ? 'Lift the mower back inside the boundary, then resume.'
                 : 'Check the mower is clear of obstacles, then release.'}
             </div>
           </div>
         </div>
         <div style={{display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap'}}>
-          {state === 'BOUNDARY_VIOLATION' ? (
+          {state === 'BOUNDARY_EMERGENCY_STOP' ? (
             <>
               <ActionButton primary icon={<IconHome size={16}/>} label="Send home" onClick={onHome}
                        style={compact ? {flex: 1, justifyContent: 'center'} : undefined}/>
@@ -205,7 +205,8 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
   }
 
   // Low battery docking
-  if (state === 'DOCKING' && data.battery < 20) {
+  if ((state === 'LOW_BATTERY_DOCKING' || state === 'CRITICAL_BATTERY_DOCKING') ||
+      (state === 'RETURNING_HOME' && data.battery < 20)) {
     return (
       <DashCard padding={compact ? 16 : 22} style={{
         background: `linear-gradient(135deg, rgba(255,197,103,0.22), rgba(255,197,103,0.05))`,
@@ -245,19 +246,22 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
     );
   }
 
-  // Mowing / Docking / Undocking / Recording / Manual
-  if (state === 'MOWING' || state === 'DOCKING' || state === 'UNDOCKING' || state === 'AREA_RECORDING' || state === 'MANUAL_MOWING') {
+  // Mowing / Returning / Undocking / Recording / Manual / Transit
+  const isReturning = state === 'RETURNING_HOME';
+  const isRecording = state === 'RECORDING';
+  const isActiveMowing = state === 'MOWING' || state === 'TRANSIT' || state === 'MANUAL_MOWING';
+  if (isActiveMowing || isReturning || state === 'UNDOCKING' || isRecording) {
     const areaName = data.currentArea ?? 'the lawn';
-    const headline = state === 'MOWING' || state === 'MANUAL_MOWING'
+    const headline = isActiveMowing
       ? `Mowing ${areaName}`
-      : state === 'AREA_RECORDING'
+      : isRecording
         ? 'Recording area boundary'
         : 'Heading back to dock';
-    const subtitle = state === 'MOWING' || state === 'MANUAL_MOWING'
+    const subtitle = isActiveMowing
       ? `${data.areaPct.toFixed(0)}% of this pass done -- ${fmt.mins(data.timeToday)} today`
-      : state === 'DOCKING'
+      : isReturning
         ? `Battery at ${Math.round(data.battery)}%`
-        : state === 'AREA_RECORDING'
+        : isRecording
           ? 'Drive along the boundary, then finish recording'
           : '';
 
@@ -300,7 +304,7 @@ export function HeroCard({data, compact, onStart, onHome, onPause, onEmergency, 
               <ActionButton label="Pause" icon={<IconPause size={14}/>} onClick={onPause}
                        style={compact ? {flex: 1, justifyContent: 'center', padding: '10px 14px'} : undefined}/>
             )}
-            {state === 'DOCKING' && (
+            {isReturning && (
               <ActionButton label="Keep mowing" icon={<IconPlay size={14}/>} primary onClick={onStart}
                        style={compact ? {flex: 1, justifyContent: 'center', padding: '10px 14px'} : undefined}/>
             )}

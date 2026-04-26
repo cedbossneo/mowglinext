@@ -54,7 +54,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<WaitForDuration>("WaitForDuration");
   factory.registerNodeType<WaitForGpsFix>("WaitForGpsFix");
   factory.registerNodeType<NavigateToPose>("NavigateToPose");
-  factory.registerNodeType<SaveSlamMap>("SaveSlamMap");
+  factory.registerNodeType<NavigateInsideBoundary>("NavigateInsideBoundary");
   factory.registerNodeType<BackUp>("BackUp");
   factory.registerNodeType<ClearCommand>("ClearCommand");
   factory.registerNodeType<IncrementSkippedSwaths>("IncrementSkippedSwaths");
@@ -63,6 +63,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<WasRainingAtStart>("WasRainingAtStart");
   factory.registerNodeType<RecordUndockStart>("RecordUndockStart");
   factory.registerNodeType<CalibrateHeadingFromUndock>("CalibrateHeadingFromUndock");
+  factory.registerNodeType<SeedYawFromMotion>("SeedYawFromMotion");
   factory.registerNodeType<DockRobot>("DockRobot");
   factory.registerNodeType<UndockRobot>("UndockRobot");
   factory.registerNodeType<RecordResumeUndockFailure>("RecordResumeUndockFailure");

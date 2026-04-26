@@ -3,7 +3,10 @@ hardware_bridge:
     serial_port: "/dev/mowgli"
     baud_rate: 115200
     heartbeat_rate: 4.0   # Hz – keep-alive messages sent to firmware
-    publish_rate: 50.0    # Hz – sensor data published to ROS2 topics
+    publish_rate: 100.0   # Hz – sensor read tick. Actual /imu/data rate
+                          # is capped by the firmware packet rate (~47 Hz);
+                          # 100 Hz tick ensures every available packet is
+                          # consumed promptly without serial backlog.
 
     # IMU boot-time / re-dock calibration sample count.
     # Firmware publishes gyro+accel at ~48 Hz, so 1000 samples is ~20 s of

@@ -15,8 +15,14 @@ func SerializeCDR(jsonData []byte, schema *msgSchema) ([]byte, error) {
 		return nil, fmt.Errorf("cdr write: unmarshal: %w", err)
 	}
 
-	w := &cdrWriter{maxAlign: 4} // XCDR2/PLAIN_CDR2
-	// Encapsulation header: little-endian CDR
+	w := &cdrWriter{maxAlign: 8} // Classic XCDR1: 8-byte max alignment
+	// Encapsulation header: 0x0001 = CDR_LE (classic XCDR1 little-endian).
+	// This is ROS 2's default wire encoding for services and messages across
+	// all rmw implementations (FastDDS / CycloneDDS), so it's the most
+	// compatible choice. Previously we wrote this header with maxAlign=4 —
+	// half-XCDR2 — and rmw rejected every request with
+	// "rmw_serialize: invalid data size" because float64 landed at offset 4
+	// instead of 8. maxAlign=8 fixes float64/uint64 alignment to match.
 	w.buf = append(w.buf, 0x00, 0x01, 0x00, 0x00)
 
 	if err := w.writeMessage(msg, schema.Fields); err != nil {
@@ -154,16 +160,16 @@ func (w *cdrWriter) writePrimitive(val interface{}, typ string) error {
 		w.align(4)
 		w.writeUint32(uint32(int32(toFloat64(val))))
 	case "uint64":
-		w.align(4) // XCDR2 caps at 4
+		w.align(8)
 		w.writeUint64(uint64(toFloat64(val)))
 	case "int64":
-		w.align(4)
+		w.align(8)
 		w.writeUint64(uint64(int64(toFloat64(val))))
 	case "float32":
 		w.align(4)
 		w.writeUint32(math.Float32bits(float32(toFloat64(val))))
 	case "float64":
-		w.align(4) // XCDR2 caps at 4
+		w.align(8)
 		w.writeUint64(math.Float64bits(toFloat64(val)))
 	default:
 		return fmt.Errorf("cdr write: unknown primitive %q", typ)

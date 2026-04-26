@@ -4,7 +4,35 @@ float64 duration_sec    # 0 = default 30s
 # Response
 bool success
 string message
-float64 imu_yaw_rad     # computed value
+float64 imu_yaw_rad     # computed yaw (chip frame)
 float64 imu_yaw_deg     # same in degrees
-int32 samples_used      # valid samples used
-float64 std_dev_deg     # confidence (lower = more consistent)
+int32 samples_used      # valid motion samples used for yaw
+float64 std_dev_deg     # yaw confidence (lower = more consistent)
+
+# Pitch/roll computed from stationary samples collected during the same
+# drive (baseline + inter-cycle pauses). Set these into mowgli_robot.yaml
+# as imu_pitch / imu_roll; applied in URDF before imu_yaw so the values
+# are in chip frame (matching hardware_bridge's dock-calibration log).
+float64 imu_pitch_rad
+float64 imu_pitch_deg
+float64 imu_roll_rad
+float64 imu_roll_deg
+int32 stationary_samples_used   # samples contributing to pitch/roll
+float64 gravity_mag_mps2        # |accel| during stationary; expect ~9.81
+
+# Dock pose fields, populated only when the service was invoked while
+# charging (dock pre-phase active): the robot reverses ~2 m at 0.15 m/s
+# under RTK-Fixed and computes dock_pose_yaw from the GPS track. The
+# value is also persisted to /ros2_ws/maps/dock_calibration.yaml so
+# dock_yaw_to_set_pose can pick it up on the next charging rising edge
+# without requiring a reboot. dock_valid is false when the pre-phase
+# was skipped (off-dock start) or aborted (no RTK / insufficient
+# displacement) — in that case dock_pose_* remain 0.0 and callers
+# should keep the existing config value.
+bool dock_valid
+float64 dock_pose_x             # ENU map-frame x of the dock contact (m)
+float64 dock_pose_y             # ENU map-frame y of the dock contact (m)
+float64 dock_pose_yaw_rad       # robot heading when docked (ENU, rad)
+float64 dock_pose_yaw_deg       # same in degrees
+float64 dock_yaw_sigma_deg      # σ on the computed dock yaw (degrees)
+float64 dock_undock_displacement_m  # GPS-measured reverse distance

@@ -199,7 +199,7 @@ void DiagnosticsNode::create_subscriptions()
                                                    });
 
   sub_fusion_odom_ =
-      create_subscription<nav_msgs::msg::Odometry>("/fusion/odom",
+      create_subscription<nav_msgs::msg::Odometry>("/odometry/filtered_map",
                                                    sensor_qos,
                                                    [this](
                                                        nav_msgs::msg::Odometry::ConstSharedPtr msg)
@@ -536,13 +536,13 @@ diagnostic_msgs::msg::DiagnosticStatus DiagnosticsNode::check_fusioncore(
     const rclcpp::Time& now) const
 {
   diagnostic_msgs::msg::DiagnosticStatus status;
-  status.name = "FusionCore";
-  status.hardware_id = "fusioncore/odom";
+  status.name = "EKF Map";
+  status.hardware_id = "robot_localization/filtered_map";
 
   if (!state_.fusion_ever_received)
   {
     status.level = DiagLevel::ERROR;
-    status.message = "No /fusion/odom received";
+    status.message = "No /odometry/filtered_map received";
     return status;
   }
 

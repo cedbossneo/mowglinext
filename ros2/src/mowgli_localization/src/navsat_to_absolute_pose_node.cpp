@@ -42,6 +42,9 @@
 #include <cmath>
 #include <sstream>
 
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/LinearMath/Quaternion.h"
+
 namespace mowgli_localization
 {
 
@@ -67,6 +70,13 @@ NavSatToAbsolutePoseNode::NavSatToAbsolutePoseNode(const rclcpp::NodeOptions& op
   create_subscribers();
   create_services();
 
+  // TF listener for lever-arm resolution. base_footprint→gps_link comes
+  // from the URDF (static); map→base_footprint comes from ekf_map_node
+  // (composed through ekf_odom_node's odom→base_footprint) and gives us
+  // current yaw.
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
   RCLCPP_INFO(get_logger(),
               "NavSatToAbsolutePoseNode started — datum: [%.7f, %.7f]",
               datum_lat_,
@@ -87,6 +97,11 @@ void NavSatToAbsolutePoseNode::create_publishers()
 {
   pose_pub_ =
       create_publisher<mowgli_interfaces::msg::AbsolutePose>("/gps/absolute_pose", rclcpp::QoS(10));
+  // robot_localization-compatible twin: standard PoseWithCovarianceStamped
+  // so ekf_map can subscribe as pose0 input. Published on every fix update
+  // in on_navsat_fix alongside the AbsolutePose message.
+  pose_cov_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "/gps/pose_cov", rclcpp::QoS(10));
 }
 
 void NavSatToAbsolutePoseNode::create_subscribers()
@@ -230,6 +245,113 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
   }
 
   pose_pub_->publish(out);
+
+  // Resolve the GPS lever arm once from TF (URDF static). Retry silently
+  // every fix until TF is up — no log noise if ros2 is still booting.
+  if (!lever_arm_known_)
+  {
+    try
+    {
+      auto tf = tf_buffer_->lookupTransform(
+          "base_footprint", "gps_link", tf2::TimePointZero);
+      lever_arm_x_ = tf.transform.translation.x;
+      lever_arm_y_ = tf.transform.translation.y;
+      lever_arm_known_ = true;
+      RCLCPP_INFO(get_logger(),
+                  "GPS lever arm resolved from TF base_footprint→gps_link: "
+                  "(%.3f, %.3f) m",
+                  lever_arm_x_, lever_arm_y_);
+    }
+    catch (const tf2::TransformException&)
+    {
+      // Not yet available; will retry next fix.
+    }
+  }
+
+  // Look up the current map→base_footprint TF for the world-frame yaw.
+  //
+  // 2026-04-26: previously used odom→base_footprint yaw, on the theory
+  // that the map→odom rotation drift would be small. In practice the map
+  // frame yaw at startup is anchored by whatever the EKF settled on
+  // (often arbitrary when /imu/cog_heading isn't publishing because the
+  // robot is stationary), and we measured map→odom = -132° on a
+  // representative run. Compensating with the wrong yaw makes /gps/pose_cov
+  // sweep a *bigger* arc than the raw antenna (46 cm vs 30 cm during a
+  // pure 360° spin), which is then amplified by ekf_map into ~1 m of
+  // phantom translation.
+  //
+  // The original feedback-loop concern (using ekf_map yaw to correct the
+  // pose that ekf_map fuses) doesn't materialise on robot_localization:
+  // yaw_map evolves at ~10 Hz with bounded covariance, the lever-arm
+  // correction is a small fixed multiplier (≤ 30 cm × Δyaw_rad), and
+  // GPS σ at RTK Fixed (~5 mm) is orders of magnitude smaller than any
+  // residual. The feedback gain is effectively zero in 2D mode.
+  // If the TF is not yet available, fall back to publishing the raw
+  // antenna position — matches legacy /gps/absolute_pose behavior.
+  double base_x = east;
+  double base_y = north;
+  bool lever_arm_applied = false;
+  if (lever_arm_known_)
+  {
+    try
+    {
+      auto tf = tf_buffer_->lookupTransform(
+          "map", "base_footprint", tf2::TimePointZero);
+      tf2::Quaternion q(
+          tf.transform.rotation.x,
+          tf.transform.rotation.y,
+          tf.transform.rotation.z,
+          tf.transform.rotation.w);
+      double roll, pitch, yaw;
+      tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+      // antenna_enu = base_enu + R(yaw) · lever_arm_body
+      // → base_enu = antenna_enu - R(yaw) · lever_arm_body
+      const double cy = std::cos(yaw);
+      const double sy = std::sin(yaw);
+      const double delta_x = cy * lever_arm_x_ - sy * lever_arm_y_;
+      const double delta_y = sy * lever_arm_x_ + cy * lever_arm_y_;
+      base_x = east - delta_x;
+      base_y = north - delta_y;
+      lever_arm_applied = true;
+    }
+    catch (const tf2::TransformException&)
+    {
+      // odom→base_footprint TF not yet published; keep raw antenna pos.
+    }
+  }
+
+  // RTK-aware gate: skip standalone (no RTK) fixes — those have σ ~ 1-3 m
+  // and jump erratically under multipath. RTK Float (σ ~ 20 cm) is fused
+  // because its actual position_accuracy is known and the EKF weights it
+  // appropriately; without Float updates the map-frame position freezes
+  // during the long Float windows under tree cover, leaving the controller
+  // to act on stale poses.
+  if (msg->status.status != NavStatus::STATUS_GBAS_FIX &&
+      msg->status.status != NavStatus::STATUS_SBAS_FIX)
+  {
+    return;
+  }
+
+  // Standard-msg twin for robot_localization consumption. Pose is the
+  // BASE FRAME position (antenna minus lever arm rotated by current yaw).
+  // Covariance diagonal built from position_accuracy; frame_id=map so
+  // ekf_map honors it correctly.
+  geometry_msgs::msg::PoseWithCovarianceStamped twin;
+  twin.header.stamp = out.header.stamp;
+  twin.header.frame_id = "map";
+  twin.pose.pose.position.x = base_x;
+  twin.pose.pose.position.y = base_y;
+  twin.pose.pose.position.z = msg->altitude;
+  twin.pose.pose.orientation.w = 1.0;
+  const double var_xy = static_cast<double>(out.position_accuracy) * out.position_accuracy;
+  twin.pose.covariance[0]  = var_xy;                  // x variance
+  twin.pose.covariance[7]  = var_xy;                  // y variance
+  twin.pose.covariance[14] = var_xy * 4.0;            // z — looser, two_d_mode ignores
+  twin.pose.covariance[21] = 1.0e3;                   // roll — "unknown"
+  twin.pose.covariance[28] = 1.0e3;                   // pitch — "unknown"
+  twin.pose.covariance[35] = 1.0e3;                   // yaw  — "unknown"
+  pose_cov_pub_->publish(twin);
+  (void)lever_arm_applied;  // silence unused var if logs are disabled
 }
 
 // ---------------------------------------------------------------------------

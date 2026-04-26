@@ -30,7 +30,12 @@ mowgli:
     wheel_x_offset: 0.0       # drive wheels at base_link (wheel axis centre)
     chassis_center_x: 0.20    # chassis geometric centre forward of wheel axis (m)
                                # rear bumper at -0.10, front bumper at +0.50
-    ticks_per_revolution: 1050 # encoder ticks per full wheel revolution
+    # Informational only — no active code consumes this. Firmware uses
+    # TICKS_PER_M=300 directly (board.h). With wheel_radius=0.04475
+    # (circumference 0.281 m), that's ~84 ticks per revolution. The
+    # historical 1050 was a 12× off mismatch but harmless because
+    # nothing read it.
+    ticks_per_revolution: 84
 
     # Front casters
     caster_radius: 0.03
@@ -129,13 +134,6 @@ mowgli:
     motor_temp_low_c: 40.0         # resume blade below this
     # Lift/tilt emergency is handled by firmware (STM32), not ROS2
     max_obstacle_avoidance_distance: 2.0  # how far to deviate from path
-
-    # -----------------------------------------------------------------
-    # SLAM / Mapping
-    # -----------------------------------------------------------------
-    slam_mode: "lifelong"          # mapping | localization | lifelong
-    map_save_path: "/ros2_ws/maps/garden_map"
-    map_save_on_dock: true         # save SLAM map before docking
 
     # -----------------------------------------------------------------
     # Navigation tolerances (garden terrain)

@@ -83,7 +83,15 @@ geometry_msgs::msg::PoseStamped parsePoseString(const std::string& pose_str,
 // StopMoving
 // ---------------------------------------------------------------------------
 
-BT::NodeStatus StopMoving::tick()
+void StopMoving::publish_zero(const rclcpp::Node::SharedPtr& node)
+{
+  geometry_msgs::msg::TwistStamped zero{};
+  zero.header.stamp = node->now();
+  zero.header.frame_id = "base_footprint";
+  pub_->publish(zero);
+}
+
+BT::NodeStatus StopMoving::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
@@ -93,14 +101,32 @@ BT::NodeStatus StopMoving::tick()
         "/cmd_vel_emergency", 10);
   }
 
-  geometry_msgs::msg::TwistStamped zero{};
-  zero.header.stamp = ctx->node->now();
-  zero.header.frame_id = "base_footprint";
-  pub_->publish(zero);
+  duration_sec_ = 0.5;
+  getInput("duration_sec", duration_sec_);
+  start_time_ = ctx->node->now();
 
-  RCLCPP_DEBUG(ctx->node->get_logger(), "StopMoving: published zero velocity on /cmd_vel_emergency");
+  publish_zero(ctx->node);
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "StopMoving: streaming zero velocity for %.2fs", duration_sec_);
+  return BT::NodeStatus::RUNNING;
+}
 
-  return BT::NodeStatus::SUCCESS;
+BT::NodeStatus StopMoving::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  publish_zero(ctx->node);
+
+  const double elapsed = (ctx->node->now() - start_time_).seconds();
+  if (elapsed >= duration_sec_)
+  {
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void StopMoving::onHalted()
+{
+  // Nothing to cancel — publisher is fire-and-forget.
 }
 
 // ---------------------------------------------------------------------------
@@ -113,16 +139,21 @@ BT::NodeStatus ClearCostmap::tick()
 
   if (!global_client_)
   {
-    global_client_ = ctx->node->create_client<std_srvs::srv::Empty>(
+    global_client_ = ctx->node->create_client<nav2_msgs::srv::ClearEntireCostmap>(
         "/global_costmap/clear_entirely_global_costmap");
   }
   if (!local_client_)
   {
-    local_client_ = ctx->node->create_client<std_srvs::srv::Empty>(
+    local_client_ = ctx->node->create_client<nav2_msgs::srv::ClearEntireCostmap>(
         "/local_costmap/clear_entirely_local_costmap");
   }
 
-  auto request = std::make_shared<std_srvs::srv::Empty::Request>();
+  // Nav2's clear_entirely_* services use nav2_msgs/ClearEntireCostmap, NOT
+  // std_srvs/Empty. An earlier version of this node used Empty which
+  // silently failed at the DDS type-match stage — ClearCostmap returned
+  // SUCCESS but the costmap was never actually cleared, leaving stale
+  // obstacle marks (observed on the 2026-04-24 'Start occupied' loop).
+  auto request = std::make_shared<nav2_msgs::srv::ClearEntireCostmap::Request>();
 
   // Just send the requests. If the service isn't ready, async_send_request
   // will fail silently (no response). This avoids DDS discovery issues
@@ -245,6 +276,129 @@ void NavigateToPose::onHalted()
   if (goal_handle_)
   {
     RCLCPP_INFO(ctx->node->get_logger(), "NavigateToPose: canceling active goal");
+    action_client_->async_cancel_goal(goal_handle_);
+    goal_handle_.reset();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// NavigateInsideBoundary
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus NavigateInsideBoundary::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!service_client_)
+  {
+    service_client_ = ctx->node->create_client<RecoverySrv>(
+        "/map_server_node/get_recovery_point");
+  }
+  if (!action_client_)
+  {
+    action_client_ = rclcpp_action::create_client<Nav2Goal>(ctx->node, "/navigate_to_pose");
+  }
+
+  if (!service_client_->wait_for_service(std::chrono::seconds(2)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(),
+                 "NavigateInsideBoundary: /map_server_node/get_recovery_point unavailable");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  service_future_ = service_client_->async_send_request(
+                                     std::make_shared<RecoverySrv::Request>())
+                        .share();
+  goal_handle_.reset();
+  phase_ = Phase::WaitingForService;
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "NavigateInsideBoundary: requesting recovery pose from map server");
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus NavigateInsideBoundary::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (phase_ == Phase::WaitingForService)
+  {
+    if (service_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    {
+      return BT::NodeStatus::RUNNING;
+    }
+    auto resp = service_future_.get();
+    if (!resp || !resp->success)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "NavigateInsideBoundary: recovery pose request failed: %s",
+                  resp ? resp->message.c_str() : "null response");
+      return BT::NodeStatus::FAILURE;
+    }
+
+    if (!action_client_->wait_for_action_server(std::chrono::seconds(5)))
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "NavigateInsideBoundary: /navigate_to_pose unavailable");
+      return BT::NodeStatus::FAILURE;
+    }
+
+    Nav2Goal::Goal goal_msg;
+    goal_msg.pose.header.stamp = ctx->node->now();
+    goal_msg.pose.header.frame_id = "map";
+    goal_msg.pose.pose = resp->recovery_pose;
+
+    goal_handle_future_ = action_client_->async_send_goal(goal_msg);
+
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "NavigateInsideBoundary: nav2 goal sent (x=%.2f y=%.2f, %.2fm outside)",
+                resp->recovery_pose.position.x,
+                resp->recovery_pose.position.y,
+                resp->distance_outside);
+    phase_ = Phase::WaitingForGoalHandle;
+    return BT::NodeStatus::RUNNING;
+  }
+
+  if (phase_ == Phase::WaitingForGoalHandle)
+  {
+    if (goal_handle_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    {
+      return BT::NodeStatus::RUNNING;
+    }
+    goal_handle_ = goal_handle_future_.get();
+    if (!goal_handle_)
+    {
+      RCLCPP_ERROR(ctx->node->get_logger(),
+                   "NavigateInsideBoundary: nav2 rejected recovery goal");
+      return BT::NodeStatus::FAILURE;
+    }
+    phase_ = Phase::WaitingForResult;
+  }
+
+  const auto status = goal_handle_->get_status();
+  switch (status)
+  {
+    case action_msgs::msg::GoalStatus::STATUS_SUCCEEDED:
+      RCLCPP_INFO(ctx->node->get_logger(), "NavigateInsideBoundary: recovery complete");
+      return BT::NodeStatus::SUCCESS;
+    case action_msgs::msg::GoalStatus::STATUS_ABORTED:
+      RCLCPP_WARN(ctx->node->get_logger(), "NavigateInsideBoundary: nav2 aborted");
+      return BT::NodeStatus::FAILURE;
+    case action_msgs::msg::GoalStatus::STATUS_CANCELED:
+      RCLCPP_WARN(ctx->node->get_logger(), "NavigateInsideBoundary: nav2 canceled");
+      return BT::NodeStatus::FAILURE;
+    default:
+      return BT::NodeStatus::RUNNING;
+  }
+}
+
+void NavigateInsideBoundary::onHalted()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (goal_handle_)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(), "NavigateInsideBoundary: canceling goal");
     action_client_->async_cancel_goal(goal_handle_);
     goal_handle_.reset();
   }

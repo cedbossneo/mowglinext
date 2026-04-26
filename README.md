@@ -23,7 +23,7 @@
 
 A fully autonomous mowing stack running on real hardware: undock, navigate to zones, mow strip-by-strip with sub-centimeter accuracy, avoid obstacles, dock to charge, and resume.
 
-**Core:** FusionCore UKF (GPS + IMU + wheels, 100 Hz) · Kinematic-ICP LiDAR drift correction · Nav2 navigation · BehaviorTree.CPP v4 · cell-based strip coverage planner
+**Core:** robot_localization dual EKF (GPS + IMU + wheels, REP-105 map/odom) · Kinematic-ICP LiDAR drift correction · Nav2 navigation · BehaviorTree.CPP v4 · cell-based strip coverage planner
 
 **Hardware:** YardForce chassis · ARM64 SBC (RK3566/RK3588, RPi 4/5) · u-blox F9P RTK-GPS · LDRobot LD19 LiDAR · STM32 firmware
 
@@ -53,7 +53,7 @@ GUI at `http://<mower-ip>:4006` · See **[Getting Started](https://github.com/ce
 
 | Directory | Description |
 |-----------|-------------|
-| [`ros2/`](ros2/) | ROS2 stack: Nav2, FusionCore, Kinematic-ICP, BT, coverage, hardware bridge |
+| [`ros2/`](ros2/) | ROS2 stack: Nav2, robot_localization, Kinematic-ICP, BT, coverage, hardware bridge |
 | [`gui/`](gui/) | React + Go web interface |
 | [`firmware/`](firmware/) | STM32 motor control, IMU, blade safety |
 | [`install/`](install/) | Interactive installer, Docker Compose configs |

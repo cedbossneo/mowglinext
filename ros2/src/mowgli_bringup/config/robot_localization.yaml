@@ -1,0 +1,240 @@
+# ---------------------------------------------------------------------------
+# robot_localization — alternative fusion stack, OpenMower-style
+# Three cooperating nodes:
+#
+#   ekf_odom_node         wheels + IMU gyro → odom → base_footprint
+#   navsat_transform_node /gps/fix + /odometry/filtered + /imu/data → /odometry/gps
+#                         (map-frame position derived from GPS, yaw seeded
+#                         from IMU orientation — not used here since our
+#                         IMU has no magnetometer; datum-based)
+#   ekf_map_node          same inputs as ekf_odom + /odometry/gps → map → odom
+#
+# Why 2 EKFs instead of 1: the "odom" frame stays continuous and drift-free
+# locally (safe reference for Nav2 local_costmap, collision_monitor), while
+# the "map" frame gets the jumpy GPS corrections. Canonical REP-105.
+#
+# Migration notes 2026-04-24:
+#   - FusionCore's 22D UKF would not collapse σ_xy below ~30 cm even under
+#     RTK-Fixed σ=5 mm; every Nav2 path got "start occupied" and the dock-
+#     return bug was the filter drifting 2 m during transit.
+#   - Our custom features in the FusionCore fork have robot_localization
+#     equivalents:
+#       * non-holonomic constraint    → two_d_mode + tight vy covariance in
+#                                        wheel_odom publisher
+#       * per-fix-type σ floors       → not needed (EKF honors NavSatFix.cov
+#                                        directly, and with frequent updates
+#                                        the filter converges to fix precision)
+#       * velocity-heading (GPS COG)  → navsat_transform provides natively
+#       * reverse-aware               → same
+#       * IMU bias tracking           → EKF has adaptive_noise option
+# ---------------------------------------------------------------------------
+
+# -----------------------------------------------------------------
+# 1. LOCAL EKF — dead-reckoning, never uses GPS
+# -----------------------------------------------------------------
+# Produces odom → base_footprint TF. Inputs: wheel twist + gyro_z.
+# Frequency is 50 Hz so Nav2's local costmap and controllers see a
+# smooth, high-rate pose.
+ekf_odom_node:
+  ros__parameters:
+    # 25 Hz target. 10 Hz config landed at ~5 Hz live (timer underrun under
+    # the K-ICP load), which made odom→base_footprint TF arrive with
+    # 200–350 ms gaps. collision_monitor and controller_server both have
+    # transform_tolerance ≤ 0.5 s and were rejecting every lookup, so cmd_vel
+    # was being dropped at the safety stage and the robot froze in transit.
+    # Earlier history: 20 Hz once collapsed to 2 Hz, 15 Hz to 4 Hz under
+    # heavier per-tick load — re-evaluate live and back off if this one
+    # collapses too.
+    frequency: 25.0
+    sensor_timeout: 0.5
+    two_d_mode: true            # forces Z=0, roll=0, pitch=0
+    transform_time_offset: 0.0
+    transform_timeout: 0.1
+    print_diagnostics: false
+    debug: false
+    publish_tf: true
+    publish_acceleration: false
+    map_frame:           map
+    odom_frame:          odom
+    base_link_frame:     base_footprint
+    world_frame:         odom     # LOCAL EKF produces odom → base_footprint
+
+    # ─ Wheel odometry (vx, wz only; vy locked to 0.0 via covariance) ─
+    # hardware_bridge publishes wheel_odom with:
+    #   twist.linear.x   = vx      (cov=0.01 m²/s² ≈ σ=10 cm/s)
+    #   twist.angular.z  = wz      (cov=9e-4 rad²/s² ≈ σ=0.03 rad/s)
+    #   twist.linear.y   = 0.0     (cov=1e-4 → tight non-holo constraint)
+    # The cov on linear.y is what gives us the non-holonomic lock without
+    # needing a separate pseudo-measurement node.
+    # Pre-blended wheel + K-ICP body-frame twist. wheel_kicp_blend fuses
+    # /wheel_odom (15 Hz) with /encoder2/odom (10 Hz K-ICP) by inverse-
+    # variance weighting per axis and republishes at /wheel_odom_fused
+    # with a fresh stamp. Falls back to wheel-only when K-ICP goes silent.
+    # We do this upstream because robot_localization's odom1 fusion path
+    # itself caps the EKF publisher at 5 Hz when it has *any* publisher
+    # on it, regardless of source/cadence/stamps. Folding K-ICP into the
+    # wheel input keeps the K-ICP information in the state without using
+    # odom1 at all, and the EKF runs at its 25 Hz target.
+    odom0: /wheel_odom_fused
+    odom0_config: [false, false, false,   # x, y, z         — no abs position
+                   false, false, false,   # roll, pitch, yaw — no abs orientation
+                   true,  true,  false,   # vx, vy, vz      — fuse vx + vy
+                   false, false, true,    # vroll, vpitch, vyaw — fuse wz
+                   false, false, false]   # ax, ay, az      — not available
+    odom0_queue_size: 3
+    odom0_differential: false   # not integrating abs pose anyway
+    odom0_relative: false
+    odom0_nodelay: false
+
+    # ─ IMU — gyro_z only (no magnetometer → no absolute yaw) ─
+    # /imu/data carries identity orientation with loose yaw covariance (99);
+    # tight roll/pitch (0.001) so orientation fusion here is roll+pitch only.
+    # Angular velocity z is the primary short-term yaw source.
+    imu0: /imu/data
+    imu0_config: [false, false, false,    # x, y, z
+                  true,  true,  false,    # roll, pitch, yaw — only roll/pitch
+                  false, false, false,    # vx, vy, vz
+                  false, false, true,     # vroll, vpitch, vyaw — fuse gyro_z
+                  false, false, false]    # ax, ay, az — not fusing; drift-prone
+    # IMU at 91 Hz × queue 5 = 55 ms of buffer. Earlier 15 (~165 ms)
+    # combined with K-ICP odom1 saturated the single-thread executor and
+    # collapsed the EKF publisher to ~5 Hz — odom→base_footprint TF then
+    # arrived 200–350 ms late and Nav2's collision_monitor / controller
+    # rejected every lookup. The filter only needs the latest sample to
+    # predict; deeper queues just feed it stale work.
+    imu0_queue_size: 5
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+    imu0_nodelay: false
+
+    # K-ICP fusion is now folded into odom0 upstream by wheel_kicp_blend,
+    # not given to the EKF as a separate odom1. See odom0 comment above.
+
+    # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
+    # Starting with defaults; tune after we have a session to compare.
+    process_noise_covariance:  # 15x15 diagonal, row-major
+      [0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.06, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.03, 0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.03, 0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.06, 0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.025,0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.025,0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.04,  0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.01,  0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.01,  0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.02,  0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.01, 0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.01, 0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.015]
+
+# navsat_transform_node was removed 2026-04-26 — its only output
+# (/odometry/gps) was never fused. The custom navsat_to_absolute_pose_node
+# in mowgli_localization handles NavSatFix → ENU + datum + lever-arm
+# correction (with map yaw) and publishes /gps/pose_cov directly to
+# ekf_map's pose0 input.
+
+# -----------------------------------------------------------------
+# 3. GLOBAL EKF — with GPS, produces map → odom correction
+# -----------------------------------------------------------------
+# Inputs: same as ekf_odom PLUS /odometry/gps. Publishes map → odom TF.
+ekf_map_node:
+  ros__parameters:
+    frequency: 10.0
+    sensor_timeout: 0.5
+    two_d_mode: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.1
+    print_diagnostics: false
+    debug: false
+    publish_tf: true
+    publish_acceleration: false
+    map_frame:           map
+    odom_frame:          odom
+    base_link_frame:     base_footprint
+    world_frame:         map       # GLOBAL EKF produces map → odom
+
+    # ─ Wheel odometry ─
+    # Wheel vx/vy/vyaw all fused. Wheel velocity provides essential
+    # dead-reckoning between GPS samples and during RTK Float gaps —
+    # disabling vx/vy froze the map-frame position whenever RTK was not
+    # Fixed and made the controller act on a stale pose.
+    odom0: /wheel_odom
+    odom0_config: [false, false, false,
+                   false, false, false,
+                   true,  true,  false,
+                   false, false, true,
+                   false, false, false]
+    odom0_queue_size: 10
+    odom0_differential: false
+
+    # ─ GPS as absolute pose in map frame ─
+    # /gps/pose_cov is a PoseWithCovarianceStamped twin of /gps/absolute_pose
+    # published by navsat_to_absolute_pose_node specifically for
+    # robot_localization consumption (the canonical AbsolutePose topic
+    # uses a Mowgli-specific message type that EKF can't subscribe to).
+    # frame_id=map, same ENU coords as /gps/absolute_pose, covariance
+    # built from position_accuracy.
+    pose0: /gps/pose_cov
+    pose0_config: [true,  true,  false,   # x, y        — absolute position
+                   false, false, false,   # orientation — no yaw from GPS
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    pose0_queue_size: 10
+    pose0_differential: false
+    pose0_relative: false
+    pose0_nodelay: false
+
+    # ─ IMU (same as ekf_odom) ─
+    imu0: /imu/data
+    imu0_config: [false, false, false,
+                  true,  true,  false,
+                  false, false, false,
+                  false, false, true,
+                  false, false, false]
+    # IMU at 91 Hz × queue 5 = 55 ms of buffer. Earlier 15 (~165 ms)
+    # combined with K-ICP odom1 saturated the single-thread executor and
+    # collapsed the EKF publisher to ~5 Hz — odom→base_footprint TF then
+    # arrived 200–350 ms late and Nav2's collision_monitor / controller
+    # rejected every lookup. The filter only needs the latest sample to
+    # predict; deeper queues just feed it stale work.
+    imu0_queue_size: 5
+    imu0_remove_gravitational_acceleration: true
+
+    # ─ IMU 1 — GPS course-over-ground derived absolute yaw ─
+    # cog_to_imu.py publishes a synthetic Imu whose orientation is the
+    # heading computed from RTK-Fixed GPS displacement divided by dt,
+    # gated on forward motion. Only the absolute yaw (index 5) is fused;
+    # everything else stays with imu0. Provides absolute yaw without a
+    # magnetometer.
+    imu1: /imu/cog_heading
+    imu1_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu1_queue_size: 2
+    imu1_differential: false
+    imu1_relative: false
+    imu1_remove_gravitational_acceleration: false
+
+    # Process noise — same as ekf_odom
+    process_noise_covariance:
+      [0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.06, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.03, 0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.03, 0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.06, 0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.025,0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.025,0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.04,  0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.01,  0.0,     0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.01,  0.0,     0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.02,  0.0,    0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.01, 0.0,    0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.01, 0.0,
+       0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.015]

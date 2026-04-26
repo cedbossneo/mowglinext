@@ -65,7 +65,29 @@
            east edge of the polygon, and each recovery BackUp drove it
            another 30 cm in the same wrong direction.
            ================================================================ -->
-      <Fallback name="BoundaryGuard">
+      <!-- ReactiveFallback re-evaluates from child 0 every tick, so
+           IsCharging becoming true mid-wait (e.g. operator redocks the
+           robot) aborts the in-progress lethal WaitForDuration and
+           releases the guard. A plain Fallback would stick on the
+           RUNNING child and never re-check charging. -->
+      <ReactiveFallback name="BoundaryGuard">
+        <!-- Short-circuit while charging: the robot is physically on the
+             dock and cannot drive off, the blade is off, and non-RTK GPS
+             drift on idle can falsely put the reported pose outside the
+             polygon. No reason to run any boundary handler in that state. -->
+        <IsCharging/>
+        <!-- Short-circuit during manual mowing (COMMAND_MANUAL_MOW = 7),
+             area recording (COMMAND_RECORD_AREA = 3), and going home
+             (COMMAND_HOME = 2). In all three modes the destination is
+             expected to lie outside the mowing polygon (joystick area
+             for manual/record, dock for home), so a boundary handler
+             would fire spuriously and cancel DockRobot mid-approach,
+             which is what was breaking auto-redock. The blade is still
+             governed by firmware safety, and collision_monitor still
+             stops for physical obstacles. -->
+        <IsCommand command="7"/>
+        <IsCommand command="3"/>
+        <IsCommand command="2"/>
         <Inverter><IsBoundaryViolation/></Inverter>
 
         <!-- Lethal path: stop immediately, latch -->
@@ -87,14 +109,17 @@
           <StopMoving/>
           <PublishHighLevelStatus state="2" state_name="BOUNDARY_RECOVERY"/>
           <Fallback name="RecoverOrEscalate">
-            <!-- Navigate back to the dock (guaranteed inside the area
-                 if operator configured dock_pose correctly). Two tries
-                 before escalating to lethal behaviour. -->
+            <!-- Navigate back to the nearest in-area pose. map_server_node's
+                 /get_recovery_point picks the closest polygon edge, offsets
+                 ~0.8m inward, and faces the robot toward the area. This
+                 stays at the mowing location instead of driving all the
+                 way home, and avoids the RPP-plans-a-reverse-leg behaviour
+                 of DockRobot-based recovery. Two tries before escalating. -->
             <RetryUntilSuccessful num_attempts="2" name="RecoveryRetry">
               <Sequence name="NavigateBackInside">
-                <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
-                <!-- Succeed only if the DockRobot action actually put us
-                     back inside a defined area. -->
+                <NavigateInsideBoundary/>
+                <!-- Succeed only if Nav2 actually put us back inside a
+                     defined area. -->
                 <Inverter><IsBoundaryViolation/></Inverter>
               </Sequence>
             </RetryUntilSuccessful>
@@ -107,7 +132,7 @@
             </Sequence>
           </Fallback>
         </Sequence>
-      </Fallback>
+      </ReactiveFallback>
 
       <!-- ================================================================
            GUARD 3: GPS quality adaptation (reactive)
@@ -134,9 +159,8 @@
           <IsBatteryLow threshold="10.0"/>
           <SetMowerEnabled enabled="false"/>
           <StopMoving/>
-          <PublishHighLevelStatus state="1" state_name="CRITICAL_BATTERY_DOCKING"/>
+          <PublishHighLevelStatus state="2" state_name="CRITICAL_BATTERY_DOCKING"/>
           <SaveObstacles/>
-          <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <Fallback name="CriticalNavOrStop">
             <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
             <!-- Docking failed — stay stopped, battery is critical -->
@@ -187,56 +211,74 @@
           <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
           <WaitForDuration duration_sec="1.0"/>
           <Fallback name="UndockOrSkip">
-            <!-- Already undocked? Skip. -->
-            <Inverter><IsCharging/></Inverter>
-            <!-- On dock — wait for GPS, save map, then undock -->
+            <!-- Not on dock: the dock_yaw injection (hardware_bridge →
+                 /gnss/heading → dock_yaw_to_set_pose.py) never fired, so
+                 the global EKF has a random initial yaw. Drive forward 1 m
+                 and derive yaw from the GPS track direction. Guarded by
+                 yaw_seeded_this_session so a ReactiveSequence halt/resume
+                 cycle does not re-trigger the forward drive mid-session. -->
+            <Sequence name="NotDockedBranch">
+              <Inverter><IsCharging/></Inverter>
+              <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
+              <SeedYawFromMotion distance_m="1.0" speed_ms="0.2" timeout_sec="30.0"/>
+              <!-- Drop stale obstacle marks projected during the pre-seed
+                   forward drive: while the EKF yaw was random the scans
+                   went into the costmap at the wrong orientation, and
+                   obstacle_layer has observation_persistence=0 but only
+                   clears via raytracing as the robot moves past. Clearing
+                   now guarantees Nav2 sees a fresh view once the seed has
+                   landed. -->
+              <ClearCostmap/>
+            </Sequence>
+            <!-- On dock — wait for GPS, save map, then undock. IsCharging
+                 gate ensures we only run the docked-undock path when the
+                 robot is physically on the dock. Previously this branch
+                 could fire as a fallback when NotDockedBranch failed,
+                 which was dangerous — 1 m BackUp from a mid-polygon
+                 pose frequently pushed us outside the boundary. -->
             <Sequence name="UndockSequence">
-              <!-- Comprehensive readiness gate before undocking: verifies
-                   GPS fix type, battery, TF chain, mowing area, coverage
-                   service — all in a single node with a clear failure log.
-                   Retry for up to 30s to allow transient issues (GPS not
-                   yet RTK, late-starting nodes) to resolve, then proceed
-                   anyway to not block indefinitely at low-GPS sites. -->
+              <IsCharging/>
+              <!-- Hard preflight gate — blocks until RTK Fixed (4) is
+                   available, battery is OK, TF chain is healthy, and the
+                   mowing/coverage services are up.
+                   Non-RTK GPS gives σ ~20-50 cm, which is enough to push
+                   the robot outside the polygon during transit and trigger
+                   spurious boundary violations. Mowing at non-RTK is not
+                   acceptable, so the check is strict: 120×1s retries then
+                   the sequence fails and falls through to UndockFailed. -->
               <PublishHighLevelStatus state="2" state_name="PREFLIGHT_CHECK"/>
-              <Fallback name="PreFlightOrTimeout">
-                <RetryUntilSuccessful num_attempts="30">
-                  <Fallback>
-                    <PreFlightCheck min_battery="20.0" min_gps_fix_type="2" tf_timeout_sec="0.5"/>
-                    <Sequence>
-                      <WaitForDuration duration_sec="1.0"/>
-                      <AlwaysFailure/>
-                    </Sequence>
-                  </Fallback>
-                </RetryUntilSuccessful>
-                <!-- Timeout: proceed with a warning in logs -->
-                <AlwaysSuccess/>
-              </Fallback>
-              <!-- Save SLAM map while docked with correct heading.
-                   If undock flips heading, restart loads this good map. -->
-              <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
+              <RetryUntilSuccessful num_attempts="120">
+                <Fallback>
+                  <PreFlightCheck min_battery="20.0" min_gps_fix_type="4" tf_timeout_sec="0.5"/>
+                  <Sequence>
+                    <WaitForDuration duration_sec="1.0"/>
+                    <AlwaysFailure/>
+                  </Sequence>
+                </Fallback>
+              </RetryUntilSuccessful>
               <PublishHighLevelStatus state="2" state_name="UNDOCKING"/>
               <RecordUndockStart/>
-              <!-- Nav2 readiness is already guaranteed by the Nav2Active
-                   poll above UndockOrSkip; the old hardcoded 30 s sleep
-                   here is no longer needed. -->
               <ClearCostmap/>
-              <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
-                   uses geometric distance to dock pose which fails with
-                   SLAM relocalization drift. BackUp reliably reverses
-                   off the dock via Nav2 behavior_server.
-                   Distance trimmed from 2.0m to 1.0m after an observed
-                   boundary-violation: 2m put the robot ~0.3m past the
-                   east edge of a tight garden polygon. 1m gives the F9P
-                   enough displacement to calibrate undock heading while
-                   staying safely inside typical boundaries. -->
+              <!-- BackUp via Nav2 behavior_server instead of
+                   opennav_docking's UndockRobot: opennav's isDocked() uses
+                   a geometric distance to the dock pose that is fragile
+                   when RTK drifts briefly near the metal canopy. BackUp is
+                   deterministic — reverse at the given speed for the
+                   given distance. 1 m gives RTK ~5 s × 0.2 m/s of clean
+                   displacement for CalibrateHeadingFromUndock to resolve
+                   the initial heading accurately. -->
               <BackUp backup_dist="1.0" backup_speed="0.20"/>
               <!-- Wait for RTK Fixed after undock. The dock often has a
                    metal canopy that attenuates GPS; once the robot is 2 m
                    out the F9P should re-acquire quickly. Timeout proceeds
                    anyway at degraded precision rather than freeze. -->
               <WaitForGpsFix timeout_sec="20.0" min_fix_type="4"/>
-              <!-- Compute heading from GPS displacement during undock -->
-              <CalibrateHeadingFromUndock/>
+              <!-- Refine the EKF yaw from the 1 m of GPS-verified backward
+                   motion: heading = atan2(-dy, -dx). Sync, no extra motion.
+                   Fails UndockSequence if GPS barely moved (robot stuck on
+                   dock) so the BT retries the whole undock. -->
+              <PublishHighLevelStatus state="2" state_name="CALIBRATING_HEADING"/>
+              <CalibrateHeadingFromUndock min_displacement_m="0.5"/>
               <!-- Clear costmaps again after undock — dock structure must be
                    cleared before navigation starts. -->
               <ClearCostmap/>
@@ -277,8 +319,7 @@
                 <Sequence name="RainDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="1" state_name="RAIN_DETECTED_DOCKING"/>
-                  <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
+                  <PublishHighLevelStatus state="2" state_name="RAIN_DETECTED_DOCKING"/>
                   <Fallback name="RainNavOrStay">
                     <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                     <AlwaysSuccess/>
@@ -306,7 +347,7 @@
                   <Fallback name="RainResumeUndock">
                     <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
                    uses geometric distance to dock pose which fails with
-                   SLAM relocalization drift. BackUp reliably reverses
+                   RTK drift near the dock canopy. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
               <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
@@ -325,8 +366,7 @@
                 <Sequence name="BatteryDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="1" state_name="LOW_BATTERY_DOCKING"/>
-                  <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
+                  <PublishHighLevelStatus state="2" state_name="LOW_BATTERY_DOCKING"/>
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <PublishHighLevelStatus state="1" state_name="CHARGING"/>
                   <Fallback name="ChargeOrAbort">
@@ -354,7 +394,7 @@
                   <Fallback name="ResumeUndockOrAbort">
                     <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
                    uses geometric distance to dock pose which fails with
-                   SLAM relocalization drift. BackUp reliably reverses
+                   RTK drift near the dock canopy. BackUp reliably reverses
                    off the dock via Nav2 behavior_server. -->
               <BackUp backup_dist="1.5" backup_speed="0.20"/>
                     <Sequence>
@@ -393,10 +433,15 @@
                           <PublishHighLevelStatus state="2" state_name="SKIP_STRIP"/>
                           <SetMowerEnabled enabled="false"/>
                           <StopMoving/>
-                          <Fallback>
-                            <BackUp backup_dist="0.3" backup_speed="0.2"/>
-                            <AlwaysSuccess/>
-                          </Fallback>
+                          <!-- Previously did a blind 0.3 m BackUp to 'unstick'
+                               the robot. But the backup direction is always
+                               body-x-negative, with no awareness of the
+                               mowing polygon — if the robot is near the
+                               boundary facing inward, the 30 cm reverse
+                               pushes it straight out of the area, straight
+                               into a boundary violation. ClearCostmap below
+                               is enough to let the next TransitToStrip
+                               replan from the current pose. -->
                           <ClearCostmap/>
                           <IncrementSkippedSwaths/>
                           <WaitForDuration duration_sec="2.0"/>
@@ -413,8 +458,7 @@
             <!-- Coverage failed — dock gracefully -->
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
-              <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
-              <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
+              <PublishHighLevelStatus state="2" state_name="COVERAGE_FAILED_DOCKING"/>
               <Fallback name="FailedCoverageNavOrStop">
                 <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                 <Sequence>
@@ -432,7 +476,6 @@
           <SetMowerEnabled enabled="false"/>
           <PublishHighLevelStatus state="1" state_name="MOWING_COMPLETE"/>
           <SaveObstacles/>
-          <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
           <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
           <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
           <ClearCommand/>
@@ -453,13 +496,20 @@
           <Sequence name="HomeAction">
             <SetMowerEnabled enabled="false"/>
             <StopMoving/>
-            <Fallback name="HomeOrAlreadyDocked">
-              <!-- Already on dock and charging? Skip navigation. -->
+            <!-- ReactiveFallback re-evaluates IsCharging every tick. If the
+                 charging pins engage mid-DockRobot (robot physically reaches
+                 the dock but opennav_docking hasn't concluded yet — common
+                 with GPS drift near the dock), IsCharging returns SUCCESS,
+                 the running DockRobot is halted, and we fall through to
+                 IDLE_DOCKED. A plain Fallback would stick on the RUNNING
+                 DockRobot child until it terminates on its own (up to
+                 ~5 min of retries), leaving the BT stuck in RETURNING_HOME
+                 even though the robot is already charging. -->
+            <ReactiveFallback name="HomeOrAlreadyDocked">
               <IsCharging/>
               <Sequence name="NavigateHome">
-                <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
+                <PublishHighLevelStatus state="2" state_name="RETURNING_HOME"/>
                 <SaveObstacles/>
-                <SaveSlamMap map_path="/ros2_ws/maps/garden_map"/>
                 <Fallback name="HomeNavOrStop">
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <Sequence>
@@ -468,7 +518,7 @@
                   </Sequence>
                 </Fallback>
               </Sequence>
-            </Fallback>
+            </ReactiveFallback>
             <PublishHighLevelStatus state="1" state_name="IDLE_DOCKED"/>
             <ClearCommand/>
           </Sequence>

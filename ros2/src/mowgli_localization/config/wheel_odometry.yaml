@@ -8,8 +8,8 @@
 #                    travel.  Derive from: (ticks_per_revolution) / (π × wheel_diameter).
 #
 # publish_tf       – set true to have this node broadcast odom → base_link TF
-#                    directly.  Leave false (default) when FusionCore owns the
-#                    odom → base_footprint transform (the normal case).
+#                    directly.  Leave false (default) when robot_localization
+#                    owns the odom → base_footprint transform (the normal case).
 
 wheel_odometry:
   ros__parameters:

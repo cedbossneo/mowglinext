@@ -44,6 +44,19 @@ type CalibrateImuYawRes struct {
 	ImuYawDeg                 float64                        `json:"imu_yaw_deg"`
 	SamplesUsed               int32                          `json:"samples_used"`
 	StdDevDeg                 float64                        `json:"std_dev_deg"`
+	ImuPitchRad               float64                        `json:"imu_pitch_rad"`
+	ImuPitchDeg               float64                        `json:"imu_pitch_deg"`
+	ImuRollRad                float64                        `json:"imu_roll_rad"`
+	ImuRollDeg                float64                        `json:"imu_roll_deg"`
+	StationarySamplesUsed     int32                          `json:"stationary_samples_used"`
+	GravityMagMps2            float64                        `json:"gravity_mag_mps2"`
+	DockValid                 bool                           `json:"dock_valid"`
+	DockPoseX                 float64                        `json:"dock_pose_x"`
+	DockPoseY                 float64                        `json:"dock_pose_y"`
+	DockPoseYawRad            float64                        `json:"dock_pose_yaw_rad"`
+	DockPoseYawDeg            float64                        `json:"dock_pose_yaw_deg"`
+	DockYawSigmaDeg           float64                        `json:"dock_yaw_sigma_deg"`
+	DockUndockDisplacementM   float64                        `json:"dock_undock_displacement_m"`
 }
 
 // ClearMapReq for mowgli_interfaces/srv/ClearMap request (empty).
@@ -118,6 +131,17 @@ type GetNextStripRes struct {
 	CoveragePercent           float32                        `json:"coverage_percent"`
 	StripsRemaining           uint32                         `json:"strips_remaining"`
 	Phase                     string                         `json:"phase"`
+}
+
+// GetRecoveryPointReq for mowgli_interfaces/srv/GetRecoveryPoint request (empty).
+type GetRecoveryPointReq struct{}
+
+// GetRecoveryPointRes for mowgli_interfaces/srv/GetRecoveryPoint response.
+type GetRecoveryPointRes struct {
+	Success                   bool                           `json:"success"`
+	Message                   string                         `json:"message"`
+	RecoveryPose              geometry.Pose                  `json:"recovery_pose"`
+	DistanceOutside           float64                        `json:"distance_outside"`
 }
 
 // HighLevelControlReq for mowgli_interfaces/srv/HighLevelControl request.
