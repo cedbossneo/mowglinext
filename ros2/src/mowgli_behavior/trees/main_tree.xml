@@ -157,7 +157,7 @@
           <IsBatteryLow threshold="10.0"/>
           <SetMowerEnabled enabled="false"/>
           <StopMoving/>
-          <PublishHighLevelStatus state="1" state_name="CRITICAL_BATTERY_DOCKING"/>
+          <PublishHighLevelStatus state="2" state_name="CRITICAL_BATTERY_DOCKING"/>
           <SaveObstacles/>
           <Fallback name="CriticalNavOrStop">
             <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
@@ -317,7 +317,7 @@
                 <Sequence name="RainDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="1" state_name="RAIN_DETECTED_DOCKING"/>
+                  <PublishHighLevelStatus state="2" state_name="RAIN_DETECTED_DOCKING"/>
                   <Fallback name="RainNavOrStay">
                     <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                     <AlwaysSuccess/>
@@ -364,7 +364,7 @@
                 <Sequence name="BatteryDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="1" state_name="LOW_BATTERY_DOCKING"/>
+                  <PublishHighLevelStatus state="2" state_name="LOW_BATTERY_DOCKING"/>
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                   <PublishHighLevelStatus state="1" state_name="CHARGING"/>
                   <Fallback name="ChargeOrAbort">
@@ -456,7 +456,7 @@
             <!-- Coverage failed — dock gracefully -->
             <Sequence name="FailedCoverageDock">
               <SetMowerEnabled enabled="false"/>
-              <PublishHighLevelStatus state="1" state_name="COVERAGE_FAILED_DOCKING"/>
+              <PublishHighLevelStatus state="2" state_name="COVERAGE_FAILED_DOCKING"/>
               <Fallback name="FailedCoverageNavOrStop">
                 <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
                 <Sequence>
@@ -506,7 +506,7 @@
             <ReactiveFallback name="HomeOrAlreadyDocked">
               <IsCharging/>
               <Sequence name="NavigateHome">
-                <PublishHighLevelStatus state="1" state_name="RETURNING_HOME"/>
+                <PublishHighLevelStatus state="2" state_name="RETURNING_HOME"/>
                 <SaveObstacles/>
                 <Fallback name="HomeNavOrStop">
                   <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
