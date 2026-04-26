@@ -102,8 +102,19 @@ def generate_launch_description() -> LaunchDescription:
     nav2_params_no_lidar = os.path.join(bringup_dir, "config", "nav2_params_no_lidar.yaml")
 
     # Compute robot footprint from mowgli_robot.yaml so Nav2 costmaps
-    # match the actual chassis shape regardless of mower model.
-    robot_config_file = os.path.join(bringup_dir, "config", "mowgli_robot.yaml")
+    # match the actual chassis shape regardless of mower model. Prefer
+    # the runtime config (install/, mounted at /ros2_ws/config) which
+    # reflects the operator-calibrated chassis values; fall back to the
+    # in-package template only when the runtime mount is unavailable
+    # (e.g. running outside the production container). Earlier versions
+    # of this launch always read the package template, which silently
+    # diverged from the URDF (mowgli.launch.py uses the runtime path)
+    # and gave Nav2 a footprint that did not match the actual robot.
+    runtime_config = "/ros2_ws/config/mowgli_robot.yaml"
+    template_config = os.path.join(bringup_dir, "config", "mowgli_robot.yaml")
+    robot_config_file = (
+        runtime_config if os.path.isfile(runtime_config) else template_config
+    )
     footprint_str = ""
     if os.path.isfile(robot_config_file):
         with open(robot_config_file, "r") as f:
