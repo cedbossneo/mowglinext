@@ -131,18 +131,29 @@ class SimNavSatRtkFix(Node):
         self._cycle_total_s = sum(s.duration_s for s in self._segments) or 0.0
         self._start_t: Optional[float] = None  # ros time at first fix
 
-        sensor_qos = QoSProfile(
+        # Subscribe with BEST_EFFORT (matches Gazebo bridge sensor QoS).
+        sub_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        # Publish with RELIABLE so production navsat_to_absolute_pose_node
+        # (which subscribes with RELIABLE QoS, matching the real GPS driver
+        # behaviour) actually receives our messages. With a BEST_EFFORT
+        # publisher the production node ignored every fix.
+        pub_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
             depth=10,
             durability=DurabilityPolicy.VOLATILE,
         )
 
         self._pub = self.create_publisher(
-            NavSatFix, self._output_topic, sensor_qos
+            NavSatFix, self._output_topic, pub_qos
         )
         self._sub = self.create_subscription(
-            NavSatFix, self._input_topic, self._on_fix, sensor_qos
+            NavSatFix, self._input_topic, self._on_fix, sub_qos
         )
 
         # Diagnostics — surface the regime distribution observed.
