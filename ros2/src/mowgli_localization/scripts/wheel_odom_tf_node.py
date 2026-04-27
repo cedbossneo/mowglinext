@@ -5,18 +5,21 @@
 """
 wheel_odom_tf_node.py
 
-Publishes a raw wheel-only TF chain that Kinematic-ICP consumes as its motion
-prior. Exists solely to break the feedback loop that would form if Kinematic-
-ICP looked up the fused `odom -> base_footprint` TF (Kinematic-ICP's
-output goes back into ekf_odom_node via `/encoder2/odom`).
+Publishes a raw wheel-only TF chain that the slam_toolbox RTK fallback
+consumes as its motion prior. (Originally written for Kinematic-ICP;
+the same parallel-tree decoupling now serves slam_toolbox after K-ICP
+was removed.) Exists solely to break the feedback loop that would form
+if slam_toolbox looked up the fused `odom -> base_footprint` TF —
+slam's published pose flows back into ekf_map_node via
+/slam/pose_cov, and a fused motion prior would close the loop.
 
     /wheel_odom (nav_msgs/Odometry, twist-only from hardware_bridge)
         -> integrate twist.linear.x / twist.angular.z
         -> TF: wheel_odom_raw -> base_footprint_wheels
 
-Kinematic-ICP is configured with:
-    wheel_odom_frame = wheel_odom_raw
-    base_frame       = base_footprint_wheels
+slam_toolbox is configured (slam_toolbox.yaml) with:
+    odom_frame = wheel_odom_raw
+    base_frame = base_footprint_wheels
 so its motion-prior TF lookup returns the pure wheel dead-reckoning pose
 — independent of robot_localization's fused state, GPS, or IMU.
 

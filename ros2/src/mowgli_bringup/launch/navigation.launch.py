@@ -28,17 +28,23 @@ Brings up:
      continuous absolute-yaw observation with adaptive covariance), and
      mag_yaw_publisher (tilt-compensated LIS3MDL magnetometer yaw, gated on
      /ros2_ws/maps/mag_calibration.yaml existing).
-  3. Kinematic-ICP (optional, gated on use_lidar) runs on a decoupled parallel
-     TF tree (wheel_odom_raw -> base_footprint_wheels -> lidar_link_wheels)
-     and feeds ekf_odom via the encoder2 adapter.
+  3. slam_toolbox RTK fallback (optional, gated on use_lidar) runs on a
+     decoupled parallel TF tree (wheel_odom_raw -> base_footprint_wheels
+     -> lidar_link_wheels) and republishes its pose into the GPS map
+     frame as /slam/pose_cov, which ekf_map_node fuses as pose1.
   4. Nav2 bringup — full navigation stack (controllers, planners, recoveries,
      BT navigator, costmaps, lifecycle).
 
 Architecture (REP-105):
   map → (ekf_map) → odom → (ekf_odom) → base_footprint → base_link → sensors
-  There is no SLAM. GPS is fused through navsat_transform into ekf_map.
-  Kinematic-ICP provides LiDAR-derived twist on encoder2 for dead-reckoning
-  during GPS degradation.
+  Plus a parallel slam_toolbox tree:
+    map → map_slam → wheel_odom_raw → base_footprint_wheels → lidar_link_wheels
+  GPS pose comes through navsat_to_absolute_pose_node to ekf_map.pose0.
+  slam_toolbox pose comes through slam_pose_anchor_node to ekf_map.pose1
+  with covariance that grows as time-since-last-RTK-Fixed grows, so the
+  EKF naturally weights GPS above slam when RTK is healthy and slam above
+  GPS during dropouts. slam_toolbox builds the map during area recording
+  and refines it across subsequent sessions in lifelong mode.
 """
 
 import os
@@ -85,7 +91,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Also skips Kinematic-ICP LiDAR odometry.",
+        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Also skips slam_toolbox RTK fallback (no /slam/pose_cov input to ekf_map).",
     )
 
     # ------------------------------------------------------------------
@@ -257,17 +263,18 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 1. Kinematic-ICP LiDAR odometry
-    #    Launched by kinematic_icp.launch.py: wheel_odom_tf_node +
-    #    kinematic_icp_online_node + kinematic_icp_encoder_adapter.
-    #    Gated entirely on use_lidar. Kinematic-ICP does NOT publish the
-    #    odom TF; the adapter republishes /kinematic_icp/lidar_odometry as
-    #    /encoder2/odom so ekf_odom can fuse it as a wheel-odom-like
-    #    source, with the kinematic prior enforcing non-holonomic motion.
+    # 1. slam_toolbox RTK fallback
+    #    Launched by slam_fallback.launch.py: wheel_odom_tf_node +
+    #    slam_scan_frame_relay + slam_toolbox/async_slam_toolbox_node +
+    #    slam_pose_anchor_node. Gated entirely on use_lidar. slam_toolbox
+    #    does NOT publish map→odom; it publishes map_slam→wheel_odom_raw
+    #    on a parallel tree, and slam_pose_anchor_node EWMA-aligns
+    #    map→map_slam to GPS and republishes the pose as /slam/pose_cov
+    #    for ekf_map_node to fuse as pose1.
     # ------------------------------------------------------------------
-    kinematic_icp_group = IncludeLaunchDescription(
+    slam_fallback_group = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(bringup_dir, "launch", "kinematic_icp.launch.py")
+            os.path.join(bringup_dir, "launch", "slam_fallback.launch.py")
         ),
         condition=IfCondition(use_lidar),
         launch_arguments={
@@ -442,27 +449,11 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # Inverse-variance fusion of /wheel_odom and K-ICP /encoder2/odom into
-    # /wheel_odom_fused. ekf_odom_node subscribes to /wheel_odom_fused as
-    # its sole odom input — robot_localization's odom1 fusion path caps
-    # the EKF publisher at 5 Hz whenever any publisher is alive on it, so
-    # we fold K-ICP into the wheel input upstream and skip odom1 entirely.
-    # Falls back to wheel-only when K-ICP is silent (>250 ms stale), so
-    # this node is also safe with use_lidar:=false (just transparently
-    # republishes wheel as fused).
-    wheel_kicp_blend = Node(
-        package="mowgli_localization",
-        executable="wheel_kicp_blend.py",
-        name="wheel_kicp_blend",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": use_sim_time,
-                "kicp_max_age_sec": 0.25,
-                "output_topic": "/wheel_odom_fused",
-            }
-        ],
-    )
+    # wheel_kicp_blend was removed when K-ICP was replaced by slam_toolbox.
+    # ekf_odom_node now subscribes to /wheel_odom directly (see
+    # robot_localization.yaml). slam contributes via the absolute-pose
+    # path (/slam/pose_cov -> ekf_map_node.pose1), not via a body-frame
+    # twist into ekf_odom.
 
     # ------------------------------------------------------------------
     # LaunchDescription
@@ -479,11 +470,11 @@ def generate_launch_description() -> LaunchDescription:
             dock_yaw_to_set_pose,
             cog_to_imu,
             mag_yaw_publisher,
-            wheel_kicp_blend,
-            # Kinematic-ICP (LiDAR drift correction feeding ekf_odom via
-            # /encoder2/odom — retained under the robot_localization
-            # backend to shore up dead-reckoning during GPS degradation).
-            kinematic_icp_group,
+            # slam_toolbox RTK fallback — feeds ekf_map_node via
+            # /slam/pose_cov (pose1) with EWMA-anchored alignment to
+            # the GPS map frame. Carries the map-frame pose during
+            # RTK-Float and outage windows.
+            slam_fallback_group,
             wait_for_map_odom_tf,
             nav2_after_tf,
         ]

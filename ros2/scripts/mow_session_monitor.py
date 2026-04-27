@@ -205,6 +205,17 @@ class LatestState:
     scan_n_points: Optional[int] = None
     scan_min_range: Optional[float] = None
 
+    # --- slam_toolbox RTK fallback ---
+    # Last /slam/pose_cov message — already in the GPS map frame
+    # (slam_pose_anchor_node publishes it composed through the EWMA-anchored
+    # map -> map_slam transform).
+    slam_pose_x: Optional[float] = None
+    slam_pose_y: Optional[float] = None
+    slam_pose_yaw_rad: Optional[float] = None
+    slam_pose_cov_xx: Optional[float] = None
+    slam_pose_cov_yy: Optional[float] = None
+    slam_pose_msg_t: Optional[float] = None
+
     # --- Integrators for session totals / drift ---
     gyro_yaw_integrated_rad: float = 0.0
     wheel_yaw_integrated_rad: float = 0.0
@@ -298,6 +309,10 @@ class MowSessionMonitor(Node):
         # Plan + LiDAR
         sub("/plan", Path, self._plan_cb, QOS_RELIABLE)
         sub("/scan", LaserScan, self._scan_cb, QOS_SENSOR)
+
+        # slam_toolbox RTK fallback — pose-with-covariance already
+        # composed into the GPS map frame by slam_pose_anchor_node.
+        sub("/slam/pose_cov", PoseWithCovarianceStamped, self._slam_pose_cb, QOS_RELIABLE)
 
         # --- TF buffer for map lookups ---
         self.tf_buffer = Buffer()
@@ -485,6 +500,19 @@ class MowSessionMonitor(Node):
             s.scan_n_points = len(valid)
             s.scan_min_range = min(valid) if valid else None
 
+    def _slam_pose_cb(self, msg: PoseWithCovarianceStamped) -> None:
+        with self.state_lock:
+            s = self.state
+            s.slam_pose_x = msg.pose.pose.position.x
+            s.slam_pose_y = msg.pose.pose.position.y
+            q = msg.pose.pose.orientation
+            s.slam_pose_yaw_rad = _quat_to_yaw(q.z, q.w)
+            cov = msg.pose.covariance
+            # 6x6 row-major: [0]=xx, [7]=yy
+            s.slam_pose_cov_xx = float(cov[0])
+            s.slam_pose_cov_yy = float(cov[7])
+            s.slam_pose_msg_t = _ros_stamp_sec(msg.header.stamp)
+
     # ------------------------------------------------------------------
     # Periodic snapshot
     # ------------------------------------------------------------------
@@ -603,6 +631,62 @@ class MowSessionMonitor(Node):
                 },
                 "gps_absolute_pose": {
                     "x": s.gps_abs_x, "y": s.gps_abs_y,
+                },
+                "slam": {
+                    # /slam/pose_cov, already in GPS map frame
+                    "pose": {
+                        "x": s.slam_pose_x,
+                        "y": s.slam_pose_y,
+                        "yaw_deg": (
+                            math.degrees(s.slam_pose_yaw_rad)
+                            if s.slam_pose_yaw_rad is not None
+                            else None
+                        ),
+                        "cov_xx": s.slam_pose_cov_xx,
+                        "cov_yy": s.slam_pose_cov_yy,
+                        "sigma_xy_m": (
+                            math.sqrt(
+                                max(
+                                    (s.slam_pose_cov_xx or 0.0)
+                                    + (s.slam_pose_cov_yy or 0.0),
+                                    0.0,
+                                )
+                                * 0.5
+                            )
+                            if s.slam_pose_cov_xx is not None
+                            and s.slam_pose_cov_yy is not None
+                            else None
+                        ),
+                        "msg_age_sec": (
+                            now_ros - s.slam_pose_msg_t
+                            if s.slam_pose_msg_t is not None
+                            else None
+                        ),
+                    },
+                    # TF: map -> map_slam (the EWMA anchor). When stale,
+                    # /slam/pose_cov.sigma_xy_m grows to reflect drift
+                    # since the last RTK-Fixed update.
+                    "anchor": self._tf_lookup("map", "map_slam"),
+                    # Cross-source sanity check: slam pose vs fusion pose,
+                    # in the same gps map frame. Should track tightly when
+                    # RTK is healthy; divergence under RTK-Float is the
+                    # signal we want to measure.
+                    "fusion_slam_dist_m": (
+                        math.hypot(
+                            s.fusion_x - s.slam_pose_x,
+                            s.fusion_y - s.slam_pose_y,
+                        )
+                        if s.fusion_x is not None and s.slam_pose_x is not None
+                        else None
+                    ),
+                    "fusion_slam_yaw_diff_deg": (
+                        math.degrees(
+                            _wrap_pi(s.fusion_yaw_rad - s.slam_pose_yaw_rad)
+                        )
+                        if s.fusion_yaw_rad is not None
+                        and s.slam_pose_yaw_rad is not None
+                        else None
+                    ),
                 },
                 "gnss_heading_yaw_deg": (
                     math.degrees(s.gnss_heading_yaw_rad)
@@ -866,9 +950,13 @@ _CONFIG_LOCATIONS = {
         "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/nav2_params.yaml",
         "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/nav2_params.yaml",
     ],
-    "cartographer.lua": [
-        "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/cartographer.lua",
-        "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/cartographer.lua",
+    "robot_localization.yaml": [
+        "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/robot_localization.yaml",
+        "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/robot_localization.yaml",
+    ],
+    "slam_toolbox.yaml": [
+        "/home/ubuntu/mowglinext/ros2/src/mowgli_bringup/config/slam_toolbox.yaml",
+        "/ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/slam_toolbox.yaml",
     ],
 }
 

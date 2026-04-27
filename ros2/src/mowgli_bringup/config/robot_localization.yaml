@@ -66,16 +66,12 @@ ekf_odom_node:
     #   twist.linear.y   = 0.0     (cov=1e-4 → tight non-holo constraint)
     # The cov on linear.y is what gives us the non-holonomic lock without
     # needing a separate pseudo-measurement node.
-    # Pre-blended wheel + K-ICP body-frame twist. wheel_kicp_blend fuses
-    # /wheel_odom (15 Hz) with /encoder2/odom (10 Hz K-ICP) by inverse-
-    # variance weighting per axis and republishes at /wheel_odom_fused
-    # with a fresh stamp. Falls back to wheel-only when K-ICP goes silent.
-    # We do this upstream because robot_localization's odom1 fusion path
-    # itself caps the EKF publisher at 5 Hz when it has *any* publisher
-    # on it, regardless of source/cadence/stamps. Folding K-ICP into the
-    # wheel input keeps the K-ICP information in the state without using
-    # odom1 at all, and the EKF runs at its 25 Hz target.
-    odom0: /wheel_odom_fused
+    # Raw /wheel_odom directly. K-ICP was removed when slam_toolbox took
+    # over the LiDAR-based localization role; slam contributes via the
+    # absolute-pose path (/slam/pose_cov -> ekf_map_node.pose1) instead
+    # of via a body-frame twist into ekf_odom. ekf_odom is therefore
+    # back to its pre-K-ICP wheel-only feed.
+    odom0: /wheel_odom
     odom0_config: [false, false, false,   # x, y, z         — no abs position
                    false, false, false,   # roll, pitch, yaw — no abs orientation
                    true,  true,  false,   # vx, vy, vz      — fuse vx + vy
@@ -108,8 +104,10 @@ ekf_odom_node:
     imu0_remove_gravitational_acceleration: true
     imu0_nodelay: false
 
-    # K-ICP fusion is now folded into odom0 upstream by wheel_kicp_blend,
-    # not given to the EKF as a separate odom1. See odom0 comment above.
+    # No second odom input. K-ICP was removed when slam_toolbox replaced
+    # it as the LiDAR-based localizer; slam contributes via the absolute-
+    # pose path (/slam/pose_cov -> ekf_map_node.pose1) instead of via a
+    # body-frame twist into ekf_odom.
 
     # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
     # Starting with defaults; tune after we have a session to compare.
@@ -187,6 +185,29 @@ ekf_map_node:
     pose0_differential: false
     pose0_relative: false
     pose0_nodelay: false
+
+    # ─ slam_toolbox-derived absolute pose (RTK fallback) ─
+    # /slam/pose_cov is published by slam_pose_anchor_node, which composes
+    # slam_toolbox's `map_slam -> base_footprint_wheels` pose with an
+    # EWMA-anchored `map -> map_slam` rigid transform aligned to GPS
+    # whenever NavSatFix.status == GBAS_FIX. The publisher always emits
+    # at 5 Hz with σ_xy growing as time-since-last-RTK-Fixed grows
+    # (floor 0.10 m, drift 0.01 m/s, capped 5 m). Only x/y are fused;
+    # yaw covariance is held at 1e3 by the publisher so the EKF skips
+    # it (cog_to_imu and mag_yaw_publisher already supply absolute yaw).
+    # When RTK is healthy GPS dominates (σ ~3 mm vs 10 cm). When RTK
+    # degrades to Float (σ ~30 cm) slam competes. When RTK drops out
+    # entirely slam carries the map-frame estimate.
+    pose1: /slam/pose_cov
+    pose1_config: [true,  true,  false,   # x, y        — absolute position
+                   false, false, false,   # orientation — yaw covariance is high, EKF skips it
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    pose1_queue_size: 10
+    pose1_differential: false
+    pose1_relative: false
+    pose1_nodelay: false
 
     # ─ IMU (same as ekf_odom) ─
     imu0: /imu/data
