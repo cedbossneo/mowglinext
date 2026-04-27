@@ -23,18 +23,23 @@
 
 slam_toolbox:
   ros__parameters:
-    # ---- Frames (parallel tree, NOT the fused EKF tree) ----
-    # We deliberately reuse the K-ICP-era parallel tree: wheel_odom_tf_node
-    # publishes wheel_odom_raw -> base_footprint_wheels at 30 Hz, and
-    # slam_scan_frame_relay mirrors the URDF lidar extrinsic onto the same
-    # parallel tree as base_footprint_wheels -> lidar_link_wheels.
+    # ---- Frames (Option B: GPS-anchored parallel tree) ----
+    # gps_anchored_odom_node fuses wheel + gyro + GPS into a smooth
+    # GPS-anchored TF (gps_odom → base_footprint_slam) at 50 Hz. slam_toolbox's
+    # pose graph is therefore born in the ENU `map` frame and
+    # `map → map_slam` reduces to a near-identity (set once at boot by
+    # slam_pose_anchor_node with ewma_alpha=0). When RTK is healthy the
+    # input is GPS-precise; when RTK degrades, scan-matching keeps slam's
+    # pose accurate against the previously-built map.
+    # slam_scan_frame_relay mirrors the URDF lidar extrinsic onto this
+    # tree as base_footprint_slam → lidar_link_slam.
     map_frame: map_slam
-    odom_frame: wheel_odom_raw
-    base_frame: base_footprint_wheels
+    odom_frame: gps_odom
+    base_frame: base_footprint_slam
 
     # ---- Scan input ----
     # /scan_slam is the parallel-tree republish of /scan with frame_id
-    # rewritten to lidar_link_wheels. Subscribing to /scan directly would
+    # rewritten to lidar_link_slam. Subscribing to /scan directly would
     # pull in the URDF's "real" lidar_link, which is parented to the fused
     # base_footprint and would create a localization feedback loop.
     scan_topic: /scan_slam

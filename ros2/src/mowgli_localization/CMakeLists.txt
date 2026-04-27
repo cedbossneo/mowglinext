@@ -126,6 +126,7 @@ install(
     scripts/calibrate_imu_yaw_node.py
     scripts/cog_to_imu.py
     scripts/dock_yaw_to_set_pose.py
+    scripts/gps_anchored_odom_node.py
     scripts/mag_yaw_publisher.py
     scripts/slam_map_persist_node.py
     scripts/slam_pose_anchor_node.py
