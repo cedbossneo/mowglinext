@@ -3,21 +3,26 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """
-kinematic_icp_scan_frame_relay.py
+slam_scan_frame_relay.py
 
 Bridges the LiDAR scan onto the isolated wheel-odom TF tree that
-Kinematic-ICP consumes. This is the piece that lets the clean decoupled
-design work:
+slam_toolbox consumes. (Originally written for Kinematic-ICP; the same
+parallel-tree decoupling now serves slam_toolbox after K-ICP was
+removed.)
 
   Real URDF tree:
       map (ekf_map_node) -> odom (ekf_odom_node) -> base_footprint -> base_link -> lidar_link
-  Parallel isolated tree (K-ICP only):
-      wheel_odom_raw (wheel_odom_tf_node)  ->  base_footprint_wheels
-                                                       │
-                                                       └─> lidar_link_wheels
-                                                           (published HERE, static)
+  Parallel isolated tree (slam_toolbox + slam_pose_anchor_node):
+      map -> map_slam (slam_pose_anchor_node EWMA-aligns to GPS)
+                  │
+                  └─> wheel_odom_raw (slam_toolbox publishes map_slam->wheel_odom_raw,
+                                       wheel_odom_tf_node publishes wheel_odom_raw->base_footprint_wheels)
+                          │
+                          └─> base_footprint_wheels
+                                       │
+                                       └─> lidar_link_wheels (published HERE, static)
 
-Kinematic-ICP needs BOTH a motion-prior TF (wheel_odom_raw -> base_footprint_wheels)
+slam_toolbox needs BOTH a motion-prior TF (wheel_odom_raw -> base_footprint_wheels)
 AND the sensor extrinsic (base_footprint_wheels -> lidar_link_wheels). TF
 permits only one parent per frame, so we can't graft the real lidar_link
 onto the parallel tree — we must publish a SECOND lidar frame
@@ -31,8 +36,8 @@ This node does two things:
      the correct sensor extrinsic baked in.
 
   2. Subscribes to /scan (the real LaserScan, header.frame_id=lidar_link)
-     and republishes each message on /scan_kicp with header.frame_id
-     rewritten to "lidar_link_wheels". Kinematic-ICP looks up
+     and republishes each message on /scan_slam with header.frame_id
+     rewritten to "lidar_link_wheels". slam_toolbox looks up
      `base_footprint_wheels -> lidar_link_wheels` for each scan and finds
      it entirely within the parallel tree.
 
@@ -51,12 +56,12 @@ from sensor_msgs.msg import LaserScan
 from tf2_ros import Buffer, StaticTransformBroadcaster, TransformListener
 
 
-class KinematicIcpScanFrameRelay(Node):
+class SlamScanFrameRelay(Node):
     def __init__(self) -> None:
-        super().__init__("kinematic_icp_scan_frame_relay")
+        super().__init__("slam_scan_frame_relay")
 
         self.declare_parameter("input_topic", "/scan")
-        self.declare_parameter("output_topic", "/scan_kicp")
+        self.declare_parameter("output_topic", "/scan_slam")
         self.declare_parameter("input_sensor_frame", "lidar_link")
         self.declare_parameter("output_sensor_frame", "lidar_link_wheels")
         self.declare_parameter("real_base_frame", "base_footprint")
@@ -99,7 +104,7 @@ class KinematicIcpScanFrameRelay(Node):
         self._time_started = self.get_clock().now()
 
         self.get_logger().info(
-            f"kinematic_icp_scan_frame_relay ready:\n"
+            f"slam_scan_frame_relay ready:\n"
             f"  scan:   {self._in_topic} ({self._in_frame}) -> {self._out_topic} ({self._out_frame})\n"
             f"  static: {self._real_base} -> {self._in_frame}  =>  "
             f"{self._wheels_base} -> {self._out_frame}"
@@ -167,7 +172,7 @@ class KinematicIcpScanFrameRelay(Node):
 
 def main(args=None) -> None:
     rclpy.init(args=args)
-    node = KinematicIcpScanFrameRelay()
+    node = SlamScanFrameRelay()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

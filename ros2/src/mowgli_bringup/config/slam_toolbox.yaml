@@ -1,0 +1,119 @@
+# ---------------------------------------------------------------------------
+# slam_toolbox — RTK-fallback localization on the parallel TF tree
+# ---------------------------------------------------------------------------
+# slam_toolbox runs on a fully-decoupled parallel TF tree
+# (wheel_odom_raw -> base_footprint_wheels -> lidar_link_wheels) so its
+# motion-prior lookups never depend on the fused EKF state. It builds an
+# internal map_slam frame anchored at the session-start robot pose; the
+# accompanying slam_pose_anchor_node continuously aligns that frame to
+# the GPS-anchored "map" frame on every RTK-Fixed sample (EWMA), and
+# republishes the slam pose into the gps map frame as /slam/pose_cov.
+# ekf_map_node fuses /slam/pose_cov as pose1 (x, y) so it dominates the
+# EKF whenever GPS covariance balloons (RTK-Float, multipath, no-fix).
+#
+# Tuning notes (outdoor mowing, ~10 Hz 2D LiDAR):
+#  - max_laser_range trimmed to the LiDAR's reliable outdoor range to keep
+#    spurious far-field returns out of the map.
+#  - minimum_travel_distance / minimum_travel_heading set well above the
+#    odometry-noise floor so we don't churn keyframes while idle on dock
+#    or holding a strip end-of-row.
+#  - loop_closure thresholds are intentionally conservative; outdoor
+#    repetitive features (lawn texture) trigger false closures otherwise.
+# ---------------------------------------------------------------------------
+
+slam_toolbox:
+  ros__parameters:
+    # ---- Frames (parallel tree, NOT the fused EKF tree) ----
+    # We deliberately reuse the K-ICP-era parallel tree: wheel_odom_tf_node
+    # publishes wheel_odom_raw -> base_footprint_wheels at 30 Hz, and
+    # slam_scan_frame_relay mirrors the URDF lidar extrinsic onto the same
+    # parallel tree as base_footprint_wheels -> lidar_link_wheels.
+    map_frame: map_slam
+    odom_frame: wheel_odom_raw
+    base_frame: base_footprint_wheels
+
+    # ---- Scan input ----
+    # /scan_slam is the parallel-tree republish of /scan with frame_id
+    # rewritten to lidar_link_wheels. Subscribing to /scan directly would
+    # pull in the URDF's "real" lidar_link, which is parented to the fused
+    # base_footprint and would create a localization feedback loop.
+    scan_topic: /scan_slam
+
+    # ---- Mode ----
+    # lifelong: at boot, load the persisted map at map_file_name (if it
+    # exists) and continue refining it; if absent, start with an empty
+    # graph and behave like a mapping session until the first
+    # /slam_toolbox/serialize_map call writes one.
+    #
+    # Workflow (cf. CLAUDE.md):
+    #   - First-ever session, no map on disk: lifelong starts empty,
+    #     keyframes accumulate as the operator drives.
+    #   - COMMAND_RECORD_FINISH (=5): a thin helper node calls
+    #     /slam_toolbox/serialize_map to checkpoint the current graph
+    #     to /ros2_ws/maps/slam.{posegraph,data}.
+    #   - Subsequent sessions: lifelong auto-loads that checkpoint and
+    #     keeps refining (loop closure + slow pruning of stale nodes
+    #     handles seasonal drift).
+    mode: lifelong
+    map_file_name: /ros2_ws/maps/slam
+    # Start at the saved pose if a map exists; otherwise origin.
+    map_start_at_dock: false
+    use_map_saver: false
+
+    # ---- Publishing ----
+    # 20 Hz TF publish keeps map_slam -> wheel_odom_raw fresh enough for the
+    # anchor node's /slam/pose_cov to be timely without flooding /tf.
+    transform_publish_period: 0.05
+    map_update_interval: 5.0
+    publish_period: 0.05
+
+    # ---- Solver ----
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: HuberLoss
+
+    # ---- Scan matching ----
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_travel_distance: 0.30   # m: don't add a node every wheel tick
+    minimum_travel_heading: 0.30    # rad (~17°): same idea for rotation
+
+    # ---- Map ----
+    resolution: 0.05                 # 5 cm grid
+    max_laser_range: 12.0            # m, trimmed below sensor max for noise
+    minimum_time_interval: 0.5       # s, scan throttle (LiDAR ~10 Hz)
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.0
+    stack_size_to_use: 40000000
+
+    # ---- Loop closure (conservative — outdoor lawn returns are repetitive) ----
+    enable_interactive_mode: false
+    do_loop_closing: true
+    loop_search_maximum_distance: 6.0
+    loop_match_minimum_chain_size: 12
+    loop_match_maximum_variance_coarse: 2.5
+    loop_match_minimum_response_coarse: 0.40
+    loop_match_minimum_response_fine: 0.50
+
+    # ---- Correlation parameters ----
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # ---- Loop closure correlation ----
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # ---- Scan matcher penalties ----
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
