@@ -267,6 +267,63 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 11. Sim NavSat RTK status promoter
+    #     Gazebo emits NavSatFix with STATUS_FIX (0); production code
+    #     (navsat_to_absolute_pose_node, slam_pose_anchor_node) requires
+    #     STATUS_GBAS_FIX (4). The ros_gz_bridge now publishes Gazebo's
+    #     output on /gps/fix_raw; this relay rewrites status -> GBAS_FIX
+    #     and republishes on /gps/fix with a realistic RTK-Fixed
+    #     covariance (sigma ~3 mm).
+    # ------------------------------------------------------------------
+    sim_navsat_rtk_fix_node = Node(
+        package="mowgli_simulation",
+        executable="sim_navsat_rtk_fix.py",
+        name="sim_navsat_rtk_fix",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "input_topic": "/gps/fix_raw",
+                "output_topic": "/gps/fix",
+                # Realistic mowing scenario: 90 s RTK-Fixed (open sky),
+                # 30 s RTK-Float (light tree cover), 10 s no-fix (dense
+                # canopy / multipath). Set to "" for always-FIXED.
+                "quality_pattern": "90,RTK_FIXED;30,RTK_FLOAT;10,NO_FIX",
+                "noise_seed": 42,
+            }
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 12. Sim IMU noise injector
+    #     Adds gyro/accel bias-random-walk + white noise to Gazebo's
+    #     perfect IMU stream (/imu/data_gz from bridge) and republishes
+    #     on /imu/data with realistic MEMS noise. Set all *_white_std and
+    #     *_walk_std parameters to 0 for a noiseless A/B baseline.
+    # ------------------------------------------------------------------
+    sim_imu_noise_node = Node(
+        package="mowgli_simulation",
+        executable="sim_imu_noise.py",
+        name="sim_imu_noise",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "input_topic": "/imu/data_gz",
+                "output_topic": "/imu/data",
+                # MPU-9250 / LIS6DSL-class MEMS defaults.
+                "gyro_white_std": 0.005,
+                "gyro_bias_walk_std": 1.0e-4,
+                "gyro_bias_init_std": 1.0e-3,
+                "accel_white_std": 0.05,
+                "accel_bias_walk_std": 1.0e-3,
+                "accel_bias_init_std": 0.05,
+                "noise_seed": 42,
+            }
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -285,6 +342,8 @@ def generate_launch_description() -> LaunchDescription:
             navigation_launch,
             # Individual nodes
             fake_hardware_bridge_node,
+            sim_navsat_rtk_fix_node,
+            sim_imu_noise_node,
             behavior_tree_node,
             map_server_node,
             obstacle_tracker_node,

@@ -152,6 +152,99 @@
     </model>
 
     <!-- ================================================================
+         Terrain irregularities — gentle slopes + a small hazard pit.
+         Real lawns are not flat; mounds perturb wheel odometry and
+         tilt the LiDAR enough that scan-matching is non-trivial. The
+         pit is an obstacle the robot's collision_monitor must avoid
+         (low walls forming a square so the LiDAR sees a small bounded
+         depression and the robot cannot drive into it).
+         ================================================================ -->
+
+    <!-- Mound 1 — low rise near (5, 4), 4 cm tall ramp -->
+    <model name="mound_1">
+      <static>true</static>
+      <pose>5 4 0.02 0 0.04 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>3.0 1.5 0.04</size></box></geometry>
+          <surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>3.0 1.5 0.04</size></box></geometry>
+          <material><ambient>0.20 0.42 0.10 1</ambient><diffuse>0.22 0.52 0.12 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Mound 2 — broader rise near (-6, 6), 6 cm tall, tilted -->
+    <model name="mound_2">
+      <static>true</static>
+      <pose>-6 6 0.03 0.05 -0.03 0.5</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.0 2.5 0.06</size></box></geometry>
+          <surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.0 2.5 0.06</size></box></geometry>
+          <material><ambient>0.18 0.40 0.10 1</ambient><diffuse>0.22 0.50 0.12 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Mound 3 — small hummock near (8, -7), 8 cm tall -->
+    <model name="mound_3">
+      <static>true</static>
+      <pose>8 -7 0.04 0 0.06 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.0 1.8 0.08</size></box></geometry>
+          <surface><friction><ode><mu>0.7</mu><mu2>0.7</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.0 1.8 0.08</size></box></geometry>
+          <material><ambient>0.18 0.40 0.10 1</ambient><diffuse>0.22 0.50 0.12 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Hazard pit at (-8, -5): 1.2 x 1.2 m square enclosed by 10 cm walls.
+         Real-world analog: a pet-dug hole, drain cover, or sunken garden
+         bed. Robot's collision_monitor should detect and route around. -->
+    <model name="hazard_pit">
+      <static>true</static>
+      <pose>-8 -5 0 0 0 0</pose>
+      <link name="wall_n">
+        <pose>0 0.6 0.05 0 0 0</pose>
+        <collision name="c"><geometry><box><size>1.4 0.1 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.4 0.1 0.10</size></box></geometry>
+          <material><ambient>0.30 0.20 0.15 1</ambient><diffuse>0.40 0.25 0.18 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="wall_s">
+        <pose>0 -0.6 0.05 0 0 0</pose>
+        <collision name="c"><geometry><box><size>1.4 0.1 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.4 0.1 0.10</size></box></geometry>
+          <material><ambient>0.30 0.20 0.15 1</ambient><diffuse>0.40 0.25 0.18 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="wall_e">
+        <pose>0.6 0 0.05 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.1 1.2 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.1 1.2 0.10</size></box></geometry>
+          <material><ambient>0.30 0.20 0.15 1</ambient><diffuse>0.40 0.25 0.18 1</diffuse></material>
+        </visual>
+      </link>
+      <link name="wall_w">
+        <pose>-0.6 0 0.05 0 0 0</pose>
+        <collision name="c"><geometry><box><size>0.1 1.2 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.1 1.2 0.10</size></box></geometry>
+          <material><ambient>0.30 0.20 0.15 1</ambient><diffuse>0.40 0.25 0.18 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ================================================================
          Garden boundary — low perimeter wall segments
          Defines a roughly 40 x 30 m garden.
          Wall thickness 0.1 m, height 0.6 m (must be above LiDAR at 0.35 m).
