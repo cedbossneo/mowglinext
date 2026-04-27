@@ -117,33 +117,30 @@ def generate_launch_description() -> LaunchDescription:
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     # ------------------------------------------------------------------
-    # 1. Wheel-only TF publisher — wheel_odom_raw -> base_footprint_wheels.
-    #    Reused unchanged from the K-ICP era; same role here as motion
-    #    prior for slam_toolbox.
+    # 1. GPS-anchored odom (Option B): fuses wheel + gyro + GPS into a
+    #    smooth GPS-anchored TF gps_odom → base_footprint_slam at 50 Hz,
+    #    replacing the K-ICP-era wheel-only wheel_odom_tf_node. slam's
+    #    pose graph is born in the ENU map frame, so `map → map_slam`
+    #    reduces to a near-static identity (slam_pose_anchor below).
     # ------------------------------------------------------------------
-    wheel_odom_tf = Node(
+    gps_anchored_odom = Node(
         package="mowgli_localization",
-        executable="wheel_odom_tf_node.py",
-        name="wheel_odom_tf_node",
+        executable="gps_anchored_odom_node.py",
+        name="gps_anchored_odom_node",
         output="screen",
         parameters=[
             {
                 "use_sim_time": use_sim_time,
-                "input_topic": "/wheel_odom",
-                "parent_frame": "wheel_odom_raw",
-                "child_frame": "base_footprint_wheels",
-                # 30 Hz: matches the cadence slam_toolbox's transform
-                # lookups expect at scan-end timestamps. See K-ICP-era
-                # rationale in wheel_odom_tf_node.py.
-                "rebroadcast_hz": 30.0,
+                "parent_frame": "gps_odom",
+                "child_frame": "base_footprint_slam",
+                "publish_hz": 50.0,
             }
         ],
     )
 
     # ------------------------------------------------------------------
-    # 2. Scan-frame relay: base_footprint_wheels -> lidar_link_wheels
-    #    static TF + /scan -> /scan_slam republish with rewritten
-    #    frame_id.
+    # 2. Scan-frame relay: base_footprint_slam -> lidar_link_slam static
+    #    TF + /scan -> /scan_slam republish with rewritten frame_id.
     # ------------------------------------------------------------------
     scan_relay = Node(
         package="mowgli_localization",
@@ -156,9 +153,9 @@ def generate_launch_description() -> LaunchDescription:
                 "input_topic": "/scan",
                 "output_topic": "/scan_slam",
                 "input_sensor_frame": "lidar_link",
-                "output_sensor_frame": "lidar_link_wheels",
+                "output_sensor_frame": "lidar_link_slam",
                 "real_base_frame": "base_footprint",
-                "wheels_base_frame": "base_footprint_wheels",
+                "wheels_base_frame": "base_footprint_slam",
             }
         ],
     )
@@ -242,11 +239,17 @@ def generate_launch_description() -> LaunchDescription:
                 "gps_map_frame": "map",
                 "gps_base_frame": "base_footprint",
                 "slam_map_frame": "map_slam",
-                "slam_base_frame": "base_footprint_wheels",
-                # 5 Hz: enough to keep the EKF fed and the anchor
-                # smooth without competing with slam_toolbox's TF rate.
+                "slam_base_frame": "base_footprint_slam",
+                # 5 Hz: enough to keep the EKF fed.
                 "tick_hz": 5.0,
-                "ewma_alpha": 0.05,
+                # Option B: ewma_alpha=0 freezes `map → map_slam` after
+                # the first valid sample (slam input is GPS-anchored, so
+                # the anchor offset is near-zero from the start). Without
+                # this, the EWMA continually re-aligned the slam map
+                # under the robot, producing a visible "sliding" effect
+                # in Foxglove and a transient ekf_map ↔ slam pose lag of
+                # tens of cm during motion.
+                "ewma_alpha": 0.0,
                 "ekf_cov_threshold": 1e-2,
                 "sigma_xy_floor": 0.10,
                 "sigma_xy_drift_rate": 0.01,
@@ -279,7 +282,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             use_sim_time_arg,
-            wheel_odom_tf,
+            gps_anchored_odom,
             scan_relay,
             slam_configure,
             slam_activate,
