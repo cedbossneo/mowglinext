@@ -295,6 +295,35 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 11.5 NavSat -> AbsolutePose converter (production node, but full_system
+    #      .launch.py launches it directly rather than via navigation.launch.py
+    #      so the sim path needs its own copy). Reads /gps/fix and publishes
+    #      /gps/pose_cov (PoseWithCovarianceStamped in map frame) which
+    #      ekf_map_node fuses as pose0. Without this, no GPS reaches the EKF
+    #      in sim and the BT cannot transition out of IDLE.
+    #
+    #      Datum matches garden.sdf <spherical_coordinates>; if you change
+    #      the sim world's lat/lon, change these too.
+    # ------------------------------------------------------------------
+    sim_localization_params = os.path.join(
+        bringup_dir, "config", "robot_localization.yaml"
+    )
+    navsat_converter_node = Node(
+        package="mowgli_localization",
+        executable="navsat_to_absolute_pose_node",
+        name="navsat_to_absolute_pose",
+        output="screen",
+        parameters=[
+            sim_localization_params,
+            {
+                "use_sim_time": True,
+                "datum_lat": 48.137154,
+                "datum_lon": 11.576124,
+            },
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # 12. Sim IMU noise injector
     #     Adds gyro/accel bias-random-walk + white noise to Gazebo's
     #     perfect IMU stream (/imu/data_gz from bridge) and republishes
@@ -343,6 +372,7 @@ def generate_launch_description() -> LaunchDescription:
             # Individual nodes
             fake_hardware_bridge_node,
             sim_navsat_rtk_fix_node,
+            navsat_converter_node,
             sim_imu_noise_node,
             behavior_tree_node,
             map_server_node,
