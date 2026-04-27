@@ -180,11 +180,21 @@ class ImuYawCalibrator(Node):
     DOCK_CALIBRATION_PATH = "/ros2_ws/maps/dock_calibration.yaml"
 
     # --- Magnetometer calibration (opt-in) ---
-    # Rotation phase appended to the drive when do_mag_calibration is true.
-    # Disabled by default under the Option A path (OpenMower-style GPS-only
-    # yaw). Can be enabled if we want to experiment with LIS3MDL later.
-    MAG_ROTATE_WZ = 0.30                # rad/s (~17°/s)
-    MAG_ROTATE_SEC = 30.0               # total rotation time (≈ 1.4 turns)
+    # Phase appended to the drive when do_mag_calibration is true OR when
+    # the service request sets mag_only=true. The motion profile is a
+    # figure-8 (1.5 loops CCW, brief pause, 1.5 loops CW) rather than an
+    # in-place spin. The figure-8:
+    #   - pairs equal CCW + CW arcs, cancelling rotation-asymmetric soft-
+    #     iron error that the previous in-place spin baked in;
+    #   - picks up real ground-induced pitch/roll across a few metres of
+    #     lawn, giving the min/max fit some honest Z-axis range instead
+    #     of relying on chassis wobble;
+    #   - avoids in-place skid which corrupts wheel_odom and stresses
+    #     the firmware's encoder direction-change handling.
+    MAG_FIG8_LINEAR_M_S = 0.20          # forward speed during each arc
+    MAG_FIG8_RADIUS_M = 0.60            # arc radius (full pattern fits in ~1.5 m)
+    MAG_FIG8_LOOPS_PER_SIDE = 1.5       # CCW loops, then CW loops
+    MAG_FIG8_PAUSE_SEC = 1.5            # straighten between CCW and CW lobes
     MAG_MIN_SAMPLES = 150
     MAG_CALIBRATION_PATH = "/ros2_ws/maps/mag_calibration.yaml"
 
@@ -401,18 +411,58 @@ class ImuYawCalibrator(Node):
         msg.twist.angular.z = float(wz)
         self._cmd_pub.publish(msg)
 
-    def _rotate_profile(self, wz: float, duration_sec: float) -> None:
-        """Spin in place at a fixed wz for `duration_sec`, cmd_vel at
-        CMD_RATE_HZ so the firmware watchdog never trips."""
+    def _publish_arc(self, vx: float, wz: float) -> None:
+        """Publish a stamped Twist with both linear vx and angular wz.
+        Used by the figure-8 profile to drive a constant-radius arc."""
+        msg = TwistStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "base_footprint"
+        msg.twist.linear.x = float(vx)
+        msg.twist.angular.z = float(wz)
+        self._cmd_pub.publish(msg)
+
+    def _figure_eight_profile(
+        self,
+        linear_m_s: float,
+        radius_m: float,
+        loops_per_side: float,
+        pause_sec: float,
+    ) -> None:
+        """Drive a figure-8: `loops_per_side` CCW circles, then a brief
+        zero-velocity pause, then the same number of CW circles.
+
+        Each arc keeps a constant linear/angular ratio (v/R). At the
+        default 0.20 m/s and 0.60 m radius the angular speed is ~0.33
+        rad/s, similar to the legacy in-place spin but with no skid:
+        both wheels roll forward, so wheel_odom stays clean.
+        """
+        if radius_m <= 1e-3 or linear_m_s <= 1e-3:
+            return
+        wz_mag = linear_m_s / radius_m
         period = 1.0 / self.CMD_RATE_HZ
-        n = max(1, int(duration_sec * self.CMD_RATE_HZ))
-        for _ in range(n):
-            if self._emergency_active:
-                break
-            self._publish_wz(wz)
-            time.sleep(period)
-        # Stop at end.
-        self._publish_wz(0.0)
+        # 2π·loops radians per side at angular speed wz_mag.
+        seconds_per_side = (2.0 * math.pi * loops_per_side) / wz_mag
+        steps_per_side = max(1, int(seconds_per_side * self.CMD_RATE_HZ))
+
+        for sign in (+1.0, -1.0):
+            for _ in range(steps_per_side):
+                if self._emergency_active:
+                    self._publish_arc(0.0, 0.0)
+                    return
+                self._publish_arc(linear_m_s, sign * wz_mag)
+                time.sleep(period)
+            # Zero-velocity straightening between lobes so the chassis
+            # doesn't transition CCW→CW with a discontinuous wz step
+            # (the firmware accepts it but the wheel encoder direction
+            # change is noisy and biases mag samples right at the
+            # transition).
+            for _ in range(max(1, int(pause_sec * self.CMD_RATE_HZ))):
+                if self._emergency_active:
+                    self._publish_arc(0.0, 0.0)
+                    return
+                self._publish_arc(0.0, 0.0)
+                time.sleep(period)
+        self._publish_arc(0.0, 0.0)
 
     def _wait_for_rtk_fixed(self, timeout_sec: float = 10.0) -> bool:
         """Block until /gps/absolute_pose reports FLAG_GPS_RTK_FIXED or
@@ -551,8 +601,10 @@ class ImuYawCalibrator(Node):
             "mag_calibration": {
                 **cal,
                 "calibrated_at": datetime.now(timezone.utc).isoformat(),
-                "rotate_wz_rad_s": self.MAG_ROTATE_WZ,
-                "rotate_duration_sec": self.MAG_ROTATE_SEC,
+                "source": "figure_eight_drive",
+                "fig8_radius_m": self.MAG_FIG8_RADIUS_M,
+                "fig8_linear_m_s": self.MAG_FIG8_LINEAR_M_S,
+                "fig8_loops_per_side": self.MAG_FIG8_LOOPS_PER_SIDE,
             },
         }
         try:
@@ -635,7 +687,12 @@ class ImuYawCalibrator(Node):
         # captures dock_yaw from the GPS track. Skipping that phase is
         # fine too — the IMU calibration works identically from a
         # stationary off-dock start.
-        do_dock_yaw_calibration = bool(self._is_charging)
+        mag_only = bool(getattr(request, "mag_only", False))
+        # mag_only skips both the dock yaw pre-phase (no GPS reverse) and
+        # the forward/back drive cycles, going straight to the figure-8.
+        # The IMU yaw / pitch / roll fields in the response stay at zero
+        # since no IMU-yaw observation is collected.
+        do_dock_yaw_calibration = bool(self._is_charging) and not mag_only
         if self._emergency_active:
             response.success = False
             response.message = (
@@ -704,47 +761,52 @@ class ImuYawCalibrator(Node):
                 self._deactivate_sensor_subs()
                 return response
 
-        # --- Stationary baseline ---
-        # Collect IMU while perfectly still to measure the DC offset on
-        # accel_x / accel_y caused by chassis tilt and sensor bias. That
-        # offset is subtracted from the motion samples before computing
-        # per-sample imu_yaw, otherwise gravity leaks dominate the result
-        # (we observed raw ax readings of ±2 m/s² during a 0.2 m/s² drive
-        # — baseline was ~±0.8 m/s² from tilt).
-        self.get_logger().info(
-            f"Capturing {self.BASELINE_SEC:.1f}s stationary baseline before drive."
-        )
-        self._pause(self.BASELINE_SEC)
+        # --- Stationary baseline + IMU-yaw drive (skipped when mag_only) ---
+        # Baseline collects IMU while perfectly still to measure the DC
+        # offset on accel_x / accel_y caused by chassis tilt and sensor
+        # bias. That offset is subtracted from the motion samples before
+        # computing per-sample imu_yaw, otherwise gravity leaks dominate
+        # the result (we observed raw ax readings of ±2 m/s² during a
+        # 0.2 m/s² drive — baseline was ~±0.8 m/s² from tilt).
+        baseline_start_count = 0
+        if not mag_only:
+            self.get_logger().info(
+                f"Capturing {self.BASELINE_SEC:.1f}s stationary baseline "
+                f"before drive."
+            )
+            self._pause(self.BASELINE_SEC)
 
-        # Remember how many samples were baseline so we can exclude them
-        # from the motion analysis.
-        with self._lock:
-            baseline_imu = list(self._imu_samples)
-        baseline_start_count = len(baseline_imu)
+            # Remember how many samples were baseline so we can exclude
+            # them from the motion analysis.
+            with self._lock:
+                baseline_imu = list(self._imu_samples)
+            baseline_start_count = len(baseline_imu)
 
-        total_motion_sec = (
-            2.0 * (self.RAMP_SEC + self.CRUISE_SEC + self.RAMP_SEC)
-            + self.PAUSE_SEC
-        )
-        self.get_logger().info(
-            f"Autonomous calibration drive starting — forward "
-            f"{self.CRUISE_SPEED:.2f} m/s then back, ~{total_motion_sec:.0f}s total."
-        )
+            total_motion_sec = (
+                2.0 * (self.RAMP_SEC + self.CRUISE_SEC + self.RAMP_SEC)
+                + self.PAUSE_SEC
+            )
+            self.get_logger().info(
+                f"Autonomous calibration drive starting — forward "
+                f"{self.CRUISE_SPEED:.2f} m/s then back, "
+                f"~{total_motion_sec:.0f}s total."
+            )
 
         try:
-            for cycle in range(self.N_CYCLES):
-                self.get_logger().info(
-                    f"Drive cycle {cycle + 1}/{self.N_CYCLES}"
-                )
-                # Forward leg: ramp up, cruise, ramp down to 0.
-                self._drive_profile(+self.CRUISE_SPEED)
-                # Pause between directions.
-                self._pause(self.PAUSE_SEC)
-                # Backward leg: same profile, negative speed.
-                self._drive_profile(-self.CRUISE_SPEED)
-                # Settle before the next cycle (or before closing the
-                # window if this is the last cycle).
-                self._pause(self.SETTLE_SEC)
+            if not mag_only:
+                for cycle in range(self.N_CYCLES):
+                    self.get_logger().info(
+                        f"Drive cycle {cycle + 1}/{self.N_CYCLES}"
+                    )
+                    # Forward leg: ramp up, cruise, ramp down to 0.
+                    self._drive_profile(+self.CRUISE_SPEED)
+                    # Pause between directions.
+                    self._pause(self.PAUSE_SEC)
+                    # Backward leg: same profile, negative speed.
+                    self._drive_profile(-self.CRUISE_SPEED)
+                    # Settle before the next cycle (or before closing the
+                    # window if this is the last cycle).
+                    self._pause(self.SETTLE_SEC)
         except Exception as exc:
             # Stop the robot no matter what, then surface the failure.
             for _ in range(5):
@@ -773,26 +835,43 @@ class ImuYawCalibrator(Node):
         ) if not self.has_parameter("do_mag_calibration") else bool(
             self.get_parameter("do_mag_calibration").value
         )
+        # mag_only forces the figure-8 phase regardless of the parameter,
+        # otherwise the request would be a no-op (the drives were already
+        # skipped above).
+        if mag_only:
+            do_mag_calibration = True
         if do_mag_calibration:
+            wz_mag = self.MAG_FIG8_LINEAR_M_S / self.MAG_FIG8_RADIUS_M
+            total_sec = (
+                2.0 * (2.0 * math.pi * self.MAG_FIG8_LOOPS_PER_SIDE) / wz_mag
+                + 2.0 * self.MAG_FIG8_PAUSE_SEC
+            )
             self.get_logger().info(
-                f"Magnetometer calibration: rotating at wz="
-                f"{self.MAG_ROTATE_WZ:+.2f} rad/s for {self.MAG_ROTATE_SEC:.0f}s "
-                f"(≈{math.degrees(self.MAG_ROTATE_WZ * self.MAG_ROTATE_SEC):.0f}°)."
+                f"Magnetometer calibration: figure-8 — "
+                f"v={self.MAG_FIG8_LINEAR_M_S:.2f} m/s, R={self.MAG_FIG8_RADIUS_M:.2f} m "
+                f"(wz=±{wz_mag:.2f} rad/s), {self.MAG_FIG8_LOOPS_PER_SIDE} loops "
+                f"per side, ~{total_sec:.0f}s total. Need ~1.5 m clear in front "
+                f"and behind the robot."
             )
             with self._lock:
                 self._mag_samples.clear()
                 self._collecting_mag = True
             try:
-                self._rotate_profile(self.MAG_ROTATE_WZ, self.MAG_ROTATE_SEC)
+                self._figure_eight_profile(
+                    linear_m_s=self.MAG_FIG8_LINEAR_M_S,
+                    radius_m=self.MAG_FIG8_RADIUS_M,
+                    loops_per_side=self.MAG_FIG8_LOOPS_PER_SIDE,
+                    pause_sec=self.MAG_FIG8_PAUSE_SEC,
+                )
             except Exception as exc:
                 for _ in range(5):
-                    self._publish_wz(0.0)
+                    self._publish_arc(0.0, 0.0)
                     time.sleep(0.05)
-                self.get_logger().error(f"Mag rotate phase errored: {exc}")
+                self.get_logger().error(f"Mag figure-8 phase errored: {exc}")
             finally:
                 with self._lock:
                     self._collecting_mag = False
-                self._publish_wz(0.0)
+                self._publish_arc(0.0, 0.0)
 
         # --- Exit RECORDING cleanly — CANCEL discards the trajectory ---
         if need_exit_recording:
@@ -815,21 +894,34 @@ class ImuYawCalibrator(Node):
             f"{len(odom_samples)} odom samples collected."
         )
 
-        result = self._compute_imu_yaw(
-            imu_samples, odom_samples, baseline_count=baseline_start_count
-        )
-        response.success = result["success"]
-        response.message = result["message"]
-        response.imu_yaw_rad = result["imu_yaw_rad"]
-        response.imu_yaw_deg = result["imu_yaw_deg"]
-        response.samples_used = int(result["samples_used"])
-        response.std_dev_deg = result["std_dev_deg"]
-        response.imu_pitch_rad = result["imu_pitch_rad"]
-        response.imu_pitch_deg = result["imu_pitch_deg"]
-        response.imu_roll_rad = result["imu_roll_rad"]
-        response.imu_roll_deg = result["imu_roll_deg"]
-        response.stationary_samples_used = int(result["stationary_samples_used"])
-        response.gravity_mag_mps2 = result["gravity_mag_mps2"]
+        if mag_only:
+            response.success = True
+            response.message = (
+                f"mag_only calibration: {len(mag_samples)} samples collected "
+                f"during figure-8. IMU yaw / pitch / roll left untouched."
+            )
+            # All IMU-yaw fields stay at their default zeros — the caller
+            # asked for mag-only, so we don't pretend to have re-measured
+            # the mounting offset.
+        else:
+            result = self._compute_imu_yaw(
+                imu_samples, odom_samples,
+                baseline_count=baseline_start_count,
+            )
+            response.success = result["success"]
+            response.message = result["message"]
+            response.imu_yaw_rad = result["imu_yaw_rad"]
+            response.imu_yaw_deg = result["imu_yaw_deg"]
+            response.samples_used = int(result["samples_used"])
+            response.std_dev_deg = result["std_dev_deg"]
+            response.imu_pitch_rad = result["imu_pitch_rad"]
+            response.imu_pitch_deg = result["imu_pitch_deg"]
+            response.imu_roll_rad = result["imu_roll_rad"]
+            response.imu_roll_deg = result["imu_roll_deg"]
+            response.stationary_samples_used = int(
+                result["stationary_samples_used"]
+            )
+            response.gravity_mag_mps2 = result["gravity_mag_mps2"]
 
         # Dock pose fields — only filled when the pre-phase actually ran
         # and succeeded. Leave dock_valid false + zeros otherwise so the

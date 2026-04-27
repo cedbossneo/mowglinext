@@ -57,8 +57,12 @@ Design:
 from __future__ import annotations
 
 import math
+import os
+from datetime import datetime, timezone
 
+import numpy as np
 import rclpy
+import yaml
 from geometry_msgs.msg import Quaternion
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -68,7 +72,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from sensor_msgs.msg import Imu, NavSatFix, NavSatStatus
+from sensor_msgs.msg import Imu, MagneticField, NavSatFix, NavSatStatus
 
 
 # Flat-earth ENU projection (matches navsat_to_absolute_pose_node.cpp).
@@ -109,6 +113,44 @@ class CogToImu(Node):
         self._datum_seeded = self._datum_lat != 0.0 or self._datum_lon != 0.0
         self._cos_datum_lat = math.cos(self._datum_lat * DEG_TO_RAD)
 
+        # ── Online mag calibration (opt-in, default ON) ─────────────────
+        # Each successful COG publish supplies a ground-truth body yaw.
+        # Pair it with the latest /imu/mag_raw sample and accumulate into
+        # a ring buffer. Periodically refit hard-iron offsets via least
+        # squares — a much stronger fit than the in-place min/max sweep
+        # because the truth heading is known at every sample, and the
+        # mower naturally covers a wide heading range while mowing.
+        self._enable_mag_cal = bool(
+            self.declare_parameter("enable_mag_cal", True).value
+        )
+        self._mag_cal_path = str(self.declare_parameter(
+            "mag_calibration_path", "/ros2_ws/maps/mag_calibration.yaml"
+        ).value)
+        # Min samples for a fit (~1 minute at 1 Hz GPS in forward motion).
+        self._mag_min_samples = int(self.declare_parameter(
+            "mag_min_samples", 30
+        ).value)
+        # Ring-buffer cap. 600 samples ≈ 10 min of motion before older
+        # samples decay out — enough that one bad section of mowing can't
+        # poison a fresh fit forever.
+        self._mag_max_samples = int(self.declare_parameter(
+            "mag_max_samples", 600
+        ).value)
+        # Refit cadence — fast (60 s) for the first fit so we get a
+        # bootstrap cal before the first mow finishes the first lap;
+        # then throttled below to 5 min to avoid thrashing the YAML.
+        self._mag_refit_period_sec = float(self.declare_parameter(
+            "mag_refit_period_sec", 60.0
+        ).value)
+        self._mag_refit_throttle_sec = float(self.declare_parameter(
+            "mag_refit_throttle_sec", 300.0
+        ).value)
+        self._mag_samples: list[tuple[float, float, float, float]] = []
+        # (bx_chip_uT, by_chip_uT, bz_chip_uT, ψ_truth_rad).
+        self._latest_mag: tuple[float, float, float] | None = None
+        self._mag_last_write_t: float = 0.0
+        self._mag_fit_count = 0  # how many times we have written the YAML
+
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
@@ -118,6 +160,14 @@ class CogToImu(Node):
         self.create_subscription(NavSatFix, "/gps/fix", self._on_fix, qos)
         self.create_subscription(Odometry, "/wheel_odom", self._on_wheel, qos)
         self._pub = self.create_publisher(Imu, "/imu/cog_heading", qos)
+
+        if self._enable_mag_cal:
+            self.create_subscription(
+                MagneticField, "/imu/mag_raw", self._on_mag_raw, qos
+            )
+            self.create_timer(
+                self._mag_refit_period_sec, self._maybe_refit_mag
+            )
 
         self._prev: tuple[float, float, float, float] | None = None  # (t, x, y, pos_acc)
         self._wheel_vx = 0.0
@@ -140,6 +190,15 @@ class CogToImu(Node):
 
     def _on_wheel(self, msg: Odometry) -> None:
         self._wheel_vx = msg.twist.twist.linear.x
+
+    def _on_mag_raw(self, msg: MagneticField) -> None:
+        # Cache latest raw magnetometer in µT (chip frame). Paired with a
+        # COG yaw inside _on_fix below to form a calibration sample.
+        self._latest_mag = (
+            float(msg.magnetic_field.x) * 1e6,
+            float(msg.magnetic_field.y) * 1e6,
+            float(msg.magnetic_field.z) * 1e6,
+        )
 
     def _on_fix(self, msg: NavSatFix) -> None:
         # RTK-Fixed only: NavSatStatus.STATUS_GBAS_FIX (=2) per the
@@ -239,6 +298,16 @@ class CogToImu(Node):
 
         self._publish_imu(self.get_clock().now().to_msg(), yaw, yaw_var)
 
+        # ── Online mag-cal sample collection ─────────────────────────
+        # Tight σ_yaw → trustworthy ground truth. Skip otherwise.
+        if (self._enable_mag_cal and self._latest_mag is not None
+                and sigma_yaw < math.radians(15.0)):
+            bx, by, bz = self._latest_mag
+            self._mag_samples.append((bx, by, bz, yaw))
+            # Drop oldest when buffer is full.
+            if len(self._mag_samples) > self._mag_max_samples:
+                self._mag_samples = self._mag_samples[-self._mag_max_samples:]
+
     def _publish_imu(self, stamp, yaw: float, yaw_var: float) -> None:
         imu = Imu()
         imu.header.stamp = stamp
@@ -259,19 +328,148 @@ class CogToImu(Node):
     def _log_stats(self) -> None:
         self.get_logger().info(
             "cog_to_imu stats: published fwd={} rev={}, rejected fix={} "
-            "accuracy={} stationary={} displacement={}".format(
+            "accuracy={} stationary={} displacement={}, mag_cal "
+            "samples={} (writes={})".format(
                 self._published_fwd,
                 self._published_rev,
                 self._rejected_fix,
                 self._rejected_accuracy,
                 self._rejected_stationary,
-                self._rejected_displacement))
+                self._rejected_displacement,
+                len(self._mag_samples),
+                self._mag_fit_count))
         self._published_fwd = 0
         self._published_rev = 0
         self._rejected_fix = 0
         self._rejected_accuracy = 0
         self._rejected_stationary = 0
         self._rejected_displacement = 0
+
+    # ──────────────────────────────────────────────────────────────
+    # Online magnetometer calibration
+    # ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _headings_well_distributed(samples) -> bool:
+        """At least 3 of 8 octants populated. The 4-parameter fit is
+        underdetermined when all samples cluster on one heading: the
+        circle's centre and radius can trade against each other along
+        the unfilled arc."""
+        bins = [0] * 8
+        for _, _, _, psi in samples:
+            idx = int(((psi + math.pi) / (2.0 * math.pi)) * 8) % 8
+            bins[idx] += 1
+        return sum(1 for b in bins if b > 0) >= 3
+
+    def _maybe_refit_mag(self) -> None:
+        if len(self._mag_samples) < self._mag_min_samples:
+            return
+        # After the first write, throttle to avoid YAML thrash.
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if (self._mag_fit_count > 0 and
+                now - self._mag_last_write_t < self._mag_refit_throttle_sec):
+            return
+        samples = list(self._mag_samples)
+        if not self._headings_well_distributed(samples):
+            self.get_logger().info(
+                f"online mag fit: {len(samples)} samples but heading "
+                f"distribution too narrow — waiting for more diverse motion."
+            )
+            return
+
+        # Hard-iron + bias least-squares fit in chip frame, ignoring
+        # tilt-comp (flat lawn assumption — the mower's pitch / roll
+        # stays under ~5 ° on grass and the second-order error in atan2
+        # of the un-de-tilted projection is well below 1 ° at that
+        # scale). Model:
+        #   bx_chip = ox + A·sin ψ + B·cos ψ
+        #   by_chip = oy + A·cos ψ - B·sin ψ
+        # Constraint A=D, B=-C is the no-soft-iron form (4 unknowns,
+        # 2N equations). Stronger than the spin-circle min/max fit
+        # because every sample pins a known angle on the circle, so the
+        # centre is fully observable rather than inferred from extrema.
+        psis = np.array([s[3] for s in samples])
+        bxs = np.array([s[0] for s in samples])
+        bys = np.array([s[1] for s in samples])
+        bzs = np.array([s[2] for s in samples])
+        n = psis.size
+        sin_p = np.sin(psis)
+        cos_p = np.cos(psis)
+        zeros = np.zeros(n)
+        ones = np.ones(n)
+        m_top = np.column_stack([ones, zeros, sin_p, cos_p])
+        m_bot = np.column_stack([zeros, ones, cos_p, -sin_p])
+        m = np.vstack([m_top, m_bot])
+        rhs = np.concatenate([bxs, bys])
+        sol, _residuals, _rank, _sv = np.linalg.lstsq(m, rhs, rcond=None)
+        ox, oy, a, b = (float(v) for v in sol)
+        pred = m @ sol
+        rms = float(np.sqrt(np.mean((rhs - pred) ** 2)))
+        bh = math.sqrt(a * a + b * b)
+
+        # Sanity gates. Earth's horizontal field is ~25–60 µT depending
+        # on latitude; a fit producing |B_h| outside [10, 100] is bogus
+        # (massive interference, sensor saturated, or numerical issue).
+        if not (10.0 <= bh <= 100.0):
+            self.get_logger().warn(
+                f"online mag fit rejected: |B_h|={bh:.1f} µT out of range "
+                f"(expected 25–60). N={n}.")
+            return
+        # Residual RMS large compared to field magnitude means the
+        # circle assumption broke down — likely uncompensated soft-iron
+        # or too few samples per heading.
+        if rms > 0.4 * bh:
+            self.get_logger().warn(
+                f"online mag fit rejected: rms={rms:.1f} µT > 40% of "
+                f"|B_h|={bh:.1f} µT. N={n}.")
+            return
+
+        # Z offset: median of the chip Z component. Z can't be observed
+        # from heading data alone — taking the running median is the
+        # next-best estimate, and keeps existing tilt-comp roughly
+        # consistent. Without this the publisher's 3-term tilt-comp
+        # leaves bz_chip drift unaccounted-for on slopes.
+        oz = float(np.median(bzs))
+
+        try:
+            self._write_mag_cal(ox, oy, oz, bh, rms, n)
+        except Exception as exc:
+            self.get_logger().error(f"online mag cal write failed: {exc}")
+            return
+
+        self._mag_last_write_t = now
+        self._mag_fit_count += 1
+        self.get_logger().info(
+            f"online mag cal #{self._mag_fit_count}: "
+            f"offset=({ox:+7.2f}, {oy:+7.2f}, {oz:+7.2f}) µT  "
+            f"|B_h|={bh:.2f} µT  rms={rms:.2f} µT  N={n}  → "
+            f"{self._mag_cal_path}"
+        )
+
+    def _write_mag_cal(self, ox: float, oy: float, oz: float,
+                       bh: float, rms: float, n: int) -> None:
+        out = {
+            "mag_calibration": {
+                "offset_x_uT": ox,
+                "offset_y_uT": oy,
+                "offset_z_uT": oz,
+                "scale_x": 1.0,
+                "scale_y": 1.0,
+                "scale_z": 1.0,
+                "sample_count": int(n),
+                "magnitude_mean_uT": bh,
+                "magnitude_std_uT": rms,
+                "calibrated_at": datetime.now(timezone.utc).isoformat(),
+                "source": "online_cog_fit",
+                "fit_count": self._mag_fit_count + 1,
+            },
+        }
+        os.makedirs(os.path.dirname(self._mag_cal_path), exist_ok=True)
+        # Atomic write so the publisher never reads a half-flushed file
+        # if it polls during the write.
+        tmp = self._mag_cal_path + ".tmp"
+        with open(tmp, "w") as fh:
+            yaml.safe_dump(out, fh, sort_keys=False)
+        os.replace(tmp, self._mag_cal_path)
 
 
 def main() -> None:

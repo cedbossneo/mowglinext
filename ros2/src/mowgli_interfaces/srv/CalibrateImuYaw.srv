@@ -1,5 +1,12 @@
 # Request
 float64 duration_sec    # 0 = default 30s
+# When true, skip the forward/back drive cycles (which compute imu_yaw)
+# and run only the figure-8 magnetometer pass. Useful when imu_yaw is
+# already trusted and the operator just wants to refresh mag_calibration
+# without re-perturbing the IMU mounting result. Forces the node to
+# behave as if `do_mag_calibration` were true regardless of the
+# parameter value, since otherwise the call would be a no-op.
+bool mag_only
 ---
 # Response
 bool success
