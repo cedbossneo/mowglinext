@@ -825,21 +825,29 @@ class ImuYawCalibrator(Node):
             # Belt-and-braces stop: one last zero command after the profile.
             self._publish_vx(0.0)
 
-        # --- Magnetometer calibration phase (opt-in, default off) -------
-        # Option A path (OpenMower-style) uses GPS for absolute yaw and
-        # does not need the magnetometer. Keeping the rotation phase
-        # gated behind a parameter so we can re-enable it if we decide
-        # to experiment with the LIS3MDL later.
-        do_mag_calibration = bool(
-            self.declare_parameter("do_mag_calibration", False).value
-        ) if not self.has_parameter("do_mag_calibration") else bool(
-            self.get_parameter("do_mag_calibration").value
-        )
-        # mag_only forces the figure-8 phase regardless of the parameter,
-        # otherwise the request would be a no-op (the drives were already
-        # skipped above).
-        if mag_only:
-            do_mag_calibration = True
+        # --- Magnetometer calibration phase ------------------------------
+        # Auto-detect the magnetometer by counting publishers on
+        # /imu/mag_raw. If hardware_bridge is publishing, the chip is
+        # there and we should always calibrate it as part of the regular
+        # drive — the figure-8 only adds ~30 s and the resulting cal is
+        # fed to mag_yaw_publisher (and refined online by cog_to_imu's
+        # COG-driven LS fitter). Boards without an LIS3MDL just skip
+        # this phase silently.
+        # mag_only requests force the phase regardless of detection (the
+        # operator explicitly asked for it; drives were skipped above).
+        mag_publisher_count = self.count_publishers("/imu/mag_raw")
+        do_mag_calibration = mag_only or mag_publisher_count > 0
+        if mag_only and mag_publisher_count == 0:
+            self.get_logger().warn(
+                "mag_only requested but no /imu/mag_raw publisher detected "
+                "— running the figure-8 anyway, but the fit will fail with "
+                "'too few samples'."
+            )
+        elif not do_mag_calibration:
+            self.get_logger().info(
+                "No /imu/mag_raw publisher — skipping magnetometer "
+                "calibration phase."
+            )
         if do_mag_calibration:
             wz_mag = self.MAG_FIG8_LINEAR_M_S / self.MAG_FIG8_RADIUS_M
             total_sec = (
