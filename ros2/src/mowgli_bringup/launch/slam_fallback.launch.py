@@ -69,11 +69,20 @@ LiDAR-odometry node and added the GPS-anchor mechanism.
 
 import os
 
+import lifecycle_msgs.msg
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import (
+    DeclareLaunchArgument,
+    EmitEvent,
+    RegisterEventHandler,
+)
+from launch.event_handlers import OnProcessStart
+from launch.events import matches_action
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode, Node
+from launch_ros.event_handlers import OnStateTransition
+from launch_ros.events.lifecycle import ChangeState
 
 # Path of the persisted slam_toolbox map (sans extension — slam_toolbox
 # writes <map_file_name>.posegraph and <map_file_name>.data). Kept in
@@ -158,10 +167,17 @@ def generate_launch_description() -> LaunchDescription:
     # 3. slam_toolbox async node — runs on the parallel tree.
     # ------------------------------------------------------------------
     slam_mode = _select_slam_mode()
-    slam_node = Node(
+    # async_slam_toolbox_node IS a managed (lifecycle) node — it boots in
+    # `unconfigured` and stays there forever unless someone transitions
+    # it. We don't run a Nav2 lifecycle_manager over it, so wire the
+    # configure → activate transitions ourselves via launch event
+    # handlers: when the process starts we emit ChangeState/CONFIGURE,
+    # and when it reaches `inactive` we emit ChangeState/ACTIVATE.
+    slam_node = LifecycleNode(
         package="slam_toolbox",
         executable="async_slam_toolbox_node",
         name="slam_toolbox",
+        namespace="",
         output="screen",
         respawn=True,
         respawn_delay=2.0,
@@ -177,6 +193,38 @@ def generate_launch_description() -> LaunchDescription:
                 "mode": slam_mode,
             },
         ],
+    )
+
+    slam_configure = RegisterEventHandler(
+        OnProcessStart(
+            target_action=slam_node,
+            on_start=[
+                EmitEvent(
+                    event=ChangeState(
+                        lifecycle_node_matcher=matches_action(slam_node),
+                        transition_id=(
+                            lifecycle_msgs.msg.Transition.TRANSITION_CONFIGURE
+                        ),
+                    )
+                )
+            ],
+        )
+    )
+    slam_activate = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node=slam_node,
+            goal_state="inactive",
+            entities=[
+                EmitEvent(
+                    event=ChangeState(
+                        lifecycle_node_matcher=matches_action(slam_node),
+                        transition_id=(
+                            lifecycle_msgs.msg.Transition.TRANSITION_ACTIVATE
+                        ),
+                    )
+                )
+            ],
+        )
     )
 
     # ------------------------------------------------------------------
@@ -233,6 +281,8 @@ def generate_launch_description() -> LaunchDescription:
             use_sim_time_arg,
             wheel_odom_tf,
             scan_relay,
+            slam_configure,
+            slam_activate,
             slam_node,
             slam_pose_anchor,
             slam_map_persist,
