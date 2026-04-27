@@ -242,28 +242,27 @@ ekf_map_node:
     imu1_relative: false
     imu1_remove_gravitational_acceleration: false
 
-    # ─ IMU 2 — tilt-compensated magnetometer absolute yaw ─
-    # mag_yaw_publisher.py reads /imu/mag_raw + /imu/data, applies the
-    # hard/soft-iron calibration, tilt-compensates with accelerometer
-    # roll/pitch (rotated into base_footprint), adds magnetic declination
-    # and publishes a synthetic sensor_msgs/Imu on /imu/mag_yaw whose
-    # orientation encodes a true-north ENU heading. Yaw covariance comes
-    # from the publisher (default 2.7e-3 rad² ≈ ±3°). Unlike imu1 this
-    # works at zero forward speed — fills the gap when GPS COG can't
-    # observe heading (stationary, manoeuvering on dock, in-place rotate).
-    # The publisher is only launched when /ros2_ws/maps/mag_calibration.yaml
-    # exists, so subscribing here is harmless if the operator never ran
-    # the magnetometer calibration.
-    imu2: /imu/mag_yaw
-    imu2_config: [false, false, false,
-                  false, false, true,
-                  false, false, false,
-                  false, false, false,
-                  false, false, false]
-    imu2_queue_size: 2
-    imu2_differential: false
-    imu2_relative: false
-    imu2_remove_gravitational_acceleration: false
+    # ─ IMU 2 — magnetometer fusion DISABLED ─
+    # /imu/mag_yaw was wired in here as an absolute-yaw third source for
+    # the map EKF, but on-robot tests (forward 1 m + back 1 m) showed the
+    # current min/max calibration produces ±18° heading-dependent error
+    # over ~1 m of translation: even when wheels and gyro both read 0°
+    # rotation, the published mag_yaw drifts and pulls ekf_map_yaw with
+    # it. Until cog_to_imu's online LS-fit produces a clean cal (or a
+    # better calibration motion is implemented), keep mag out of the
+    # fusion. The publisher itself stays running so the online fit can
+    # observe its output for diagnostics, and re-enabling here is a
+    # one-line change once the cal converges.
+    # imu2: /imu/mag_yaw
+    # imu2_config: [false, false, false,
+    #               false, false, true,
+    #               false, false, false,
+    #               false, false, false,
+    #               false, false, false]
+    # imu2_queue_size: 2
+    # imu2_differential: false
+    # imu2_relative: false
+    # imu2_remove_gravitational_acceleration: false
 
     # Process noise — copied from ekf_odom (25 Hz). ekf_map_node runs at
     # 10 Hz but robot_localization internally scales Q by dt, so the same
