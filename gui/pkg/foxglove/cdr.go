@@ -251,11 +251,20 @@ func DeserializeCDR(data []byte, schema *msgSchema) (map[string]interface{}, err
 		return nil, fmt.Errorf("cdr: data too short (%d bytes)", len(data))
 	}
 
-	// Encapsulation header: byte 1 encodes endianness (0x01 = LE).
-	// ROS2 Jazzy uses PLAIN_CDR2 encoding which caps alignment at 4 bytes,
-	// regardless of the encapsulation header value.
-	le := data[1] == 0x01
-	r := &cdrReader{data: data, offset: 4, le: le, maxAlign: 4}
+	// Encapsulation header (OMG CDR §9.3.3):
+	//   data[0]=0x00, data[1]=0x00 → CDR_BE  (XCDR1 big-endian,    maxAlign=8)
+	//   data[0]=0x00, data[1]=0x01 → CDR_LE  (XCDR1 little-endian, maxAlign=8)
+	//   data[0]=0x00, data[1]=0x06 → CDR2_BE (XCDR2 big-endian,    maxAlign=4)
+	//   data[0]=0x00, data[1]=0x07 → CDR2_LE (XCDR2 little-endian, maxAlign=4)
+	// The low bit of data[1] indicates little-endian for ALL variants.
+	// The high nibble (0x0 vs 0x6/0x7) indicates XCDR1 vs XCDR2 alignment.
+	enc := data[1]
+	le := enc&0x01 != 0 // low bit = little-endian for both XCDR1 and CDR2
+	maxAlign := 8       // XCDR1 default: 8-byte max alignment
+	if enc == 0x06 || enc == 0x07 {
+		maxAlign = 4 // PLAIN_CDR2: 4-byte max alignment
+	}
+	r := &cdrReader{data: data, offset: 4, le: le, maxAlign: maxAlign}
 
 	return r.readMessage(schema.Fields)
 }
