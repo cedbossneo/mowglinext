@@ -66,6 +66,8 @@ from typing import Optional
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -190,6 +192,16 @@ class SlamPoseAnchorNode(Node):
             self.declare_parameter("yaw_var_unused", 1.0e3).value
         )
 
+        # ---- Callback groups ----
+        # Timer and subscriptions live on separate mutually-exclusive groups
+        # so a MultiThreadedExecutor can run them in parallel. Critical for
+        # TF: a SingleThreadedExecutor with a busy timer never services the
+        # TransformListener's /tf and /tf_static callbacks, the buffer stays
+        # empty, and every lookup_transform fails (this was the root cause
+        # of the 100% tf_fail rate observed in the first sim run).
+        self._sub_cbg = MutuallyExclusiveCallbackGroup()
+        self._timer_cbg = MutuallyExclusiveCallbackGroup()
+
         # ---- TF + subscriptions ----
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
@@ -217,13 +229,15 @@ class SlamPoseAnchorNode(Node):
         self._last_rtk_update_t: Optional[float] = None
 
         self.create_subscription(
-            NavSatFix, "/gps/fix", self._on_fix, sensor_qos
+            NavSatFix, "/gps/fix", self._on_fix, sensor_qos,
+            callback_group=self._sub_cbg,
         )
         self.create_subscription(
             Odometry,
             "/odometry/filtered_map",
             self._on_ekf,
             reliable_qos,
+            callback_group=self._sub_cbg,
         )
 
         self._pose_pub = self.create_publisher(
@@ -233,13 +247,23 @@ class SlamPoseAnchorNode(Node):
         # ---- Diagnostics ----
         self._published = 0
         self._anchor_updates = 0
-        self._tf_failures = 0
+        # Split failure counters so we can tell which TF chain is broken.
+        # The single-counter version made it impossible to distinguish
+        # "EKF hasn't published map->odom yet" from "slam_toolbox hasn't
+        # matched its first scan yet" — both bailed the tick identically.
+        self._tf_fail_gps = 0
+        self._tf_fail_slam = 0
         self._gating_skipped_no_rtk = 0
         self._gating_skipped_high_cov = 0
-        self.create_timer(30.0, self._log_stats)
+        self.create_timer(
+            30.0, self._log_stats, callback_group=self._timer_cbg
+        )
 
         # ---- Main tick ----
-        self.create_timer(1.0 / self._tick_hz, self._on_tick)
+        self.create_timer(
+            1.0 / self._tick_hz, self._on_tick,
+            callback_group=self._timer_cbg,
+        )
 
         self.get_logger().info(
             "slam_pose_anchor_node ready: anchoring %s -> %s, "
@@ -273,22 +297,36 @@ class SlamPoseAnchorNode(Node):
     def _on_tick(self) -> None:
         now = self.get_clock().now()
 
-        # Look up both TFs at TimePointZero so we get the latest available
-        # transform on each side. Asking for "now" exact would race the
-        # broadcasters and fail every tick.
+        # Look up each TF at TimePointZero (the latest available transform).
+        # Asking for `now` exact would race the broadcasters and fail every
+        # tick. Two separate try/except blocks so we can attribute the
+        # failure to the GPS chain or the slam chain, rather than the
+        # earlier single-block design that hid the diagnostic.
+        tf_gps = None
+        tf_slam = None
         try:
             tf_gps = self._tf_buffer.lookup_transform(
                 self._gps_map_frame,
                 self._gps_base_frame,
                 rclpy.time.Time(),
             )
+        except Exception:  # noqa: BLE001 - tf2 throws several subclasses
+            self._tf_fail_gps += 1
+
+        try:
             tf_slam = self._tf_buffer.lookup_transform(
                 self._slam_map_frame,
                 self._slam_base_frame,
                 rclpy.time.Time(),
             )
-        except Exception:  # noqa: BLE001 - tf2 throws several subclasses
-            self._tf_failures += 1
+        except Exception:  # noqa: BLE001
+            self._tf_fail_slam += 1
+
+        # Both legs must resolve to seed/update the anchor and republish
+        # /slam/pose_cov. If only the GPS leg is up, slam_toolbox hasn't
+        # matched yet and we can't form a candidate transform — skip
+        # silently so the next tick retries.
+        if tf_gps is None or tf_slam is None:
             return
 
         gps_pose = _tf_to_pose2d(tf_gps)
@@ -407,21 +445,44 @@ class SlamPoseAnchorNode(Node):
         )
         self.get_logger().info(
             "slam_pose_anchor: published=%d, anchor_updates=%d, "
-            "tf_failures=%d, skipped_no_rtk=%d, skipped_high_cov=%d, "
+            "tf_fail_gps=%d (%s->%s), tf_fail_slam=%d (%s->%s), "
+            "skipped_no_rtk=%d, skipped_high_cov=%d, "
             "anchor_age=%.1fs, sigma_xy=%.3f m"
             % (
                 self._published,
                 self._anchor_updates,
-                self._tf_failures,
+                self._tf_fail_gps,
+                self._gps_map_frame,
+                self._gps_base_frame,
+                self._tf_fail_slam,
+                self._slam_map_frame,
+                self._slam_base_frame,
                 self._gating_skipped_no_rtk,
                 self._gating_skipped_high_cov,
                 anchor_age,
                 sigma_now,
             )
         )
+        # If a leg has been failing the entire window, dump the TF buffer's
+        # known frames so the operator can see whether the parent frame
+        # exists at all (slam_toolbox hasn't matched, ekf_map hasn't
+        # published map->odom, etc.).
+        if self._tf_fail_gps > 0 or self._tf_fail_slam > 0:
+            try:
+                yaml_listing = self._tf_buffer.all_frames_as_yaml()
+                if yaml_listing.strip():
+                    self.get_logger().info(
+                        "TF frames known to buffer:\n" + yaml_listing.strip()
+                    )
+                else:
+                    self.get_logger().warn("TF buffer is EMPTY")
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn("TF buffer dump failed: %s" % exc)
+
         self._published = 0
         self._anchor_updates = 0
-        self._tf_failures = 0
+        self._tf_fail_gps = 0
+        self._tf_fail_slam = 0
         self._gating_skipped_no_rtk = 0
         self._gating_skipped_high_cov = 0
 
@@ -429,8 +490,15 @@ class SlamPoseAnchorNode(Node):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = SlamPoseAnchorNode()
+    # Two threads: one for the timer (TF lookups + publishing) and one for
+    # the subscriptions (NavSatFix, Odometry, /tf, /tf_static). With a
+    # SingleThreadedExecutor the TransformListener's subscriptions never
+    # got service time when the timer was busy, so the TF buffer stayed
+    # empty and every lookup_transform failed.
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
