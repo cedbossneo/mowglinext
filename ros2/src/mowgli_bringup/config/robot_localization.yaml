@@ -216,27 +216,30 @@ ekf_map_node:
     imu1_relative: false
     imu1_remove_gravitational_acceleration: false
 
-    # ─ IMU 2 — magnetometer fusion DISABLED ─
-    # /imu/mag_yaw was wired in here as an absolute-yaw third source for
-    # the map EKF, but on-robot tests (forward 1 m + back 1 m) showed the
-    # current min/max calibration produces ±18° heading-dependent error
-    # over ~1 m of translation: even when wheels and gyro both read 0°
-    # rotation, the published mag_yaw drifts and pulls ekf_map_yaw with
-    # it. Until cog_to_imu's online LS-fit produces a clean cal (or a
-    # better calibration motion is implemented), keep mag out of the
-    # fusion. The publisher itself stays running so the online fit can
-    # observe its output for diagnostics, and re-enabling here is a
-    # one-line change once the cal converges.
-    # imu2: /imu/mag_yaw
-    # imu2_config: [false, false, false,
-    #               false, false, true,
-    #               false, false, false,
-    #               false, false, false,
-    #               false, false, false]
-    # imu2_queue_size: 2
-    # imu2_differential: false
-    # imu2_relative: false
-    # imu2_remove_gravitational_acceleration: false
+    # ─ IMU 2 — fusion_graph yaw ─
+    # /imu/fg_yaw is published by fusion_graph_node when running
+    # (primary OR observer mode). It carries a yaw-only sensor_msgs/Imu
+    # with σ_yaw ~ 0.5° in stationary (vs ekf_map's σ ~13° from gyro
+    # alone). Subscribing here lets ekf_map absorb the periodic IMU
+    # bias-recalibration jumps that show up on robot when /scan is
+    # alive. Effective only when fusion_graph is in OBSERVER mode —
+    # in primary mode this whole ekf_map_node doesn't run.
+    # No feedback loop: fusion_graph subscribes
+    # /wheel_odom + /imu/data + /gps/fix + /imu/cog_heading + /scan,
+    # never /odometry/filtered_map.
+    # Replaced the dormant /imu/mag_yaw slot — mag was off because of
+    # motor magnetic interference (heading-dependent bias unfixable
+    # by a static cal).
+    imu2: /imu/fg_yaw
+    imu2_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu2_queue_size: 2
+    imu2_differential: false
+    imu2_relative: false
+    imu2_remove_gravitational_acceleration: false
 
     # Process noise — copied from ekf_odom (25 Hz). ekf_map_node runs at
     # 10 Hz but robot_localization internally scales Q by dt, so the same

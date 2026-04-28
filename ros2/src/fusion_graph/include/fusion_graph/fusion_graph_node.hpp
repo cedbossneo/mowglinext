@@ -151,6 +151,7 @@ class FusionGraphNode : public rclcpp::Node {
 
   // Publishers.
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_fg_yaw_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
       pub_diag_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
