@@ -183,6 +183,15 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   // ── Pubs/subs ─────────────────────────────────────────────────────
   pub_odom_ = create_publisher<nav_msgs::msg::Odometry>(
       "/odometry/filtered_map", 10);
+  // /imu/fg_yaw — yaw-only sensor_msgs/Imu published BEST_EFFORT to
+  // match cog_to_imu / mag_yaw_publisher conventions. Lets ekf_map_node
+  // (when running as primary in observer mode) subscribe as a yaw
+  // source, replacing the mag_yaw_publisher slot. fusion_graph yaw is
+  // typically σ ≈ 0.5° vs ekf's σ ≈ 13° in stationary, so this
+  // dramatically tightens the EKF map-frame yaw without changing the
+  // primary localizer.
+  pub_fg_yaw_ = create_publisher<sensor_msgs::msg::Imu>(
+      "/imu/fg_yaw", rclcpp::SensorDataQoS());
   pub_diag_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "/fusion_graph/diagnostics", 10);
   pub_markers_ =
@@ -808,6 +817,27 @@ void FusionGraphNode::PublishOutputs(const TickOutput& out) {
   odom.pose.covariance[21] = 1e-9;
   odom.pose.covariance[28] = 1e-9;
   pub_odom_->publish(odom);
+
+  // 1b. /imu/fg_yaw — yaw-only sensor_msgs/Imu (cov_yaw, others 1e6
+  //     to disable). Published in both primary and observer mode so
+  //     ekf_map_node can fuse it as imu2 absolute yaw without
+  //     creating a feedback loop (fusion_graph never reads
+  //     /odometry/filtered_map).
+  sensor_msgs::msg::Imu yaw_msg;
+  yaw_msg.header.stamp = odom.header.stamp;
+  yaw_msg.header.frame_id = base_frame_;
+  yaw_msg.orientation = QuatFromYaw(out.pose.theta());
+  // Roll/pitch covariances marked huge so robot_localization ignores
+  // them; only orientation_covariance[8] (yaw variance) is real.
+  for (auto& v : yaw_msg.orientation_covariance) v = 0.0;
+  yaw_msg.orientation_covariance[0] = 1e6;
+  yaw_msg.orientation_covariance[4] = 1e6;
+  yaw_msg.orientation_covariance[8] = std::max(out.covariance(2, 2), 1e-6);
+  // We don't fuse angular velocity / linear acceleration here; mark
+  // them all as -1 covariance to tell consumers the field is invalid.
+  yaw_msg.angular_velocity_covariance[0] = -1.0;
+  yaw_msg.linear_acceleration_covariance[0] = -1.0;
+  pub_fg_yaw_->publish(yaw_msg);
 
   // 2. TF map -> odom. Skipped in observer mode so the active
   //    map-frame primary (typically ekf_map_node) keeps single
