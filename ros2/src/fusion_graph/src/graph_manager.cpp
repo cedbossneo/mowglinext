@@ -42,6 +42,34 @@ inline gtsam::Symbol PoseKey(uint64_t i) {
 }
 }  // namespace
 
+// ─────────────────────────────────────────────────────────────────────
+// Internal: lazy estimate access
+// ─────────────────────────────────────────────────────────────────────
+
+bool GraphManager::HasPoseAt(uint64_t idx) const {
+  // valueExists is O(1); avoids the cost of try/catch on a missing key.
+  return isam_.valueExists(PoseKey(idx));
+}
+
+gtsam::Pose2 GraphManager::PoseAt(uint64_t idx) const {
+  // O(depth) on the Bayes tree path. Much cheaper than the full
+  // calculateEstimate() copy that returns ALL pose values.
+  try {
+    return isam_.calculateEstimate<gtsam::Pose2>(PoseKey(idx));
+  } catch (const std::exception&) {
+    return gtsam::Pose2();
+  }
+}
+
+void GraphManager::RefreshEstimateLocked() const {
+  // O(N) full extraction. Only called by APIs that genuinely need
+  // every pose: GetAllPoses (1 Hz viz markers), Save (manual /
+  // periodic checkpoint), and FindLoopClosureCandidates fallback.
+  if (!estimate_dirty_) return;
+  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = false;
+}
+
 GraphManager::GraphManager(const GraphParams& params)
     : params_(params) {
   gtsam::ISAM2Params p;
@@ -120,7 +148,7 @@ void GraphManager::Initialize(const gtsam::Pose2& X0, double timestamp) {
   new_factors_.add(gtsam::PriorFactor<gtsam::Pose2>(k0, X0, prior_noise));
 
   isam_.update(new_factors_, new_values_);
-  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = true;
   new_factors_.resize(0);
   new_values_.clear();
 
@@ -144,6 +172,28 @@ std::optional<TickOutput> GraphManager::Tick(double now_s) {
   if (!initialized_) return std::nullopt;
   if (now_s - last_node_time_s_ < params_.node_period_s)
     return std::nullopt;
+
+  // Stationary throttle: when the wheel + gyro accumulators show no
+  // meaningful motion since the last node, drop the node period to
+  // 1 / stationary_node_period_s. Stops the graph from inflating by
+  // ~10 nodes/s while parked at the dock — both for memory bound
+  // and to keep iSAM2 / LC search bounded.
+  const double motion_xy_sq =
+      accum_.dx * accum_.dx + accum_.dy * accum_.dy;
+  const double abs_dtheta =
+      std::abs(std::abs(accum_.dtheta_gyro) > 1e-9
+                   ? accum_.dtheta_gyro
+                   : accum_.dtheta_wheel);
+  const bool stationary =
+      motion_xy_sq <
+          params_.stationary_motion_thresh_m *
+              params_.stationary_motion_thresh_m &&
+      abs_dtheta < params_.stationary_motion_thresh_theta;
+  if (stationary &&
+      now_s - last_node_time_s_ < params_.stationary_node_period_s) {
+    return std::nullopt;
+  }
+
   return CreateNodeLocked(now_s);
 }
 
@@ -162,8 +212,8 @@ TickOutput GraphManager::CreateNodeLocked(double now_s) {
   // Predict X_k from current estimate of X_{k-1}, fall back to last
   // known pose if iSAM2 hasn't seen X_{k-1} yet (shouldn't happen).
   gtsam::Pose2 X_prev;
-  if (current_estimate_.exists(k_prev)) {
-    X_prev = current_estimate_.at<gtsam::Pose2>(k_prev);
+  if (HasPoseAt(next_index_ - 1)) {
+    X_prev = PoseAt(next_index_ - 1);
   } else {
     X_prev = latest_ ? latest_->pose : gtsam::Pose2();
   }
@@ -223,9 +273,12 @@ TickOutput GraphManager::CreateNodeLocked(double now_s) {
         k_prev, k_curr, queue_.scan_between->delta, noise));
   }
 
-  // 4. iSAM2 update.
+  // 4. iSAM2 update. Mark the cached full estimate dirty — callers
+  //    that need ALL poses (viz / Save / LC search fallback) will
+  //    refresh on demand. Per-Tick / per-LC lookups go through
+  //    PoseAt() / HasPoseAt() which are O(depth) on the Bayes tree.
   isam_.update(new_factors_, new_values_);
-  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = true;
   new_factors_.resize(0);
   new_values_.clear();
 
@@ -252,7 +305,7 @@ TickOutput GraphManager::CreateNodeLocked(double now_s) {
   }
 
   TickOutput out;
-  out.pose = current_estimate_.at<gtsam::Pose2>(k_curr);
+  out.pose = PoseAt(next_index_);
   out.covariance = cov;
   out.node_index = next_index_;
   out.timestamp = now_s;
@@ -304,9 +357,8 @@ std::vector<Eigen::Vector2d> GraphManager::GetScan(
 std::optional<gtsam::Pose2> GraphManager::GetPose(
     uint64_t node_index) const {
   std::lock_guard<std::mutex> lock(mu_);
-  auto k = PoseKey(node_index);
-  if (!current_estimate_.exists(k)) return std::nullopt;
-  return current_estimate_.at<gtsam::Pose2>(k);
+  if (!HasPoseAt(node_index)) return std::nullopt;
+  return PoseAt(node_index);
 }
 
 std::vector<uint64_t> GraphManager::FindNodesNearXY(
@@ -317,9 +369,8 @@ std::vector<uint64_t> GraphManager::FindNodesNearXY(
   hits.reserve(scans_.size());
   const double max_d2 = max_dist_m * max_dist_m;
   for (const auto& [idx, _] : scans_) {
-    auto k = PoseKey(idx);
-    if (!current_estimate_.exists(k)) continue;
-    const auto X = current_estimate_.at<gtsam::Pose2>(k);
+    if (!HasPoseAt(idx)) continue;
+    const auto X = PoseAt(idx);
     const double dx = X.x() - x;
     const double dy = X.y() - y;
     const double d2 = dx * dx + dy * dy;
@@ -340,16 +391,16 @@ void GraphManager::ForceAnchor(uint64_t node_index,
   std::lock_guard<std::mutex> lock(mu_);
   if (sigma_xy <= 0.0) sigma_xy = 0.05;
   if (sigma_theta <= 0.0) sigma_theta = 0.05;
-  auto k = PoseKey(node_index);
-  if (!current_estimate_.exists(k)) return;
+  if (!HasPoseAt(node_index)) return;
   auto noise = MakeDiagonal({sigma_xy, sigma_xy, sigma_theta});
   gtsam::NonlinearFactorGraph fg;
-  fg.add(gtsam::PriorFactor<gtsam::Pose2>(k, pose, noise));
+  fg.add(gtsam::PriorFactor<gtsam::Pose2>(
+      PoseKey(node_index), pose, noise));
   isam_.update(fg, gtsam::Values());
-  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = true;
   // Update latest_ snapshot so PublishOutputs sees the new pose.
   if (latest_ && latest_->node_index == node_index) {
-    latest_->pose = current_estimate_.at<gtsam::Pose2>(k);
+    latest_->pose = PoseAt(node_index);
   }
 }
 
@@ -362,9 +413,8 @@ std::vector<uint64_t> GraphManager::FindLoopClosureCandidates(
   std::vector<uint64_t> out;
   if (next_index_ == 0) return out;
 
-  auto kq = PoseKey(query_index);
-  if (!current_estimate_.exists(kq)) return out;
-  const auto Xq = current_estimate_.at<gtsam::Pose2>(kq);
+  if (!HasPoseAt(query_index)) return out;
+  const auto Xq = PoseAt(query_index);
 
   // Per-node age proxy: nodes are created at node_period_s cadence,
   // so age_idx = (next - i) * node_period_s. Within ±10% of wall
@@ -375,16 +425,16 @@ std::vector<uint64_t> GraphManager::FindLoopClosureCandidates(
 
   // Linear scan over scans_ keys (== nodes with a stored scan, which
   // is what we want — no point loop-closing to a node without a
-  // scan). For < 1000 nodes / session, brute-force is sub-ms.
+  // scan). PoseAt is O(depth) on the Bayes tree path, so this loop
+  // is roughly O(scans_.size() · depth).
   std::vector<std::pair<double, uint64_t>> hits;
   hits.reserve(scans_.size());
   const double max_d2 = max_dist_m * max_dist_m;
   for (const auto& [idx, _] : scans_) {
     if (idx == query_index) continue;
     if (query_index - idx < cutoff_idx_diff) continue;
-    auto k = PoseKey(idx);
-    if (!current_estimate_.exists(k)) continue;
-    const auto X = current_estimate_.at<gtsam::Pose2>(k);
+    if (!HasPoseAt(idx)) continue;
+    const auto X = PoseAt(idx);
     const double dx = X.x() - Xq.x();
     const double dy = X.y() - Xq.y();
     const double d2 = dx * dx + dy * dy;
@@ -410,6 +460,10 @@ void GraphManager::PruneOldScans(uint64_t max_age_nodes) {
 
 void GraphManager::RebaseISAM2() {
   std::lock_guard<std::mutex> lock(mu_);
+  // Rebase needs the full pose set. This is one of the rare callers
+  // where the O(N) extraction is unavoidable — we need every variable
+  // to seed the fresh tree.
+  RefreshEstimateLocked();
   if (current_estimate_.empty()) return;
 
   // Build a fresh iSAM2 with the same parameters as the live one.
@@ -432,7 +486,7 @@ void GraphManager::RebaseISAM2() {
 
   fresh.update(fg, current_estimate_);
   isam_ = std::move(fresh);
-  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = true;
 
   // Loop-closure edges accumulated so far were collapsed into the
   // priors; reset the visualization list so future LCs are
@@ -449,11 +503,9 @@ void GraphManager::AddLoopClosure(uint64_t prev_index,
   if (sigma_xy <= 0.0) sigma_xy = 0.5;
   if (sigma_theta <= 0.0) sigma_theta = 0.1;
 
+  if (!HasPoseAt(prev_index) || !HasPoseAt(curr_index)) return;
   auto k_prev = PoseKey(prev_index);
   auto k_curr = PoseKey(curr_index);
-  if (!current_estimate_.exists(k_prev) ||
-      !current_estimate_.exists(k_curr))
-    return;
 
   auto noise = MakeDiagonal({sigma_xy, sigma_xy, sigma_theta});
   gtsam::NonlinearFactorGraph fg;
@@ -461,16 +513,17 @@ void GraphManager::AddLoopClosure(uint64_t prev_index,
       k_prev, k_curr, delta, noise));
 
   isam_.update(fg, gtsam::Values());
-  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = true;
   ++loop_closures_added_;
   loop_closure_edges_.emplace_back(prev_index, curr_index);
 }
 
 std::map<uint64_t, gtsam::Pose2> GraphManager::GetAllPoses() const {
   std::lock_guard<std::mutex> lock(mu_);
+  // Viz consumer: needs every node, so refresh the cached estimate.
+  // Throttled by the caller (1 Hz markers) — not on the per-Tick path.
+  RefreshEstimateLocked();
   std::map<uint64_t, gtsam::Pose2> out;
-  // ISAM2 indexes Pose2 nodes by Symbol('x', idx). Iterate the
-  // current estimate and pull each one out by its key index.
   for (const auto& kv : current_estimate_) {
     gtsam::Symbol s(kv.key);
     if (s.chr() != 'x') continue;
@@ -542,6 +595,10 @@ bool DeserializeScansBinary(
 
 bool GraphManager::Save(const std::string& prefix) const {
   std::lock_guard<std::mutex> lock(mu_);
+  // Manual / on-checkpoint path. Always refreshes from iSAM2 — the
+  // serialized state must reflect all factor updates since the last
+  // RefreshEstimateLocked() call.
+  RefreshEstimateLocked();
   try {
     std::ofstream graph_os(prefix + ".graph");
     if (!graph_os) return false;
@@ -625,7 +682,7 @@ bool GraphManager::Load(const std::string& prefix) {
         pin_noise));
   }
   isam_.update(fg, loaded_values);
-  current_estimate_ = isam_.calculateEstimate();
+  estimate_dirty_ = true;
 
   scans_ = std::move(loaded_scans);
   next_index_ = next_idx;

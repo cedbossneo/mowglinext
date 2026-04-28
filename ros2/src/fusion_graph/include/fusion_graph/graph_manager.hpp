@@ -86,6 +86,15 @@ struct GraphParams {
   // recomputation across multiple updates with negligible accuracy
   // loss for our well-constrained Pose2 graph.
   int isam2_relinearize_skip = 5;
+
+  // Stationary node-creation throttle. If the per-tick accumulator
+  // shows ~zero motion (|dxy| < thresh AND |dtheta| < thresh), skip
+  // node creation unless at least `stationary_node_period_s` has
+  // elapsed since the last node. Prevents the graph from inflating
+  // by 10 nodes/s while parked at the dock or paused mid-session.
+  double stationary_motion_thresh_m = 0.02;     // m
+  double stationary_motion_thresh_theta = 0.01; // rad (~0.6°)
+  double stationary_node_period_s = 5.0;        // 1 node / 5 s when still
 };
 
 // What goes out to the publisher every tick.
@@ -286,7 +295,19 @@ class GraphManager {
   gtsam::ISAM2 isam_;
   gtsam::NonlinearFactorGraph new_factors_;
   gtsam::Values new_values_;
-  gtsam::Values current_estimate_;
+  // Cached full estimate, refreshed lazily (only by callers that need
+  // ALL nodes — viz markers + Save). Per-Tick / LC-search lookups go
+  // straight to isam_.calculateEstimate<Pose2>(key), which is O(depth)
+  // on the Bayes tree path rather than O(N) for the full extract.
+  // estimate_dirty_ tells consumers the cache may be stale; call
+  // RefreshEstimate() before iterating.
+  mutable gtsam::Values current_estimate_;
+  mutable bool estimate_dirty_ = true;
+  // Helper: read one optimized Pose2 by node index. Returns pre-init
+  // identity if iSAM2 doesn't know the key (early Tick paths).
+  gtsam::Pose2 PoseAt(uint64_t idx) const;
+  bool HasPoseAt(uint64_t idx) const;
+  void RefreshEstimateLocked() const;
 
   uint64_t next_index_ = 0;        // index of the next node to create
   double last_node_time_s_ = 0.0;  // wall time of last created node
