@@ -15,6 +15,7 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -59,10 +60,15 @@ def generate_launch_description() -> LaunchDescription:
         "use_loop_closure", default_value="false",
         description="Loop-closure search against earlier nodes; resets accumulated drift on revisits.",
     )
+    primary_mode_arg = DeclareLaunchArgument(
+        "primary_mode", default_value="true",
+        description="True: fusion_graph owns the map→odom TF and /odometry/filtered_map (replaces ekf_map_node). False: observer mode — output is remapped to /fusion_graph/odometry, no TF broadcast (ekf_map_node keeps owning the map frame). Set by navigation.launch.py based on whether a persisted graph file already exists.",
+    )
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_magnetometer = LaunchConfiguration("use_magnetometer")
     use_scan_matching = LaunchConfiguration("use_scan_matching")
     use_loop_closure = LaunchConfiguration("use_loop_closure")
+    primary_mode = LaunchConfiguration("primary_mode")
 
     cfg = _read_robot_config()
     datum_lat = float(cfg.get("datum_lat", 0.0) or 0.0)
@@ -75,32 +81,43 @@ def generate_launch_description() -> LaunchDescription:
         "config", "fusion_graph.yaml",
     )
 
-    fusion_graph_node = Node(
+    common_params = [
+        params_file,
+        {
+            "use_sim_time": use_sim_time,
+            "datum_lat": datum_lat,
+            "datum_lon": datum_lon,
+            "lever_arm_x": lever_x,
+            "lever_arm_y": lever_y,
+            "use_magnetometer": use_magnetometer,
+            "use_scan_matching": use_scan_matching,
+            "use_loop_closure": use_loop_closure,
+            "dock_pose_yaw": float(cfg.get("dock_pose_yaw", 0.0) or 0.0),
+        },
+    ]
+
+    # Two mutually-exclusive Node actions gated on primary_mode. The
+    # split is purely about output topic + TF: primary publishes to
+    # /odometry/filtered_map and broadcasts map→odom; observer
+    # publishes the same payload to /fusion_graph/odometry and skips
+    # the TF broadcast (gated in C++ by primary_mode_).
+    fusion_graph_primary = Node(
+        condition=IfCondition(primary_mode),
         package="fusion_graph",
         executable="fusion_graph_node",
         name="fusion_graph_node",
         output="screen",
-        parameters=[
-            params_file,
-            {
-                "use_sim_time": use_sim_time,
-                "datum_lat": datum_lat,
-                "datum_lon": datum_lon,
-                "lever_arm_x": lever_x,
-                "lever_arm_y": lever_y,
-                "use_magnetometer": use_magnetometer,
-                "use_scan_matching": use_scan_matching,
-                "use_loop_closure": use_loop_closure,
-                # dock_pose_yaw is propagated as initial-yaw seed
-                # fallback when GPS+COG aren't available at boot
-                # (cold start without RTK / before motion). Lat/lon
-                # of the dock are the saved area datum, so the GPS
-                # arm position seed (seed_xy_) lands at (0,0) in map
-                # frame anyway — only yaw needs help to unblock init.
-                "dock_pose_yaw": float(cfg.get(
-                    "dock_pose_yaw", 0.0) or 0.0),
-            },
-        ],
+        parameters=common_params + [{"primary_mode": True}],
+    )
+
+    fusion_graph_observer = Node(
+        condition=UnlessCondition(primary_mode),
+        package="fusion_graph",
+        executable="fusion_graph_node",
+        name="fusion_graph_node",
+        output="screen",
+        parameters=common_params + [{"primary_mode": False}],
+        remappings=[("/odometry/filtered_map", "/fusion_graph/odometry")],
     )
 
     return LaunchDescription([
@@ -108,5 +125,7 @@ def generate_launch_description() -> LaunchDescription:
         use_magnetometer_arg,
         use_scan_matching_arg,
         use_loop_closure_arg,
-        fusion_graph_node,
+        primary_mode_arg,
+        fusion_graph_primary,
+        fusion_graph_observer,
     ])
