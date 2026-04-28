@@ -92,6 +92,12 @@ def generate_launch_description() -> LaunchDescription:
         description="When true, replace ekf_map_node with fusion_graph_node (GTSAM factor-graph localizer). ekf_odom_node keeps publishing odom->base_footprint either way.",
     )
 
+    use_magnetometer_arg = DeclareLaunchArgument(
+        "use_magnetometer",
+        default_value="false",
+        description="Enable magnetometer yaw fusion (mag_yaw_publisher + downstream consumers). Default OFF: motor magnetic interference on this chassis makes the heading-dependent bias unrecoverable from a static calibration. Only flip on if you have a motor-isolated mag setup.",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
@@ -99,6 +105,7 @@ def generate_launch_description() -> LaunchDescription:
     use_ekf = LaunchConfiguration("use_ekf")
     use_lidar = LaunchConfiguration("use_lidar")
     use_fusion_graph = LaunchConfiguration("use_fusion_graph")
+    use_magnetometer = LaunchConfiguration("use_magnetometer")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -396,7 +403,10 @@ def generate_launch_description() -> LaunchDescription:
             )
         ),
         condition=IfCondition(use_fusion_graph),
-        launch_arguments={"use_sim_time": use_sim_time}.items(),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "use_magnetometer": use_magnetometer,
+        }.items(),
     )
 
     # Seeds ekf_map with the dock heading on rising edges of is_charging.
@@ -430,14 +440,18 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # Publishes tilt-compensated magnetic heading as a synthetic
-    # sensor_msgs/Imu on /imu/mag_yaw. Active as soon as mag_calibration.yaml
-    # exists (written by /calibrate_imu_yaw_node/calibrate). Unlike
-    # cog_to_imu this works with the robot stationary or rotating in place.
-    # Only launch if magnetometer calibration exists — without it the node
-    # publishes nothing and wastes a process.
+    # sensor_msgs/Imu on /imu/mag_yaw. Gated on use_magnetometer:=true
+    # AND the presence of mag_calibration.yaml. Default OFF: on the
+    # current chassis the motor field induces a heading-dependent bias
+    # the static cal cannot remove, so feeding mag yaw into the EKF or
+    # the factor graph poisons the map-frame yaw. Only launch if the
+    # operator has explicitly opted in (e.g. on a motor-isolated mag).
     mag_cal_path = "/ros2_ws/maps/mag_calibration.yaml"
+    mag_cal_present = "true" if os.path.isfile(mag_cal_path) else "false"
     mag_yaw_publisher = Node(
-        condition=IfCondition(str(os.path.isfile(mag_cal_path)).lower()),
+        condition=IfCondition(PythonExpression(
+            ["'", use_magnetometer, "' == 'true' and ",
+             "'", mag_cal_present, "' == 'true'"])),
         package="mowgli_localization",
         executable="mag_yaw_publisher",
         name="mag_yaw_publisher",
@@ -460,6 +474,7 @@ def generate_launch_description() -> LaunchDescription:
             use_ekf_arg,
             use_lidar_arg,
             use_fusion_graph_arg,
+            use_magnetometer_arg,
             # robot_localization dual EKF + helpers
             static_gps_link_alias,
             ekf_odom_node,

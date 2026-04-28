@@ -94,6 +94,12 @@ def generate_launch_description() -> LaunchDescription:
         description="Forwarded to navigation.launch.py — when true, replace ekf_map_node with fusion_graph_node.",
     )
 
+    use_magnetometer_arg = DeclareLaunchArgument(
+        "use_magnetometer",
+        default_value="false",
+        description="Forwarded to navigation.launch.py — gates mag yaw fusion.",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # use_sim_time is always true in simulation — no argument needed.

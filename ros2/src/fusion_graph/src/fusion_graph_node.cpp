@@ -84,6 +84,15 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
     scan_matcher_ = std::make_unique<ScanMatcher>(sp);
   }
 
+  // ── Magnetometer (off by default) ───────────────────────────────
+  // Motors near the chassis induce a heading-dependent bias on the
+  // magnetometer that no static cal can remove (see CLAUDE.md
+  // history). Default off so the graph never sees mag samples;
+  // operators with a motor-isolated mag hardware setup can flip the
+  // flag on at launch.
+  use_magnetometer_ =
+      declare_parameter<bool>("use_magnetometer", false);
+
   // ── Loop closure + persistence ───────────────────────────────────
   loop_closure_enabled_ =
       declare_parameter<bool>("use_loop_closure", false);
@@ -149,10 +158,12 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
       std::bind(&FusionGraphNode::OnCogHeading, this,
                 std::placeholders::_1));
 
-  sub_mag_ = create_subscription<sensor_msgs::msg::Imu>(
-      "/imu/mag_yaw", sensor_qos,
-      std::bind(&FusionGraphNode::OnMagYaw, this,
-                std::placeholders::_1));
+  if (use_magnetometer_) {
+    sub_mag_ = create_subscription<sensor_msgs::msg::Imu>(
+        "/imu/mag_yaw", sensor_qos,
+        std::bind(&FusionGraphNode::OnMagYaw, this,
+                  std::placeholders::_1));
+  }
 
   if (use_scan_matching_ || loop_closure_enabled_) {
     sub_scan_ = create_subscription<sensor_msgs::msg::LaserScan>(
