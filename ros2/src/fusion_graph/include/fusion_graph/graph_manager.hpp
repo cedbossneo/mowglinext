@@ -160,6 +160,21 @@ class GraphManager {
   // Lookup a node's optimized 2D pose (from current iSAM2 estimate).
   std::optional<gtsam::Pose2> GetPose(uint64_t node_index) const;
 
+  // Find the K node indices closest to a query xy position
+  // (Pose2.translation()), regardless of age. Used at cold boot to
+  // narrow scan-matching candidates around dock_pose.
+  std::vector<uint64_t> FindNodesNearXY(
+      double x, double y,
+      double max_dist_m,
+      size_t max_candidates) const;
+
+  // Force-anchor the current trajectory at `pose` by adding a tight
+  // PriorFactor on the latest loaded node. Used after a successful
+  // cold-boot scan-match relocalization. iSAM2 update happens
+  // immediately; subsequent factors arrive on top.
+  void ForceAnchor(uint64_t node_index, const gtsam::Pose2& pose,
+                   double sigma_xy, double sigma_theta);
+
   // Find candidate node indices for loop closure: poses within
   // `max_dist_m` (xy plane) of `query_index`'s pose AND created
   // `min_age_s` seconds before now (so we don't loop-close to the

@@ -72,6 +72,11 @@ class FusionGraphNode : public rclcpp::Node {
   bool use_scan_matching_ = false;
   bool use_magnetometer_ = false;
 
+  // Cold-boot relocalization state.
+  bool autoload_succeeded_ = false;
+  bool relocalize_done_ = false;
+  double dock_pose_yaw_ = 0.0;
+
   // Latched datum (read from parameters at startup).
   double datum_lat_ = 0.0;
   double datum_lon_ = 0.0;

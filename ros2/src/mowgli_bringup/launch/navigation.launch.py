@@ -76,6 +76,8 @@ def generate_launch_description() -> LaunchDescription:
     _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
     _early_use_fusion_graph = "false"
     _early_use_magnetometer = "false"
+    _early_use_scan_matching = "false"
+    _early_use_loop_closure = "false"
     if os.path.isfile(_runtime_cfg_path):
         try:
             with open(_runtime_cfg_path, "r") as _f:
@@ -85,6 +87,10 @@ def generate_launch_description() -> LaunchDescription:
                 _rp.get("use_fusion_graph", False)) else "false"
             _early_use_magnetometer = "true" if bool(
                 _rp.get("use_magnetometer", False)) else "false"
+            _early_use_scan_matching = "true" if bool(
+                _rp.get("use_scan_matching", False)) else "false"
+            _early_use_loop_closure = "true" if bool(
+                _rp.get("use_loop_closure", False)) else "false"
         except yaml.YAMLError:
             pass
 
@@ -121,6 +127,18 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable magnetometer yaw fusion. Default read from mowgli_robot.yaml.use_magnetometer; CLI override wins. OFF on chassis without motor-isolated mag.",
     )
 
+    use_scan_matching_arg = DeclareLaunchArgument(
+        "use_scan_matching",
+        default_value=_early_use_scan_matching,
+        description="LiDAR scan-matching between consecutive nodes (fusion_graph). Default read from mowgli_robot.yaml.",
+    )
+
+    use_loop_closure_arg = DeclareLaunchArgument(
+        "use_loop_closure",
+        default_value=_early_use_loop_closure,
+        description="Loop-closure search against earlier graph nodes (fusion_graph). Default read from mowgli_robot.yaml.",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
@@ -129,6 +147,8 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar = LaunchConfiguration("use_lidar")
     use_fusion_graph = LaunchConfiguration("use_fusion_graph")
     use_magnetometer = LaunchConfiguration("use_magnetometer")
+    use_scan_matching = LaunchConfiguration("use_scan_matching")
+    use_loop_closure = LaunchConfiguration("use_loop_closure")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -429,6 +449,8 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             "use_sim_time": use_sim_time,
             "use_magnetometer": use_magnetometer,
+            "use_scan_matching": use_scan_matching,
+            "use_loop_closure": use_loop_closure,
         }.items(),
     )
 
@@ -498,6 +520,8 @@ def generate_launch_description() -> LaunchDescription:
             use_lidar_arg,
             use_fusion_graph_arg,
             use_magnetometer_arg,
+            use_scan_matching_arg,
+            use_loop_closure_arg,
             # robot_localization dual EKF + helpers
             static_gps_link_alias,
             ekf_odom_node,
