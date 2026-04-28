@@ -141,28 +141,38 @@ private:
   void on_status(const mowgli_interfaces::msg::Status & msg)
   {
     const bool is_charging = msg.is_charging;
+    bool fire = false;
 
     if (!last_is_charging_known_ && is_charging)
     {
       RCLCPP_INFO(
           get_logger(),
-          "boot detected docked state → pinning pose to dock while charging");
+          "boot detected docked state → seeding pose once");
+      fire = true;
     }
     else if (is_charging && last_is_charging_known_ && !last_is_charging_)
     {
       RCLCPP_INFO(get_logger(),
-                  "charging rising edge → pinning pose to dock while charging");
+                  "charging rising edge → seeding pose once");
+      fire = true;
     }
     else if (last_is_charging_known_ && last_is_charging_ && !is_charging)
     {
       RCLCPP_INFO(get_logger(),
-                  "charging dropped → pose no longer pinned, EKF takes over");
+                  "charging dropped → seed no longer asserted");
     }
 
     last_is_charging_ = is_charging;
     last_is_charging_known_ = true;
 
-    if (is_charging)
+    // Edge-only seed: fire once on boot-while-docked or on dock arrival,
+    // then stay silent until the robot leaves and returns. Continuous
+    // 1 Hz publishing was breaking fusion_graph_node — every set_pose
+    // adds a tight PriorFactor on the latest graph node, so a 1 Hz
+    // stream pinned the pose at the dock and prevented the graph from
+    // tracking actual motion. ekf_map_node tolerated the continuous
+    // stream (state reset semantics) but didn't need it either.
+    if (fire)
     {
       need_to_publish_ = true;
       try_publish();
