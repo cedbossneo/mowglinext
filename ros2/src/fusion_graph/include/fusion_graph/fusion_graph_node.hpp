@@ -61,6 +61,8 @@ class FusionGraphNode : public rclcpp::Node {
       mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg);
   void OnHardwareStatus(
       mowgli_interfaces::msg::Status::ConstSharedPtr msg);
+  void OnSetPose(
+      geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg);
   void OnTimer();
   void OnPeriodicSaveTimer();
 
@@ -121,6 +123,8 @@ class FusionGraphNode : public rclcpp::Node {
       sub_hl_status_;
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr
       sub_hw_status_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
+      sub_set_pose_;
 
   // Save-graph service handle.
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_save_;
@@ -134,6 +138,11 @@ class FusionGraphNode : public rclcpp::Node {
   double lc_max_rmse_ = 0.10;          // ICP RMSE acceptance gate
   double lc_sigma_xy_ = 0.05;
   double lc_sigma_theta_ = 0.02;
+  // Skip a loop-closure if its delta is so small it carries no
+  // information (robot was effectively stationary at the candidate's
+  // position) — saves iSAM2 bandwidth on dock-clutter revisits.
+  double lc_min_delta_m_ = 0.05;       // m
+  double lc_min_delta_theta_ = 0.05;   // rad (~3°)
 
   // Publishers.
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
@@ -151,6 +160,12 @@ class FusionGraphNode : public rclcpp::Node {
   rclcpp::TimerBase::SharedPtr tick_timer_;
   rclcpp::TimerBase::SharedPtr diag_timer_;
   rclcpp::TimerBase::SharedPtr periodic_save_timer_;
+  rclcpp::TimerBase::SharedPtr maintenance_timer_;
+
+  // Memory + compute bounding parameters.
+  uint64_t scan_retention_nodes_ = 18000;  // 30 min @ 10 Hz
+  uint64_t isam2_rebase_every_nodes_ = 2000;
+  uint64_t last_rebase_index_ = 0;
 
   // Auto-checkpoint state.
   bool auto_save_enabled_ = true;

@@ -67,6 +67,12 @@ public:
     pub_odom_ =
         create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
             "/set_pose", qos_reliable);
+    // Dual-publish to fusion_graph_node: works regardless of which
+    // localizer is the active map-frame primary. The unused publisher
+    // costs ~zero (no subscribers).
+    pub_fg_ =
+        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+            "/fusion_graph_node/set_pose", qos_reliable);
 
     yaw_var_ = declare_parameter<double>("seed_yaw_variance", 0.1);
 
@@ -204,6 +210,7 @@ private:
     map_seed.pose.pose.orientation = yaw_quat;
     map_seed.pose.covariance = cov;
     pub_map_->publish(map_seed);
+    pub_fg_->publish(map_seed);  // same payload, fusion_graph reads it
 
     geometry_msgs::msg::PoseWithCovarianceStamped odom_seed;
     odom_seed.header.stamp = map_seed.header.stamp;
@@ -236,6 +243,8 @@ private:
       pub_map_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
       pub_odom_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
+      pub_fg_;
 
   bool last_is_charging_{false};
   bool last_is_charging_known_{false};
