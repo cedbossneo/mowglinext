@@ -4,8 +4,10 @@
 #include "fusion_graph/graph_manager.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <ios>
 #include <sstream>
 
@@ -499,7 +501,12 @@ bool GraphManager::Save(const std::string& prefix) const {
     std::ofstream meta_os(prefix + ".meta");
     if (!meta_os) return false;
     meta_os << "next_index=" << next_index_ << "\n";
-    meta_os << "last_node_time_s=" << last_node_time_s_ << "\n";
+    // Wall-clock seconds need ≥10 integer digits + a few fractional, so
+    // default 6-digit iostream precision (1.7774e+09) silently corrupts
+    // the timestamp. setprecision(15) is safe for double round-trip.
+    meta_os << "last_node_time_s="
+            << std::fixed << std::setprecision(6)
+            << last_node_time_s_ << "\n";
     meta_os.close();
   } catch (const std::exception& e) {
     fprintf(stderr, "fusion_graph::Save: %s\n", e.what());
@@ -567,7 +574,15 @@ bool GraphManager::Load(const std::string& prefix) {
 
   scans_ = std::move(loaded_scans);
   next_index_ = next_idx;
-  last_node_time_s_ = last_t;
+  // Clamp loaded timestamp to "now" so a meta written with stale
+  // precision (legacy iostream default, e.g. "1.7774e+09") doesn't
+  // park last_node_time_s_ in the future, which would block Tick()
+  // from creating any new node until wall-clock catches up.
+  const double now_s =
+      std::chrono::duration<double>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  last_node_time_s_ = std::min(last_t, now_s);
   initialized_ = true;
 
   return true;
