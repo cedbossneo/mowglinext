@@ -404,7 +404,7 @@ def generate_launch_description() -> LaunchDescription:
     # already docked.
     dock_yaw_to_set_pose = Node(
         package="mowgli_localization",
-        executable="dock_yaw_to_set_pose.py",
+        executable="dock_yaw_to_set_pose",
         name="dock_yaw_to_set_pose",
         output="screen",
         parameters=[
@@ -419,7 +419,7 @@ def generate_launch_description() -> LaunchDescription:
     # gyro drift every /gps/absolute_pose sample.
     cog_to_imu = Node(
         package="mowgli_localization",
-        executable="cog_to_imu.py",
+        executable="cog_to_imu",
         name="cog_to_imu",
         output="screen",
         parameters=[
@@ -439,7 +439,7 @@ def generate_launch_description() -> LaunchDescription:
     mag_yaw_publisher = Node(
         condition=IfCondition(str(os.path.isfile(mag_cal_path)).lower()),
         package="mowgli_localization",
-        executable="mag_yaw_publisher.py",
+        executable="mag_yaw_publisher",
         name="mag_yaw_publisher",
         output="screen",
         parameters=[

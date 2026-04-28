@@ -28,6 +28,7 @@ find_package(tf2                REQUIRED)
 find_package(tf2_ros            REQUIRED)
 find_package(tf2_geometry_msgs  REQUIRED)
 find_package(mowgli_interfaces  REQUIRED)
+find_package(yaml-cpp           REQUIRED)
 
 # ---------------------------------------------------------------------------
 # Common include directory macro
@@ -97,6 +98,76 @@ ament_target_dependencies(localization_monitor_node
 )
 
 # ---------------------------------------------------------------------------
+# Executable: cog_to_imu (ported from cog_to_imu.py)
+# ---------------------------------------------------------------------------
+
+add_executable(cog_to_imu
+  src/cog_to_imu_node.cpp
+)
+
+ament_target_dependencies(cog_to_imu
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  sensor_msgs
+)
+
+target_link_libraries(cog_to_imu yaml-cpp)
+
+# ---------------------------------------------------------------------------
+# Executable: mag_yaw_publisher (ported from mag_yaw_publisher.py)
+# ---------------------------------------------------------------------------
+
+add_executable(mag_yaw_publisher
+  src/mag_yaw_publisher_node.cpp
+)
+
+ament_target_dependencies(mag_yaw_publisher
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+)
+
+target_link_libraries(mag_yaw_publisher yaml-cpp)
+
+# ---------------------------------------------------------------------------
+# Executable: dock_yaw_to_set_pose (ported from dock_yaw_to_set_pose.py)
+# ---------------------------------------------------------------------------
+
+add_executable(dock_yaw_to_set_pose
+  src/dock_yaw_to_set_pose_node.cpp
+)
+
+ament_target_dependencies(dock_yaw_to_set_pose
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  mowgli_interfaces
+)
+
+target_link_libraries(dock_yaw_to_set_pose yaml-cpp)
+
+# ---------------------------------------------------------------------------
+# Executable: calibrate_imu_yaw_node (ported from calibrate_imu_yaw_node.py)
+# ---------------------------------------------------------------------------
+
+add_executable(calibrate_imu_yaw_node
+  src/calibrate_imu_yaw_node.cpp
+)
+
+ament_target_dependencies(calibrate_imu_yaw_node
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+  nav_msgs
+  mowgli_interfaces
+)
+
+target_link_libraries(calibrate_imu_yaw_node yaml-cpp)
+
+# ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
 
@@ -110,6 +181,10 @@ install(
     wheel_odometry_node
     navsat_to_absolute_pose_node
     localization_monitor_node
+    cog_to_imu
+    mag_yaw_publisher
+    dock_yaw_to_set_pose
+    calibrate_imu_yaw_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -118,16 +193,6 @@ install(
 install(
   DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
-)
-
-# Python nodes (installed executable, run via `ros2 run mowgli_localization ...`)
-install(
-  PROGRAMS
-    scripts/calibrate_imu_yaw_node.py
-    scripts/cog_to_imu.py
-    scripts/dock_yaw_to_set_pose.py
-    scripts/mag_yaw_publisher.py
-  DESTINATION lib/${PROJECT_NAME}
 )
 
 # ---------------------------------------------------------------------------
