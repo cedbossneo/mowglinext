@@ -50,7 +50,7 @@ GraphManager::GraphManager(const GraphParams& params)
   // the GPS unary prior on most nodes.
   p.optimizationParams = gtsam::ISAM2GaussNewtonParams(0.001);
   p.relinearizeThreshold = 0.05;
-  p.relinearizeSkip = 1;
+  p.relinearizeSkip = std::max(1, params_.isam2_relinearize_skip);
   isam_ = gtsam::ISAM2(p);
 }
 
@@ -229,14 +229,26 @@ TickOutput GraphManager::CreateNodeLocked(double now_s) {
   new_factors_.resize(0);
   new_values_.clear();
 
-  // 5. Marginal covariance — best-effort. iSAM2 marginalCovariance can
-  //    throw if the variable is poorly constrained; fall back to a
-  //    conservative diagonal in that case.
+  // 5. Marginal covariance — throttled. marginalCovariance is O(node
+  //    count) on the Bayes tree path and dominates CPU once the graph
+  //    passes a few thousand nodes. The value is only consumed by the
+  //    diagnostics topic + published Odometry, neither of which needs
+  //    10 Hz freshness — recomputing every Nth tick (default 10 → 1 Hz)
+  //    keeps the displayed σ accurate without burning CPU on every
+  //    Tick. Re-uses the previous tick's covariance when not due.
   Eigen::Matrix3d cov = Eigen::Matrix3d::Identity() * 1.0;
-  try {
-    cov = isam_.marginalCovariance(k_curr);
-  } catch (const std::exception&) {
-    // leave conservative default
+  ++ticks_since_cov_;
+  const bool refresh_cov =
+      ticks_since_cov_ >= std::max(1, params_.cov_update_every_n);
+  if (refresh_cov) {
+    try {
+      cov = isam_.marginalCovariance(k_curr);
+    } catch (const std::exception&) {
+      // leave conservative default
+    }
+    ticks_since_cov_ = 0;
+  } else if (latest_) {
+    cov = latest_->covariance;
   }
 
   TickOutput out;
@@ -404,7 +416,7 @@ void GraphManager::RebaseISAM2() {
   gtsam::ISAM2Params p;
   p.optimizationParams = gtsam::ISAM2GaussNewtonParams(0.001);
   p.relinearizeThreshold = 0.05;
-  p.relinearizeSkip = 1;
+  p.relinearizeSkip = std::max(1, params_.isam2_relinearize_skip);
   gtsam::ISAM2 fresh(p);
 
   // Re-anchor every existing variable with a tight prior. The exact

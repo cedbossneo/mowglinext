@@ -71,6 +71,21 @@ struct GraphParams {
   // GPS lever-arm in base_footprint frame (x forward, y left).
   double lever_arm_x = 0.0;
   double lever_arm_y = 0.0;
+
+  // ── Performance ─────────────────────────────────────────────────
+  // Recompute the per-tick marginal covariance only every Nth tick.
+  // marginalCovariance is O(node_count) on the Bayes tree path and
+  // dominates per-tick CPU once the graph passes ~3 k nodes; the
+  // covariance value is consumed only by the diagnostics topic and
+  // the published Odometry, neither of which need 10 Hz freshness.
+  // Set to 1 to disable caching.
+  int cov_update_every_n = 10;
+
+  // iSAM2 relinearization throttle. 1 = relinearize every update
+  // (max accuracy, max CPU). Higher values amortize Jacobian
+  // recomputation across multiple updates with negligible accuracy
+  // loss for our well-constrained Pose2 graph.
+  int isam2_relinearize_skip = 5;
 };
 
 // What goes out to the publisher every tick.
@@ -281,6 +296,10 @@ class GraphManager {
 
   std::optional<TickOutput> latest_;
   uint64_t loop_closures_added_ = 0;
+  // How many ticks since the last marginalCovariance refresh; used to
+  // throttle that O(N) call without losing covariance freshness on
+  // the diagnostics + odom outputs.
+  int ticks_since_cov_ = 0;
   std::vector<std::pair<uint64_t, uint64_t>> loop_closure_edges_;
 
   // Scan storage. Map keeps memory bounded by the number of nodes
