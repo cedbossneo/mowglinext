@@ -1,4 +1,44 @@
 # =============================================================================
+# Stage 0: gtsam-builder
+# Builds GTSAM 4.3a1 from source. The Ubuntu Noble apt package
+# (libgtsam-dev 4.2) ships a broken GTSAMConfig.cmake (references files
+# that aren't installed) AND uses the legacy boost::optional<Matrix&>
+# API for custom factors. There is no ros-kilted-gtsam yet (only Jazzy).
+# Building from source gives us a clean install + the modern
+# OptionalMatrixType API + a single pinned version we control.
+#
+# Install lands in /opt/gtsam; runtime stages COPY it across, set up
+# ldconfig, and export CMAKE_PREFIX_PATH so find_package(GTSAM) works.
+# =============================================================================
+FROM ros:kilted-ros-base AS gtsam-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential cmake git \
+      libboost-all-dev libeigen3-dev libmetis-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp
+RUN git clone --depth 1 -b 4.3a1 https://github.com/borglab/gtsam.git
+
+RUN cd gtsam && mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/gtsam \
+        -DGTSAM_BUILD_TESTS=OFF \
+        -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+        -DGTSAM_BUILD_PYTHON=OFF \
+        -DGTSAM_BUILD_UNSTABLE=OFF \
+        -DGTSAM_USE_SYSTEM_EIGEN=ON \
+        -DGTSAM_USE_SYSTEM_METIS=ON \
+        -DGTSAM_WITH_TBB=OFF \
+        -DGTSAM_WITH_EIGEN_MKL=OFF \
+        -DGTSAM_INSTALL_MATLAB_TOOLBOX=OFF \
+        -DBUILD_SHARED_LIBS=ON \
+ && make -j$(nproc) install
+
+# =============================================================================
 # Stage 1: base
 # Installs all runtime ROS2 dependencies. Both runtime and simulation stages
 # inherit from here, keeping the image lean.
@@ -66,9 +106,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # DDS middleware — Cyclone DDS is more reliable than FastRTPS on ARM
     # (no shared memory, no stale /dev/shm segments, better service discovery)
     ros-kilted-rmw-cyclonedds-cpp \
+    # GTSAM runtime deps — libgtsam itself is COPYed from the
+    # gtsam-builder stage below. libmetis-dev provides both the
+    # runtime libmetis5 and the unversioned libmetis.so symlink
+    # that GTSAM's exported CMake target references at link time.
+    # libboost-* runtime libs are pulled in transitively.
+    libmetis-dev \
     # Utilities
     python3-argcomplete \
  && rm -rf /var/lib/apt/lists/*
+
+# Pull source-built GTSAM 4.3a1 into /opt/gtsam, register its lib
+# directory with ldconfig, and expose the CMake config dir so
+# find_package(GTSAM) resolves without extra hints. GTSAM's runtime
+# .so links against libboost-* and libmetis5, both already present.
+COPY --from=gtsam-builder /opt/gtsam /opt/gtsam
+RUN echo '/opt/gtsam/lib' > /etc/ld.so.conf.d/gtsam.conf && ldconfig
+ENV CMAKE_PREFIX_PATH=/opt/gtsam:${CMAKE_PREFIX_PATH}
 
 # =============================================================================
 # Stage 2: deps
@@ -113,7 +167,11 @@ COPY src/mowgli_simulation/package.xml    src/mowgli_simulation/package.xml
 COPY src/mowgli_simulation/CMakeLists.txt src/mowgli_simulation/CMakeLists.txt
 COPY src/mowgli_bringup/package.xml       src/mowgli_bringup/package.xml
 COPY src/mowgli_bringup/CMakeLists.txt    src/mowgli_bringup/CMakeLists.txt
+COPY src/fusion_graph/package.xml         src/fusion_graph/package.xml
+COPY src/fusion_graph/CMakeLists.txt      src/fusion_graph/CMakeLists.txt
 # FusionCore removed 2026-04-26 — replaced by robot_localization stack.
+# fusion_graph (added 2026-04-28) is the next-gen replacement for
+# ekf_map_node; depends on libgtsam-dev installed in the base stage.
 
 # Resolve rosdep dependencies (cached until package.xml changes)
 RUN rosdep update --rosdistro kilted \
@@ -206,6 +264,11 @@ COPY src/mowgli_bringup/config/    /ros2_ws/install/mowgli_bringup/share/mowgli_
 # mowgli_bringup/navigation.launch.py). Keep the config copy so the YAML
 # files still land in the install tree.
 COPY src/mowgli_localization/config/  /ros2_ws/install/mowgli_localization/share/mowgli_localization/config/
+
+# fusion_graph ships its own launch + config used by navigation.launch.py
+# when use_fusion_graph:=true.
+COPY src/fusion_graph/launch/  /ros2_ws/install/fusion_graph/share/fusion_graph/launch/
+COPY src/fusion_graph/config/  /ros2_ws/install/fusion_graph/share/fusion_graph/config/
 
 # Use Cyclone DDS — FastRTPS shared memory causes stale /dev/shm segments
 # and unreliable service discovery on ARM boards

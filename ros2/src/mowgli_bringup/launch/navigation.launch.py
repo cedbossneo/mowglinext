@@ -86,12 +86,19 @@ def generate_launch_description() -> LaunchDescription:
         description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through).",
     )
 
+    use_fusion_graph_arg = DeclareLaunchArgument(
+        "use_fusion_graph",
+        default_value="false",
+        description="When true, replace ekf_map_node with fusion_graph_node (GTSAM factor-graph localizer). ekf_odom_node keeps publishing odom->base_footprint either way.",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_ekf = LaunchConfiguration("use_ekf")
     use_lidar = LaunchConfiguration("use_lidar")
+    use_fusion_graph = LaunchConfiguration("use_fusion_graph")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -355,7 +362,11 @@ def generate_launch_description() -> LaunchDescription:
     # correction with map yaw) is what ekf_map actually fuses.
     # /gps/filtered (foxglove visualisation) is replaced by /gps/absolute_pose.
 
+    # ekf_map_node — runs only when use_fusion_graph is False. The
+    # factor-graph localizer (see fusion_graph package) replaces it
+    # one-for-one (publishes map -> odom + /odometry/filtered_map).
     ekf_map_node = Node(
+        condition=UnlessCondition(use_fusion_graph),
         package="robot_localization",
         executable="ekf_node",
         name="ekf_map_node",
@@ -371,6 +382,21 @@ def generate_launch_description() -> LaunchDescription:
             # name so seeding ekf_map does not also reset ekf_odom.
             ("set_pose", "/ekf_map_node/set_pose"),
         ],
+    )
+
+    # fusion_graph_node — GTSAM iSAM2 factor-graph localizer (planned
+    # replacement for ekf_map_node). Mutually exclusive with the EKF
+    # above. Reads datum + lever-arm from mowgli_robot.yaml inside the
+    # fusion_graph launch include.
+    fusion_graph_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("fusion_graph"),
+                "launch", "fusion_graph.launch.py",
+            )
+        ),
+        condition=IfCondition(use_fusion_graph),
+        launch_arguments={"use_sim_time": use_sim_time}.items(),
     )
 
     # Seeds ekf_map with the dock heading on rising edges of is_charging.
@@ -433,10 +459,12 @@ def generate_launch_description() -> LaunchDescription:
             use_sim_time_arg,
             use_ekf_arg,
             use_lidar_arg,
+            use_fusion_graph_arg,
             # robot_localization dual EKF + helpers
             static_gps_link_alias,
             ekf_odom_node,
             ekf_map_node,
+            fusion_graph_launch,
             dock_yaw_to_set_pose,
             cog_to_imu,
             mag_yaw_publisher,

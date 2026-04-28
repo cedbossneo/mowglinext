@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# fusion_graph_node — factor-graph localizer parameters
+# ---------------------------------------------------------------------------
+# See docs/HANDOFF_FUSION_GRAPH.md for the design rationale.
+
+fusion_graph_node:
+  ros__parameters:
+    # ── Graph cadence ──────────────────────────────────────────────────
+    # 10 Hz nodes match what ekf_map_node was running. Higher rates
+    # blow up iSAM2 cost on ARM; lower rates make GPS lever-arm yaw
+    # coupling sluggish during turns.
+    node_period_s: 0.1
+
+    # ── Wheel between-factor noise ─────────────────────────────────────
+    # Per-node sigmas in body frame. wheel_sigma_y << wheel_sigma_x is
+    # the non-holonomic constraint: the robot doesn't slide sideways.
+    wheel_sigma_x: 0.05         # m
+    wheel_sigma_y: 0.005        # m — tight non-holo
+    wheel_sigma_theta: 0.01     # rad — used only when no gyro this tick
+
+    # ── Gyro yaw between-factor noise ──────────────────────────────────
+    # Used when at least one IMU sample arrived between nodes. Much
+    # tighter than wheel-derived yaw on a differential drive (the
+    # encoders see ~5-10 cm of slip per turn).
+    gyro_sigma_theta: 0.005     # rad per node
+
+    # ── GPS unary noise floor ──────────────────────────────────────────
+    # Below this sigma, NavSatFix.covariance is treated as unrealistic
+    # and clamped. RTK-Fixed reports σ ~3 mm; below that is numerical
+    # noise.
+    gps_sigma_floor: 0.003      # m
+
+    # ── Initial-pose prior ─────────────────────────────────────────────
+    # Loose enough that the first GPS unary dominates immediately.
+    prior_sigma_xy: 0.05        # m
+    prior_sigma_theta: 0.05     # rad
+
+    # ── GPS antenna lever-arm in base_footprint frame ─────────────────
+    # Read from mowgli_robot.yaml's gps_x / gps_y at launch time and
+    # passed in here. These defaults are placeholders.
+    lever_arm_x: 0.0            # m, forward
+    lever_arm_y: 0.0            # m, left
+
+    # ── Datum (set by launch from mowgli_robot.yaml) ──────────────────
+    datum_lat: 0.0
+    datum_lon: 0.0
+
+    # ── Frame names ───────────────────────────────────────────────────
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_footprint
