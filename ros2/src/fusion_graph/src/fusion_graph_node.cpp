@@ -134,6 +134,9 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
       "/odometry/filtered_map", 10);
   pub_diag_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
       "/fusion_graph/diagnostics", 10);
+  pub_markers_ =
+      create_publisher<visualization_msgs::msg::MarkerArray>(
+          "/fusion_graph/markers", rclcpp::QoS(1).transient_local());
 
   auto sensor_qos = rclcpp::SensorDataQoS();
 
@@ -235,6 +238,76 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
         }
         msg.status.push_back(s);
         pub_diag_->publish(msg);
+
+        // ── Pose-graph viz ────────────────────────────────────────
+        // Emits a single MarkerArray with three markers, each owning
+        // its own id so subsequent publishes overwrite cleanly:
+        //   id=0  SPHERE_LIST  — every node's optimized xy
+        //   id=1  LINE_STRIP   — trajectory through nodes by index
+        //   id=2  LINE_LIST    — accepted loop-closure edges
+        // All in map_frame_; transient-local QoS so a Foxglove client
+        // joining mid-session sees the whole graph immediately.
+        const auto poses = graph_->GetAllPoses();
+        const auto loops = graph_->GetLoopClosureEdges();
+        const rclcpp::Time stamp = this->now();
+
+        visualization_msgs::msg::MarkerArray ma;
+
+        visualization_msgs::msg::Marker nodes;
+        nodes.header.stamp = stamp;
+        nodes.header.frame_id = map_frame_;
+        nodes.ns = "fusion_graph";
+        nodes.id = 0;
+        nodes.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+        nodes.action = visualization_msgs::msg::Marker::ADD;
+        nodes.scale.x = nodes.scale.y = nodes.scale.z = 0.10;
+        nodes.color.r = 0.1f; nodes.color.g = 0.7f;
+        nodes.color.b = 1.0f; nodes.color.a = 1.0f;
+        nodes.pose.orientation.w = 1.0;
+
+        visualization_msgs::msg::Marker traj;
+        traj.header = nodes.header;
+        traj.ns = "fusion_graph";
+        traj.id = 1;
+        traj.type = visualization_msgs::msg::Marker::LINE_STRIP;
+        traj.action = visualization_msgs::msg::Marker::ADD;
+        traj.scale.x = 0.03;
+        traj.color.r = 0.5f; traj.color.g = 0.5f;
+        traj.color.b = 0.5f; traj.color.a = 0.8f;
+        traj.pose.orientation.w = 1.0;
+
+        for (const auto& [idx, p] : poses) {
+          geometry_msgs::msg::Point pt;
+          pt.x = p.x(); pt.y = p.y(); pt.z = 0.0;
+          nodes.points.push_back(pt);
+          traj.points.push_back(pt);
+        }
+        ma.markers.push_back(nodes);
+        ma.markers.push_back(traj);
+
+        visualization_msgs::msg::Marker lc;
+        lc.header = nodes.header;
+        lc.ns = "fusion_graph";
+        lc.id = 2;
+        lc.type = visualization_msgs::msg::Marker::LINE_LIST;
+        lc.action = visualization_msgs::msg::Marker::ADD;
+        lc.scale.x = 0.04;
+        lc.color.r = 1.0f; lc.color.g = 0.2f;
+        lc.color.b = 0.2f; lc.color.a = 0.9f;
+        lc.pose.orientation.w = 1.0;
+        for (const auto& [a, b] : loops) {
+          auto ia = poses.find(a);
+          auto ib = poses.find(b);
+          if (ia == poses.end() || ib == poses.end()) continue;
+          geometry_msgs::msg::Point pa, pb;
+          pa.x = ia->second.x(); pa.y = ia->second.y();
+          pb.x = ib->second.x(); pb.y = ib->second.y();
+          lc.points.push_back(pa);
+          lc.points.push_back(pb);
+        }
+        ma.markers.push_back(lc);
+
+        pub_markers_->publish(ma);
       });
 
   RCLCPP_INFO(get_logger(),
