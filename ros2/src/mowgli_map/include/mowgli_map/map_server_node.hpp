@@ -263,6 +263,7 @@ private:
 
   // ── Strip planner helpers ─────────────────────────────────────────────────
 
+public:
   /// A single mowing strip (one column in boustrophedon order).
   struct Strip
   {
@@ -279,6 +280,20 @@ private:
     bool valid{false};
   };
 
+  /// Pure helper: among the candidate strips marked eligible[i]==true, pick the
+  /// one whose nearest endpoint (start or end) is closest to (robot_x, robot_y),
+  /// and orient the returned strip so that `start` is that nearest endpoint.
+  /// Returns -1 in `out_index` and leaves `out_strip` untouched if no eligible
+  /// strip exists. Free-standing & state-free so it can be unit-tested without
+  /// spinning a Node.
+  static void select_nearest_endpoint_strip(const std::vector<Strip>& strips,
+                                            const std::vector<bool>& eligible,
+                                            double robot_x,
+                                            double robot_y,
+                                            int& out_index,
+                                            Strip& out_strip);
+
+private:
   /// Find next unmowed strip. Returns false if coverage is complete.
   bool find_next_unmowed_strip(
       size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool prefer_headland);

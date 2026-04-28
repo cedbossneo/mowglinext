@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -2618,6 +2619,44 @@ bool MapServerNode::is_strip_blocked(const Strip& strip, double blocked_threshol
   return static_cast<double>(obstacle_count) / total_count >= blocked_threshold;
 }
 
+void MapServerNode::select_nearest_endpoint_strip(const std::vector<Strip>& strips,
+                                                  const std::vector<bool>& eligible,
+                                                  double robot_x,
+                                                  double robot_y,
+                                                  int& out_index,
+                                                  Strip& out_strip)
+{
+  out_index = -1;
+  double best_dist = std::numeric_limits<double>::infinity();
+  bool best_flip = false;
+
+  const int n = static_cast<int>(strips.size());
+  for (int i = 0; i < n; ++i)
+  {
+    if (i >= static_cast<int>(eligible.size()) || !eligible[i])
+      continue;
+
+    const auto& s = strips[i];
+    const double d_start = std::hypot(s.start.x - robot_x, s.start.y - robot_y);
+    const double d_end = std::hypot(s.end.x - robot_x, s.end.y - robot_y);
+
+    const double d = std::min(d_start, d_end);
+    if (d < best_dist)
+    {
+      best_dist = d;
+      out_index = i;
+      best_flip = (d_end < d_start);
+    }
+  }
+
+  if (out_index < 0)
+    return;
+
+  out_strip = strips[out_index];
+  if (best_flip)
+    std::swap(out_strip.start, out_strip.end);
+}
+
 bool MapServerNode::find_next_unmowed_strip(
     size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool /*prefer_headland*/)
 {
@@ -2627,59 +2666,38 @@ bool MapServerNode::find_next_unmowed_strip(
     return false;
 
   const auto& layout = strip_layouts_[area_index];
-  int n = static_cast<int>(layout.strips.size());
+  const int n = static_cast<int>(layout.strips.size());
   if (n == 0)
     return false;
 
-  // Grow tracking vector if needed
+  // Grow tracking vector if needed (kept for compatibility / debugging — the
+  // selector itself no longer consumes it).
   if (current_strip_idx_.size() <= area_index)
     current_strip_idx_.resize(area_index + 1, -1);
 
-  int& cur_idx = current_strip_idx_[area_index];
-
-  // First call: start from the strip nearest to the robot
-  if (cur_idx < 0)
-  {
-    double nearest_dist = 1e9;
-    for (int i = 0; i < n; ++i)
-    {
-      double mid_x = (layout.strips[i].start.x + layout.strips[i].end.x) / 2;
-      double mid_y = (layout.strips[i].start.y + layout.strips[i].end.y) / 2;
-      double d = std::hypot(mid_x - robot_x, mid_y - robot_y);
-      if (d < nearest_dist)
-      {
-        nearest_dist = d;
-        cur_idx = i;
-      }
-    }
-  }
-  else
-  {
-    // Advance to next strip (sequential boustrophedon)
-    cur_idx++;
-  }
-
-  // Search forward from current index for the next unmowed strip.
-  // Skip strips that are blocked by obstacles (>50% obstacle cells) — these
-  // are treated as "frontier" strips that can't be mowed.
+  // Build eligibility mask: a strip is eligible iff it isn't already mowed and
+  // isn't blocked by obstacles (>50% obstacle cells — those are treated as
+  // frontier and are skipped during planning).
+  std::vector<bool> eligible(n, false);
   for (int i = 0; i < n; ++i)
   {
-    int idx = (cur_idx + i) % n;
-    const auto& strip = layout.strips[idx];
-    if (!is_strip_mowed(strip) && !is_strip_blocked(strip))
-    {
-      cur_idx = idx;
-      out_strip = strip;
-
-      // Boustrophedon: alternate Y direction per column
-      if (idx % 2 == 1)
-        std::swap(out_strip.start, out_strip.end);
-
-      return true;
-    }
+    const auto& strip = layout.strips[i];
+    eligible[i] = !is_strip_mowed(strip) && !is_strip_blocked(strip);
   }
 
-  return false;  // All strips mowed or blocked
+  // Pick the eligible strip whose nearest endpoint is closest to the current
+  // robot pose, and orient it so the robot enters from that endpoint. This
+  // produces a serpentine/boustrophedon order naturally when adjacent strips
+  // are eligible (the previously-mowed strip ended at one column edge, so the
+  // adjacent strip's matching endpoint is the nearest by ~one swath width)
+  // while gracefully handling skipped or partially-blocked strips.
+  int picked = -1;
+  select_nearest_endpoint_strip(layout.strips, eligible, robot_x, robot_y, picked, out_strip);
+  if (picked < 0)
+    return false;
+
+  current_strip_idx_[area_index] = picked;
+  return true;
 }
 
 nav_msgs::msg::Path MapServerNode::strip_to_path(const Strip& strip, size_t /*area_index*/) const
