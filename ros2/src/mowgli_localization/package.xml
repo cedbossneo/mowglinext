@@ -30,9 +30,7 @@
        mowgli_bringup and not compiled against here. -->
 
   <!-- Python runtime deps for calibrate_imu_yaw_node.py, cog_to_imu.py,
-       dock_yaw_to_set_pose.py, mag_yaw_publisher.py,
-       slam_map_persist_node.py, slam_pose_anchor_node.py,
-       slam_scan_frame_relay.py, and wheel_odom_tf_node.py.
+       dock_yaw_to_set_pose.py, and mag_yaw_publisher.py.
        sensor_msgs / nav_msgs / mowgli_interfaces are already declared
        as build+exec via <depend> above. -->
   <exec_depend>rclpy</exec_depend>
