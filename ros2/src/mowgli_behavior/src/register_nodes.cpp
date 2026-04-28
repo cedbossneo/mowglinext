@@ -74,6 +74,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<GetNextStrip>("GetNextStrip");
   factory.registerNodeType<FollowStrip>("FollowStrip");
   factory.registerNodeType<TransitToStrip>("TransitToStrip");
+  factory.registerNodeType<DetourAroundObstacle>("DetourAroundObstacle");
 
   // Area recording node
   factory.registerNodeType<RecordArea>("RecordArea");

@@ -131,6 +131,50 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// DetourAroundObstacle — when FollowStrip aborts on a lookahead-collision,
+// drive a short side-step path through the global planner so the robot
+// physically gets out from in front of the obstacle (a person standing in
+// the strip). The next strip iteration replans from the new pose; the
+// `mow_progress` layer prevents re-cutting already-mowed cells.
+//
+// The detour is a NavigateToPose at (current_pose ⊕ forward·x̂_body
+// + lateral·ŷ_body), routed via SmacPlanner over the local costmap which
+// has the obstacle layer enabled — so the planner naturally curves around
+// the obstruction rather than charging through it.
+// ---------------------------------------------------------------------------
+
+class DetourAroundObstacle : public BT::StatefulActionNode
+{
+public:
+  using Nav2Navigate = nav2_msgs::action::NavigateToPose;
+  using NavGoalHandle = rclcpp_action::ClientGoalHandle<Nav2Navigate>;
+
+  DetourAroundObstacle(const std::string& name, const BT::NodeConfig& config)
+      : BT::StatefulActionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {
+        BT::InputPort<double>("forward_m", 0.8,
+                              "Forward offset from current pose, body frame"),
+        BT::InputPort<double>("lateral_m", 0.6,
+                              "Lateral offset (positive = left), body frame"),
+    };
+  }
+
+  BT::NodeStatus onStart() override;
+  BT::NodeStatus onRunning() override;
+  void onHalted() override;
+
+private:
+  rclcpp_action::Client<Nav2Navigate>::SharedPtr nav_client_;
+  std::shared_future<NavGoalHandle::SharedPtr> nav_future_;
+  NavGoalHandle::SharedPtr nav_handle_;
+};
+
+// ---------------------------------------------------------------------------
 // GetNextUnmowedArea — find next area with remaining strips
 // ---------------------------------------------------------------------------
 

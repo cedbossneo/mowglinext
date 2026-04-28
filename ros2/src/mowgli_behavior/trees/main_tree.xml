@@ -418,7 +418,7 @@
                   <Repeat num_cycles="500" name="StripLoop">
                     <Sequence name="GetAndMowStrip">
                       <GetNextStrip area_index="{current_area_index}"/>
-                      <Fallback name="MowOrSkip">
+                      <Fallback name="MowOrDetourOrSkip">
                         <!-- Try up to 3 times to reach and mow this strip -->
                         <RetryUntilSuccessful num_attempts="3" name="StripRetry">
                           <Sequence name="MowOneStrip">
@@ -428,7 +428,22 @@
                             <FollowStrip/>
                           </Sequence>
                         </RetryUntilSuccessful>
-                        <!-- All 3 attempts failed — skip this strip, increment counter -->
+                        <!-- 3 attempts failed because something keeps blocking the
+                             strip (commonly: a person standing in the path, FTC
+                             aborts on lookahead-collision). Drop the blade, drive
+                             a short side-step via the global planner so the
+                             obstacle layer can route around the obstruction,
+                             then fail this branch so SkipStrip moves on. The
+                             next GetNextStrip will hand us a fresh strip; the
+                             mow_progress layer prevents re-cutting. -->
+                        <Sequence name="DetourThenSkip">
+                          <PublishHighLevelStatus state="2" state_name="DETOURING"/>
+                          <SetMowerEnabled enabled="false"/>
+                          <ClearCostmap/>
+                          <DetourAroundObstacle forward_m="0.8" lateral_m="0.6"/>
+                          <AlwaysFailure/>
+                        </Sequence>
+                        <!-- Detour failed (or refused) — fall through to skip. -->
                         <Sequence name="SkipStrip">
                           <PublishHighLevelStatus state="2" state_name="SKIP_STRIP"/>
                           <SetMowerEnabled enabled="false"/>
