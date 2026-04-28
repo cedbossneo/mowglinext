@@ -28,23 +28,15 @@ Brings up:
      continuous absolute-yaw observation with adaptive covariance), and
      mag_yaw_publisher (tilt-compensated LIS3MDL magnetometer yaw, gated on
      /ros2_ws/maps/mag_calibration.yaml existing).
-  3. slam_toolbox RTK fallback (optional, gated on use_lidar) runs on a
-     decoupled parallel TF tree (wheel_odom_raw -> base_footprint_wheels
-     -> lidar_link_wheels) and republishes its pose into the GPS map
-     frame as /slam/pose_cov, which ekf_map_node fuses as pose1.
-  4. Nav2 bringup — full navigation stack (controllers, planners, recoveries,
+  3. Nav2 bringup — full navigation stack (controllers, planners, recoveries,
      BT navigator, costmaps, lifecycle).
 
 Architecture (REP-105):
   map → (ekf_map) → odom → (ekf_odom) → base_footprint → base_link → sensors
-  Plus a parallel slam_toolbox tree:
-    map → map_slam → wheel_odom_raw → base_footprint_wheels → lidar_link_wheels
-  GPS pose comes through navsat_to_absolute_pose_node to ekf_map.pose0.
-  slam_toolbox pose comes through slam_pose_anchor_node to ekf_map.pose1
-  with covariance that grows as time-since-last-RTK-Fixed grows, so the
-  EKF naturally weights GPS above slam when RTK is healthy and slam above
-  GPS during dropouts. slam_toolbox builds the map during area recording
-  and refines it across subsequent sessions in lifelong mode.
+  ekf_map fuses /gps/pose_cov (from navsat_to_absolute_pose_node, datum +
+  lever-arm corrected) as pose0. The slam_toolbox RTK fallback that
+  previously fed /map_pose has been removed; fusion_graph (planned, see
+  docs/HANDOFF_FUSION_GRAPH.md) will replace ekf_map_node end-to-end.
 """
 
 import os
@@ -91,7 +83,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Also skips slam_toolbox RTK fallback (no /slam/pose_cov input to ekf_map).",
+        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through).",
     )
 
     # ------------------------------------------------------------------
@@ -263,27 +255,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 1. slam_toolbox RTK fallback
-    #    Launched by slam_fallback.launch.py: wheel_odom_tf_node +
-    #    slam_scan_frame_relay + slam_toolbox/async_slam_toolbox_node +
-    #    slam_pose_anchor_node. Gated entirely on use_lidar. slam_toolbox
-    #    does NOT publish map→odom; it publishes map_slam→wheel_odom_raw
-    #    on a parallel tree, and slam_pose_anchor_node EWMA-aligns
-    #    map→map_slam to GPS and republishes the pose as /slam/pose_cov
-    #    for ekf_map_node to fuse as pose1.
-    # ------------------------------------------------------------------
-    slam_fallback_group = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(bringup_dir, "launch", "slam_fallback.launch.py")
-        ),
-        condition=IfCondition(use_lidar),
-        launch_arguments={
-            "use_sim_time": use_sim_time,
-        }.items(),
-    )
-
-    # ------------------------------------------------------------------
-    # 4. Nav2 navigation (controllers, planners, behaviors, BT navigator)
+    # 1. Nav2 navigation (controllers, planners, behaviors, BT navigator)
     # ------------------------------------------------------------------
     # Gate Nav2 startup on the map→odom TF being available.
     wait_for_tf_script = os.path.join(
@@ -449,11 +421,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # wheel_kicp_blend was removed when K-ICP was replaced by slam_toolbox.
-    # ekf_odom_node now subscribes to /wheel_odom directly (see
-    # robot_localization.yaml). slam contributes via the absolute-pose
-    # path (/slam/pose_cov -> ekf_map_node.pose1), not via a body-frame
-    # twist into ekf_odom.
+    # ekf_odom_node subscribes to /wheel_odom directly (see
+    # robot_localization.yaml). ekf_map_node fuses /gps/pose_cov directly
+    # as pose0 (published by navsat_to_absolute_pose_node).
 
     # ------------------------------------------------------------------
     # LaunchDescription
@@ -470,11 +440,6 @@ def generate_launch_description() -> LaunchDescription:
             dock_yaw_to_set_pose,
             cog_to_imu,
             mag_yaw_publisher,
-            # slam_toolbox RTK fallback — feeds ekf_map_node via
-            # /slam/pose_cov (pose1) with EWMA-anchored alignment to
-            # the GPS map frame. Carries the map-frame pose during
-            # RTK-Float and outage windows.
-            slam_fallback_group,
             wait_for_map_odom_tf,
             nav2_after_tf,
         ]

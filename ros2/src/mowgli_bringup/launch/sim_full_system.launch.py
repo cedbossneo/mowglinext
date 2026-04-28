@@ -269,8 +269,8 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # 11. Sim NavSat RTK status promoter
     #     Gazebo emits NavSatFix with STATUS_FIX (0); production code
-    #     (navsat_to_absolute_pose_node, slam_pose_anchor_node) requires
-    #     STATUS_GBAS_FIX (4). The ros_gz_bridge now publishes Gazebo's
+    #     (navsat_to_absolute_pose_node) requires
+    #     STATUS_GBAS_FIX (2) for the GPS path. The ros_gz_bridge now publishes Gazebo's
     #     output on /gps/fix_raw; this relay rewrites status -> GBAS_FIX
     #     and republishes on /gps/fix with a realistic RTK-Fixed
     #     covariance (sigma ~3 mm).
