@@ -740,8 +740,6 @@ void FusionGraphNode::OnTimer() {
 
   auto out = graph_->Tick(now_s);
   if (out) {
-    PublishOutputs(*out);
-
     // Attach the current scan to the new node (used for loop closures
     // + persistence). Use the still-valid current_scan we captured
     // above; reusing it as prev_node_scan is OK since std::move only
@@ -796,6 +794,17 @@ void FusionGraphNode::OnTimer() {
       prev_node_scan_ = std::move(curr_scan);
       prev_node_scan_valid_ = true;
     }
+  }
+
+  // Always republish odom + TF from the latest snapshot, even when
+  // Tick returned nullopt (stationary throttle, init still pending,
+  // etc.). Nav2 / BT need a fresh map→odom TF at the OnTimer rate
+  // (10 Hz) — gating publish on node creation drops the rate to 0.2 Hz
+  // during stationary windows, which makes the planner think the
+  // pose is stale and skips goals. Cheap: just composes latest_ with
+  // odom→base_footprint and broadcasts.
+  if (auto snap = graph_->LatestSnapshot()) {
+    PublishOutputs(*snap);
   }
 }
 
