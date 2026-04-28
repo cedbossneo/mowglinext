@@ -103,8 +103,15 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
       declare_parameter<double>("lc_min_age_s", 30.0);
   lc_max_candidates_ = static_cast<size_t>(
       declare_parameter<int>("lc_max_candidates", 3));
+  // 0.10 m rmse rejected too aggressively in field tests: outdoor
+  // LiDAR scans of the same place separated by minutes typically
+  // see ~15-25 cm point-wise rmse from wind / shadow / dynamic
+  // obstacles, even when the relative pose delta is sub-cm. The
+  // BetweenFactor noise scales with rmse anyway (sigma_xy_base +
+  // sigma_xy_scale * rmse), so a noisier match enters the graph
+  // with proportionally lower weight rather than being dropped.
   lc_max_rmse_ =
-      declare_parameter<double>("lc_max_rmse", 0.10);
+      declare_parameter<double>("lc_max_rmse", 0.20);
   lc_sigma_xy_ =
       declare_parameter<double>("lc_sigma_xy", 0.05);
   lc_sigma_theta_ =
