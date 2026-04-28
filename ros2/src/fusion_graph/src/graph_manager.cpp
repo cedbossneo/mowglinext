@@ -385,6 +385,49 @@ std::vector<uint64_t> GraphManager::FindLoopClosureCandidates(
   return out;
 }
 
+void GraphManager::PruneOldScans(uint64_t max_age_nodes) {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (next_index_ <= max_age_nodes) return;
+  const uint64_t cutoff = next_index_ - max_age_nodes;
+  auto it = scans_.begin();
+  while (it != scans_.end()) {
+    if (it->first < cutoff) it = scans_.erase(it);
+    else break;  // map is ordered by key, rest is newer
+  }
+}
+
+void GraphManager::RebaseISAM2() {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (current_estimate_.empty()) return;
+
+  // Build a fresh iSAM2 with the same parameters as the live one.
+  gtsam::ISAM2Params p;
+  p.optimizationParams = gtsam::ISAM2GaussNewtonParams(0.001);
+  p.relinearizeThreshold = 0.05;
+  p.relinearizeSkip = 1;
+  gtsam::ISAM2 fresh(p);
+
+  // Re-anchor every existing variable with a tight prior. The exact
+  // sigma is a balance: too tight and future loop closures can't move
+  // anything; too loose and iSAM2 wanders. 5 cm / 3° matches typical
+  // RTK + COG noise floors and keeps the rebase non-destructive.
+  gtsam::NonlinearFactorGraph fg;
+  auto noise = MakeDiagonal({0.05, 0.05, 0.05});
+  for (const auto& kv : current_estimate_) {
+    fg.add(gtsam::PriorFactor<gtsam::Pose2>(
+        kv.key, kv.value.cast<gtsam::Pose2>(), noise));
+  }
+
+  fresh.update(fg, current_estimate_);
+  isam_ = std::move(fresh);
+  current_estimate_ = isam_.calculateEstimate();
+
+  // Loop-closure edges accumulated so far were collapsed into the
+  // priors; reset the visualization list so future LCs are
+  // distinguishable from the rebased history.
+  loop_closure_edges_.clear();
+}
+
 void GraphManager::AddLoopClosure(uint64_t prev_index,
                                   uint64_t curr_index,
                                   const gtsam::Pose2& delta,

@@ -99,10 +99,18 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
       declare_parameter<bool>("use_loop_closure", false);
   lc_max_dist_m_ =
       declare_parameter<double>("lc_max_dist_m", 5.0);
+  // Default 600s (10 min): stationary clutter at the dock or during
+  // long IDLE windows produces O(N²) LC factors with the lower 30/120s
+  // defaults. Real revisits across a mowing pattern are minutes apart,
+  // so 600s is a comfortable floor. Override per-test if needed.
   lc_min_age_s_ =
-      declare_parameter<double>("lc_min_age_s", 30.0);
+      declare_parameter<double>("lc_min_age_s", 600.0);
   lc_max_candidates_ = static_cast<size_t>(
       declare_parameter<int>("lc_max_candidates", 3));
+  lc_min_delta_m_ =
+      declare_parameter<double>("lc_min_delta_m", 0.05);
+  lc_min_delta_theta_ =
+      declare_parameter<double>("lc_min_delta_theta", 0.05);
   // 0.10 m rmse rejected too aggressively in field tests: outdoor
   // LiDAR scans of the same place separated by minutes typically
   // see ~15-25 cm point-wise rmse from wind / shadow / dynamic
@@ -119,6 +127,11 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
 
   graph_save_prefix_ = declare_parameter<std::string>(
       "graph_save_prefix", "/ros2_ws/maps/fusion_graph");
+
+  scan_retention_nodes_ = static_cast<uint64_t>(
+      declare_parameter<int>("scan_retention_nodes", 18000));
+  isam2_rebase_every_nodes_ = static_cast<uint64_t>(
+      declare_parameter<int>("isam2_rebase_every_nodes", 2000));
   const bool autoload =
       declare_parameter<bool>("autoload_graph", true);
 
@@ -224,6 +237,19 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
     }
   }
 
+  // ── External set-pose channel ───────────────────────────────────
+  // Equivalent to robot_localization's /<node>/set_pose: takes a
+  // PoseWithCovarianceStamped, anchors the latest graph node at the
+  // given pose with covariance-derived sigmas. dock_yaw_to_set_pose
+  // dual-publishes to /ekf_map_node/set_pose AND to this topic so
+  // the dock-yaw seeding works regardless of which localizer is the
+  // map-frame primary.
+  sub_set_pose_ = create_subscription<
+      geometry_msgs::msg::PoseWithCovarianceStamped>(
+      "~/set_pose", 1,
+      std::bind(&FusionGraphNode::OnSetPose, this,
+                std::placeholders::_1));
+
   // ── Save-graph service ──────────────────────────────────────────
   // Trigger from the GUI / a BT node when transitioning out of
   // RECORDING, or manually via:
@@ -250,6 +276,24 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   tick_timer_ = create_wall_timer(
       std::chrono::duration<double>(timer_period_s),
       std::bind(&FusionGraphNode::OnTimer, this));
+
+  // Maintenance timer at 30 s: prune old scans + check if iSAM2
+  // needs to be rebased. Both operations briefly hold the graph
+  // mutex; running off the main tick keeps Tick latency clean.
+  maintenance_timer_ = create_wall_timer(
+      std::chrono::seconds(30), [this]() {
+        if (!graph_->IsInitialized()) return;
+        graph_->PruneOldScans(scan_retention_nodes_);
+        const auto stats = graph_->Stats();
+        if (stats.total_nodes - last_rebase_index_ >=
+            isam2_rebase_every_nodes_) {
+          graph_->RebaseISAM2();
+          last_rebase_index_ = stats.total_nodes;
+          RCLCPP_INFO(get_logger(),
+                      "fusion_graph: iSAM2 rebased at node %lu",
+                      static_cast<unsigned long>(stats.total_nodes));
+        }
+      });
 
   // Diagnostics timer at 1 Hz — coarse, just for the session monitor.
   diag_timer_ = create_wall_timer(
@@ -553,6 +597,44 @@ void FusionGraphNode::OnHighLevelStatus(
   last_hl_state_valid_ = true;
 }
 
+void FusionGraphNode::OnSetPose(
+    geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg) {
+  // Extract Pose2 from the incoming PoseWithCovariance.
+  const auto& q = msg->pose.pose.orientation;
+  const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+  const gtsam::Pose2 pose(msg->pose.pose.position.x,
+                          msg->pose.pose.position.y, yaw);
+
+  // Pull σ_xy and σ_yaw from the 6×6 covariance (positions [0]/[7],
+  // yaw at [35]). Floor at sane minimums so a zero-cov caller doesn't
+  // create a singular constraint.
+  const auto& cov = msg->pose.covariance;
+  const double sigma_xy = std::sqrt(std::max(cov[0], 1e-4));
+  const double sigma_theta = std::sqrt(std::max(cov[35], 1e-4));
+
+  // If we're not yet initialized (no graph loaded, no GPS+COG seed),
+  // use the message as the bootstrap seed: build X_0 here.
+  if (!graph_->IsInitialized()) {
+    graph_->Initialize(pose, this->now().seconds());
+    RCLCPP_INFO(get_logger(),
+                "fusion_graph: bootstrap init from /set_pose at "
+                "(%.2f, %.2f, %.2f rad)",
+                pose.x(), pose.y(), pose.theta());
+    return;
+  }
+
+  // Otherwise, force-anchor the latest node at the provided pose.
+  auto snap = graph_->LatestSnapshot();
+  if (!snap) return;
+  graph_->ForceAnchor(snap->node_index, pose, sigma_xy, sigma_theta);
+  RCLCPP_INFO(get_logger(),
+              "fusion_graph: re-anchored node %lu via /set_pose to "
+              "(%.2f, %.2f, %.2f rad)",
+              static_cast<unsigned long>(snap->node_index),
+              pose.x(), pose.y(), pose.theta());
+}
+
 void FusionGraphNode::OnHardwareStatus(
     mowgli_interfaces::msg::Status::ConstSharedPtr msg) {
   // Rising edge of is_charging = robot just docked.
@@ -638,6 +720,16 @@ void FusionGraphNode::OnTimer() {
         const gtsam::Pose2 init = cand_pose->between(out->pose);
         auto res = scan_matcher_->Match(cand_scan, curr_scan, init);
         if (!res.ok || res.rmse > lc_max_rmse_) continue;
+
+        // Skip near-identity LC factors: they pin the same pose to
+        // itself and carry no constraint info, but each one costs an
+        // iSAM2 update. Common at dock IDLE / before-undock revisits.
+        const double dt2 = res.delta.x() * res.delta.x() +
+                           res.delta.y() * res.delta.y();
+        if (dt2 < lc_min_delta_m_ * lc_min_delta_m_ &&
+            std::abs(res.delta.theta()) < lc_min_delta_theta_) {
+          continue;
+        }
 
         graph_->AddLoopClosure(cand_idx, out->node_index, res.delta,
                                lc_sigma_xy_, lc_sigma_theta_);

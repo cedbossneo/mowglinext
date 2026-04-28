@@ -189,6 +189,20 @@ class GraphManager {
       double min_age_s,
       size_t max_candidates) const;
 
+  // ── Memory + compute bounding ───────────────────────────────────
+  //
+  // Drop per-node scans older than `max_age_nodes` to bound RAM. The
+  // iSAM2 graph keeps the corresponding poses; only the scan blobs
+  // (used for loop-closure candidates) are released.
+  void PruneOldScans(uint64_t max_age_nodes);
+
+  // Reset iSAM2 with the current optimized values as tight priors,
+  // dropping every accumulated between/LC factor. Bounds the
+  // per-tick update cost on long sessions where factor count grows
+  // unbounded. Call periodically (e.g. every 2000 nodes); pose
+  // estimates and the variable set are preserved.
+  void RebaseISAM2();
+
   // Add a loop-closure between-factor between two existing nodes.
   // delta is the relative Pose2 such that X_curr = X_prev * delta.
   // Triggers an iSAM2 update + returns the refreshed marginal pose
