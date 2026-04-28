@@ -295,6 +295,50 @@ std::optional<gtsam::Pose2> GraphManager::GetPose(
   return current_estimate_.at<gtsam::Pose2>(k);
 }
 
+std::vector<uint64_t> GraphManager::FindNodesNearXY(
+    double x, double y, double max_dist_m,
+    size_t max_candidates) const {
+  std::lock_guard<std::mutex> lock(mu_);
+  std::vector<std::pair<double, uint64_t>> hits;
+  hits.reserve(scans_.size());
+  const double max_d2 = max_dist_m * max_dist_m;
+  for (const auto& [idx, _] : scans_) {
+    auto k = PoseKey(idx);
+    if (!current_estimate_.exists(k)) continue;
+    const auto X = current_estimate_.at<gtsam::Pose2>(k);
+    const double dx = X.x() - x;
+    const double dy = X.y() - y;
+    const double d2 = dx * dx + dy * dy;
+    if (d2 <= max_d2) hits.emplace_back(d2, idx);
+  }
+  std::sort(hits.begin(), hits.end());
+  std::vector<uint64_t> out;
+  out.reserve(std::min(max_candidates, hits.size()));
+  for (size_t i = 0; i < hits.size() && out.size() < max_candidates; ++i)
+    out.push_back(hits[i].second);
+  return out;
+}
+
+void GraphManager::ForceAnchor(uint64_t node_index,
+                               const gtsam::Pose2& pose,
+                               double sigma_xy,
+                               double sigma_theta) {
+  std::lock_guard<std::mutex> lock(mu_);
+  if (sigma_xy <= 0.0) sigma_xy = 0.05;
+  if (sigma_theta <= 0.0) sigma_theta = 0.05;
+  auto k = PoseKey(node_index);
+  if (!current_estimate_.exists(k)) return;
+  auto noise = MakeDiagonal({sigma_xy, sigma_xy, sigma_theta});
+  gtsam::NonlinearFactorGraph fg;
+  fg.add(gtsam::PriorFactor<gtsam::Pose2>(k, pose, noise));
+  isam_.update(fg, gtsam::Values());
+  current_estimate_ = isam_.calculateEstimate();
+  // Update latest_ snapshot so PublishOutputs sees the new pose.
+  if (latest_ && latest_->node_index == node_index) {
+    latest_->pose = current_estimate_.at<gtsam::Pose2>(k);
+  }
+}
+
 std::vector<uint64_t> GraphManager::FindLoopClosureCandidates(
     uint64_t query_index,
     double max_dist_m,

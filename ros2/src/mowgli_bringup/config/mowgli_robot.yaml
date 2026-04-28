@@ -97,6 +97,23 @@ mowgli:
     # mag setup.
     use_magnetometer: false
 
+    # use_scan_matching (default false; only effective when
+    # use_fusion_graph is true): per-tick ICP between the latest /scan
+    # and the previous graph-node scan. Adds a BetweenFactor with
+    # rmse-scaled covariance — bounded drift between consecutive
+    # nodes even without GPS. Required for "robot keeps mowing
+    # through GPS dropouts" scenarios.
+    use_scan_matching: false
+
+    # use_loop_closure (default false; only effective when
+    # use_scan_matching is also true): on every new node, search
+    # earlier graph nodes within ~5 m / >30 s ago for an ICP match
+    # against the current scan. Accepted matches add a BetweenFactor
+    # that snaps the trajectory back to consistency with previously-
+    # seen places. Resets accumulated drift across multi-minute GPS-
+    # less stretches at the cost of one ICP per candidate per tick.
+    use_loop_closure: false
+
     # -----------------------------------------------------------------
     # GPS / Positioning
     # -----------------------------------------------------------------

@@ -51,8 +51,18 @@ def generate_launch_description() -> LaunchDescription:
         "use_magnetometer", default_value="false",
         description="Subscribe to /imu/mag_yaw and feed it into the graph (Huber-robustified). OFF by default; mag is corrupted by motor magnetic field on this chassis.",
     )
+    use_scan_matching_arg = DeclareLaunchArgument(
+        "use_scan_matching", default_value="false",
+        description="Per-tick ICP between consecutive node scans → BetweenFactor. Required for GPS-loss tolerance.",
+    )
+    use_loop_closure_arg = DeclareLaunchArgument(
+        "use_loop_closure", default_value="false",
+        description="Loop-closure search against earlier nodes; resets accumulated drift on revisits.",
+    )
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_magnetometer = LaunchConfiguration("use_magnetometer")
+    use_scan_matching = LaunchConfiguration("use_scan_matching")
+    use_loop_closure = LaunchConfiguration("use_loop_closure")
 
     cfg = _read_robot_config()
     datum_lat = float(cfg.get("datum_lat", 0.0) or 0.0)
@@ -79,9 +89,24 @@ def generate_launch_description() -> LaunchDescription:
                 "lever_arm_x": lever_x,
                 "lever_arm_y": lever_y,
                 "use_magnetometer": use_magnetometer,
+                "use_scan_matching": use_scan_matching,
+                "use_loop_closure": use_loop_closure,
+                # dock_pose_yaw is propagated as initial-yaw seed
+                # fallback when GPS+COG aren't available at boot
+                # (cold start without RTK / before motion). Lat/lon
+                # of the dock are the saved area datum, so the GPS
+                # arm position seed (seed_xy_) lands at (0,0) in map
+                # frame anyway — only yaw needs help to unblock init.
+                "dock_pose_yaw": float(cfg.get(
+                    "dock_pose_yaw", 0.0) or 0.0),
             },
         ],
     )
 
     return LaunchDescription([
-        use_sim_time_arg, use_magnetometer_arg, fusion_graph_node])
+        use_sim_time_arg,
+        use_magnetometer_arg,
+        use_scan_matching_arg,
+        use_loop_closure_arg,
+        fusion_graph_node,
+    ])

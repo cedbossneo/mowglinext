@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <limits>
 
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <tf2/LinearMath/Quaternion.h>
@@ -113,8 +114,16 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
       "graph_save_prefix", "/ros2_ws/maps/fusion_graph");
   const bool autoload =
       declare_parameter<bool>("autoload_graph", true);
+
+  // Dock yaw read from mowgli_robot.yaml via the launch wrapper. Used
+  // as a yaw seed at cold boot when GPS+COG aren't available yet but
+  // a persisted graph exists — the robot is on the dock so this is
+  // a tight prior.
+  dock_pose_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
+
   if (autoload) {
     if (graph_->Load(graph_save_prefix_)) {
+      autoload_succeeded_ = true;
       RCLCPP_INFO(get_logger(),
                   "fusion_graph: loaded persisted graph from '%s.*'",
                   graph_save_prefix_.c_str());
@@ -443,6 +452,48 @@ void FusionGraphNode::OnScan(
   latest_scan_ = std::move(pts);
   latest_scan_valid_ = !latest_scan_.empty();
   ++scans_received_;
+
+  // Cold-boot relocalization: if we autoloaded a graph but never had
+  // a fresh GPS+COG to validate the live pose, ICP-match this first
+  // scan against scans of nodes near the dock and force-anchor the
+  // last loaded node at the matched pose. This unsticks the case
+  // "GPS dead since boot, robot was placed back on dock manually
+  // between sessions".
+  if (autoload_succeeded_ && !relocalize_done_ && scan_matcher_ &&
+      latest_scan_valid_ && graph_->IsInitialized()) {
+    const auto candidates = graph_->FindNodesNearXY(
+        0.0, 0.0, 5.0, 5);  // dock is map origin (datum)
+    double best_rmse = std::numeric_limits<double>::infinity();
+    gtsam::Pose2 best_pose;
+    uint64_t best_idx = 0;
+    for (uint64_t idx : candidates) {
+      auto cand_scan = graph_->GetScan(idx);
+      auto cand_pose = graph_->GetPose(idx);
+      if (cand_scan.empty() || !cand_pose) continue;
+      // Use the candidate's pose as init (we expect to be close).
+      auto res = scan_matcher_->Match(
+          cand_scan, latest_scan_, *cand_pose);
+      if (res.ok && res.rmse < best_rmse) {
+        best_rmse = res.rmse;
+        best_pose = res.delta;
+        best_idx = idx;
+      }
+    }
+    if (std::isfinite(best_rmse) && best_rmse < 0.10) {
+      // Anchor the latest loaded node at the matched pose so future
+      // wheel/scan factors compose from a consistent reference.
+      auto snap = graph_->LatestSnapshot();
+      if (snap) {
+        graph_->ForceAnchor(snap->node_index, best_pose, 0.05, 0.05);
+        relocalize_done_ = true;
+        RCLCPP_INFO(get_logger(),
+                    "fusion_graph: relocalized via scan match "
+                    "node=%lu rmse=%.3f → (%.2f, %.2f, %.2f rad)",
+                    static_cast<unsigned long>(best_idx), best_rmse,
+                    best_pose.x(), best_pose.y(), best_pose.theta());
+      }
+    }
+  }
 }
 
 void FusionGraphNode::OnTimer() {
