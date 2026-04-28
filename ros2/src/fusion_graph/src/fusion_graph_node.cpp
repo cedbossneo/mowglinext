@@ -130,6 +130,21 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
     }
   }
 
+  // ── Auto-checkpoint configuration ───────────────────────────────
+  // Persist the graph automatically on:
+  //   - transition out of HIGH_LEVEL_STATE_RECORDING (the area
+  //     polygon was just saved by the GUI; we want the matching pose
+  //     graph + scans to land alongside it)
+  //   - rising edge of is_charging (robot just docked; safe checkpoint
+  //     before any potential power loss)
+  //   - periodic timer during AUTONOMOUS state (default 5 min)
+  // Set auto_save_enabled to false to keep checkpoints fully manual
+  // via the ~/save_graph service.
+  auto_save_enabled_ =
+      declare_parameter<bool>("auto_save_enabled", true);
+  const double periodic_save_period_s =
+      declare_parameter<double>("periodic_save_period_s", 300.0);
+
   // ── TF ────────────────────────────────────────────────────────────
   tf_broadcaster_ =
       std::make_unique<tf2_ros::TransformBroadcaster>(*this);
@@ -182,6 +197,24 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
         "/scan", sensor_qos,
         std::bind(&FusionGraphNode::OnScan, this,
                   std::placeholders::_1));
+  }
+
+  if (auto_save_enabled_) {
+    sub_hl_status_ =
+        create_subscription<mowgli_interfaces::msg::HighLevelStatus>(
+            "/behavior_tree_node/high_level_status", 10,
+            std::bind(&FusionGraphNode::OnHighLevelStatus, this,
+                      std::placeholders::_1));
+    sub_hw_status_ =
+        create_subscription<mowgli_interfaces::msg::Status>(
+            "/hardware_bridge/status", 10,
+            std::bind(&FusionGraphNode::OnHardwareStatus, this,
+                      std::placeholders::_1));
+    if (periodic_save_period_s > 0.0) {
+      periodic_save_timer_ = create_wall_timer(
+          std::chrono::duration<double>(periodic_save_period_s),
+          std::bind(&FusionGraphNode::OnPeriodicSaveTimer, this));
+    }
   }
 
   // ── Save-graph service ──────────────────────────────────────────
@@ -494,6 +527,50 @@ void FusionGraphNode::OnScan(
       }
     }
   }
+}
+
+void FusionGraphNode::OnHighLevelStatus(
+    mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg) {
+  // Rising-edge detection on RECORDING → other transition.
+  if (last_hl_state_valid_) {
+    constexpr uint8_t kRecording =
+        mowgli_interfaces::msg::HighLevelStatus::HIGH_LEVEL_STATE_RECORDING;
+    if (last_hl_state_ == kRecording && msg->state != kRecording) {
+      const bool ok = graph_->Save(graph_save_prefix_);
+      RCLCPP_INFO(get_logger(),
+                  "fusion_graph: auto-save on RECORDING exit → %s",
+                  ok ? "ok" : "failed");
+    }
+  }
+  last_hl_state_ = msg->state;
+  last_hl_state_valid_ = true;
+}
+
+void FusionGraphNode::OnHardwareStatus(
+    mowgli_interfaces::msg::Status::ConstSharedPtr msg) {
+  // Rising edge of is_charging = robot just docked.
+  if (last_is_charging_valid_ && !last_is_charging_ && msg->is_charging) {
+    const bool ok = graph_->Save(graph_save_prefix_);
+    RCLCPP_INFO(get_logger(),
+                "fusion_graph: auto-save on dock arrival → %s",
+                ok ? "ok" : "failed");
+  }
+  last_is_charging_ = msg->is_charging;
+  last_is_charging_valid_ = true;
+}
+
+void FusionGraphNode::OnPeriodicSaveTimer() {
+  // Only checkpoint while autonomously mowing — saving on the dock
+  // is already handled by OnHardwareStatus, and saving while idle
+  // wastes I/O on a graph that's not changing.
+  constexpr uint8_t kAutonomous =
+      mowgli_interfaces::msg::HighLevelStatus::HIGH_LEVEL_STATE_AUTONOMOUS;
+  if (!last_hl_state_valid_ || last_hl_state_ != kAutonomous) return;
+  if (!graph_->IsInitialized()) return;
+  const bool ok = graph_->Save(graph_save_prefix_);
+  RCLCPP_INFO(get_logger(),
+              "fusion_graph: periodic auto-save → %s",
+              ok ? "ok" : "failed");
 }
 
 void FusionGraphNode::OnTimer() {
