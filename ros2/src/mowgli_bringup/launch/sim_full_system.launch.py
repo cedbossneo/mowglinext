@@ -88,6 +88,12 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable LiDAR-dependent nodes (obstacle tracker, Kinematic-ICP). Set to false for GPS-only.",
     )
 
+    use_fusion_graph_arg = DeclareLaunchArgument(
+        "use_fusion_graph",
+        default_value="false",
+        description="Forwarded to navigation.launch.py — when true, replace ekf_map_node with fusion_graph_node.",
+    )
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # use_sim_time is always true in simulation — no argument needed.
@@ -97,6 +103,7 @@ def generate_launch_description() -> LaunchDescription:
     use_rviz = LaunchConfiguration("use_rviz")
     simulate_gps_degradation = LaunchConfiguration("simulate_gps_degradation")
     use_lidar = LaunchConfiguration("use_lidar")
+    use_fusion_graph = LaunchConfiguration("use_fusion_graph")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -158,6 +165,7 @@ def generate_launch_description() -> LaunchDescription:
             "use_sim_time": "true",
             "use_ekf": "True",
             "use_lidar": use_lidar,
+            "use_fusion_graph": use_fusion_graph,
         }.items(),
     )
 
@@ -363,6 +371,7 @@ def generate_launch_description() -> LaunchDescription:
             use_rviz_arg,
             gps_degradation_arg,
             use_lidar_arg,
+            use_fusion_graph_arg,
             # Topic relays (sim → hardware namespace)
             relay_wheel_odom,
             relay_imu,
