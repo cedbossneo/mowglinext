@@ -362,6 +362,27 @@ void GraphManager::AddLoopClosure(uint64_t prev_index,
   isam_.update(fg, gtsam::Values());
   current_estimate_ = isam_.calculateEstimate();
   ++loop_closures_added_;
+  loop_closure_edges_.emplace_back(prev_index, curr_index);
+}
+
+std::map<uint64_t, gtsam::Pose2> GraphManager::GetAllPoses() const {
+  std::lock_guard<std::mutex> lock(mu_);
+  std::map<uint64_t, gtsam::Pose2> out;
+  // ISAM2 indexes Pose2 nodes by Symbol('x', idx). Iterate the
+  // current estimate and pull each one out by its key index.
+  for (const auto& kv : current_estimate_) {
+    gtsam::Symbol s(kv.key);
+    if (s.chr() != 'x') continue;
+    out.emplace(static_cast<uint64_t>(s.index()),
+                kv.value.cast<gtsam::Pose2>());
+  }
+  return out;
+}
+
+std::vector<std::pair<uint64_t, uint64_t>>
+GraphManager::GetLoopClosureEdges() const {
+  std::lock_guard<std::mutex> lock(mu_);
+  return loop_closure_edges_;
 }
 
 // ─────────────────────────────────────────────────────────────────────

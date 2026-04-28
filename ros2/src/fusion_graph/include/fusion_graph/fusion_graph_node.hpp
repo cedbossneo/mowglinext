@@ -23,6 +23,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -121,6 +122,8 @@ class FusionGraphNode : public rclcpp::Node {
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
       pub_diag_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+      pub_markers_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   // TF for odom->base_footprint (we publish map->odom; need to compose

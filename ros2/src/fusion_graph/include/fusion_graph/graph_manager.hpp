@@ -137,6 +137,16 @@ class GraphManager {
   std::optional<TickOutput> LatestSnapshot() const;
   GraphStats Stats() const;
 
+  // ── Visualization snapshots ─────────────────────────────────────
+  // Optimized 2D pose for every variable currently in the iSAM2
+  // estimate, keyed by node index. O(N) copy — call from a low-rate
+  // viz timer, not the main tick.
+  std::map<uint64_t, gtsam::Pose2> GetAllPoses() const;
+
+  // Loop-closure edges accepted so far (prev_index, curr_index).
+  // Bounded by loop_closures_added_; same memory life as scans_.
+  std::vector<std::pair<uint64_t, uint64_t>> GetLoopClosureEdges() const;
+
   // ── Scan storage + loop closure ──────────────────────────────────
   //
   // Attach a scan (in body frame) to an existing node. Used for
@@ -242,6 +252,7 @@ class GraphManager {
 
   std::optional<TickOutput> latest_;
   uint64_t loop_closures_added_ = 0;
+  std::vector<std::pair<uint64_t, uint64_t>> loop_closure_edges_;
 
   // Scan storage. Map keeps memory bounded by the number of nodes
   // (we never delete; persistence drops everything to disk and a
