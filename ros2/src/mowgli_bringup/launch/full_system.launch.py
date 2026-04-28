@@ -95,6 +95,14 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable LiDAR-dependent nodes (Kinematic-ICP drift correction, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
     )
 
+    # use_fusion_graph and use_magnetometer are NOT declared here —
+    # navigation.launch.py reads them from mowgli_robot.yaml directly
+    # so the operator flips them via the runtime config (and a
+    # container restart picks the change up). CLI override on the
+    # top-level launch (`... use_fusion_graph:=true`) still works
+    # because the arg is declared in navigation.launch.py and CLI
+    # values propagate to all included files.
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------

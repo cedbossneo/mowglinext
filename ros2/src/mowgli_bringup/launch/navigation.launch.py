@@ -66,6 +66,29 @@ def generate_launch_description() -> LaunchDescription:
     bringup_dir = get_package_share_directory("mowgli_bringup")
 
     # ------------------------------------------------------------------
+    # Pre-read mowgli_robot.yaml for launch-arg defaults.
+    # Operator-facing toggles (use_fusion_graph, use_magnetometer) live
+    # in the runtime config so they survive container restarts and the
+    # GUI can flip them without editing launch files. CLI override
+    # (foo:=true) still wins because DeclareLaunchArgument applies its
+    # default only when no CLI value is set.
+    # ------------------------------------------------------------------
+    _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
+    _early_use_fusion_graph = "false"
+    _early_use_magnetometer = "false"
+    if os.path.isfile(_runtime_cfg_path):
+        try:
+            with open(_runtime_cfg_path, "r") as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            _rp = _cfg.get("mowgli", {}).get("ros__parameters", {})
+            _early_use_fusion_graph = "true" if bool(
+                _rp.get("use_fusion_graph", False)) else "false"
+            _early_use_magnetometer = "true" if bool(
+                _rp.get("use_magnetometer", False)) else "false"
+        except yaml.YAMLError:
+            pass
+
+    # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
     use_sim_time_arg = DeclareLaunchArgument(
@@ -88,14 +111,14 @@ def generate_launch_description() -> LaunchDescription:
 
     use_fusion_graph_arg = DeclareLaunchArgument(
         "use_fusion_graph",
-        default_value="false",
-        description="When true, replace ekf_map_node with fusion_graph_node (GTSAM factor-graph localizer). ekf_odom_node keeps publishing odom->base_footprint either way.",
+        default_value=_early_use_fusion_graph,
+        description="Replace ekf_map_node with fusion_graph_node (GTSAM). Default read from mowgli_robot.yaml.use_fusion_graph; CLI override wins. ekf_odom_node keeps publishing odom->base_footprint either way.",
     )
 
     use_magnetometer_arg = DeclareLaunchArgument(
         "use_magnetometer",
-        default_value="false",
-        description="Enable magnetometer yaw fusion (mag_yaw_publisher + downstream consumers). Default OFF: motor magnetic interference on this chassis makes the heading-dependent bias unrecoverable from a static calibration. Only flip on if you have a motor-isolated mag setup.",
+        default_value=_early_use_magnetometer,
+        description="Enable magnetometer yaw fusion. Default read from mowgli_robot.yaml.use_magnetometer; CLI override wins. OFF on chassis without motor-isolated mag.",
     )
 
     # ------------------------------------------------------------------

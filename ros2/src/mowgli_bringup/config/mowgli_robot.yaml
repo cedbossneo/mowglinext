@@ -80,6 +80,24 @@ mowgli:
     gps_z: 0.20                # vertical offset (m) — top of chassis + antenna
 
     # -----------------------------------------------------------------
+    # Localization backend
+    # -----------------------------------------------------------------
+    # use_fusion_graph (default false): replace ekf_map_node with the
+    # GTSAM factor-graph localizer (fusion_graph package). ekf_odom
+    # keeps publishing odom→base_footprint either way. Flip to true on
+    # robots equipped with LiDAR + RTK GPS where you want
+    # scan-matching-driven map-frame consistency through RTK-Float
+    # gaps.
+    use_fusion_graph: false
+
+    # use_magnetometer (default false): subscribe to /imu/mag_yaw and
+    # let it influence the map-frame yaw. The chassis motor field
+    # induces a heading-dependent bias that no static cal can remove,
+    # so this is OFF by default. Only flip to true on a motor-isolated
+    # mag setup.
+    use_magnetometer: false
+
+    # -----------------------------------------------------------------
     # GPS / Positioning
     # -----------------------------------------------------------------
     gps_protocol: "UBX"
