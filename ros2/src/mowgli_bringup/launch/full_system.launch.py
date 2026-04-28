@@ -228,7 +228,7 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     calibrate_imu_yaw_node = Node(
         package="mowgli_localization",
-        executable="calibrate_imu_yaw_node.py",
+        executable="calibrate_imu_yaw_node",
         name="calibrate_imu_yaw_node",
         output="screen",
         parameters=[
