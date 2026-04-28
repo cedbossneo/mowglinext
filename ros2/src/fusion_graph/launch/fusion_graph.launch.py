@@ -1,0 +1,80 @@
+# Copyright 2026 Mowgli Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""
+fusion_graph.launch.py
+
+Launches the factor-graph localizer (fusion_graph_node). Reads the GPS
+datum and antenna lever-arm from install/config/mowgli/mowgli_robot.yaml
+(falls back to the in-package template) and forwards them as parameters.
+"""
+
+import os
+
+import yaml
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def _read_robot_config() -> dict:
+    """Load mowgli_robot.yaml and return the inner mower section."""
+    runtime = "/ros2_ws/config/mowgli/mowgli_robot.yaml"
+    fallback = os.path.join(
+        get_package_share_directory("mowgli_bringup"),
+        "config", "mowgli_robot.yaml",
+    )
+    path = runtime if os.path.exists(runtime) else fallback
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r") as f:
+        data = yaml.safe_load(f) or {}
+    # Schema: mowgli.<model>.<field>
+    mower = data.get("mowgli", {})
+    if not isinstance(mower, dict):
+        return {}
+    # Pick the first model section (single-mower deployments).
+    for _, fields in mower.items():
+        if isinstance(fields, dict):
+            return fields
+    return {}
+
+
+def generate_launch_description() -> LaunchDescription:
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time", default_value="false",
+        description="Use simulation clock when true.",
+    )
+    use_sim_time = LaunchConfiguration("use_sim_time")
+
+    cfg = _read_robot_config()
+    datum_lat = float(cfg.get("datum_lat", 0.0) or 0.0)
+    datum_lon = float(cfg.get("datum_lon", 0.0) or 0.0)
+    lever_x = float(cfg.get("gps_x", 0.0) or 0.0)
+    lever_y = float(cfg.get("gps_y", 0.0) or 0.0)
+
+    params_file = os.path.join(
+        get_package_share_directory("fusion_graph"),
+        "config", "fusion_graph.yaml",
+    )
+
+    fusion_graph_node = Node(
+        package="fusion_graph",
+        executable="fusion_graph_node",
+        name="fusion_graph_node",
+        output="screen",
+        parameters=[
+            params_file,
+            {
+                "use_sim_time": use_sim_time,
+                "datum_lat": datum_lat,
+                "datum_lon": datum_lon,
+                "lever_arm_x": lever_x,
+                "lever_arm_y": lever_y,
+            },
+        ],
+    )
+
+    return LaunchDescription([use_sim_time_arg, fusion_graph_node])

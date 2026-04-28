@@ -1,0 +1,139 @@
+// Copyright 2026 Mowgli Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// FusionGraphNode — ROS2 entry point for the factor-graph localizer.
+//
+// Subscribes to wheel odom, IMU, GPS, COG heading, and mag yaw.
+// Publishes:
+//   - /odometry/filtered_map (nav_msgs/Odometry, frame=map)
+//   - TF map -> odom
+//
+// Initialization: waits for the first NavSatFix at status >= STATUS_FIX
+// AND a fresh COG heading. Without those, the graph would be unanchored
+// and the very first iSAM2 update would produce garbage.
+
+#pragma once
+
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include <rclcpp/rclcpp.hpp>
+
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <std_srvs/srv/trigger.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
+
+#include <Eigen/Core>
+
+#include "fusion_graph/graph_manager.hpp"
+#include "fusion_graph/scan_matcher.hpp"
+
+namespace fusion_graph {
+
+class FusionGraphNode : public rclcpp::Node {
+ public:
+  explicit FusionGraphNode(const rclcpp::NodeOptions& opts = {});
+
+ private:
+  // ── Callbacks ──────────────────────────────────────────────────────
+  void OnWheelOdom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
+  void OnImu(sensor_msgs::msg::Imu::ConstSharedPtr msg);
+  void OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg);
+  void OnCogHeading(sensor_msgs::msg::Imu::ConstSharedPtr msg);
+  void OnMagYaw(sensor_msgs::msg::Imu::ConstSharedPtr msg);
+  void OnScan(sensor_msgs::msg::LaserScan::ConstSharedPtr msg);
+  void OnTimer();
+
+  // ── Helpers ────────────────────────────────────────────────────────
+  // Flat-earth ENU projection from (lat, lon) to map frame XY.
+  void LatLonToMap(double lat, double lon, double& x, double& y) const;
+
+  // Try to seed X_0. Returns true once initialization succeeded.
+  bool TrySeedInitialPose();
+
+  // Publish TF map->odom and /odometry/filtered_map.
+  void PublishOutputs(const TickOutput& out);
+
+  // ── Members ────────────────────────────────────────────────────────
+  std::unique_ptr<GraphManager> graph_;
+  std::unique_ptr<ScanMatcher> scan_matcher_;
+  bool use_scan_matching_ = false;
+
+  // Latched datum (read from parameters at startup).
+  double datum_lat_ = 0.0;
+  double datum_lon_ = 0.0;
+  double datum_cos_lat_ = 1.0;
+
+  // Most recent wheel timestamp (for accumulator dt).
+  std::optional<rclcpp::Time> last_wheel_stamp_;
+  std::optional<rclcpp::Time> last_imu_stamp_;
+
+  // Latched seeds for initialization.
+  std::optional<gtsam::Vector2> seed_xy_;       // from latest GPS
+  std::optional<double> seed_yaw_;              // from latest COG/mag
+
+  // Scan matching state.
+  std::mutex scan_mu_;
+  std::vector<Eigen::Vector2d> latest_scan_;    // latest scan in body frame
+  bool latest_scan_valid_ = false;
+  std::vector<Eigen::Vector2d> prev_node_scan_;  // scan stored at last node
+  bool prev_node_scan_valid_ = false;
+
+  // Frame names.
+  std::string map_frame_ = "map";
+  std::string odom_frame_ = "odom";
+  std::string base_frame_ = "base_footprint";
+
+  // Subscriptions.
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_wheel_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr sub_gps_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_cog_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_mag_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_scan_;
+
+  // Save-graph service handle.
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_save_;
+
+  // Persistence + loop-closure config.
+  std::string graph_save_prefix_;
+  bool loop_closure_enabled_ = false;
+  double lc_max_dist_m_ = 5.0;
+  double lc_min_age_s_ = 30.0;
+  size_t lc_max_candidates_ = 3;
+  double lc_max_rmse_ = 0.10;          // ICP RMSE acceptance gate
+  double lc_sigma_xy_ = 0.05;
+  double lc_sigma_theta_ = 0.02;
+
+  // Publishers.
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
+      pub_diag_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+  // TF for odom->base_footprint (we publish map->odom; need to compose
+  // with the local EKF's odom->base_footprint to back-compute).
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
+
+  rclcpp::TimerBase::SharedPtr tick_timer_;
+  rclcpp::TimerBase::SharedPtr diag_timer_;
+
+  // Per-tick counters for diagnostics.
+  uint64_t scans_received_ = 0;
+  uint64_t scan_matches_ok_ = 0;
+  uint64_t scan_matches_fail_ = 0;
+};
+
+}  // namespace fusion_graph
