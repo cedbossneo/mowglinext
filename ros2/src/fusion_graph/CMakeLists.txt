@@ -122,6 +122,14 @@ if(BUILD_TESTING)
     test/test_factors.cpp
   )
   target_link_libraries(test_factors fusion_graph_core)
+
+  # Performance benchmarks. Long-running (~30 s on ARM); only meaningful
+  # in Release builds. Output is grep-friendly for tracking regressions.
+  ament_add_gtest(test_perf
+    test/test_perf.cpp
+    TIMEOUT 300
+  )
+  target_link_libraries(test_perf fusion_graph_core)
 endif()
 
 # ---------------------------------------------------------------------------
