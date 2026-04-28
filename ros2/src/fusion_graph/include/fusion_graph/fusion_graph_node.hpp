@@ -81,6 +81,11 @@ class FusionGraphNode : public rclcpp::Node {
   std::unique_ptr<ScanMatcher> scan_matcher_;
   bool use_scan_matching_ = false;
   bool use_magnetometer_ = false;
+  // primary_mode = false → observer: doesn't broadcast map→odom TF
+  // (so ekf_map_node can keep owning it). The graph still builds
+  // and persists to disk so the next boot can detect a graph and
+  // promote fusion_graph to primary.
+  bool primary_mode_ = true;
 
   // Cold-boot relocalization state.
   bool autoload_succeeded_ = false;

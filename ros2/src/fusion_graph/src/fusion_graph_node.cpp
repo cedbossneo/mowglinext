@@ -94,6 +94,13 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   use_magnetometer_ =
       declare_parameter<bool>("use_magnetometer", false);
 
+  // Primary vs observer. Defaults to true for back-compat with the
+  // standalone test harness; navigation.launch.py overrides to false
+  // when no persisted graph exists yet (first session) so ekf_map
+  // keeps driving Nav2 while fusion_graph builds the graph silently.
+  primary_mode_ =
+      declare_parameter<bool>("primary_mode", true);
+
   // ── Loop closure + persistence ───────────────────────────────────
   loop_closure_enabled_ =
       declare_parameter<bool>("use_loop_closure", false);
@@ -802,7 +809,14 @@ void FusionGraphNode::PublishOutputs(const TickOutput& out) {
   odom.pose.covariance[28] = 1e-9;
   pub_odom_->publish(odom);
 
-  // 2. TF map -> odom. We need: T_map_base · (T_odom_base)^-1.
+  // 2. TF map -> odom. Skipped in observer mode so the active
+  //    map-frame primary (typically ekf_map_node) keeps single
+  //    ownership of the map→odom transform. The /odometry/filtered_map
+  //    publish above still happens — downstream consumers that
+  //    explicitly route to /fusion_graph/odometry (via launch remap)
+  //    can use it for diagnostics or A/B comparison.
+  if (!primary_mode_) return;
+
   //    T_odom_base is the local EKF's odom->base_footprint TF.
   geometry_msgs::msg::TransformStamped t_odom_base;
   try {

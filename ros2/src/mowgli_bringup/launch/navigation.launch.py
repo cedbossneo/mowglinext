@@ -95,6 +95,36 @@ def generate_launch_description() -> LaunchDescription:
             pass
 
     # ------------------------------------------------------------------
+    # Auto-graduation rule for fusion_graph
+    # ------------------------------------------------------------------
+    # When the operator opts in (`use_fusion_graph: true` in
+    # mowgli_robot.yaml), we still don't blindly hand over map→odom
+    # to fusion_graph_node — a polluted/half-built graph could spin
+    # Nav2 in a wrong frame. Instead:
+    #
+    #   - If a persisted graph exists on disk → fusion_graph runs as
+    #     PRIMARY (owns map→odom + /odometry/filtered_map). ekf_map
+    #     is skipped. Loop closure honours the operator yaml flag.
+    #   - If no graph file → fusion_graph runs in OBSERVER mode
+    #     (publishes to /fusion_graph/odometry, no TF). ekf_map keeps
+    #     driving Nav2. Loop closure is force-OFF (nothing meaningful
+    #     to close against in a bootstrapping graph). On dock arrival
+    #     fusion_graph auto-saves; the next boot picks up the file
+    #     and graduates to PRIMARY.
+    #
+    # This way the operator never has to time the use_fusion_graph
+    # flip — the system bootstraps itself.
+    _graph_file = "/ros2_ws/maps/fusion_graph.graph"
+    _graph_exists = os.path.isfile(_graph_file)
+    _early_primary_mode = (
+        "true" if _early_use_fusion_graph == "true" and _graph_exists
+        else "false"
+    )
+    _effective_use_loop_closure = (
+        _early_use_loop_closure if _graph_exists else "false"
+    )
+
+    # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
     use_sim_time_arg = DeclareLaunchArgument(
@@ -135,8 +165,14 @@ def generate_launch_description() -> LaunchDescription:
 
     use_loop_closure_arg = DeclareLaunchArgument(
         "use_loop_closure",
-        default_value=_early_use_loop_closure,
-        description="Loop-closure search against earlier graph nodes (fusion_graph). Default read from mowgli_robot.yaml.",
+        default_value=_effective_use_loop_closure,
+        description="Loop-closure search against earlier graph nodes (fusion_graph). Default read from mowgli_robot.yaml AND gated on a persisted graph file existing on disk — first session can't loop-close against itself.",
+    )
+
+    primary_mode_arg = DeclareLaunchArgument(
+        "primary_mode",
+        default_value=_early_primary_mode,
+        description="Auto-set: true when use_fusion_graph is yes AND a persisted graph exists on disk (fusion_graph drives Nav2). False otherwise (fusion_graph runs in observer mode building a graph for next session, ekf_map_node drives Nav2).",
     )
 
     # ------------------------------------------------------------------
@@ -149,6 +185,7 @@ def generate_launch_description() -> LaunchDescription:
     use_magnetometer = LaunchConfiguration("use_magnetometer")
     use_scan_matching = LaunchConfiguration("use_scan_matching")
     use_loop_closure = LaunchConfiguration("use_loop_closure")
+    primary_mode = LaunchConfiguration("primary_mode")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -412,11 +449,13 @@ def generate_launch_description() -> LaunchDescription:
     # correction with map yaw) is what ekf_map actually fuses.
     # /gps/filtered (foxglove visualisation) is replaced by /gps/absolute_pose.
 
-    # ekf_map_node — runs only when use_fusion_graph is False. The
-    # factor-graph localizer (see fusion_graph package) replaces it
-    # one-for-one (publishes map -> odom + /odometry/filtered_map).
+    # ekf_map_node — runs whenever fusion_graph is NOT in primary mode.
+    # That covers: use_fusion_graph=false (operator opted out) AND
+    # use_fusion_graph=true but no persisted graph yet (bootstrap
+    # session — fusion_graph builds the graph in observer mode while
+    # ekf_map keeps driving Nav2).
     ekf_map_node = Node(
-        condition=UnlessCondition(use_fusion_graph),
+        condition=UnlessCondition(primary_mode),
         package="robot_localization",
         executable="ekf_node",
         name="ekf_map_node",
@@ -445,12 +484,16 @@ def generate_launch_description() -> LaunchDescription:
                 "launch", "fusion_graph.launch.py",
             )
         ),
+        # Run whenever the operator wants fusion_graph at all — the
+        # primary_mode flag inside the include decides whether it
+        # owns map→odom or just observes.
         condition=IfCondition(use_fusion_graph),
         launch_arguments={
             "use_sim_time": use_sim_time,
             "use_magnetometer": use_magnetometer,
             "use_scan_matching": use_scan_matching,
             "use_loop_closure": use_loop_closure,
+            "primary_mode": primary_mode,
         }.items(),
     )
 
@@ -522,6 +565,7 @@ def generate_launch_description() -> LaunchDescription:
             use_magnetometer_arg,
             use_scan_matching_arg,
             use_loop_closure_arg,
+            primary_mode_arg,
             # robot_localization dual EKF + helpers
             static_gps_link_alias,
             ekf_odom_node,
