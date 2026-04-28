@@ -69,6 +69,7 @@ class FusionGraphNode : public rclcpp::Node {
   std::unique_ptr<GraphManager> graph_;
   std::unique_ptr<ScanMatcher> scan_matcher_;
   bool use_scan_matching_ = false;
+  bool use_magnetometer_ = false;
 
   // Latched datum (read from parameters at startup).
   double datum_lat_ = 0.0;

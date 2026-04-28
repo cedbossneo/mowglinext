@@ -47,7 +47,12 @@ def generate_launch_description() -> LaunchDescription:
         "use_sim_time", default_value="false",
         description="Use simulation clock when true.",
     )
+    use_magnetometer_arg = DeclareLaunchArgument(
+        "use_magnetometer", default_value="false",
+        description="Subscribe to /imu/mag_yaw and feed it into the graph (Huber-robustified). OFF by default; mag is corrupted by motor magnetic field on this chassis.",
+    )
     use_sim_time = LaunchConfiguration("use_sim_time")
+    use_magnetometer = LaunchConfiguration("use_magnetometer")
 
     cfg = _read_robot_config()
     datum_lat = float(cfg.get("datum_lat", 0.0) or 0.0)
@@ -73,8 +78,10 @@ def generate_launch_description() -> LaunchDescription:
                 "datum_lon": datum_lon,
                 "lever_arm_x": lever_x,
                 "lever_arm_y": lever_y,
+                "use_magnetometer": use_magnetometer,
             },
         ],
     )
 
-    return LaunchDescription([use_sim_time_arg, fusion_graph_node])
+    return LaunchDescription([
+        use_sim_time_arg, use_magnetometer_arg, fusion_graph_node])
