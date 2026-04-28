@@ -56,6 +56,10 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
       declare_parameter<double>("prior_sigma_theta", 0.05);
   gp.lever_arm_x = declare_parameter<double>("lever_arm_x", 0.0);
   gp.lever_arm_y = declare_parameter<double>("lever_arm_y", 0.0);
+  gp.cov_update_every_n =
+      declare_parameter<int>("cov_update_every_n", 10);
+  gp.isam2_relinearize_skip =
+      declare_parameter<int>("isam2_relinearize_skip", 5);
 
   datum_lat_ = declare_parameter<double>("datum_lat", 0.0);
   datum_lon_ = declare_parameter<double>("datum_lon", 0.0);
@@ -385,7 +389,21 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
         traj.color.b = 0.5f; traj.color.a = 0.8f;
         traj.pose.orientation.w = 1.0;
 
+        // Marker bandwidth control. With 4 k+ nodes, dumping every
+        // node to the SPHERE_LIST every second produces ~50 KB of
+        // payload per tick — Foxglove + DDS choke. Cap at the most
+        // recent `viz_max_nodes` (default 1500) and stride-decimate
+        // older history if the cap is exceeded. Trajectory line still
+        // includes the same set so the topology stays connected.
+        constexpr size_t kVizMaxNodes = 1500;
+        const size_t total = poses.size();
+        const size_t stride =
+            total > kVizMaxNodes
+                ? std::max<size_t>(1, total / kVizMaxNodes)
+                : 1;
+        size_t i = 0;
         for (const auto& [idx, p] : poses) {
+          if (i++ % stride != 0) continue;
           geometry_msgs::msg::Point pt;
           pt.x = p.x(); pt.y = p.y(); pt.z = 0.0;
           nodes.points.push_back(pt);
