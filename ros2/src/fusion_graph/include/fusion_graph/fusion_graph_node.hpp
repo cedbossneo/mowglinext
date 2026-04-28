@@ -31,6 +31,9 @@
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <std_srvs/srv/trigger.hpp>
+
+#include <mowgli_interfaces/msg/high_level_status.hpp>
+#include <mowgli_interfaces/msg/status.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
@@ -54,7 +57,12 @@ class FusionGraphNode : public rclcpp::Node {
   void OnCogHeading(sensor_msgs::msg::Imu::ConstSharedPtr msg);
   void OnMagYaw(sensor_msgs::msg::Imu::ConstSharedPtr msg);
   void OnScan(sensor_msgs::msg::LaserScan::ConstSharedPtr msg);
+  void OnHighLevelStatus(
+      mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg);
+  void OnHardwareStatus(
+      mowgli_interfaces::msg::Status::ConstSharedPtr msg);
   void OnTimer();
+  void OnPeriodicSaveTimer();
 
   // ── Helpers ────────────────────────────────────────────────────────
   // Flat-earth ENU projection from (lat, lon) to map frame XY.
@@ -109,6 +117,10 @@ class FusionGraphNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_cog_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_mag_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_scan_;
+  rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr
+      sub_hl_status_;
+  rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr
+      sub_hw_status_;
 
   // Save-graph service handle.
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_save_;
@@ -138,6 +150,14 @@ class FusionGraphNode : public rclcpp::Node {
 
   rclcpp::TimerBase::SharedPtr tick_timer_;
   rclcpp::TimerBase::SharedPtr diag_timer_;
+  rclcpp::TimerBase::SharedPtr periodic_save_timer_;
+
+  // Auto-checkpoint state.
+  bool auto_save_enabled_ = true;
+  uint8_t last_hl_state_ = 0;        // HighLevelStatus.state
+  bool last_hl_state_valid_ = false;
+  bool last_is_charging_ = false;
+  bool last_is_charging_valid_ = false;
 
   // Per-tick counters for diagnostics.
   uint64_t scans_received_ = 0;
