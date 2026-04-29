@@ -85,7 +85,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="Enable LiDAR-dependent nodes (obstacle tracker, Kinematic-ICP). Set to false for GPS-only.",
+        description="Enable LiDAR-dependent nodes (obstacle tracker, fusion_graph scan-matching). Set to false for GPS-only.",
     )
 
     # use_fusion_graph + use_magnetometer come from
@@ -150,9 +150,8 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     # 2. Navigation stack — robot_localization (dual EKF), Nav2
     #    ekf_odom_node publishes odom -> base_footprint; ekf_map_node
-    #    publishes map -> odom. Kinematic-ICP drift correction is
-    #    real-robot only (requires LiDAR on ARM); sim runs open-loop
-    #    GPS-only for now.
+    #    publishes map -> odom. fusion_graph scan-matching is opt-in
+    #    via use_fusion_graph (real-robot only — requires LiDAR on ARM).
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

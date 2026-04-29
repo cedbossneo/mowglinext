@@ -29,7 +29,7 @@ Welcome to the MowgliNext documentation wiki — the reference hub for the open-
 
 ```
 mowglinext/
-├── ros2/        ROS2 stack (Nav2, robot_localization dual EKF, opt-in fusion_graph (GTSAM iSAM2), Kinematic-ICP, BT, coverage planner)
+├── ros2/        ROS2 stack (Nav2, robot_localization dual EKF, opt-in fusion_graph (GTSAM iSAM2), BT, coverage planner)
 ├── docker/      Docker Compose deployment and config
 ├── sensors/     Dockerized sensor drivers (GPS, LiDAR)
 ├── gui/         React + Go web interface
@@ -42,7 +42,7 @@ mowglinext/
 ## Key Design Decisions
 
 1. **base_link at rear wheel axis** — OpenMower convention.
-2. **Two interchangeable map-frame localizers, picked at launch.** `ekf_odom_node` always owns `odom → base_footprint` (wheels + gyro, continuous). For `map → odom`, the default is `ekf_map_node` (robot_localization global EKF, fuses `/gps/pose_cov` + GPS-COG yaw + optional mag yaw under `two_d_mode`). Setting `use_fusion_graph:=true` swaps it for `fusion_graph_node` — a GTSAM iSAM2 factor graph with the same inputs plus optional LiDAR scan-matching and loop-closure factors. Kinematic-ICP feeds the local EKF in both modes. No SLAM in either case — the `/map` is built from user-recorded area polygons.
+2. **Two interchangeable map-frame localizers, picked at launch.** `ekf_odom_node` always owns `odom → base_footprint` (wheels + gyro, continuous). For `map → odom`, the default is `ekf_map_node` (robot_localization global EKF, fuses `/gps/pose_cov` + GPS-COG yaw + optional mag yaw under `two_d_mode`). Setting `use_fusion_graph:=true` swaps it for `fusion_graph_node` — a GTSAM iSAM2 factor graph with the same inputs plus optional LiDAR scan-matching and loop-closure factors. No SLAM in either case — the `/map` is built from user-recorded area polygons.
 3. **Cyclone DDS** — replaces FastRTPS (stale shm on ARM).
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation.
 5. **Firmware is blade safety authority** — ROS2 is fire-and-forget.
@@ -50,5 +50,5 @@ mowglinext/
 7. **Cell-based strip coverage** — no full-path pre-planning, strips fetched one at a time.
 8. **Emergency auto-reset on dock** — firmware decides whether to clear latch.
 9. **Area recording via BT** — drive boundary, Douglas-Peucker simplification, save polygon.
-10. **Kinematic-ICP runs on a parallel TF tree** — no feedback into robot_localization; LiDAR drift correction only.
-11. **Dedicated manual mowing mode** — teleop with collision_monitor, GPS, robot_localization, and Kinematic-ICP active.
+10. **LiDAR feeds the map-frame estimate via fusion_graph** — opt-in via `use_fusion_graph:=true`; scan-matching between-factors and loop-closure factors keep the map-frame pose stable across multi-minute RTK-Float windows.
+11. **Dedicated manual mowing mode** — teleop with collision_monitor, GPS, and the active map-frame localizer all running.

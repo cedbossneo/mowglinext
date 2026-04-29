@@ -540,7 +540,7 @@ local_costmap:
 
 # ---------------------------------------------------------------------------
 # Map server / AMCL (unused — map->odom is published by ekf_map_node
-# with Kinematic-ICP drift correction feeding ekf_odom_node's odom1 slot;
+# (default) or fusion_graph_node (opt-in via use_fusion_graph);
 # kept for completeness / Nav2 lifecycle compatibility)
 # ---------------------------------------------------------------------------
 map_server:

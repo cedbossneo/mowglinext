@@ -169,9 +169,8 @@ COPY src/mowgli_bringup/package.xml       src/mowgli_bringup/package.xml
 COPY src/mowgli_bringup/CMakeLists.txt    src/mowgli_bringup/CMakeLists.txt
 COPY src/fusion_graph/package.xml         src/fusion_graph/package.xml
 COPY src/fusion_graph/CMakeLists.txt      src/fusion_graph/CMakeLists.txt
-# FusionCore removed 2026-04-26 — replaced by robot_localization stack.
-# fusion_graph (added 2026-04-28) is the next-gen replacement for
-# ekf_map_node; depends on libgtsam-dev installed in the base stage.
+# fusion_graph is the opt-in factor-graph replacement for ekf_map_node;
+# depends on libgtsam-dev installed in the base stage.
 
 # Resolve rosdep dependencies (cached until package.xml changes)
 RUN rosdep update --rosdistro kilted \
@@ -210,12 +209,6 @@ ARG BUILD_TYPE=Release
 
 # Now copy the rest of the source tree
 COPY src/ src/
-
-# kinematic_icp is a cpp+ros monorepo (cpp/, ros/). Unlike KISS-ICP it has no
-# top-level CMakeLists.txt, so colcon's recursive scan finds
-# kinematic_icp/ros/package.xml directly — no symlink needed. The ros
-# CMakeLists uses `${CMAKE_CURRENT_SOURCE_DIR}/../cpp/kinematic_icp` which
-# resolves correctly when colcon cds into the real source path.
 
 # Build all packages (mowgli_interfaces is already built and cached)
 RUN /bin/bash -c "\
@@ -259,9 +252,8 @@ COPY --from=build /ros2_ws/install/ install/
 # Copy all launch files and config from every package
 COPY src/mowgli_bringup/launch/    /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/launch/
 COPY src/mowgli_bringup/config/    /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/
-# mowgli_localization has no launch files anymore (localization.launch.py
-# was removed when FusionCore went away — the nodes are brought up from
-# mowgli_bringup/navigation.launch.py). Keep the config copy so the YAML
+# mowgli_localization has no launch files; nodes are brought up from
+# mowgli_bringup/navigation.launch.py. Keep the config copy so the YAML
 # files still land in the install tree.
 COPY src/mowgli_localization/config/  /ros2_ws/install/mowgli_localization/share/mowgli_localization/config/
 

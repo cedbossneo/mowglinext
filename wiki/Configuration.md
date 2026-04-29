@@ -15,8 +15,6 @@ config/
 ├── hardware_bridge.yaml          # Serial port, baud, publish rate, IMU cal sample count
 ├── robot_localization.yaml       # Dual EKF: ekf_odom (wheels + gyro → odom),
 │                                  #   navsat_transform, ekf_map (+ GPS + COG yaw → map)
-├── kinematic_icp.yaml             # Kinematic-ICP tuning (voxel, threshold, registration)
-│                                  #   for the 2D LD19 profile
 ├── nav2_params.yaml               # Navigation stack with LiDAR (obstacle layer, FTCController, docking)
 ├── nav2_params_no_lidar.yaml      # Navigation stack for GPS-only operation
 ├── twist_mux.yaml                 # Velocity multiplexer priorities
@@ -25,7 +23,7 @@ config/
                                    #   install/config/mowgli at /ros2_ws/config/)
 ```
 
-There is **no** `slam_toolbox.yaml` or `kiss_icp.yaml`. robot_localization (the default dual-EKF localizer) is tuned through `robot_localization.yaml`, and Kinematic-ICP (LiDAR drift correction on a parallel TF tree) is tuned through `kinematic_icp.yaml`.
+There is **no** `slam_toolbox.yaml` or `kiss_icp.yaml`. robot_localization (the default dual-EKF localizer) is tuned through `robot_localization.yaml`. LiDAR scan-matching and loop-closure are handled by `fusion_graph` (opt-in — see [§5](#5-fusion_graph)).
 
 The opt-in **fusion_graph** localizer (GTSAM iSAM2 — see [§7](#7-fusion_graph)) does **not** have a separate config file: its knobs are declared as ros2 parameters on `fusion_graph_node` and the high-level switches (`use_fusion_graph`, `use_scan_matching`, `use_loop_closure`, `use_magnetometer`) live in `mowgli_robot.yaml`. The Settings page exposes them under the *Localization* section.
 
@@ -260,7 +258,7 @@ The system uses **robot_localization** with three cooperating nodes under `two_d
 - `/tf: odom → base_footprint` (from `ekf_odom_node`)
 - `/tf: map → odom` (from `ekf_map_node`)
 
-Non-holonomic motion is enforced by a tight `vy≈0` covariance published on `/wheel_odom`; no pseudo-measurement node is needed. Kinematic-ICP's twist enters `ekf_odom_node` as `odom1: /encoder2/odom`, never as TF.
+Non-holonomic motion is enforced by a tight `vy≈0` covariance published on `/wheel_odom`; no pseudo-measurement node is needed.
 
 ### Tuning
 
@@ -607,62 +605,11 @@ coverage_planner_node:
 
 ---
 
-## 5. kinematic_icp.yaml
+## 5. fusion_graph
 
-**File:** `src/mowgli_bringup/config/kinematic_icp.yaml`
+**Opt-in factor-graph localizer** that replaces `ekf_map_node` 1-for-1 when `use_fusion_graph:=true`. There is **no** dedicated YAML config — knobs are declared as ROS2 parameters on `fusion_graph_node` and the high-level switches (`use_fusion_graph`, `use_scan_matching`, `use_loop_closure`, `use_magnetometer`) live in `mowgli_robot.yaml`. The Settings page exposes them under the *Localization* section.
 
-**Purpose:** Tune the Kinematic-ICP (PRBonn 2024) LiDAR drift corrector for the LD19 2D LiDAR. The node runs on a parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), consumes `/scan_kicp` (a frame-relayed copy of `/scan`), and publishes `/kinematic_icp/lidar_odometry` which `kinematic_icp_encoder_adapter` finite-differences into `/encoder2/odom` for robot_localization's local EKF.
-
-**Full Configuration:**
-
-```yaml
-/**:
-  ros__parameters:
-    # Trim below LD19's nominal range — returns past 6 m outdoors are
-    # dominated by haze, sun, and moving foliage.
-    max_range: 6.0
-    # Reject self-reflections off the chassis/wheels.
-    min_range: 0.4
-
-    # Voxel size + points per voxel. 2D scans are sparse (~455 pts over 270°);
-    # 10 cm voxels see <=1 pt each and adjacent scans drop into different
-    # voxels from range jitter. 20 cm gives reliable overlap across scans
-    # and averages wind wobble. 5 points/voxel is enough for local plane
-    # fits in 2D.
-    voxel_size: 0.2
-    max_points_per_voxel: 5
-
-    # Adaptive correspondence threshold — scales with observed model error.
-    use_adaptive_threshold: true
-    fixed_threshold: 0.3
-
-    # Registration
-    max_num_iterations: 100
-    convergence_criterion: 0.001
-    max_num_threads: 1                    # ARM CPU budget; Nav2 needs cores
-
-    use_adaptive_odometry_regularization: true
-    fixed_regularization: 0.0
-
-    # LaserScan has no per-point timestamps, so deskew is always off for 2D.
-    deskew: false
-
-    # Reported on /kinematic_icp/lidar_odometry; the adapter overrides the
-    # twist covariance before republishing on /encoder2/odom.
-    orientation_covariance: 0.1
-    position_covariance: 0.1
-```
-
-### Tuning notes
-
-| Symptom | Try |
-|---------|-----|
-| Lots of "extrapolation into the future" TF warnings | Raise `wheel_odom_tf_node` `rebroadcast_hz` (default 50), or bump `tf_timeout` in the K-ICP launch file (default 0.1 s). |
-| K-ICP output drifts at rest | Voxel map may be accumulating wind-moved foliage. Lower `max_points_per_voxel` (3–4), or reduce `max_range`. |
-| K-ICP output over-corrects during turns | Increase `use_adaptive_odometry_regularization` weight by raising `fixed_regularization` and disabling `use_adaptive_odometry_regularization`. |
-| Encoder2 twist inconsistent with EKF | Check `ekf_odom_node` logs for twist rejections. Usually means the scene is too feature-poor and K-ICP's twist is inconsistent with the wheel prior — reduce `voxel_size` or increase `fixed_regularization`. |
-
-See [`CLAUDE.md`](https://github.com/cedbossneo/mowglinext/blob/main/CLAUDE.md) invariant #1 for why K-ICP runs on a parallel TF tree rather than sharing robot_localization's frames (the short version: it prevents the corrector's output from feeding back into its own motion prior).
+See [`wiki/Architecture.md`](Architecture.md#optional-factor-graph-localizer-fusion_graph) for the full design — Pose2 graph at 10 Hz, custom `GnssLeverArmFactor`, optional LiDAR scan-matching between-factors and loop-closure factors.
 
 ---
 

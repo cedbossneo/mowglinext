@@ -168,7 +168,7 @@ public:
   diagnostic_msgs::msg::DiagnosticStatus check_lidar(const rclcpp::Time& now) const;
   diagnostic_msgs::msg::DiagnosticStatus check_gps(const rclcpp::Time& now) const;
   diagnostic_msgs::msg::DiagnosticStatus check_odometry(const rclcpp::Time& now) const;
-  diagnostic_msgs::msg::DiagnosticStatus check_fusioncore(const rclcpp::Time& now) const;
+  diagnostic_msgs::msg::DiagnosticStatus check_fusion(const rclcpp::Time& now) const;
   diagnostic_msgs::msg::DiagnosticStatus check_motors() const;
 
   /// Read-only access to the internal state snapshot (for tests).
