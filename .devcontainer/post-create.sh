@@ -18,40 +18,22 @@ cd /ros2_ws
 # Symlink ROS2 packages from monorepo into workspace src/
 #
 # The workspace is /ros2_ws, the monorepo is bind-mounted at
-# /ros2_ws/src/mowglinext. colcon picks up packages it finds recursively
-# under src/, but some repos (FusionCore) have a top-level CMakeLists
-# that shadows the nested packages — so we symlink the sub-packages to
-# the workspace root exactly like ros2/Dockerfile does for production.
+# /ros2_ws/src/mowglinext. We symlink each mowgli_* package into src/
+# so colcon discovers them at the workspace root, plus fusion_graph.
 # ---------------------------------------------------------------------------
 echo "Linking ROS2 packages into workspace..."
 
 mkdir -p src
 
-# 1. Our own packages (mowgli_*) — straight symlinks.
 for pkg_dir in src/mowglinext/ros2/src/mowgli_*/; do
     pkg_name=$(basename "$pkg_dir")
     ln -sfn "/ros2_ws/$pkg_dir" "src/$pkg_name"
     echo "  Linked: $pkg_name"
 done
 
-# 2. FusionCore sub-packages — the submodule has a top-level CMakeLists
-#    that would be treated as a single cmake project and shadow its
-#    internal packages. Symlink each sub-package individually.
-FUSION_ROOT="src/mowglinext/ros2/src/fusioncore"
-if [ -d "$FUSION_ROOT" ]; then
-    for sub in fusioncore_core fusioncore_ros compass_msgs; do
-        if [ -d "$FUSION_ROOT/$sub" ]; then
-            ln -sfn "/ros2_ws/$FUSION_ROOT/$sub" "src/$sub"
-            echo "  Linked: $sub  (fusioncore submodule)"
-        fi
-    done
-fi
-
-# 3. Kinematic-ICP — its cpp+ros layout has no top-level CMakeLists, so
-#    colcon discovers ros/package.xml directly with no symlink needed.
-#    Listed here as a sanity check.
-if [ -f "src/mowglinext/ros2/src/kinematic_icp/ros/package.xml" ]; then
-    echo "  Kinematic-ICP submodule present (discovered via nested package.xml)."
+if [ -d "src/mowglinext/ros2/src/fusion_graph" ]; then
+    ln -sfn "/ros2_ws/src/mowglinext/ros2/src/fusion_graph" "src/fusion_graph"
+    echo "  Linked: fusion_graph"
 fi
 
 # ---------------------------------------------------------------------------
@@ -79,12 +61,14 @@ rosdep install \
     -y || true
 
 # ---------------------------------------------------------------------------
-# Build the workspace. Skip FusionCore's monorepo wrapper package if it
-# got picked up separately from the sub-package symlinks.
+# Build the workspace.
 # ---------------------------------------------------------------------------
 echo "Building workspace (this may take a few minutes on first run)..."
+# mowgli_unicore_gnss is a stub package.xml under sensors/unicore/ (no
+# CMakeLists in tree — it lives in the GPS Docker image build context).
+# colcon discovers it via the workspace mount and would fail; ignore it.
 colcon build \
-    --packages-ignore fusioncore fusioncore_gazebo kinematic-icp \
+    --packages-ignore mowgli_unicore_gnss \
     --cmake-args \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_TESTING=OFF \

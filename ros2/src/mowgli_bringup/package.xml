@@ -38,6 +38,8 @@
        Kinematic-ICP source under ros2/src/kinematic_icp is retained for
        revertability but the launch + helper scripts are gone. -->
 
+  <!-- LiDAR-aware localization is provided by fusion_graph (opt-in via
+       use_fusion_graph). -->
 
   <!-- Velocity multiplexing -->
   <exec_depend>twist_mux</exec_depend>

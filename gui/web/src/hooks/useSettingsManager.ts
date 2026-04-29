@@ -252,6 +252,9 @@ export const useSettingsManager = () => {
     // a cold-boot fallback. slam_mode is excluded because slam_toolbox was
     // removed in the FusionCore→iSAM2 migration; it survives in old YAMLs as
     // dead config that would silently mislead anyone who edits it.
+    // removed when fusion_graph took over LiDAR-aware localization; it
+    // survives in old YAMLs as dead config that would silently mislead
+    // anyone who edits it.
     const HIDDEN_FROM_ADVANCED = new Set([
         "dock_pose_x",
         "dock_pose_y",

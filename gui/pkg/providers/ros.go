@@ -29,10 +29,10 @@ var topicMap = map[string]topicDef{
 	"status":              {"/hardware_bridge/status", "mowgli_interfaces/msg/Status"},
 	"highLevelStatus":     {"/behavior_tree_node/high_level_status", "mowgli_interfaces/msg/HighLevelStatus"},
 	"gps":                 {"/gps/absolute_pose", "mowgli_interfaces/msg/AbsolutePose"},
-	// The robot's global pose comes from ekf_map_node (robot_localization
-	// dual-EKF) since the 2026-04-24 migration away from FusionCore. The
-	// "fusionRaw" key is retained for legacy symmetry but now also points
-	// at the same ekf_map output — there is no separate FusionCore stream.
+	// The robot's global pose comes from the active map-frame localizer:
+	// ekf_map_node by default, or fusion_graph_node when use_fusion_graph
+	// is true. The "fusionRaw" key is retained for legacy symmetry and
+	// points at the same /odometry/filtered_map topic.
 	"pose":                {"/odometry/filtered_map", "nav_msgs/msg/Odometry"},
 	"fusionRaw":           {"/odometry/filtered_map", "nav_msgs/msg/Odometry"},
 	"btLog":               {"/behavior_tree_log", "nav2_msgs/msg/BehaviorTreeLog"},

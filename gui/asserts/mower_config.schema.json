@@ -143,7 +143,7 @@
           "type": "boolean",
           "title": "Enable LiDAR",
           "default": true,
-          "description": "Enable LiDAR and Kinematic-ICP drift correction. Disable for non-LiDAR builds."
+          "description": "Enable LiDAR and fusion_graph scan-matching (when use_fusion_graph is on). Disable for non-LiDAR builds."
         },
         "lidar_x": {
           "type": "number",

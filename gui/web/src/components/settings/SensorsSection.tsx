@@ -22,7 +22,7 @@ export const SensorsSection: React.FC<Props> = ({ values, onChange }) => {
                             LiDAR Sensor
                         </Text>
                         <Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
-                            Enable if your robot has a LiDAR. Activates Kinematic-ICP drift correction and collision detection.
+                            Enable if your robot has a LiDAR. Activates fusion_graph scan-matching (when use_fusion_graph is on) and collision detection.
                         </Paragraph>
                     </div>
                     <Switch

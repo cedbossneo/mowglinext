@@ -92,7 +92,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="Enable LiDAR-dependent nodes (Kinematic-ICP drift correction, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
+        description="Enable LiDAR-dependent nodes (fusion_graph scan-matching, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
     )
 
     # use_fusion_graph and use_magnetometer are NOT declared here —
@@ -148,7 +148,7 @@ def generate_launch_description() -> LaunchDescription:
 
     # ------------------------------------------------------------------
     # 2. navigation.launch.py — robot_localization (dual EKF) + Nav2
-    #                           (+ optional Kinematic-ICP)
+    #                           (+ optional fusion_graph)
     # ------------------------------------------------------------------
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

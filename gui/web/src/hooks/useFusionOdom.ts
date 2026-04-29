@@ -20,13 +20,10 @@ export interface FusionOdom {
 }
 
 /**
- * Subscribes to the global filtered odometry published by
- * ekf_map_node (robot_localization dual-EKF). Before the 2026-04-24
- * migration this came from FusionCore on /fusion/odom; the topic
- * alias kept its name ("fusionRaw") on the backend to avoid churning
- * every consumer. The function name is kept as useFusionOdom for
- * the same reason — rename to useMapOdometry in a follow-up if we
- * want to retire the FusionCore branding entirely.
+ * Subscribes to the global filtered odometry published by the active
+ * map-frame localizer — `ekf_map_node` by default, or `fusion_graph_node`
+ * when `use_fusion_graph` is true. The backend exposes it under the topic
+ * alias "fusionRaw" for backward compatibility with existing consumers.
  */
 export const useFusionOdom = () => {
     const [odom, setOdom] = useState<FusionOdom>({})

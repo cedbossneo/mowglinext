@@ -61,10 +61,6 @@ They call the `~/save_graph` / `~/clear_graph` services on `fusion_graph_node`. 
 - **Save graph** — persists `<graph_save_prefix>.{graph,scans,meta}` to disk. The node also auto-saves on dock arrival, on RECORDING→IDLE transitions, and every 5 min during AUTONOMOUS state, so the button is mostly a "checkpoint before I shut down ROS2 manually" affordance.
 - **Clear graph** — wipes iSAM2 + accumulated factors + per-node scans. The node stays alive; the next valid pose seed (GPS, set_pose, or scan-match relocalization) re-initializes. Use after relocating the robot to a new garden.
 
-### Can I use both Kinematic-ICP and fusion_graph?
-
-Yes — they live at different layers. Kinematic-ICP runs on a parallel TF tree and feeds `ekf_odom_node` as a body-frame twist on `/encoder2/odom` (improves the local odometry). `fusion_graph_node` is the global (map-frame) localizer. They don't conflict.
-
 ## Development
 
 ### How do I test without a real mower?
