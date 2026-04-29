@@ -57,7 +57,11 @@ TEST(ProtocolSizes, UiEventPacketSize)
 
 TEST(ProtocolSizes, OdometryPacketSize)
 {
-  EXPECT_EQ(sizeof(LlOdometry), 19u);
+  // 1 (type) + 2 (dt_millis) + 4 (left_ticks) + 4 (right_ticks)
+  // + 2 (left_velocity_mm_s) + 2 (right_velocity_mm_s) + 2 (crc) = 17.
+  // The ll_datatypes.hpp header has a matching static_assert; this test
+  // guards the wire layout against future field additions.
+  EXPECT_EQ(sizeof(LlOdometry), 17u);
 }
 
 TEST(ProtocolSizes, HeartbeatPacketSize)

@@ -201,8 +201,15 @@ install(
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto      REQUIRED)
-  # Exclude uncrustify — we use clang-format (see .clang-format)
+  # Exclude uncrustify — we use clang-format (see .clang-format).
   set(ament_cmake_uncrustify_FOUND TRUE)
+  # ament_copyright requires the full GPL license text; the project uses
+  # SPDX identifiers (`SPDX-License-Identifier: GPL-3.0-or-later`) which
+  # ament doesn't recognise as a known license — skip the lint.
+  set(ament_cmake_copyright_FOUND TRUE)
+  # cpplint enforces Google C++ style; clang-format with the project's
+  # .clang-format covers the same ground with our own rules.
+  set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
