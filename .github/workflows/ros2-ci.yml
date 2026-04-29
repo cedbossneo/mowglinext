@@ -51,6 +51,59 @@ jobs:
         with:
           required-ros-distributions: ${{ matrix.ros_distro }}
 
+      # GTSAM 4.3a1 is required by fusion_graph (find_package(GTSAM CONFIG
+      # REQUIRED) in its CMakeLists). The Ubuntu apt package ships 4.2 with
+      # a broken GTSAMConfig.cmake AND the legacy boost::optional<Matrix&>
+      # custom-factor API, so the Docker image build (ros2/Dockerfile stage 0)
+      # builds 4.3a1 from source and lands it under /opt/gtsam. We mirror the
+      # same recipe here, cached so subsequent runs are instant.
+      - name: Cache GTSAM build
+        id: cache-gtsam
+        uses: actions/cache@v4
+        with:
+          path: /opt/gtsam
+          key: gtsam-4.3a1-${{ runner.os }}-noble
+
+      - name: Build GTSAM 4.3a1 from source
+        working-directory: .
+        if: steps.cache-gtsam.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git \
+            libboost-all-dev libeigen3-dev libmetis-dev
+          cd /tmp
+          git clone --depth 1 -b 4.3a1 https://github.com/borglab/gtsam.git
+          cd gtsam && mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/opt/gtsam \
+            -DGTSAM_BUILD_TESTS=OFF \
+            -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF \
+            -DGTSAM_BUILD_PYTHON=OFF \
+            -DGTSAM_BUILD_UNSTABLE=OFF \
+            -DGTSAM_USE_SYSTEM_EIGEN=ON \
+            -DGTSAM_USE_SYSTEM_METIS=ON \
+            -DGTSAM_WITH_TBB=OFF \
+            -DGTSAM_WITH_EIGEN_MKL=OFF \
+            -DGTSAM_INSTALL_MATLAB_TOOLBOX=OFF \
+            -DBUILD_SHARED_LIBS=ON
+          sudo make -j$(nproc) install
+          # The ldconfig + CMAKE_PREFIX_PATH setup is done in subsequent
+          # steps so that cached restores also see the library.
+
+      - name: Register GTSAM in linker + CMake search paths
+        run: |
+          echo "/opt/gtsam/lib" | sudo tee /etc/ld.so.conf.d/gtsam.conf
+          sudo ldconfig
+          echo "CMAKE_PREFIX_PATH=/opt/gtsam:$CMAKE_PREFIX_PATH" >> $GITHUB_ENV
+          echo "GTSAM_DIR=/opt/gtsam/lib/cmake/GTSAM" >> $GITHUB_ENV
+          # Pre-install runtime apt deps that GTSAM links against (boost,
+          # eigen, metis), in case the cache restore skipped the apt step.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libboost-all-dev libeigen3-dev libmetis-dev
+
       - name: Cache rosdep
         uses: actions/cache@v4
         with:
