@@ -57,7 +57,11 @@ TEST(ProtocolSizes, UiEventPacketSize)
 
 TEST(ProtocolSizes, OdometryPacketSize)
 {
-  EXPECT_EQ(sizeof(LlOdometry), 19u);
+  // 1 (type) + 2 (dt_millis) + 4 (left_ticks) + 4 (right_ticks)
+  // + 2 (left_velocity_mm_s) + 2 (right_velocity_mm_s) + 2 (crc) = 17.
+  // The ll_datatypes.hpp header has a matching static_assert; this test
+  // guards the wire layout against future field additions.
+  EXPECT_EQ(sizeof(LlOdometry), 17u);
 }
 
 TEST(ProtocolSizes, HeartbeatPacketSize)
@@ -103,7 +107,7 @@ TEST(OdometryPacket, FieldOffsetsAreCorrect)
   pkt.dt_millis = 0x1234;
   pkt.left_ticks = 0x11223344;
   pkt.right_ticks = -42;
-  pkt.left_velocity_mm_s = 250;    // signed — positive == forward
+  pkt.left_velocity_mm_s = 250;  // signed — positive == forward
   pkt.right_velocity_mm_s = -120;  // signed — negative == reverse
   pkt.crc = 0xABCD;
 
@@ -190,7 +194,7 @@ TEST(ProtocolRoundtrip, OdometryPacket)
   pkt.dt_millis = 20;
   pkt.left_ticks = 15000;
   pkt.right_ticks = 14900;
-  pkt.left_velocity_mm_s  = 250;
+  pkt.left_velocity_mm_s = 250;
   pkt.right_velocity_mm_s = 240;
 
   roundtrip_struct(pkt);
@@ -318,7 +322,7 @@ TEST(OdometryPacket, NegativeTicksRoundtrip)
   pkt.dt_millis = 20;
   pkt.left_ticks = -5000;
   pkt.right_ticks = -5100;
-  pkt.left_velocity_mm_s  = -180;
+  pkt.left_velocity_mm_s = -180;
   pkt.right_velocity_mm_s = -170;
 
   roundtrip_struct(pkt);

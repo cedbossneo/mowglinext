@@ -16,6 +16,7 @@ source "${INSTALL_LIB_DIR}/progress.sh"
 source "${INSTALL_LIB_DIR}/motd.sh"
 source "${INSTALL_LIB_DIR}/system.sh"
 source "${INSTALL_LIB_DIR}/docker.sh"
+source "${INSTALL_LIB_DIR}/backend_choice.sh"
 source "${INSTALL_LIB_DIR}/udev.sh"
 source "${INSTALL_LIB_DIR}/deploy.sh"
 source "${INSTALL_LIB_DIR}/env.sh"
@@ -27,6 +28,7 @@ source "${INSTALL_LIB_DIR}/rc_local.sh"
 source "${INSTALL_LIB_DIR}/checks.sh"
 source "${INSTALL_LIB_DIR}/compose.sh"
 source "${INSTALL_LIB_DIR}/tools.sh"
+
 
 load_preset() {
   local preset_file="${SCRIPT_DIR}/.preset"
@@ -47,19 +49,18 @@ main() {
   init_install_logs
 
   if ! $CHECK_ONLY; then
-    local TOTAL_STEPS=13
+    local TOTAL_STEPS=15
 
     # Language selection, load previous env, then load preset
     select_language
 
     # Load existing .env for defaults on re-run (preset/CLI flags override)
-    if [ -f "$INSTALL_DIR/.env" ]; then
+  if [ -f "$REPO_DIR/docker/.env" ]; then
       set -a
-      # shellcheck disable=SC1091
-      source "$INSTALL_DIR/.env"
+      source "$REPO_DIR/docker/.env"
       set +a
-      info "Loaded previous configuration from .env"
-    fi
+      info "Loaded previous configuration from docker/.env"
+  fi
 
     load_preset
 
@@ -71,47 +72,57 @@ main() {
 
     progress_run 3 "$TOTAL_STEPS" "Enabling UARTs" \
       'enable_all_platform_uarts && generate_rc_local'
+    
+    progress_run_interactive 4 "$TOTAL_STEPS" "Selecting hardware backend" \
+      select_hardware_backend
 
-    progress_run_interactive 4 "$TOTAL_STEPS" "Configuring GPS" \
+    progress_run_interactive 5 "$TOTAL_STEPS" "Configuring GPS" \
       run_gps_configuration_step
 
-    progress_run_interactive 5 "$TOTAL_STEPS" "Configuring LiDAR" \
+    progress_run_interactive 6 "$TOTAL_STEPS" "Configuring LiDAR" \
       run_lidar_configuration_step
 
-    progress_run_interactive 6 "$TOTAL_STEPS" "Configuring rangefinders" \
+    progress_run_interactive 7 "$TOTAL_STEPS" "Configuring rangefinders" \
       run_range_configuration_step
-
-    progress_run 7 "$TOTAL_STEPS" "Installing udev rules" \
-      'install_udev_rules'
 
     progress_run_interactive 8 "$TOTAL_STEPS" "Preparing repository" \
       setup_directory
 
-    progress_run 9 "$TOTAL_STEPS" "Writing environment" \
+    progress_run 9 "$TOTAL_STEPS" "Migrating runtime files" \
+      'migrate_runtime_paths'
+
+    progress_run 10 "$TOTAL_STEPS" "Writing environment" \
       'setup_env'
 
-    progress_run_interactive 10 "$TOTAL_STEPS" "Configuring mower" \
+    progress_run 11 "$TOTAL_STEPS" "Installing udev rules" \
+      'install_udev_rules'
+
+    progress_run_interactive 12 "$TOTAL_STEPS" "Configuring mower" \
       run_mower_configuration_step
 
-    progress_run_interactive 11 "$TOTAL_STEPS" "Installing optional tools" \
+    progress_run_interactive 13 "$TOTAL_STEPS" "Installing optional tools" \
       install_optional_tools
 
-    progress_run 12 "$TOTAL_STEPS" "Installing MOTD" \
+    progress_run 14 "$TOTAL_STEPS" "Installing MOTD" \
       'install_motd'
 
-    progress_run_live 13 "$TOTAL_STEPS" "Starting containers" \
+    progress_run_live 15 "$TOTAL_STEPS" "Starting containers" \
       run_startup_step_live
 
   else
     if [ ! -f "$INSTALL_DIR/compose/docker-compose.base.yml" ]; then
-      error "No installation found at $INSTALL_DIR — run without --check first"
+      error "No installation sources found at $INSTALL_DIR — run without --check first"
       return 1
     fi
 
-    cd "$INSTALL_DIR"
-    echo -e "${DIM}Running diagnostics on $INSTALL_DIR${NC}"
-  fi
+    if [ ! -f "$FINAL_COMPOSE_FILE" ]; then
+      error "No generated runtime compose found at $FINAL_COMPOSE_FILE — run installer first"
+      return 1
+    fi
 
+    cd "$DOCKER_DIR"
+    echo -e "${DIM}Running diagnostics on runtime at $DOCKER_DIR${NC}"
+  fi
   echo ""
   echo -e "${CYAN}${BOLD}══ System Health Check ══${NC}"
 
@@ -121,7 +132,6 @@ main() {
   check_gps
   check_lidar
   check_rangefinders
-  check_slam
   check_gui
 
   print_summary

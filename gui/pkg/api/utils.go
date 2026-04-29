@@ -9,13 +9,20 @@ import (
 )
 
 func snakeToCamel(in string) string {
+	if len(in) == 0 {
+		return ""
+	}
 	tmp := []rune(in)
 	tmp[0] = unicode.ToUpper(tmp[0])
 	for i := 0; i < len(tmp); i++ {
 		if tmp[i] == '_' {
-			tmp[i+1] = unicode.ToUpper(tmp[i+1])
-			tmp = append(tmp[:i], tmp[i+1:]...)
-			i--
+			if i+1 < len(tmp) {
+				tmp[i+1] = unicode.ToUpper(tmp[i+1])
+				tmp = append(tmp[:i], tmp[i+1:]...)
+				i--
+			} else {
+				tmp = tmp[:i]
+			}
 		}
 	}
 	return string(tmp)
@@ -37,6 +44,9 @@ func unmarshalROSMessage[T any](reader io.ReadCloser, out T) error {
 			return strings.ToLower(fieldName) == strings.ToLower(mapKey)
 		},
 	})
+	if err != nil {
+		return err
+	}
 	err = decoder.Decode(m)
 	if err != nil {
 		return err

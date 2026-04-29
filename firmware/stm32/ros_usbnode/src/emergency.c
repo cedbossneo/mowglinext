@@ -61,6 +61,7 @@ void  Emergency_SetState(uint8_t new_emergency_state)
             break;
         case EMERGENCY_CHECKING_ENABLE:
             emergency_checking_disabled = false;
+            break;
         default:
             emergency_state = new_emergency_state;
     }

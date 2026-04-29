@@ -25,7 +25,9 @@ config/
                                    #   install/config/mowgli at /ros2_ws/config/)
 ```
 
-There is **no** `slam_toolbox.yaml` or `kiss_icp.yaml`. robot_localization (sole dual-EKF localizer) is tuned through `robot_localization.yaml`, and Kinematic-ICP (LiDAR drift correction on a parallel TF tree) is tuned through `kinematic_icp.yaml`.
+There is **no** `slam_toolbox.yaml` or `kiss_icp.yaml`. robot_localization (the default dual-EKF localizer) is tuned through `robot_localization.yaml`, and Kinematic-ICP (LiDAR drift correction on a parallel TF tree) is tuned through `kinematic_icp.yaml`.
+
+The opt-in **fusion_graph** localizer (GTSAM iSAM2 — see [§7](#7-fusion_graph)) does **not** have a separate config file: its knobs are declared as ros2 parameters on `fusion_graph_node` and the high-level switches (`use_fusion_graph`, `use_scan_matching`, `use_loop_closure`, `use_magnetometer`) live in `mowgli_robot.yaml`. The Settings page exposes them under the *Localization* section.
 
 All YAML files use the ROS2 `ros__parameters` namespace convention. Parameters can be overridden via command-line:
 
@@ -67,6 +69,7 @@ foxglove_bridge:
     subscribed_topics:
       - /scan                         # LiDAR scan
       - /odometry/filtered_map        # Robot pose estimate from ekf_map_node
+                                      #   (or fusion_graph_node when use_fusion_graph:=true)
       - /costmap/costmap              # Global costmap
       - /local_costmap/costmap        # Local costmap
       - /path                         # Global plan
@@ -757,6 +760,76 @@ topics:
     priority: 100
 # Remove navigation source entirely
 ```
+
+---
+
+## 7. fusion_graph (factor-graph localizer) {#7-fusion_graph}
+
+**Files:** none — `fusion_graph_node` declares all knobs as ros2 parameters at startup. The high-level toggles live in `mowgli_robot.yaml`; runtime overrides are passed on the `navigation.launch.py` command line.
+
+**Purpose:** opt-in replacement for `ekf_map_node` built on **GTSAM iSAM2**. Same wire contract — `/odometry/filtered_map` + `map → odom` TF — but the map-frame estimate is the result of a Pose2 factor graph that can carry LiDAR scan-matching and loop-closure factors through extended RTK-Float windows. See [Architecture → Optional: Factor-Graph Localizer](Architecture#optional-factor-graph-localizer-fusion_graph) for the steady-state design.
+
+### Activation
+
+```bash
+# Per-launch override (one-shot)
+ros2 launch mowgli_bringup navigation.launch.py use_fusion_graph:=true
+
+# Persistent: set in mowgli_robot.yaml (also exposed in the Settings → Localization section)
+mowgli:
+  ros__parameters:
+    use_fusion_graph: true
+    use_scan_matching: true
+    use_loop_closure: true
+    use_magnetometer: false
+```
+
+The legacy EKF (`ekf_map_node`) and `fusion_graph_node` are **mutually exclusive** in `navigation.launch.py`: only one publishes `map → odom`. `ekf_odom_node` (local EKF, `odom → base_footprint`) runs in both modes.
+
+### Key parameters
+
+| Parameter | Default | Notes |
+|---|---|---|
+| `node_period_s` | 0.1 | Graph node creation cadence (10 Hz). |
+| `stationary_node_period_s` | 5.0 | Throttled node period when motion is below the stationary threshold — bounds graph growth on the dock. |
+| `wheel_sigma_x / sigma_y / sigma_theta` | 0.05 / 0.005 / 0.01 | Body-frame between-factor noise. `sigma_y` ≪ `sigma_x` enforces non-holonomic motion. |
+| `gyro_sigma_theta` | 0.005 | Yaw between-factor noise from `/imu/data`. |
+| `gps_sigma_floor` | 0.003 | Lower bound for the GPS XY noise (3 mm) — prevents over-trusting RTK-Fixed reports with under-estimated covariance. |
+| `cov_update_every_n` | 10 | Skip-rate for the marginal covariance recompute (the diagonals on `/odometry/filtered_map`). |
+| `isam2_relinearize_skip` | 5 | iSAM2 relinearization throttle. |
+| `isam2_rebase_every_nodes` | 2000 | Periodic iSAM2 rebase to bound per-tick update cost. |
+| `scan_retention_nodes` | 18000 | Drop body-frame scans older than this many nodes (~30 minutes at 10 Hz). |
+| `lc_max_dist_m` / `lc_min_age_s` / `lc_max_candidates` / `lc_max_rmse` | 5.0 / 600.0 / 3 / 0.20 | Loop-closure search/accept gates. |
+| `icp_max_iter` / `icp_max_corresp_dist` / `icp_source_subsample` | 10 / 0.5 / 1 | Per-tick scan matcher; ten iterations converge within 1 mm of the 15-iteration solution on outdoor LiDAR shapes. |
+| `autoload_graph` | true | Resume from `<graph_save_prefix>.{graph,scans,meta}` on startup. |
+| `auto_save_enabled` | true | Auto-checkpoint on RECORDING→IDLE, dock arrival, and every `periodic_save_period_s` during AUTONOMOUS state. |
+| `graph_save_prefix` | `/ros2_ws/maps/fusion_graph` | Base path for the three persistence files. |
+| `primary_mode` | true | Broadcast `map → odom` TF. Set false to run as an observer alongside `ekf_map_node`. |
+
+### Topics, services
+
+- **`/fusion_graph/diagnostics`** (`diagnostic_msgs/DiagnosticArray`, 1 Hz) — exposes `total_nodes`, `scans_attached`, `loop_closures`, `scans_received`, `scan_matches_ok`, `scan_matches_fail`, `cov_xx`, `cov_yy`, `cov_yawyaw`. Surfaced in the GUI's *Diagnostics → Fusion Graph (iSAM2)* panel.
+- **`/fusion_graph/markers`** (`visualization_msgs/MarkerArray`, 1 Hz, transient_local) — node positions, trajectory, loop-closure edges. Visible in Foxglove with no extra setup.
+- **`/imu/fg_yaw`** (`sensor_msgs/Imu`, 10 Hz) — yaw-only output that can be fused by `ekf_map_node` as a tight yaw source in observer mode (replacing `/imu/mag_yaw` when the magnetometer is unreliable).
+- **`~/save_graph`** (`std_srvs/Trigger`) — persists the graph immediately. Wired to the *Save graph* button in the GUI.
+- **`~/clear_graph`** (`std_srvs/Trigger`) — wipes the graph. The next valid pose seed (GPS, set_pose, or scan-match relocalization) re-initializes. Wired to the *Clear graph* button in the GUI.
+
+### Persistence
+
+Graph state lives on disk under `<graph_save_prefix>.*`:
+
+- `.graph` — gtsam factor graph + optimized values (XML).
+- `.scans` — binary blob: per-node body-frame LiDAR points.
+- `.meta` — text: next index, last node time, datum lat/lon.
+
+Idempotent overwrite. Saving from the GUI button is identical to the auto-checkpoint that fires on dock arrival; the operator typically only invokes Save explicitly before manually shutting down ROS2.
+
+### Tuning notes
+
+- **Drift after a long RTK-Float window**: lower `gps_sigma_floor` only if you trust RTK-Fixed bursts more than the wheel/scan factors — most installations should leave it at 3 mm.
+- **CPU budget**: scan-matching costs ~5 ms/tick at 10 Hz on a Pi 4. If you see the maintenance timer overrunning, raise `isam2_relinearize_skip` to 10 or set `icp_source_subsample` to 2 before disabling `use_scan_matching` outright.
+- **Graph too large after weeks**: tune `isam2_rebase_every_nodes` down to 1500 — the rebase preserves the optimized values but drops accumulated between-factors.
+- **LiDAR is unreliable in winter (snow on rotor, low visibility)**: leave `use_scan_matching:=true`, just disable `use_loop_closure` to avoid a stale match getting promoted to a loop-closure factor.
 
 ---
 

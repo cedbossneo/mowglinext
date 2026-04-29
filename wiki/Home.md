@@ -29,7 +29,7 @@ Welcome to the MowgliNext documentation wiki — the reference hub for the open-
 
 ```
 mowglinext/
-├── ros2/        ROS2 stack (Nav2, robot_localization dual EKF, Kinematic-ICP, BT, coverage planner)
+├── ros2/        ROS2 stack (Nav2, robot_localization dual EKF, opt-in fusion_graph (GTSAM iSAM2), Kinematic-ICP, BT, coverage planner)
 ├── docker/      Docker Compose deployment and config
 ├── sensors/     Dockerized sensor drivers (GPS, LiDAR)
 ├── gui/         React + Go web interface
@@ -42,7 +42,7 @@ mowglinext/
 ## Key Design Decisions
 
 1. **base_link at rear wheel axis** — OpenMower convention.
-2. **robot_localization (dual EKF) is the sole localizer.** `ekf_odom_node` owns `odom → base_footprint` (wheels + gyro, continuous), `ekf_map_node` owns `map → odom` (adds `/gps/pose_cov` + GPS-COG yaw). Both run under `two_d_mode`. Kinematic-ICP's output enters `ekf_odom_node` as a body-frame twist on `/encoder2/odom`. No SLAM.
+2. **Two interchangeable map-frame localizers, picked at launch.** `ekf_odom_node` always owns `odom → base_footprint` (wheels + gyro, continuous). For `map → odom`, the default is `ekf_map_node` (robot_localization global EKF, fuses `/gps/pose_cov` + GPS-COG yaw + optional mag yaw under `two_d_mode`). Setting `use_fusion_graph:=true` swaps it for `fusion_graph_node` — a GTSAM iSAM2 factor graph with the same inputs plus optional LiDAR scan-matching and loop-closure factors. Kinematic-ICP feeds the local EKF in both modes. No SLAM in either case — the `/map` is built from user-recorded area polygons.
 3. **Cyclone DDS** — replaces FastRTPS (stale shm on ARM).
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation.
 5. **Firmware is blade safety authority** — ROS2 is fire-and-forget.

@@ -28,17 +28,15 @@ Brings up:
      continuous absolute-yaw observation with adaptive covariance), and
      mag_yaw_publisher (tilt-compensated LIS3MDL magnetometer yaw, gated on
      /ros2_ws/maps/mag_calibration.yaml existing).
-  3. Kinematic-ICP (optional, gated on use_lidar) runs on a decoupled parallel
-     TF tree (wheel_odom_raw -> base_footprint_wheels -> lidar_link_wheels)
-     and feeds ekf_odom via the encoder2 adapter.
-  4. Nav2 bringup — full navigation stack (controllers, planners, recoveries,
+  3. Nav2 bringup — full navigation stack (controllers, planners, recoveries,
      BT navigator, costmaps, lifecycle).
 
 Architecture (REP-105):
   map → (ekf_map) → odom → (ekf_odom) → base_footprint → base_link → sensors
-  There is no SLAM. GPS is fused through navsat_transform into ekf_map.
-  Kinematic-ICP provides LiDAR-derived twist on encoder2 for dead-reckoning
-  during GPS degradation.
+  ekf_map fuses /gps/pose_cov (from navsat_to_absolute_pose_node, datum +
+  lever-arm corrected) as pose0. The slam_toolbox RTK fallback that
+  previously fed /map_pose has been removed; fusion_graph (planned, see
+  docs/HANDOFF_FUSION_GRAPH.md) will replace ekf_map_node end-to-end.
 """
 
 import os
@@ -68,6 +66,65 @@ def generate_launch_description() -> LaunchDescription:
     bringup_dir = get_package_share_directory("mowgli_bringup")
 
     # ------------------------------------------------------------------
+    # Pre-read mowgli_robot.yaml for launch-arg defaults.
+    # Operator-facing toggles (use_fusion_graph, use_magnetometer) live
+    # in the runtime config so they survive container restarts and the
+    # GUI can flip them without editing launch files. CLI override
+    # (foo:=true) still wins because DeclareLaunchArgument applies its
+    # default only when no CLI value is set.
+    # ------------------------------------------------------------------
+    _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
+    _early_use_fusion_graph = "false"
+    _early_use_magnetometer = "false"
+    _early_use_scan_matching = "false"
+    _early_use_loop_closure = "false"
+    if os.path.isfile(_runtime_cfg_path):
+        try:
+            with open(_runtime_cfg_path, "r") as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            _rp = _cfg.get("mowgli", {}).get("ros__parameters", {})
+            _early_use_fusion_graph = "true" if bool(
+                _rp.get("use_fusion_graph", False)) else "false"
+            _early_use_magnetometer = "true" if bool(
+                _rp.get("use_magnetometer", False)) else "false"
+            _early_use_scan_matching = "true" if bool(
+                _rp.get("use_scan_matching", False)) else "false"
+            _early_use_loop_closure = "true" if bool(
+                _rp.get("use_loop_closure", False)) else "false"
+        except yaml.YAMLError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Auto-graduation rule for fusion_graph
+    # ------------------------------------------------------------------
+    # When the operator opts in (`use_fusion_graph: true` in
+    # mowgli_robot.yaml), we still don't blindly hand over map→odom
+    # to fusion_graph_node — a polluted/half-built graph could spin
+    # Nav2 in a wrong frame. Instead:
+    #
+    #   - If a persisted graph exists on disk → fusion_graph runs as
+    #     PRIMARY (owns map→odom + /odometry/filtered_map). ekf_map
+    #     is skipped. Loop closure honours the operator yaml flag.
+    #   - If no graph file → fusion_graph runs in OBSERVER mode
+    #     (publishes to /fusion_graph/odometry, no TF). ekf_map keeps
+    #     driving Nav2. Loop closure is force-OFF (nothing meaningful
+    #     to close against in a bootstrapping graph). On dock arrival
+    #     fusion_graph auto-saves; the next boot picks up the file
+    #     and graduates to PRIMARY.
+    #
+    # This way the operator never has to time the use_fusion_graph
+    # flip — the system bootstraps itself.
+    _graph_file = "/ros2_ws/maps/fusion_graph.graph"
+    _graph_exists = os.path.isfile(_graph_file)
+    _early_primary_mode = (
+        "true" if _early_use_fusion_graph == "true" and _graph_exists
+        else "false"
+    )
+    _effective_use_loop_closure = (
+        _early_use_loop_closure if _graph_exists else "false"
+    )
+
+    # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
     use_sim_time_arg = DeclareLaunchArgument(
@@ -85,7 +142,37 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value="true",
-        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Also skips Kinematic-ICP LiDAR odometry.",
+        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through).",
+    )
+
+    use_fusion_graph_arg = DeclareLaunchArgument(
+        "use_fusion_graph",
+        default_value=_early_use_fusion_graph,
+        description="Replace ekf_map_node with fusion_graph_node (GTSAM). Default read from mowgli_robot.yaml.use_fusion_graph; CLI override wins. ekf_odom_node keeps publishing odom->base_footprint either way.",
+    )
+
+    use_magnetometer_arg = DeclareLaunchArgument(
+        "use_magnetometer",
+        default_value=_early_use_magnetometer,
+        description="Enable magnetometer yaw fusion. Default read from mowgli_robot.yaml.use_magnetometer; CLI override wins. OFF on chassis without motor-isolated mag.",
+    )
+
+    use_scan_matching_arg = DeclareLaunchArgument(
+        "use_scan_matching",
+        default_value=_early_use_scan_matching,
+        description="LiDAR scan-matching between consecutive nodes (fusion_graph). Default read from mowgli_robot.yaml.",
+    )
+
+    use_loop_closure_arg = DeclareLaunchArgument(
+        "use_loop_closure",
+        default_value=_effective_use_loop_closure,
+        description="Loop-closure search against earlier graph nodes (fusion_graph). Default read from mowgli_robot.yaml AND gated on a persisted graph file existing on disk — first session can't loop-close against itself.",
+    )
+
+    primary_mode_arg = DeclareLaunchArgument(
+        "primary_mode",
+        default_value=_early_primary_mode,
+        description="Auto-set: true when use_fusion_graph is yes AND a persisted graph exists on disk (fusion_graph drives Nav2). False otherwise (fusion_graph runs in observer mode building a graph for next session, ekf_map_node drives Nav2).",
     )
 
     # ------------------------------------------------------------------
@@ -94,6 +181,11 @@ def generate_launch_description() -> LaunchDescription:
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_ekf = LaunchConfiguration("use_ekf")
     use_lidar = LaunchConfiguration("use_lidar")
+    use_fusion_graph = LaunchConfiguration("use_fusion_graph")
+    use_magnetometer = LaunchConfiguration("use_magnetometer")
+    use_scan_matching = LaunchConfiguration("use_scan_matching")
+    use_loop_closure = LaunchConfiguration("use_loop_closure")
+    primary_mode = LaunchConfiguration("primary_mode")
 
     # ------------------------------------------------------------------
     # Config paths
@@ -102,8 +194,19 @@ def generate_launch_description() -> LaunchDescription:
     nav2_params_no_lidar = os.path.join(bringup_dir, "config", "nav2_params_no_lidar.yaml")
 
     # Compute robot footprint from mowgli_robot.yaml so Nav2 costmaps
-    # match the actual chassis shape regardless of mower model.
-    robot_config_file = os.path.join(bringup_dir, "config", "mowgli_robot.yaml")
+    # match the actual chassis shape regardless of mower model. Prefer
+    # the runtime config (install/, mounted at /ros2_ws/config) which
+    # reflects the operator-calibrated chassis values; fall back to the
+    # in-package template only when the runtime mount is unavailable
+    # (e.g. running outside the production container). Earlier versions
+    # of this launch always read the package template, which silently
+    # diverged from the URDF (mowgli.launch.py uses the runtime path)
+    # and gave Nav2 a footprint that did not match the actual robot.
+    runtime_config = "/ros2_ws/config/mowgli_robot.yaml"
+    template_config = os.path.join(bringup_dir, "config", "mowgli_robot.yaml")
+    robot_config_file = (
+        runtime_config if os.path.isfile(runtime_config) else template_config
+    )
     footprint_str = ""
     if os.path.isfile(robot_config_file):
         with open(robot_config_file, "r") as f:
@@ -143,6 +246,8 @@ def generate_launch_description() -> LaunchDescription:
     #                      for discoverability).
     transit_speed = 0.3
     mowing_speed = 0.25
+    datum_lat = 0.0
+    datum_lon = 0.0
     runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
     if os.path.isfile(runtime_robot_config):
         with open(runtime_robot_config, "r") as f:
@@ -153,6 +258,8 @@ def generate_launch_description() -> LaunchDescription:
         dock_pose_yaw = float(rt_rp.get("dock_pose_yaw", 0.0))
         transit_speed = float(rt_rp.get("transit_speed", transit_speed))
         mowing_speed = float(rt_rp.get("mowing_speed", mowing_speed))
+        datum_lat = float(rt_rp.get("datum_lat", 0.0))
+        datum_lon = float(rt_rp.get("datum_lon", 0.0))
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -202,11 +309,11 @@ def generate_launch_description() -> LaunchDescription:
         fp["desired_linear_vel"] = transit_speed
 
         # FollowCoveragePath (FTC: coverage strip controller). Its speed
-        # knob is desired_linear_vel; mowing_speed overrides it.
+        # knob is speed_fast; mowing_speed overrides it.
         fcp = (doc.setdefault("controller_server", {})
                   .setdefault("ros__parameters", {})
                   .setdefault("FollowCoveragePath", {}))
-        fcp["desired_linear_vel"] = mowing_speed
+        fcp["speed_fast"] = mowing_speed
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", prefix="mowgli_nav2_", suffix=".yaml", delete=False)
@@ -242,26 +349,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 1. Kinematic-ICP LiDAR odometry
-    #    Launched by kinematic_icp.launch.py: wheel_odom_tf_node +
-    #    kinematic_icp_online_node + kinematic_icp_encoder_adapter.
-    #    Gated entirely on use_lidar. Kinematic-ICP does NOT publish the
-    #    odom TF; the adapter republishes /kinematic_icp/lidar_odometry as
-    #    /encoder2/odom so ekf_odom can fuse it as a wheel-odom-like
-    #    source, with the kinematic prior enforcing non-holonomic motion.
-    # ------------------------------------------------------------------
-    kinematic_icp_group = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(bringup_dir, "launch", "kinematic_icp.launch.py")
-        ),
-        condition=IfCondition(use_lidar),
-        launch_arguments={
-            "use_sim_time": use_sim_time,
-        }.items(),
-    )
-
-    # ------------------------------------------------------------------
-    # 4. Nav2 navigation (controllers, planners, behaviors, BT navigator)
+    # 1. Nav2 navigation (controllers, planners, behaviors, BT navigator)
     # ------------------------------------------------------------------
     # Gate Nav2 startup on the map→odom TF being available.
     wait_for_tf_script = os.path.join(
@@ -361,7 +449,13 @@ def generate_launch_description() -> LaunchDescription:
     # correction with map yaw) is what ekf_map actually fuses.
     # /gps/filtered (foxglove visualisation) is replaced by /gps/absolute_pose.
 
+    # ekf_map_node — runs whenever fusion_graph is NOT in primary mode.
+    # That covers: use_fusion_graph=false (operator opted out) AND
+    # use_fusion_graph=true but no persisted graph yet (bootstrap
+    # session — fusion_graph builds the graph in observer mode while
+    # ekf_map keeps driving Nav2).
     ekf_map_node = Node(
+        condition=UnlessCondition(primary_mode),
         package="robot_localization",
         executable="ekf_node",
         name="ekf_map_node",
@@ -379,12 +473,36 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # fusion_graph_node — GTSAM iSAM2 factor-graph localizer (planned
+    # replacement for ekf_map_node). Mutually exclusive with the EKF
+    # above. Reads datum + lever-arm from mowgli_robot.yaml inside the
+    # fusion_graph launch include.
+    fusion_graph_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("fusion_graph"),
+                "launch", "fusion_graph.launch.py",
+            )
+        ),
+        # Run whenever the operator wants fusion_graph at all — the
+        # primary_mode flag inside the include decides whether it
+        # owns map→odom or just observes.
+        condition=IfCondition(use_fusion_graph),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+            "use_magnetometer": use_magnetometer,
+            "use_scan_matching": use_scan_matching,
+            "use_loop_closure": use_loop_closure,
+            "primary_mode": primary_mode,
+        }.items(),
+    )
+
     # Seeds ekf_map with the dock heading on rising edges of is_charging.
     # Fires once per docking event plus once at boot if the robot is
     # already docked.
     dock_yaw_to_set_pose = Node(
         package="mowgli_localization",
-        executable="dock_yaw_to_set_pose.py",
+        executable="dock_yaw_to_set_pose",
         name="dock_yaw_to_set_pose",
         output="screen",
         parameters=[
@@ -399,21 +517,31 @@ def generate_launch_description() -> LaunchDescription:
     # gyro drift every /gps/absolute_pose sample.
     cog_to_imu = Node(
         package="mowgli_localization",
-        executable="cog_to_imu.py",
+        executable="cog_to_imu",
         name="cog_to_imu",
         output="screen",
         parameters=[
-            {"use_sim_time": use_sim_time},
+            {"use_sim_time": use_sim_time,
+             "datum_lat": datum_lat,
+             "datum_lon": datum_lon},
         ],
     )
 
     # Publishes tilt-compensated magnetic heading as a synthetic
-    # sensor_msgs/Imu on /imu/mag_yaw. Active as soon as mag_calibration.yaml
-    # exists (written by /calibrate_imu_yaw_node/calibrate). Unlike
-    # cog_to_imu this works with the robot stationary or rotating in place.
+    # sensor_msgs/Imu on /imu/mag_yaw. Gated on use_magnetometer:=true
+    # AND the presence of mag_calibration.yaml. Default OFF: on the
+    # current chassis the motor field induces a heading-dependent bias
+    # the static cal cannot remove, so feeding mag yaw into the EKF or
+    # the factor graph poisons the map-frame yaw. Only launch if the
+    # operator has explicitly opted in (e.g. on a motor-isolated mag).
+    mag_cal_path = "/ros2_ws/maps/mag_calibration.yaml"
+    mag_cal_present = "true" if os.path.isfile(mag_cal_path) else "false"
     mag_yaw_publisher = Node(
+        condition=IfCondition(PythonExpression(
+            ["'", use_magnetometer, "' == 'true' and ",
+             "'", mag_cal_present, "' == 'true'"])),
         package="mowgli_localization",
-        executable="mag_yaw_publisher.py",
+        executable="mag_yaw_publisher",
         name="mag_yaw_publisher",
         output="screen",
         parameters=[
@@ -421,27 +549,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    # Inverse-variance fusion of /wheel_odom and K-ICP /encoder2/odom into
-    # /wheel_odom_fused. ekf_odom_node subscribes to /wheel_odom_fused as
-    # its sole odom input — robot_localization's odom1 fusion path caps
-    # the EKF publisher at 5 Hz whenever any publisher is alive on it, so
-    # we fold K-ICP into the wheel input upstream and skip odom1 entirely.
-    # Falls back to wheel-only when K-ICP is silent (>250 ms stale), so
-    # this node is also safe with use_lidar:=false (just transparently
-    # republishes wheel as fused).
-    wheel_kicp_blend = Node(
-        package="mowgli_localization",
-        executable="wheel_kicp_blend.py",
-        name="wheel_kicp_blend",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": use_sim_time,
-                "kicp_max_age_sec": 0.25,
-                "output_topic": "/wheel_odom_fused",
-            }
-        ],
-    )
+    # ekf_odom_node subscribes to /wheel_odom directly (see
+    # robot_localization.yaml). ekf_map_node fuses /gps/pose_cov directly
+    # as pose0 (published by navsat_to_absolute_pose_node).
 
     # ------------------------------------------------------------------
     # LaunchDescription
@@ -451,18 +561,19 @@ def generate_launch_description() -> LaunchDescription:
             use_sim_time_arg,
             use_ekf_arg,
             use_lidar_arg,
+            use_fusion_graph_arg,
+            use_magnetometer_arg,
+            use_scan_matching_arg,
+            use_loop_closure_arg,
+            primary_mode_arg,
             # robot_localization dual EKF + helpers
             static_gps_link_alias,
             ekf_odom_node,
             ekf_map_node,
+            fusion_graph_launch,
             dock_yaw_to_set_pose,
             cog_to_imu,
             mag_yaw_publisher,
-            wheel_kicp_blend,
-            # Kinematic-ICP (LiDAR drift correction feeding ekf_odom via
-            # /encoder2/odom — retained under the robot_localization
-            # backend to shore up dead-reckoning during GPS degradation).
-            kinematic_icp_group,
             wait_for_map_odom_tf,
             nav2_after_tf,
         ]

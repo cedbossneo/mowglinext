@@ -89,7 +89,7 @@ private:
   ///
   /// UNLIKE pose_pub_ this publishes BASE FRAME (base_footprint) position —
   /// not antenna position. Lever arm is subtracted using the latest
-  /// map→base_footprint TF for the yaw at GPS-fix time. Required so the
+  /// odom→base_footprint TF for the yaw at GPS-fix time. Required so the
   /// EKF tracks the robot body and not the 30-cm antenna circle traced
   /// during pure rotation.
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_cov_pub_;
@@ -108,6 +108,18 @@ private:
   bool lever_arm_known_{false};
   double lever_arm_x_{0.0};
   double lever_arm_y_{0.0};
+
+  /// Static yaw uncertainty used for lever-arm covariance propagation.
+  /// We deliberately do NOT subscribe to ekf_map's own σ²_yaw because
+  /// (a) over-confident EKF states would shrink the inflation to ~zero
+  /// and reintroduce the over-trust feedback we are trying to prevent,
+  /// and (b) over-conservative bootstrap states would balloon pose_cov
+  /// to "ignore me" precision, removing the implicit yaw-anchoring that
+  /// tight pose_cov provides through xy↔yaw cross-covariance during
+  /// COG-poor windows. A constant 3° sigma adds ~1.6 cm of position σ
+  /// to RTK's 5 mm — realistic for the lever-arm uncertainty without
+  /// destroying EKF anchoring.
+  double lever_arm_yaw_sigma_{0.0524};  ///< 3° = 0.0524 rad
 };
 
 }  // namespace mowgli_localization

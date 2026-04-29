@@ -13,7 +13,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_footprint
-    odom_topic: /wheel_odom
+    odom_topic: /odometry/filtered
     bt_loop_duration: 10
     default_server_timeout: 60
     # Custom Nav2 BT that adds GoalCheckerSelector (required when multiple
@@ -187,6 +187,7 @@ behavior_server:
     max_rotational_vel: 3.0
     min_rotational_vel: 0.15
     rotational_acc_lim: 5.0
+    enable_stamped_cmd_vel: true
 
 # ---------------------------------------------------------------------------
 # Waypoint follower
@@ -216,7 +217,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_footprint
       transform_tolerance: 5.0
-      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
+      footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
       track_unknown_space: false
       rolling_window: true
@@ -249,7 +250,7 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_footprint
-      footprint: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
+      footprint: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       resolution: 0.05
       rolling_window: true
       width: 6
@@ -341,7 +342,7 @@ collision_monitor:
     polygons: ["PolygonStop", "FootprintApproach"]
     PolygonStop:
       type: "polygon"
-      points: "[[0.45, 0.20], [0.45, -0.20], [-0.09, -0.20], [-0.09, 0.20]]"
+      points: "[[0.50, 0.20], [0.50, -0.20], [-0.10, -0.20], [-0.10, 0.20]]"
       action_type: "stop"
       min_points: 2
       visualize: false

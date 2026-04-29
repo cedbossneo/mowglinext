@@ -6,6 +6,7 @@ export type SettingsSection =
     | "hardware"
     | "positioning"
     | "sensors"
+    | "localization"
     | "mowing"
     | "docking"
     | "battery"
@@ -62,6 +63,16 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
             // editable form field caused user edits to silently lose effect.
             // mowgli_robot.yaml still holds a fallback default for fresh
             // installs but is not surfaced in the UI anymore.
+        ],
+    },
+    {
+        id: "localization",
+        label: "Localization",
+        icon: "node-index",
+        description: "Map-frame fusion strategy and optional LiDAR factors",
+        keys: [
+            "use_fusion_graph", "use_scan_matching", "use_loop_closure",
+            "use_magnetometer",
         ],
     },
     {
@@ -235,12 +246,25 @@ export const useSettingsManager = () => {
         setLocalValues({ ...savedValues });
     }, [savedValues]);
 
-    // Get keys that don't belong to any defined section
+    // Get keys that don't belong to any defined section.
+    // dock_pose_x/y/yaw are excluded because they are runtime-calibrated
+    // (dock_calibration.yaml) and the legacy mowgli_robot.yaml entry is only
+    // a cold-boot fallback. slam_mode is excluded because slam_toolbox was
+    // removed in the FusionCore→iSAM2 migration; it survives in old YAMLs as
+    // dead config that would silently mislead anyone who edits it.
+    const HIDDEN_FROM_ADVANCED = new Set([
+        "dock_pose_x",
+        "dock_pose_y",
+        "dock_pose_yaw",
+        "slam_mode",
+    ]);
     const advancedKeys = useMemo(() => {
         const knownKeys = new Set(
             SECTION_DEFINITIONS.filter((s) => s.id !== "advanced").flatMap((s) => s.keys)
         );
-        return Object.keys(localValues).filter((k) => !knownKeys.has(k));
+        return Object.keys(localValues).filter(
+            (k) => !knownKeys.has(k) && !HIDDEN_FROM_ADVANCED.has(k),
+        );
     }, [localValues]);
 
     // Search filtering

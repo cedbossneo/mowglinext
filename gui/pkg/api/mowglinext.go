@@ -5,8 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/cedbossneo/mowglinext/pkg/msgs/geometry"
@@ -20,7 +23,15 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser clients
+		}
+		// Allow same-host connections
+		host := r.Host
+		return strings.Contains(origin, host)
+	},
 }
 
 func MowgliNextRoutes(r *gin.RouterGroup, provider types.IRosProvider) {
@@ -137,7 +148,11 @@ func ReplaceMapRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 		}
 
 		// Persist areas to disk so they survive container restarts
-		_ = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
+		err = provider.CallService(ctx, "/map_server_node/save_areas", &mowgli.ClearMapReq{}, &mowgli.ClearMapRes{}, "std_srvs/srv/Trigger")
+		if err != nil {
+			c.JSON(500, ErrorResponse{Error: fmt.Sprintf("areas added but save_areas failed: %v", err)})
+			return
+		}
 
 		c.JSON(200, OkResponse{})
 	})
@@ -236,6 +251,8 @@ func SubscriberRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			def, err = subscribe(provider, c, conn, "cogHeading", 200)
 		case "magYaw":
 			def, err = subscribe(provider, c, conn, "magYaw", 200)
+		case "fusionDiag":
+			def, err = subscribe(provider, c, conn, "fusionDiag", -1)
 		default:
 			log.Printf("SubscriberRoute: unknown topic %q", topic)
 			return
@@ -294,10 +311,13 @@ func PublisherRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 func subscribe(provider types.IRosProvider, c *gin.Context, conn *websocket.Conn, topic string, interval int) (func(), error) {
 	id := uuid.Generate()
 	uidString := id.String()
+	var writeMu sync.Mutex
 	err := provider.Subscribe(topic, uidString, func(msg []byte) {
 		if interval > 0 {
 			time.Sleep(time.Duration(interval) * time.Millisecond)
 		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		writer, err := conn.NextWriter(websocket.TextMessage)
 		if err != nil {
 			c.Error(err)
@@ -375,6 +395,25 @@ func ServiceRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			}
 			var res TriggerRes
 			err = provider.CallService(c.Request.Context(), "/navsat_to_absolute_pose/set_datum", &struct{}{}, &res, "std_srvs/srv/Trigger")
+			if err == nil && !res.Success {
+				err = errors.New(res.Message)
+			}
+			if err == nil {
+				c.JSON(200, map[string]interface{}{"message": res.Message})
+				return
+			}
+		case "fusion_graph_save", "fusion_graph_clear":
+			// Both target std_srvs/Trigger services on fusion_graph_node.
+			type TriggerRes struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+			}
+			service := "/fusion_graph_node/save_graph"
+			if command == "fusion_graph_clear" {
+				service = "/fusion_graph_node/clear_graph"
+			}
+			var res TriggerRes
+			err = provider.CallService(c.Request.Context(), service, &struct{}{}, &res, "std_srvs/srv/Trigger")
 			if err == nil && !res.Success {
 				err = errors.New(res.Message)
 			}

@@ -7,8 +7,23 @@
 #
 # Gazebo runs headless (CPU rendering) — connect Foxglove Studio to
 # ws://localhost:8765 for visualization.
+#
+# Fast-iterate optimisation: pass --build-arg BASE_IMAGE=<per-branch CI image>
+# to skip ~10 minutes of apt-install (Nav2 / ROS plugins / slam_toolbox are
+# already baked in) and let post-create.sh detect that /ros2_ws/install/
+# is already populated, turning colcon build into a fast incremental.
+#
+# Example:
+#   docker build \
+#     --build-arg BASE_IMAGE=ghcr.io/cedbossneo/mowglinext/mowgli-ros2:feat-my-branch \
+#     -f .devcontainer/Dockerfile -t mowglinext-devcontainer .
+#
+# Default (ros:kilted-ros-base) reproduces the upstream Codespaces flow
+# bit-for-bit; that is what CI uses so contributors get an identical
+# environment.
 # =============================================================================
-FROM ros:kilted-ros-base
+ARG BASE_IMAGE=ros:kilted-ros-base
+FROM ${BASE_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
 

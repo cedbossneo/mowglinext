@@ -23,6 +23,7 @@ func setupConfigRouter(db types.IDBProvider) *gin.Engine {
 
 func TestConfigEnvRoute_Success(t *testing.T) {
 	db := types.NewMockDBProvider()
+	db.Set("system.map.enabled", []byte("true"))
 	db.Set("system.map.tileUri", []byte("/tiles/test/{x}/{y}/{z}"))
 
 	router := setupConfigRouter(db)
@@ -39,9 +40,12 @@ func TestConfigEnvRoute_Success(t *testing.T) {
 	assert.Equal(t, "/tiles/test/{x}/{y}/{z}", resp.TileUri)
 }
 
-func TestConfigEnvRoute_NoKey(t *testing.T) {
+func TestConfigEnvRoute_TileProxyDisabled(t *testing.T) {
 	db := types.NewMockDBProvider()
-	// Don't set the tileUri key
+	// system.map.enabled defaults to false; the tile proxy is not mounted, so
+	// the env endpoint must return an empty tileUri rather than a /tiles/...
+	// URL the GUI would 404 on.
+	db.Set("system.map.tileUri", []byte("/tiles/test/{x}/{y}/{z}"))
 
 	router := setupConfigRouter(db)
 
@@ -49,7 +53,12 @@ func TestConfigEnvRoute_NoKey(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/api/config/envs", nil)
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp GetConfigResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "", resp.TileUri)
 }
 
 func TestConfigSetKeysRoute_Success(t *testing.T) {

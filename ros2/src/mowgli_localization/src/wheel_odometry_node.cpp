@@ -135,7 +135,7 @@ void WheelOdometryNode::on_wheel_tick(mowgli_interfaces::msg::WheelTick::ConstSh
   {
     prev_ticks_left_ = msg->wheel_ticks_rl;
     prev_ticks_right_ = msg->wheel_ticks_rr;
-    last_tick_time_   = now();
+    last_tick_time_ = now();
     first_tick_ = false;
     return;
   }

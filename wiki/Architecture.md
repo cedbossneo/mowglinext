@@ -6,12 +6,17 @@ Built on **ROS2 Kilted** with **Gazebo Harmonic** simulation, this architecture 
 
 ## Localization at a glance
 
+The map-frame localizer has **two interchangeable backends**, picked at launch time via the `use_fusion_graph` arg on `navigation.launch.py` (defaults to `false`). The local odometry path and the area / coverage layers are unaffected.
+
 | Layer | Owner | Notes |
 |---|---|---|
-| `map → odom` | `ekf_map_node` @ 30 Hz | robot_localization global EKF; fuses wheels + gyro + `/gps/pose_cov` + GPS-COG absolute yaw under `two_d_mode`. Datum from `mowgli_robot.yaml`. No SLAM. |
-| `odom → base_footprint` | `ekf_odom_node` @ 50 Hz | robot_localization local EKF; fuses wheels + gyro_z (and Kinematic-ICP twist on `/encoder2/odom` when LiDAR is enabled). Continuous, never jumps. |
+| `map → odom` (default, `use_fusion_graph:=false`) | `ekf_map_node` @ 30 Hz | robot_localization global EKF; fuses wheels + gyro + `/gps/pose_cov` + GPS-COG absolute yaw + (optional) `/imu/mag_yaw` under `two_d_mode`. Datum from `mowgli_robot.yaml`. No SLAM. |
+| `map → odom` (opt-in, `use_fusion_graph:=true`) | `fusion_graph_node` @ 10 Hz | GTSAM iSAM2 factor-graph localizer. Same inputs as the EKF, plus a custom `GnssLeverArmFactor` (analytic Jacobian) and optional LiDAR scan-matching / loop-closure factors. Publishes the same `/odometry/filtered_map` + `map → odom` TF; adds `/fusion_graph/diagnostics` and `~/save_graph` / `~/clear_graph` services. |
+| `odom → base_footprint` | `ekf_odom_node` @ 50 Hz | robot_localization local EKF; fuses wheels + gyro_z (and Kinematic-ICP twist on `/encoder2/odom` when LiDAR is enabled). Continuous, never jumps. **Same in both backends.** |
 | Kinematic-ICP | parallel TF tree | Reads `/scan` via a scan-frame relay onto `wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`. Output feeds `ekf_odom_node` only through the encoder2 adapter — no feedback into the main TF. |
 | Map / areas | `map_server_node` | Polygon-based area DB + `mow_progress` GridMap layer, persisted to disk. No SLAM back-end. |
+
+> The EKF and the factor-graph are **mutually exclusive** — only one publishes `map → odom` at a time. See [Optional: Factor-Graph Localizer](#optional-factor-graph-localizer-fusion_graph) below for when to enable each.
 
 ## System Overview
 
@@ -36,11 +41,11 @@ Mowgli ROS2 is organized as a **12-package ecosystem** with clear separation of 
 │  │                  │  │                  │  │  - Diagnostics       │   │
 │  └──────────────────┘  └──────────────────┘  └──────────────────────┘   │
 │                                                                           │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────┐ │
-│  │  mowgli_brv_planner           │  │  mowgli_monitoring               │ │
-│  │  (B-RV algorithm, action     │  │  (Diagnostics aggregator,        │ │
-│  │   server, Voronoi transit)   │  │   MQTT bridge)                   │ │
-│  └──────────────────────────────┘  └──────────────────────────────────┘ │
+│  ┌──────────────────────────────────┐                                    │
+│  │  mowgli_monitoring               │                                    │
+│  │  (Diagnostics aggregator,        │                                    │
+│  │   MQTT bridge)                   │                                    │
+│  └──────────────────────────────────┘                                    │
 └──────────────────────────────────────────────────────────────────────────┘
                                      │
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -77,7 +82,7 @@ Mowgli ROS2 is organized as a **12-package ecosystem** with clear separation of 
 | **mowgli_hardware** | Serial bridge to STM32 firmware (COBS + CRC-16 protocol) | mowgli_interfaces |
 | **mowgli_localization** | Helper nodes around robot_localization's dual EKF (wheel odometry, NavSatFix→pose conversion, COG-to-IMU absolute yaw, magnetometer yaw, dock-yaw auto-capture, localization monitor) | mowgli_interfaces, robot_localization |
 | **mowgli_nav2_plugins** | Nav2 controller plugins (FTC, RPP + RotationShimController, goal checkers) | nav2_core, mowgli_interfaces |
-| **mowgli_brv_planner** | Coverage path planning using B-RV algorithm (MBB sweep direction, grid-based boustrophedon, Voronoi roadmap transit) | mowgli_interfaces, nav_msgs |
+| **mowgli_map** | Map server with cell-based strip coverage planner (`~/get_next_strip` service), area storage/persistence, mow progress tracking (`mow_progress` grid layer), and obstacle_tracker_node | mowgli_interfaces, nav_msgs, nav2_map_server |
 | **mowgli_behavior** | Reactive behavior tree control (BehaviorTree.CPP v4) | mowgli_interfaces, nav2_msgs |
 | **mowgli_monitoring** | Diagnostics aggregation and MQTT bridge for external monitoring | diagnostic_msgs |
 | **mowgli_simulation** | Gazebo Harmonic worlds, robot models, and ros_gz_bridge configuration | mowgli_bringup, ros_gz_sim, ros_gz_bridge |
@@ -100,9 +105,6 @@ mowgli_interfaces (base layer)
     │       └──→ mowgli_bringup
     │
     ├──→ mowgli_behavior
-    │       └──→ mowgli_bringup
-    │
-    ├──→ mowgli_brv_planner
     │       └──→ mowgli_bringup
     │
     ├──→ mowgli_monitoring
@@ -490,13 +492,28 @@ navsat_transform_node (30 Hz):
    - Uses a fixed lat/lon datum from mowgli_robot.yaml
    - Publishes /odometry/gps in the map frame
 
-ekf_map_node (30 Hz, global EKF, two_d_mode):
+ekf_map_node (30 Hz, global EKF, two_d_mode) — DEFAULT:
    - Fuses: same wheel + IMU inputs
              + /gps/pose_cov  (PoseWithCovarianceStamped from
                                navsat_to_absolute_pose_node)
              + /imu/cog_heading  (GPS-COG absolute yaw from cog_to_imu.py)
+             + /imu/mag_yaw     (optional, when use_magnetometer=true)
    - Output: /odometry/filtered_map (map frame)
    - Publishes TF: map → odom
+
+— OR — (use_fusion_graph:=true, opt-in)
+
+fusion_graph_node (10 Hz, GTSAM iSAM2 factor-graph):
+   - 1-for-1 replacement for ekf_map_node. Same inputs, same outputs.
+   - Pose2 graph with wheel between-factor (non-holo σ_y << σ_x), gyro
+     between-factor on yaw, custom GnssLeverArmFactor (analytic Jacobian),
+     and unary yaw factors for COG / mag.
+   - Optional LiDAR scan-matching between-factors and loop-closure factors
+     (gated by use_scan_matching / use_loop_closure).
+   - Output: /odometry/filtered_map (map frame)
+   - Publishes TF: map → odom
+   - Adds: /fusion_graph/diagnostics, /fusion_graph/markers
+   - Services: ~/save_graph (Trigger), ~/clear_graph (Trigger)
 
 No SLAM: the /map OccupancyGrid is generated by map_server_node from
 user-defined area polygons, not from scan matching.
@@ -656,7 +673,42 @@ Aggregated into `/diagnostics` as sub-status with levels:
 
 ---
 
-### 4. mowgli_bringup
+### Optional: Factor-Graph Localizer (fusion_graph) {#optional-factor-graph-localizer-fusion_graph}
+
+**Package:** `mowgli_localization` co-hosts `ros2/src/fusion_graph/` (separate ament_cmake package).
+
+**Purpose:** opt-in replacement for `ekf_map_node` built on **GTSAM iSAM2**. Same wire contract — `/odometry/filtered_map` + `map → odom` TF — but the map-frame estimate is the result of an incremental Pose2 factor graph, which lets LiDAR scan-matching and loop-closure factors carry the position through multi-minute RTK-Float windows where the EKF would otherwise drift on dead-reckoning alone.
+
+**Activation:** set `use_fusion_graph:=true` on `navigation.launch.py` (or in `mowgli_robot.yaml`). The two backends are **mutually exclusive**: only one of `ekf_map_node` or `fusion_graph_node` publishes `map → odom` at any time. `ekf_odom_node` (local EKF, `odom → base_footprint`) is unchanged in either mode.
+
+**Graph structure (per node, 10 Hz):**
+
+| Factor | Source | Notes |
+|---|---|---|
+| Wheel `BetweenFactor` | `/wheel_odom` | Body-frame Pose2; non-holonomic σ_y ≪ σ_x. |
+| Gyro `BetweenFactor` (yaw only) | `/imu/data` | Integrated `wz` over the inter-node window. |
+| Custom `GnssLeverArmFactor` | `/gps/fix` | Analytic Jacobian — antenna lever-arm rotates with the node's yaw, so GPS XY couples to heading correctly. Robust Huber when fix < `STATUS_GBAS_FIX`. |
+| Yaw unary | `/imu/cog_heading` | GPS course-over-ground absolute yaw, gated on forward motion. |
+| Yaw unary (optional) | `/imu/mag_yaw` | Tilt-compensated mag yaw, only when `use_magnetometer:=true`. |
+| Scan `BetweenFactor` (optional) | `/scan` | ICP between consecutive nodes; gated on `use_scan_matching:=true`. |
+| Loop-closure `BetweenFactor` (optional) | `/scan` + scan storage | Candidate search around new nodes; gated on `use_loop_closure:=true`. |
+
+**Public surface (in addition to the EKF surface):**
+
+- **Topics**:
+  - `/fusion_graph/diagnostics` (`diagnostic_msgs/DiagnosticArray`, 1 Hz) — `total_nodes`, `scans_attached`, `loop_closures`, `scans_received`, `scan_matches_ok`, `scan_matches_fail`, `cov_xx`, `cov_yy`, `cov_yawyaw`. Surfaced in the GUI's *Diagnostics → Fusion Graph (iSAM2)* panel.
+  - `/fusion_graph/markers` (`visualization_msgs/MarkerArray`, 1 Hz, transient_local) — node positions, trajectory, loop-closure edges (decimated to ≤1500 nodes).
+  - `/imu/fg_yaw` (`sensor_msgs/Imu`, 10 Hz) — yaw-only output that can feed `ekf_map_node` as a tight yaw source when running side-by-side in observer mode.
+- **Services** (both `std_srvs/Trigger`):
+  - `~/save_graph` — persists graph (XML), per-node scans (binary), and metadata (datum + indices) to `/ros2_ws/maps/fusion_graph.{graph,scans,meta}`. Auto-fires on RECORDING→IDLE, on dock arrival, and every `periodic_save_period_s` (default 5 min) during AUTONOMOUS state.
+  - `~/clear_graph` — wipes iSAM2 + scans + queues. The next valid pose seed (GPS, set_pose, or scan-match relocalization) re-initializes.
+- **Parameter knobs** worth knowing: `node_period_s` (10 Hz default), `wheel_sigma_*`, `gyro_sigma_theta`, `gps_sigma_floor`, `cov_update_every_n`, `isam2_relinearize_skip`, `isam2_rebase_every_nodes`, `scan_retention_nodes`, plus the LC / ICP block (`lc_max_dist_m`, `lc_min_age_s`, `icp_max_iter`, …). All declared at startup; no dynamic_reconfigure.
+
+**State persistence:**
+- On disk: `<graph_save_prefix>.graph` (gtsam serialised Values), `.scans` (per-node Eigen `Vector2d` blobs), `.meta` (next index, last node time, datum lat/lon).
+- On startup: if `autoload_graph:=true` and the files exist, the node resumes from the last-saved state; subsequent ticks add nodes after the highest loaded index. This is what makes "park the robot, restart ROS2, resume mowing" work without losing the graph.
+
+**Why it exists:** the EKF treats GPS as an unbiased XY observation and times out cleanly during dropouts, but it has no mechanism to use LiDAR for an absolute pose lock. The factor graph adds those constraints (scan between-factors and loop-closure factors) without giving up the GPS / wheel / IMU fusion the EKF already does well — at the cost of a richer node and a non-trivial CPU budget (~5 ms/tick at 10 Hz on a Pi 4 with scan matching enabled).
 
 **Purpose:** Configuration, URDF, and launch orchestration for the entire stack.
 
@@ -1259,7 +1311,7 @@ class RecordArea : public BT::StatefulActionNode
 - `/mower_control` – Enable/disable blade
 - `/emergency_stop` – Release latched emergency
 - `/navigate_to_pose` (Nav2) – Send navigation goals
-- `/plan_coverage` (mowgli_brv_planner) – Generate coverage paths
+- `~/get_next_strip` (mowgli_map/map_server_node) – Fetch next coverage strip on demand
 
 **Publishing:**
 - `/high_level_status` (std_msgs/UInt8) – Current state (IDLE, UNDOCKING, MOWING, etc.)
@@ -1327,83 +1379,27 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory) {
 
 ---
 
-### 7. mowgli_brv_planner
+### 7. Coverage Planning (mowgli_map/map_server_node)
 
-**Purpose:** Autonomous coverage path planning using the B-RV algorithm (Huang et al., 2021: "A novel solution with rapid Voronoi-based coverage path planning in irregular environment for robotic mowing systems").
+**Purpose:** Cell-based strip coverage planning, integrated into `map_server_node`. Strips are planned on demand via the `~/get_next_strip` service — no pre-planned full path.
 
-**Location:** `src/mowgli_brv_planner/`
+**Location:** `src/mowgli_map/`
 
-**Architecture:**
+**Coverage Loop (driven by BT nodes):**
 
-```
-Coverage Planner Node (ROS2)
-    │
-    ├── Inputs:
-    │   ├── /plan_coverage action server (PlanCoverage.action)
-    │   │   └── Goal: outer_boundary (geometry_msgs/Polygon), obstacles, mow_angle_deg, skip_outline
-    │   │   └── Feedback: progress_percent (0-100), phase (string)
-    │   │   └── Result: path (nav_msgs/Path), outline_path, total_distance, coverage_area
-    │   │
-    │   └── Parameters:
-    │       ├── tool_width (m) – mower cutting width (grid cell size)
-    │       ├── headland_passes – number of perimeter passes
-    │       ├── headland_width (m) – offset distance per pass
-    │       └── map_frame – coordinate frame
-    │
-    ├── B-RV Algorithm Pipeline:
-    │   ├── 1. Headland pass generation (perimeter coverage)
-    │   ├── 2. MBB (Minimum Bounding Box) – rotating calipers on convex hull for optimal sweep direction
-    │   ├── 3. Grid-based coverage – discretize area into cells (size = tool_width), boustrophedon zigzag
-    │   ├── 4. Obstacle handling – sweep full columns, skip obstacle cells
-    │   ├── 5. Voronoi roadmap – Boost.Polygon Voronoi from boundary/obstacle samples, kd-tree KNN, Dijkstra shortest path for inter-region transit
-    │   └── 6. B-RV orchestrator – Headland → MBB → Grid → Sweep+Voronoi loop
-    │
-    └── Outputs:
-        ├── /coverage_planner_node/coverage_path (nav_msgs/Path, transient_local QoS)
-        │   └── Full coverage path with poses for FTCController
-        ├── /coverage_planner_node/coverage_outline (nav_msgs/Path, transient_local QoS)
-        │   └── Headland outline for visualization in RViz
-        └── GeoJSON output compatible with Nav2 route_server
-```
+1. `GetNextUnmowedArea` — outer loop, iterates through all mowing areas
+2. `GetNextStrip` — inner loop, fetches the next strip for the current area
+3. `TransitToStrip` — navigates to strip start (RPP controller)
+4. `FollowStrip` — follows strip with FTCController (PID on 3 axes)
 
-**Algorithm: B-RV Workflow**
+Progress is tracked in the `mow_progress` grid layer (survives restarts). Coverage status is available via `~/get_coverage_status` service and `/map_server_node/coverage_cells` OccupancyGrid topic.
 
-The coverage planner follows this pipeline:
-
-1. **Headland Generation:**
-   - Offset the outer boundary inward by `headland_passes * headland_width`
-   - Creates a nested ring of passes around the perimeter
-   - Used for edge coverage (e.g., trim grass borders)
-
-2. **MBB (Minimum Bounding Box):**
-   - Compute convex hull of the mowing area
-   - Apply rotating calipers to find the minimum bounding box
-   - Determines optimal sweep direction for minimal turns
-
-3. **Grid-based Coverage:**
-   - Discretize the interior area into grid cells (cell size = tool_width)
-   - Generate boustrophedon zigzag sweep pattern across full columns
-   - Skip cells that overlap with obstacle polygons
-
-4. **Voronoi Roadmap Transit:**
-   - Build Voronoi diagram from boundary and obstacle sample points using Boost.Polygon
-   - Connect Voronoi vertices via kd-tree KNN
-   - Use Dijkstra shortest path for inter-region transit between disconnected sweep segments
-
-5. **Path Assembly:**
-   - Combine headland passes, sweep segments, and Voronoi transit paths
-   - Generate poses with orientations for in-place rotation at swath turns
-   - Output path suitable for FTCController (differential drive, in-place turns)
-
-**Parameters (coverage_planner.yaml):**
+**Key Parameters (mowgli_robot.yaml):**
 
 ```yaml
-coverage_planner_node:
-  ros__parameters:
-    tool_width: 0.18                  # m – mower blade width and grid cell size
-    headland_passes: 2                # number of perimeter passes
-    headland_width: 0.18              # m – offset per pass
-    map_frame: "map"
+path_spacing: 0.13          # m – distance between parallel swath centrelines
+mow_angle_offset_deg: -1    # swath angle; -1 = auto-detect optimal
+tool_width: 0.18            # m – effective cut width
 ```
 
 **Action Feedback:**
@@ -1714,14 +1710,11 @@ foxglove_bridge:
    └─→ MowingSequence triggered:
        ├─ SetMowerEnabled(true) → blade motor on
        ├─ PublishHighLevelStatus(UNDOCKING)
-       └─ PlanCoveragePath action:
-            └─→ mowgli_brv_planner processes goal
-                ├─ 1. Headland generation (perimeter passes)
-                ├─ 2. MBB optimal sweep direction (rotating calipers)
-                ├─ 3. Grid-based boustrophedon sweep (obstacle-aware)
-                ├─ 4. Voronoi roadmap transit (inter-region Dijkstra)
-                └─ 5. Publishes coverage_path and coverage_outline
-                    [BT receives path in result]
+       └─ Cell-based strip coverage loop:
+            └─→ map_server_node (mowgli_map) plans strips on demand
+                ├─ GetNextUnmowedArea (outer loop, iterates all areas)
+                ├─ GetNextStrip → TransitToStrip → FollowStrip (inner loop)
+                └─ Progress tracked in mow_progress grid layer
 
 3. Navigation to coverage start:
    NavigateToPose(first_waypoint):
@@ -1971,7 +1964,7 @@ This lets costmap, collision_monitor, Kinematic-ICP, and every other node use st
 | Action | Type | Server | Client | Purpose |
 |--------|------|--------|--------|---------|
 | `/navigate_to_pose` | nav2_msgs/NavigateToPose | nav2_behavior_tree_navigator | behavior_tree_node (NavigateToPose BT node) | Non-blocking navigation goal |
-| `/plan_coverage` | mowgli_interfaces/PlanCoverage | coverage_planner_node (mowgli_brv_planner) | behavior_tree_node (PlanCoveragePath BT node) | Coverage path planning with feedback |
+| `~/get_next_strip` | mowgli_interfaces/GetNextStrip | map_server_node (mowgli_map) | behavior_tree_node (GetNextStrip BT node) | On-demand strip planning for cell-based coverage |
 
 ---
 
@@ -1982,7 +1975,7 @@ This lets costmap, collision_monitor, Kinematic-ICP, and every other node use st
    - **Hardware:** mowgli_hardware (STM32 bridge via COBS)
    - **Perception:** mowgli_localization (EKF fusion, multi-sensor)
    - **Control:** mowgli_nav2_plugins (RPP for transit, FTCController for coverage)
-   - **Planning:** mowgli_brv_planner (B-RV algorithm, Voronoi roadmap transit)
+   - **Planning:** mowgli_map (cell-based strip coverage planner, on-demand via `~/get_next_strip`)
    - **Behavior:** mowgli_behavior (BehaviorTree.CPP, 10 Hz reactive control)
    - **Monitoring:** mowgli_monitoring (diagnostics, MQTT bridge)
    - **Simulation:** mowgli_simulation (Gazebo Harmonic, ros_gz_bridge)
@@ -2047,7 +2040,7 @@ This lets costmap, collision_monitor, Kinematic-ICP, and every other node use st
 | Kinematic-ICP Config | src/mowgli_bringup/config/kinematic_icp.yaml | 2D LiDAR voxel/registration/threshold tuning |
 | Nav2 Config | src/mowgli_bringup/config/nav2_params.yaml | Planner, controller, costmap tuning |
 | Behavior Tree | src/mowgli_behavior/trees/main_tree.xml | High-level state machine and sequencing |
-| Coverage Config | src/mowgli_brv_planner/config/coverage_planner.yaml | B-RV planner parameters (tool width, headland) |
+| Coverage Config | src/mowgli_bringup/config/mowgli_robot.yaml | Coverage parameters (path_spacing, mow_angle_offset_deg, tool_width) |
 | Gazebo Worlds | src/mowgli_simulation/worlds/ | garden.sdf (realistic), empty_garden.sdf (testing) |
 
 **Testing Workflow:**

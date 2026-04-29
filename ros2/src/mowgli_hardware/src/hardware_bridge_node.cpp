@@ -66,11 +66,11 @@
 // High-level mode constants — must match HighLevelStatus.msg and the
 // HL_MODE_* defines in firmware/mowgli_protocol.h. Declared locally to
 // avoid a brittle relative include of the firmware-shared header.
-static constexpr uint8_t HL_MODE_NULL           = 0u;  ///< Emergency / transitional
-static constexpr uint8_t HL_MODE_IDLE           = 1u;  ///< Docked or between missions
-static constexpr uint8_t HL_MODE_AUTONOMOUS     = 2u;  ///< Autonomous mowing
-static constexpr uint8_t HL_MODE_RECORDING      = 3u;  ///< Area recording
-static constexpr uint8_t HL_MODE_MANUAL_MOWING  = 4u;  ///< Manual teleop with blade
+static constexpr uint8_t HL_MODE_NULL = 0u;  ///< Emergency / transitional
+static constexpr uint8_t HL_MODE_IDLE = 1u;  ///< Docked or between missions
+static constexpr uint8_t HL_MODE_AUTONOMOUS = 2u;  ///< Autonomous mowing
+static constexpr uint8_t HL_MODE_RECORDING = 3u;  ///< Area recording
+static constexpr uint8_t HL_MODE_MANUAL_MOWING = 4u;  ///< Manual teleop with blade
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
@@ -106,17 +106,18 @@ struct DockCalibrationFile
   double yaw_rad{0.0};
 };
 
-inline std::optional<double> parse_yaml_double(const std::string& content,
-                                               const std::string& key)
+inline std::optional<double> parse_yaml_double(const std::string& content, const std::string& key)
 {
   const std::string needle = key + ":";
   auto pos = content.find(needle);
-  if (pos == std::string::npos) return std::nullopt;
+  if (pos == std::string::npos)
+    return std::nullopt;
   pos += needle.size();
-  while (pos < content.size() &&
-         (content[pos] == ' ' || content[pos] == '\t')) ++pos;
+  while (pos < content.size() && (content[pos] == ' ' || content[pos] == '\t'))
+    ++pos;
   auto end = pos;
-  while (end < content.size() && content[end] != '\n' && content[end] != '\r') ++end;
+  while (end < content.size() && content[end] != '\n' && content[end] != '\r')
+    ++end;
   try
   {
     return std::stod(content.substr(pos, end - pos));
@@ -127,18 +128,19 @@ inline std::optional<double> parse_yaml_double(const std::string& content,
   }
 }
 
-inline std::optional<DockCalibrationFile> load_dock_calibration_file(
-    const std::string& path)
+inline std::optional<DockCalibrationFile> load_dock_calibration_file(const std::string& path)
 {
   std::ifstream f(path);
-  if (!f.good()) return std::nullopt;
+  if (!f.good())
+    return std::nullopt;
   std::stringstream ss;
   ss << f.rdbuf();
   const std::string content = ss.str();
   auto x = parse_yaml_double(content, "dock_pose_x");
   auto y = parse_yaml_double(content, "dock_pose_y");
   auto yaw = parse_yaml_double(content, "dock_pose_yaw_rad");
-  if (!x || !y || !yaw) return std::nullopt;
+  if (!x || !y || !yaw)
+    return std::nullopt;
   return DockCalibrationFile{*x, *y, *yaw};
 }
 
@@ -178,18 +180,30 @@ private:
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
 
+    // Wheel kinematics — single source of truth lives in mowgli_robot.yaml.
+    // Previously hardcoded as kWheelBase=0.325 / kTicksPerMetre=300.0; that
+    // duplicated the URDF args and the firmware TICKS_PER_M, so any
+    // re-calibration touched three places. wheel_track is the centre-to-
+    // centre drive-wheel distance; ticks_per_metre is what the STM32
+    // firmware advertises in board.h and uses when reporting cumulative
+    // tick deltas in the odom packet (so the conversion m = ticks /
+    // ticks_per_metre matches the firmware-side scaling).
+    wheel_track_ = declare_parameter<double>("wheel_track", 0.325);
+    ticks_per_metre_ = declare_parameter<double>("ticks_per_metre", 300.0);
+
     // Override the config-file dock pose with the runtime calibration
     // persisted by calibrate_imu_yaw_node's dock pre-phase. The file wins
     // over the parameter so that a redeploy after the calibration does
     // not roll back to the old phone-compass value. Falls back silently
     // to the parameter if the file is missing or unparseable.
-    if (auto file_cal = load_dock_calibration_file(
-            "/ros2_ws/maps/dock_calibration.yaml"))
+    if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
     {
       RCLCPP_INFO(get_logger(),
                   "Using dock calibration from file: pose=(%.3f, %.3f) "
                   "yaw=%.4f rad (%.2f°) — overrides config",
-                  file_cal->x, file_cal->y, file_cal->yaw_rad,
+                  file_cal->x,
+                  file_cal->y,
+                  file_cal->yaw_rad,
                   file_cal->yaw_rad * 180.0 / M_PI);
       dock_x_ = file_cal->x;
       dock_y_ = file_cal->y;
@@ -205,8 +219,8 @@ private:
     // image update + no dock since → gyro_z bias 0.05 rad/s, fusion yaw
     // drifting 2.9°/s, σ_xy inflated to 50 cm because GPS innovations kept
     // getting rejected by the outlier gate).
-    imu_cal_persist_path_ = declare_parameter<std::string>(
-        "imu_cal_persist_path", "/ros2_ws/maps/imu_calibration.txt");
+    imu_cal_persist_path_ =
+        declare_parameter<std::string>("imu_cal_persist_path", "/ros2_ws/maps/imu_calibration.txt");
     // Auto-calibrate at rest: if the robot is stationary and NOT charging
     // for this many seconds AND we don't have a calibration yet, trigger
     // the same 20 s sample collection used on dock. Lets the robot recover
@@ -243,10 +257,9 @@ private:
     // Raw magnetometer µT → Tesla for mag_yaw_publisher (calibration
     // gated on /ros2_ws/maps/mag_calibration.yaml). Also used
     // diagnostically to inspect the chip and see chassis distortion.
-    pub_mag_raw_ = create_publisher<sensor_msgs::msg::MagneticField>(
-        "~/imu/mag_raw", rclcpp::QoS(10));
-    pub_wheel_odom_ =
-        create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
+    pub_mag_raw_ =
+        create_publisher<sensor_msgs::msg::MagneticField>("~/imu/mag_raw", rclcpp::QoS(10));
+    pub_wheel_odom_ = create_publisher<nav_msgs::msg::Odometry>("~/wheel_odom", rclcpp::QoS(10));
     pub_battery_state_ =
         create_publisher<sensor_msgs::msg::BatteryState>("/battery_state", rclcpp::QoS(10));
     // Dock heading: publish dock_yaw at 1 Hz while charging so
@@ -500,7 +513,8 @@ private:
       // already on dock at boot. A freshly-docked cal overrides a loaded-
       // from-file cal because the dock is the most trustworthy at-rest
       // environment (bias may have drifted since the file was written).
-      if (is_charging_ && !imu_cal_collecting_ && (!imu_cal_ready_ || (!was_charging && imu_cal_ready_)))
+      if (is_charging_ && !imu_cal_collecting_ &&
+          (!imu_cal_ready_ || (!was_charging && imu_cal_ready_)))
       {
         start_imu_calibration(was_charging ? "on dock (boot)" : "dock transition");
       }
@@ -511,9 +525,8 @@ private:
       // yaw-integration error). While the robot sits stationary on dock,
       // refresh the cal every imu_cal_periodic_recal_sec_ seconds so the
       // offsets match current-temperature.
-      if (is_charging_ && imu_cal_ready_ && !imu_cal_collecting_ && wheels_stationary_
-          && imu_cal_periodic_recal_sec_ > 0.0
-          && imu_cal_last_completed_.nanoseconds() > 0)
+      if (is_charging_ && imu_cal_ready_ && !imu_cal_collecting_ && wheels_stationary_ &&
+          imu_cal_periodic_recal_sec_ > 0.0 && imu_cal_last_completed_.nanoseconds() > 0)
       {
         const double age_sec = (now() - imu_cal_last_completed_).seconds();
         if (age_sec >= imu_cal_periodic_recal_sec_)
@@ -689,16 +702,13 @@ private:
     f << std::fixed;
     f.precision(6);
     f << static_cast<int64_t>(std::time(nullptr)) << " " << imu_cal_count_ << "\n";
-    f << imu_cal_offset_ax_ << " " << imu_cal_offset_ay_ << " "
-      << imu_cal_offset_gx_ << " " << imu_cal_offset_gy_ << " " << imu_cal_offset_gz_
-      << "\n";
-    f << imu_cal_cov_ax_ << " " << imu_cal_cov_ay_ << " "
-      << imu_cal_cov_gx_ << " " << imu_cal_cov_gy_ << " " << imu_cal_cov_gz_
-      << "\n";
+    f << imu_cal_offset_ax_ << " " << imu_cal_offset_ay_ << " " << imu_cal_offset_gx_ << " "
+      << imu_cal_offset_gy_ << " " << imu_cal_offset_gz_ << "\n";
+    f << imu_cal_cov_ax_ << " " << imu_cal_cov_ay_ << " " << imu_cal_cov_gx_ << " "
+      << imu_cal_cov_gy_ << " " << imu_cal_cov_gz_ << "\n";
     f << implied_pitch_deg << " " << implied_roll_deg << "\n";
     f.close();
-    RCLCPP_INFO(get_logger(), "Persisted IMU calibration to %s",
-                imu_cal_persist_path_.c_str());
+    RCLCPP_INFO(get_logger(), "Persisted IMU calibration to %s", imu_cal_persist_path_.c_str());
   }
 
   void load_persisted_imu_calibration()
@@ -709,7 +719,8 @@ private:
       RCLCPP_INFO(get_logger(),
                   "No persisted IMU calibration at %s — will auto-cal on dock "
                   "or after %.0f s stationary off-dock.",
-                  imu_cal_persist_path_.c_str(), imu_cal_auto_rest_sec_);
+                  imu_cal_persist_path_.c_str(),
+                  imu_cal_auto_rest_sec_);
       return;
     }
     std::string header;
@@ -718,19 +729,19 @@ private:
     {
       RCLCPP_WARN(get_logger(),
                   "Persisted IMU cal header mismatch (got '%s') — ignoring, "
-                  "will re-calibrate.", header.c_str());
+                  "will re-calibrate.",
+                  header.c_str());
       return;
     }
     int64_t ts = 0;
     int n = 0;
-    if (!(f >> ts >> n)
-        || !(f >> imu_cal_offset_ax_ >> imu_cal_offset_ay_
-               >> imu_cal_offset_gx_ >> imu_cal_offset_gy_ >> imu_cal_offset_gz_)
-        || !(f >> imu_cal_cov_ax_ >> imu_cal_cov_ay_
-               >> imu_cal_cov_gx_ >> imu_cal_cov_gy_ >> imu_cal_cov_gz_))
+    if (!(f >> ts >> n) ||
+        !(f >> imu_cal_offset_ax_ >> imu_cal_offset_ay_ >> imu_cal_offset_gx_ >>
+          imu_cal_offset_gy_ >> imu_cal_offset_gz_) ||
+        !(f >> imu_cal_cov_ax_ >> imu_cal_cov_ay_ >> imu_cal_cov_gx_ >> imu_cal_cov_gy_ >>
+          imu_cal_cov_gz_))
     {
-      RCLCPP_WARN(get_logger(),
-                  "Persisted IMU cal parse failed — ignoring, will re-calibrate.");
+      RCLCPP_WARN(get_logger(), "Persisted IMU cal parse failed — ignoring, will re-calibrate.");
       return;
     }
     // Sanity: if a previous cal ran while the robot was actually rotating
@@ -739,14 +750,16 @@ private:
     // systematically miscorrecting every /imu/data sample. 0.2 rad/s ~=
     // 11.5°/s; real chip bias on WT901 is empirically < 0.1 rad/s.
     const double max_plausible = 0.2;
-    if (std::abs(imu_cal_offset_gx_) > max_plausible
-        || std::abs(imu_cal_offset_gy_) > max_plausible
-        || std::abs(imu_cal_offset_gz_) > max_plausible)
+    if (std::abs(imu_cal_offset_gx_) > max_plausible ||
+        std::abs(imu_cal_offset_gy_) > max_plausible ||
+        std::abs(imu_cal_offset_gz_) > max_plausible)
     {
       RCLCPP_WARN(get_logger(),
                   "Persisted IMU cal rejected — gyro offset implausible "
                   "[%.4f, %.4f, %.4f] rad/s > %.2f. Will re-calibrate.",
-                  imu_cal_offset_gx_, imu_cal_offset_gy_, imu_cal_offset_gz_,
+                  imu_cal_offset_gx_,
+                  imu_cal_offset_gy_,
+                  imu_cal_offset_gz_,
                   max_plausible);
       imu_cal_offset_gx_ = imu_cal_offset_gy_ = imu_cal_offset_gz_ = 0.0;
       imu_cal_offset_ax_ = imu_cal_offset_ay_ = 0.0;
@@ -756,15 +769,21 @@ private:
     imu_cal_ready_ = true;
     imu_cal_loaded_from_file_ = true;
     imu_cal_last_completed_ = now();  // grace period before periodic recal fires
-    const double age_hours = (static_cast<double>(std::time(nullptr)) - static_cast<double>(ts)) / 3600.0;
+    const double age_hours =
+        (static_cast<double>(std::time(nullptr)) - static_cast<double>(ts)) / 3600.0;
     RCLCPP_INFO(get_logger(),
                 "Loaded IMU calibration from %s (%.1f h old, %d samples) — "
                 "gyro offset [%.5f, %.5f, %.5f] rad/s, "
                 "accel offset [%.4f, %.4f] m/s². "
                 "Will re-calibrate at next dock.",
-                imu_cal_persist_path_.c_str(), age_hours, n,
-                imu_cal_offset_gx_, imu_cal_offset_gy_, imu_cal_offset_gz_,
-                imu_cal_offset_ax_, imu_cal_offset_ay_);
+                imu_cal_persist_path_.c_str(),
+                age_hours,
+                n,
+                imu_cal_offset_gx_,
+                imu_cal_offset_gy_,
+                imu_cal_offset_gz_,
+                imu_cal_offset_ax_,
+                imu_cal_offset_ay_);
   }
 
   void start_imu_calibration(const char* reason)
@@ -779,8 +798,10 @@ private:
     imu_cal_samples_gx_.clear();
     imu_cal_samples_gy_.clear();
     imu_cal_samples_gz_.clear();
-    RCLCPP_INFO(get_logger(), "Starting IMU calibration (%d samples) — %s",
-                imu_cal_samples_, reason);
+    RCLCPP_INFO(get_logger(),
+                "Starting IMU calibration (%d samples) — %s",
+                imu_cal_samples_,
+                reason);
   }
 
   void handle_imu(const uint8_t* data, std::size_t len)
@@ -819,8 +840,7 @@ private:
         }
         else
         {
-          const double at_rest_sec =
-              (now() - imu_cal_at_rest_since_).seconds();
+          const double at_rest_sec = (now() - imu_cal_at_rest_since_).seconds();
           if (at_rest_sec >= imu_cal_auto_rest_sec_)
           {
             start_imu_calibration("off-dock auto-cal after stationary window");
@@ -916,16 +936,18 @@ private:
         // for ax/ay on every future sample.
         const double az_mean = imu_cal_sum_az_ / n;
         const double a_mag = std::sqrt(imu_cal_offset_ax_ * imu_cal_offset_ax_ +
-                                       imu_cal_offset_ay_ * imu_cal_offset_ay_ +
-                                       az_mean * az_mean);
+                                       imu_cal_offset_ay_ * imu_cal_offset_ay_ + az_mean * az_mean);
         const double implied_pitch_deg = std::atan2(-imu_cal_offset_ax_, az_mean) * 180.0 / M_PI;
-        const double implied_roll_deg  = std::atan2( imu_cal_offset_ay_, az_mean) * 180.0 / M_PI;
+        const double implied_roll_deg = std::atan2(imu_cal_offset_ay_, az_mean) * 180.0 / M_PI;
         RCLCPP_INFO(get_logger(),
                     "Implied mounting tilt: pitch=%.3f°, roll=%.3f° "
                     "(|accel|=%.3f m/s², az_mean=%.3f). "
                     "If magnitudes exceed ~1° set imu_pitch / imu_roll in "
                     "mowgli_robot.yaml and redeploy.",
-                    implied_pitch_deg, implied_roll_deg, a_mag, az_mean);
+                    implied_pitch_deg,
+                    implied_roll_deg,
+                    a_mag,
+                    az_mean);
 
         // Persist to disk so container restarts don't lose the calibration
         // (this is the fix for the "stale gyro bias after pull" class of bugs).
@@ -1080,8 +1102,7 @@ private:
       else
       {
         charging_anchor_active_ = false;
-        RCLCPP_INFO(get_logger(),
-                    "Dock heading anchor window closed; tightening σ to 0.1 rad.");
+        RCLCPP_INFO(get_logger(), "Dock heading anchor window closed; tightening σ to 0.1 rad.");
       }
     }
 
@@ -1125,9 +1146,9 @@ private:
     std::memcpy(&pkt, data, sizeof(LlOdometry));
 
     // Signed tick deltas since last firmware packet (polarity = direction).
-    int32_t d_left  = pkt.left_ticks  - prev_left_ticks_;
+    int32_t d_left = pkt.left_ticks - prev_left_ticks_;
     int32_t d_right = pkt.right_ticks - prev_right_ticks_;
-    prev_left_ticks_  = pkt.left_ticks;
+    prev_left_ticks_ = pkt.left_ticks;
     prev_right_ticks_ = pkt.right_ticks;
 
     if (!odom_initialized_)
@@ -1145,12 +1166,15 @@ private:
     // delta whose magnitude is closer to 65536 than to 0 by adding/
     // subtracting 65536 — this recovers the true small physical delta
     // instead of dropping the packet and losing position information.
-    auto unwrap_16bit = [](int32_t d) {
-      if (d > 32768) return d - 65536;
-      if (d < -32768) return d + 65536;
+    auto unwrap_16bit = [](int32_t d)
+    {
+      if (d > 32768)
+        return d - 65536;
+      if (d < -32768)
+        return d + 65536;
       return d;
     };
-    d_left  = unwrap_16bit(d_left);
+    d_left = unwrap_16bit(d_left);
     d_right = unwrap_16bit(d_right);
 
     // Sanity-clamp residual implausible deltas. After wrap-recovery the
@@ -1161,10 +1185,13 @@ private:
     constexpr int32_t kTickSpikeLimit = 100;
     if (std::abs(d_left) > kTickSpikeLimit || std::abs(d_right) > kTickSpikeLimit)
     {
-      RCLCPP_WARN_THROTTLE(
-          get_logger(), *get_clock(), 2000,
-          "Dropping residual wheel tick spike: dL=%d dR=%d (limit=%d).",
-          d_left, d_right, kTickSpikeLimit);
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           2000,
+                           "Dropping residual wheel tick spike: dL=%d dR=%d (limit=%d).",
+                           d_left,
+                           d_right,
+                           kTickSpikeLimit);
       d_left = 0;
       d_right = 0;
     }
@@ -1176,9 +1203,9 @@ private:
     // that robot_localization trusts thanks to the tight wheel covariance. Sum 5
     // packets (~100 ms, ~15 ticks at 0.5 m/s) so the velocity denominator
     // grows and single-tick noise collapses to ~7 % relative error.
-    odom_acc_delta_left_  += d_left;
+    odom_acc_delta_left_ += d_left;
     odom_acc_delta_right_ += d_right;
-    odom_acc_dt_ms_       += pkt.dt_millis;
+    odom_acc_dt_ms_ += pkt.dt_millis;
 
     // 50 ms aggregation → ~20 Hz /wheel_odom. Tested: 33 ms (30 Hz)
     // saturated the EKF on this ARM CPU and produced "Failed to meet
@@ -1191,13 +1218,13 @@ private:
       return;
     }
 
-    const auto stamp  = now();
-    const int32_t acc_d_left  = odom_acc_delta_left_;
+    const auto stamp = now();
+    const int32_t acc_d_left = odom_acc_delta_left_;
     const int32_t acc_d_right = odom_acc_delta_right_;
-    const uint32_t acc_dt_ms  = odom_acc_dt_ms_;
-    odom_acc_delta_left_  = 0;
+    const uint32_t acc_dt_ms = odom_acc_dt_ms_;
+    odom_acc_delta_left_ = 0;
     odom_acc_delta_right_ = 0;
-    odom_acc_dt_ms_       = 0;
+    odom_acc_dt_ms_ = 0;
 
     wheels_stationary_ = (acc_d_left == 0 && acc_d_right == 0);
 
@@ -1207,17 +1234,18 @@ private:
     {
       RCLCPP_INFO(get_logger(),
                   "Odom: acc_dL=%d acc_dR=%d acc_dt=%u ms  (cum L=%d R=%d)",
-                  acc_d_left, acc_d_right, acc_dt_ms,
-                  pkt.left_ticks, pkt.right_ticks);
+                  acc_d_left,
+                  acc_d_right,
+                  acc_dt_ms,
+                  pkt.left_ticks,
+                  pkt.right_ticks);
     }
 
-    constexpr double kWheelBase = 0.325;
-    constexpr double kTicksPerMetre = 300.0;
     const double dt_sec = static_cast<double>(acc_dt_ms) / 1000.0;
-    const double d_left_m  = static_cast<double>(acc_d_left)  / kTicksPerMetre;
-    const double d_right_m = static_cast<double>(acc_d_right) / kTicksPerMetre;
-    double vx   = (d_left_m + d_right_m) * 0.5 / dt_sec;
-    double vyaw = (d_right_m - d_left_m) / kWheelBase / dt_sec;
+    const double d_left_m = static_cast<double>(acc_d_left) / ticks_per_metre_;
+    const double d_right_m = static_cast<double>(acc_d_right) / ticks_per_metre_;
+    double vx = (d_left_m + d_right_m) * 0.5 / dt_sec;
+    double vyaw = (d_right_m - d_left_m) / wheel_track_ / dt_sec;
 
     auto msg = nav_msgs::msg::Odometry{};
     msg.header.stamp = stamp;
@@ -1347,7 +1375,7 @@ private:
     // rotations to MIN_ROT_VEL so the wheels actually engage. Forward
     // motion supplies its own PWM via vx, so we only boost when the
     // robot is essentially stationary in linear.
-    constexpr double kMinRotVel = 0.85;          // rad/s, ≈ wheel 0.14 m/s
+    constexpr double kMinRotVel = 0.85;  // rad/s, ≈ wheel 0.14 m/s
     constexpr double kVxStationaryThreshold = 0.05;
     if (std::abs(vx) < kVxStationaryThreshold && wz != 0.0 && std::abs(wz) < kMinRotVel)
     {
@@ -1458,6 +1486,8 @@ private:
   double dock_x_{0.0};
   double dock_y_{0.0};
   double dock_yaw_{0.0};
+  double wheel_track_{0.325};
+  double ticks_per_metre_{300.0};
   bool mow_enabled_{false};
   bool is_charging_{false};
   uint8_t current_mode_{0};
@@ -1484,8 +1514,8 @@ private:
   // Aggregation window: sum firmware packets (~21 ms) until we reach
   // kAggregateMs (~100 ms) and publish one /wheel_odom at ~10 Hz. Widens
   // the velocity denominator so single-tick encoder noise doesn't blow up.
-  int32_t  odom_acc_delta_left_{0};
-  int32_t  odom_acc_delta_right_{0};
+  int32_t odom_acc_delta_left_{0};
+  int32_t odom_acc_delta_right_{0};
   uint32_t odom_acc_dt_ms_{0};
 
   // IMU calibration state (computed while docked and idle, OR when stationary
@@ -1494,7 +1524,7 @@ private:
   std::string imu_cal_persist_path_{"/ros2_ws/maps/imu_calibration.txt"};
   double imu_cal_auto_rest_sec_{15.0};
   double imu_cal_periodic_recal_sec_{600.0};  // 0 disables; default 10 min
-  rclcpp::Time imu_cal_at_rest_since_{};   // default-constructed (nanoseconds=0) = "not at rest yet"
+  rclcpp::Time imu_cal_at_rest_since_{};  // default-constructed (nanoseconds=0) = "not at rest yet"
   rclcpp::Time imu_cal_last_completed_{};  // when the last successful cal finished
   bool imu_cal_loaded_from_file_{false};
   bool imu_cal_collecting_{false};

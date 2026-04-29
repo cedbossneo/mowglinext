@@ -26,13 +26,21 @@
   gz_type_name: gz.msgs.LaserScan
   direction: GZ_TO_ROS
 
-- ros_topic_name: /imu/data
+# Gazebo's IMU plugin emits a noiseless, perfectly-calibrated stream.
+# We rebroadcast it here on /imu/data_gz; sim_imu_noise.py
+# (mowgli_simulation) republishes on /imu/data with realistic gyro/accel
+# bias-random-walk + white noise.
+- ros_topic_name: /imu/data_gz
   gz_topic_name: /imu/data_raw
   ros_type_name: sensor_msgs/msg/Imu
   gz_type_name: gz.msgs.IMU
   direction: GZ_TO_ROS
 
-- ros_topic_name: /gps/fix
+# Gazebo's NavSat plugin always emits status.status=STATUS_FIX (0). The
+# production GPS pipeline gates on STATUS_GBAS_FIX (4) for RTK-Fixed
+# quality, so we publish to /gps/fix_raw and let sim_navsat_rtk_fix.py
+# (mowgli_simulation) republish on /gps/fix with the status promoted.
+- ros_topic_name: /gps/fix_raw
   gz_topic_name: /gps/fix
   ros_type_name: sensor_msgs/msg/NavSatFix
   gz_type_name: gz.msgs.NavSat

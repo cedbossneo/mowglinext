@@ -7,7 +7,7 @@ After `mowglinext.sh` finishes and the containers come up, walk through this onc
 - Open `http://<mower-ip>:4006` in a browser.
 - In the **Diagnostics** panel, you should see (within 30–60 s of boot):
   - `hardware_bridge` → OK, serial link open.
-  - `fusion` → publishing at ~100 Hz.
+  - `fusion` → publishing at ~25–50 Hz.
   - `gps` → publishing at 5 Hz. **Status: RTK Fixed** is the goal — keep reading if you are not there yet.
   - `lidar` (if enabled) → `/scan` publishing at ~10 Hz.
   - `kinematic_icp` (if LiDAR enabled) → publishing on `/kinematic_icp/lidar_odometry` at ~10 Hz.
@@ -50,7 +50,7 @@ The IMU's heading relative to forward is not auto-detected — it has to be solv
 ## 6. Record a mowing area
 
 - Drive the mower manually (GUI → **Record Area**) along the boundary.
-- Finish recording — the polygon is Douglas–Peucker simplified and saved via `/map_server_node/add_area`.
+- Finish recording — the polygon is Douglas–Peucker simplified and saved via `/map_server_node/add_mowing_area`.
 - Repeat for every area you want to mow.
 
 ## 7. First autonomous mow

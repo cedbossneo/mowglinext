@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -335,45 +336,39 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   // Resize map to fit loaded areas (if any).
   resize_map_to_areas();
 
-  // If no docking pose was loaded from the persisted file, initialise from
-  // the dock_pose_x/y/yaw parameters in mowgli_robot.yaml. This ensures the
-  // GUI and BT always have a dock pose on first boot.
-  if (!docking_pose_set_)
+  // Dock pose: single source of truth is /ros2_ws/maps/dock_calibration.yaml.
+  // Falls back to dock_pose_x/y/yaw parameters from mowgli_robot.yaml if the
+  // file is missing or unparseable (first boot, before any calibration or
+  // manual placement via the GUI).
+  double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
+  double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
+  double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
+  const char* dock_source = "parameters";
+
+  if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
   {
-    double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
-    double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
-    double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
-    const char* dock_source = "parameters";
+    dock_x = file_cal->x;
+    dock_y = file_cal->y;
+    dock_yaw = file_cal->yaw_rad;
+    dock_source = "dock_calibration.yaml";
+  }
 
-    // Override the config-file dock pose with the calibrated value when
-    // available. The file is written by /calibrate_imu_yaw_node/calibrate
-    // and carries a GPS-derived yaw with ~1° σ — considerably better than
-    // the phone-compass value a user enters once at install time.
-    if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
-    {
-      dock_x = file_cal->x;
-      dock_y = file_cal->y;
-      dock_yaw = file_cal->yaw_rad;
-      dock_source = "dock_calibration.yaml";
-    }
-
-    if (dock_x != 0.0 || dock_y != 0.0 || dock_yaw != 0.0)
-    {
-      docking_pose_.position.x = dock_x;
-      docking_pose_.position.y = dock_y;
-      docking_pose_.position.z = 0.0;
-      docking_pose_.orientation.w = std::cos(dock_yaw / 2.0);
-      docking_pose_.orientation.z = std::sin(dock_yaw / 2.0);
-      docking_pose_.orientation.x = 0.0;
-      docking_pose_.orientation.y = 0.0;
-      docking_pose_set_ = true;
-      RCLCPP_INFO(get_logger(),
-                  "Dock pose from %s: (%.3f, %.3f) yaw=%.3f",
-                  dock_source,
-                  dock_x,
-                  dock_y,
-                  dock_yaw);
-    }
+  if (dock_x != 0.0 || dock_y != 0.0 || dock_yaw != 0.0)
+  {
+    docking_pose_.position.x = dock_x;
+    docking_pose_.position.y = dock_y;
+    docking_pose_.position.z = 0.0;
+    docking_pose_.orientation.w = std::cos(dock_yaw / 2.0);
+    docking_pose_.orientation.z = std::sin(dock_yaw / 2.0);
+    docking_pose_.orientation.x = 0.0;
+    docking_pose_.orientation.y = 0.0;
+    docking_pose_set_ = true;
+    RCLCPP_INFO(get_logger(),
+                "Dock pose from %s: (%.3f, %.3f) yaw=%.3f",
+                dock_source,
+                dock_x,
+                dock_y,
+                dock_yaw);
   }
 
   // Publish docking pose if available (transient_local ensures late subscribers get it).
@@ -695,7 +690,7 @@ void MapServerNode::on_odom(nav_msgs::msg::Odometry::ConstSharedPtr /*msg*/)
   {
     try
     {
-      auto tf = tf_buffer_->lookupTransform(map_frame_, "base_link", tf2::TimePointZero);
+      auto tf = tf_buffer_->lookupTransform(map_frame_, "base_footprint", tf2::TimePointZero);
       x = tf.transform.translation.x;
       y = tf.transform.translation.y;
     }
@@ -941,6 +936,8 @@ void MapServerNode::on_load_map(const std_srvs::srv::Trigger::Request::SharedPtr
     dat.close();
 
     last_decay_time_ = now();
+    strip_layouts_.clear();
+    current_strip_idx_.clear();
 
     res->success = true;
     res->message = "Map loaded from " + map_file_path_;
@@ -963,6 +960,8 @@ void MapServerNode::on_clear_map(const std_srvs::srv::Trigger::Request::SharedPt
   }
   areas_.clear();
   obstacle_polygons_.clear();
+  strip_layouts_.clear();
+  current_strip_idx_.clear();
   docking_pose_set_ = false;
   keepout_filter_info_sent_ = false;
   speed_filter_info_sent_ = false;
@@ -1032,7 +1031,10 @@ void MapServerNode::on_add_area(const mowgli_interfaces::srv::AddMowingArea::Req
     }
   }
 
-  areas_.push_back(std::move(entry));
+  {
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    areas_.push_back(std::move(entry));
+  }
   resize_map_to_areas();
   masks_dirty_ = true;
 
@@ -1678,7 +1680,12 @@ void MapServerNode::check_boundary_violation(double x, double y)
   lethal_msg.data = !inside_any && (min_edge_dist > lethal_boundary_margin_m_);
   lethal_boundary_violation_pub_->publish(lethal_msg);
 
-  if (!inside_any)
+  // Only escalate logging when the blade is actively running. When the blade
+  // is off the robot is either idle on the dock or transiting between areas —
+  // both states legitimately place the robot outside any defined polygon, so
+  // an ERROR-level log would just spam the rosout. The /boundary_violation
+  // topics are still published unconditionally so the BT can react.
+  if (!inside_any && mow_blade_enabled_)
   {
     if (lethal_msg.data)
     {
@@ -1732,7 +1739,7 @@ void MapServerNode::on_get_recovery_point(
   }
   try
   {
-    auto tf = tf_buffer_->lookupTransform(map_frame_, "base_link", tf2::TimePointZero);
+    auto tf = tf_buffer_->lookupTransform(map_frame_, "base_footprint", tf2::TimePointZero);
     rx = tf.transform.translation.x;
     ry = tf.transform.translation.y;
   }
@@ -1926,15 +1933,18 @@ void MapServerNode::diff_and_update_obstacles(
   }
 
   replan_pending_ = false;
+  size_t new_count = 0;
+  for (const auto& id : current_persistent_ids)
+  {
+    if (planned_obstacle_ids_.find(id) == planned_obstacle_ids_.end())
+      ++new_count;
+  }
   planned_obstacle_ids_ = current_persistent_ids;
   std_msgs::msg::Bool msg;
   msg.data = true;
   replan_needed_pub_->publish(msg);
   last_replan_time_ = now();
-  RCLCPP_INFO(get_logger(),
-              "Replan triggered: %zu new persistent obstacles",
-              current_persistent_ids.size() -
-                  (planned_obstacle_ids_.size() - current_persistent_ids.size()));
+  RCLCPP_INFO(get_logger(), "Replan triggered: %zu new persistent obstacles", new_count);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1965,17 +1975,32 @@ void MapServerNode::on_set_docking_point(
               docking_pose_.orientation.z,
               docking_pose_.orientation.w);
 
-  // Auto-save if persistence path is set.
-  if (!areas_file_path_.empty())
+  // Persist to dock_calibration.yaml — single source of truth for dock pose.
+  // Manual placements via the GUI land here; calibrate_imu_yaw and
+  // dock_yaw_to_set_pose write the same file from their own paths.
+  try
   {
-    try
+    const double yaw_rad =
+        2.0 * std::atan2(docking_pose_.orientation.z, docking_pose_.orientation.w);
+    std::ofstream out("/ros2_ws/maps/dock_calibration.yaml");
+    if (out.is_open())
     {
-      save_areas_to_file(areas_file_path_);
+      out << "dock_calibration:\n";
+      out << "  dock_pose_x: " << docking_pose_.position.x << "\n";
+      out << "  dock_pose_y: " << docking_pose_.position.y << "\n";
+      out << "  dock_pose_yaw_rad: " << yaw_rad << "\n";
+      out << "  dock_pose_yaw_deg: " << (yaw_rad * 180.0 / M_PI) << "\n";
+      out << "  source: manual_set_docking_point\n";
+      out.close();
     }
-    catch (const std::exception& ex)
+    else
     {
-      RCLCPP_WARN(get_logger(), "Auto-save after docking point change failed: %s", ex.what());
+      RCLCPP_WARN(get_logger(), "Could not open dock_calibration.yaml for writing");
     }
+  }
+  catch (const std::exception& ex)
+  {
+    RCLCPP_WARN(get_logger(), "Failed to persist dock_calibration.yaml: %s", ex.what());
   }
 
   res->success = true;
@@ -2084,17 +2109,10 @@ void MapServerNode::save_areas_to_file(const std::string& path)
     out << "\n";
   }
 
-  out << "docking_pose_set: " << (docking_pose_set_ ? 1 : 0) << "\n";
-  if (docking_pose_set_)
-  {
-    out << "dock_x: " << docking_pose_.position.x << "\n";
-    out << "dock_y: " << docking_pose_.position.y << "\n";
-    out << "dock_z: " << docking_pose_.position.z << "\n";
-    out << "dock_qx: " << docking_pose_.orientation.x << "\n";
-    out << "dock_qy: " << docking_pose_.orientation.y << "\n";
-    out << "dock_qz: " << docking_pose_.orientation.z << "\n";
-    out << "dock_qw: " << docking_pose_.orientation.w << "\n";
-  }
+  // Dock pose intentionally NOT serialized here. The single source of truth
+  // is /ros2_ws/maps/dock_calibration.yaml — written by dock_yaw_to_set_pose,
+  // calibrate_imu_yaw, or on_set_docking_point. Storing it in areas.dat too
+  // led to a stale all-zero pose taking precedence over the calibrated value.
 
   out.close();
 }
@@ -2158,6 +2176,8 @@ void MapServerNode::load_areas_from_file(const std::string& path)
   // Clear existing areas and reload from file.
   areas_.clear();
   obstacle_polygons_.clear();
+  strip_layouts_.clear();
+  current_strip_idx_.clear();
 
   const int area_count = get_int("area_count", 0);
   for (int i = 0; i < area_count; ++i)
@@ -2190,23 +2210,9 @@ void MapServerNode::load_areas_from_file(const std::string& path)
     }
   }
 
-  // Load docking point.
-  docking_pose_set_ = (get_int("docking_pose_set", 0) != 0);
-  if (docking_pose_set_)
-  {
-    docking_pose_.position.x = get_double("dock_x", 0.0);
-    docking_pose_.position.y = get_double("dock_y", 0.0);
-    docking_pose_.position.z = get_double("dock_z", 0.0);
-    docking_pose_.orientation.x = get_double("dock_qx", 0.0);
-    docking_pose_.orientation.y = get_double("dock_qy", 0.0);
-    docking_pose_.orientation.z = get_double("dock_qz", 0.0);
-    docking_pose_.orientation.w = get_double("dock_qw", 1.0);
-
-    RCLCPP_INFO(get_logger(),
-                "Loaded docking point: (%.3f, %.3f)",
-                docking_pose_.position.x,
-                docking_pose_.position.y);
-  }
+  // Dock pose is loaded from dock_calibration.yaml at construction, never
+  // from areas.dat. Old areas.dat files may still contain dock_x/dock_qw
+  // keys — they are ignored on purpose.
 
   // Resize map to fit new areas and reset masks.
   resize_map_to_areas();
@@ -2618,6 +2624,44 @@ bool MapServerNode::is_strip_blocked(const Strip& strip, double blocked_threshol
   return static_cast<double>(obstacle_count) / total_count >= blocked_threshold;
 }
 
+void MapServerNode::select_nearest_endpoint_strip(const std::vector<Strip>& strips,
+                                                  const std::vector<bool>& eligible,
+                                                  double robot_x,
+                                                  double robot_y,
+                                                  int& out_index,
+                                                  Strip& out_strip)
+{
+  out_index = -1;
+  double best_dist = std::numeric_limits<double>::infinity();
+  bool best_flip = false;
+
+  const int n = static_cast<int>(strips.size());
+  for (int i = 0; i < n; ++i)
+  {
+    if (i >= static_cast<int>(eligible.size()) || !eligible[i])
+      continue;
+
+    const auto& s = strips[i];
+    const double d_start = std::hypot(s.start.x - robot_x, s.start.y - robot_y);
+    const double d_end = std::hypot(s.end.x - robot_x, s.end.y - robot_y);
+
+    const double d = std::min(d_start, d_end);
+    if (d < best_dist)
+    {
+      best_dist = d;
+      out_index = i;
+      best_flip = (d_end < d_start);
+    }
+  }
+
+  if (out_index < 0)
+    return;
+
+  out_strip = strips[out_index];
+  if (best_flip)
+    std::swap(out_strip.start, out_strip.end);
+}
+
 bool MapServerNode::find_next_unmowed_strip(
     size_t area_index, double robot_x, double robot_y, Strip& out_strip, bool /*prefer_headland*/)
 {
@@ -2627,59 +2671,38 @@ bool MapServerNode::find_next_unmowed_strip(
     return false;
 
   const auto& layout = strip_layouts_[area_index];
-  int n = static_cast<int>(layout.strips.size());
+  const int n = static_cast<int>(layout.strips.size());
   if (n == 0)
     return false;
 
-  // Grow tracking vector if needed
+  // Grow tracking vector if needed (kept for compatibility / debugging — the
+  // selector itself no longer consumes it).
   if (current_strip_idx_.size() <= area_index)
     current_strip_idx_.resize(area_index + 1, -1);
 
-  int& cur_idx = current_strip_idx_[area_index];
-
-  // First call: start from the strip nearest to the robot
-  if (cur_idx < 0)
-  {
-    double nearest_dist = 1e9;
-    for (int i = 0; i < n; ++i)
-    {
-      double mid_x = (layout.strips[i].start.x + layout.strips[i].end.x) / 2;
-      double mid_y = (layout.strips[i].start.y + layout.strips[i].end.y) / 2;
-      double d = std::hypot(mid_x - robot_x, mid_y - robot_y);
-      if (d < nearest_dist)
-      {
-        nearest_dist = d;
-        cur_idx = i;
-      }
-    }
-  }
-  else
-  {
-    // Advance to next strip (sequential boustrophedon)
-    cur_idx++;
-  }
-
-  // Search forward from current index for the next unmowed strip.
-  // Skip strips that are blocked by obstacles (>50% obstacle cells) — these
-  // are treated as "frontier" strips that can't be mowed.
+  // Build eligibility mask: a strip is eligible iff it isn't already mowed and
+  // isn't blocked by obstacles (>50% obstacle cells — those are treated as
+  // frontier and are skipped during planning).
+  std::vector<bool> eligible(n, false);
   for (int i = 0; i < n; ++i)
   {
-    int idx = (cur_idx + i) % n;
-    const auto& strip = layout.strips[idx];
-    if (!is_strip_mowed(strip) && !is_strip_blocked(strip))
-    {
-      cur_idx = idx;
-      out_strip = strip;
-
-      // Boustrophedon: alternate Y direction per column
-      if (idx % 2 == 1)
-        std::swap(out_strip.start, out_strip.end);
-
-      return true;
-    }
+    const auto& strip = layout.strips[i];
+    eligible[i] = !is_strip_mowed(strip) && !is_strip_blocked(strip);
   }
 
-  return false;  // All strips mowed or blocked
+  // Pick the eligible strip whose nearest endpoint is closest to the current
+  // robot pose, and orient it so the robot enters from that endpoint. This
+  // produces a serpentine/boustrophedon order naturally when adjacent strips
+  // are eligible (the previously-mowed strip ended at one column edge, so the
+  // adjacent strip's matching endpoint is the nearest by ~one swath width)
+  // while gracefully handling skipped or partially-blocked strips.
+  int picked = -1;
+  select_nearest_endpoint_strip(layout.strips, eligible, robot_x, robot_y, picked, out_strip);
+  if (picked < 0)
+    return false;
+
+  current_strip_idx_[area_index] = picked;
+  return true;
 }
 
 nav_msgs::msg::Path MapServerNode::strip_to_path(const Strip& strip, size_t /*area_index*/) const

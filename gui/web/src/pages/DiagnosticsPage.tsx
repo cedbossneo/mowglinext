@@ -46,6 +46,8 @@ import {AbsolutePoseConstants} from "../types/ros.ts";
 import {useEffect, useMemo, useState} from "react";
 import {useSettings} from "../hooks/useSettings.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
+import {useApi} from "../hooks/useApi.ts";
+import {useFusionGraphDiagnostics} from "../hooks/useFusionGraphDiagnostics.ts";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -434,10 +436,157 @@ export const DiagnosticsPage = () => {
     const deltaFilterMag = (!magStale && magYawDeg !== null) ? wrap180(yaw - magYawDeg) : null;
     const deltaFilterCog = (!cogStale && cogYawDeg !== null) ? wrap180(yaw - cogYawDeg) : null;
 
+    // ── Fusion Graph (iSAM2) panel ───────────────────────────────────────────
+    // Only shown when the operator opted into the GTSAM factor-graph
+    // localizer (use_fusion_graph=true). The panel surfaces the per-tick
+    // GraphStats published on /fusion_graph/diagnostics + Save/Clear actions.
+
+    const useFusionGraph = String((settings as any)?.use_fusion_graph ?? "false") === "true";
+    const guiApi = useApi();
+    const {stats: fusionStats} = useFusionGraphDiagnostics();
+    const [fusionBusy, setFusionBusy] = useState<"save" | "clear" | null>(null);
+
+    const callFusionService = async (command: "fusion_graph_save" | "fusion_graph_clear") => {
+        setFusionBusy(command === "fusion_graph_save" ? "save" : "clear");
+        try {
+            const res = await guiApi.mowglinext.callCreate(command, {});
+            if (res.error) throw new Error((res.error as any)?.error ?? "service call failed");
+            notification.success({
+                message: command === "fusion_graph_save" ? "Graph saved" : "Graph cleared",
+                description: (res.data as any)?.message,
+            });
+        } catch (e: any) {
+            notification.error({message: "Fusion graph action failed", description: e.message});
+        } finally {
+            setFusionBusy(null);
+        }
+    };
+
+    const fusionAgeS = fusionStats ? Math.floor((nowMs - fusionStats.receivedAt) / 1000) : null;
+    const fusionStale = fusionAgeS === null || fusionAgeS > 5;
+    const fv = fusionStats?.values ?? {};
+    const num = (k: string) => {
+        const raw = fv[k];
+        if (raw === undefined) return null;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : null;
+    };
+    const totalNodes = num("total_nodes");
+    const scansAttached = num("scans_attached");
+    const loopClosures = num("loop_closures");
+    const scansReceived = num("scans_received");
+    const scanOk = num("scan_matches_ok");
+    const scanFail = num("scan_matches_fail");
+    const covXX = num("cov_xx");
+    const covYY = num("cov_yy");
+    const covYaw = num("cov_yawyaw");
+    const sigmaXY = (covXX !== null && covYY !== null && covXX >= 0 && covYY >= 0)
+        ? Math.sqrt((covXX + covYY) / 2.0) * 100  // → cm
+        : null;
+    const sigmaYawDeg = (covYaw !== null && covYaw >= 0)
+        ? Math.sqrt(covYaw) * (180 / Math.PI)
+        : null;
+    const scanTotal = (scanOk ?? 0) + (scanFail ?? 0);
+    const scanRate = scanTotal > 0 ? Math.round(((scanOk ?? 0) / scanTotal) * 100) : null;
+
+    const sectionFusionGraph = useFusionGraph ? (
+        <Row gutter={[12, 12]}>
+            <Col span={24}>
+                <Card
+                    title={
+                        <Space>
+                            <CompassOutlined/>
+                            Fusion Graph (iSAM2)
+                            <Tag color={fusionStale ? "default" : (fusionStats?.level ?? 0) >= 1 ? "warning" : "success"}>
+                                {fusionStale ? "Stale" : (fusionStats?.message ?? "running")}
+                            </Tag>
+                        </Space>
+                    }
+                    size="small"
+                    extra={
+                        <Space>
+                            <Button
+                                size="small"
+                                onClick={() => callFusionService("fusion_graph_save")}
+                                loading={fusionBusy === "save"}
+                                disabled={fusionBusy !== null}
+                            >
+                                Save graph
+                            </Button>
+                            <Button
+                                size="small"
+                                danger
+                                onClick={() => callFusionService("fusion_graph_clear")}
+                                loading={fusionBusy === "clear"}
+                                disabled={fusionBusy !== null}
+                            >
+                                Clear graph
+                            </Button>
+                        </Space>
+                    }
+                >
+                    <Row gutter={[12, 12]}>
+                        <Col xs={12} md={6}>
+                            <Statistic
+                                title="Nodes in graph"
+                                value={totalNodes ?? "—"}
+                                valueStyle={{fontSize: 18}}
+                            />
+                            <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                {scansAttached !== null ? `${scansAttached} with scans` : ""}
+                            </Typography.Text>
+                        </Col>
+                        <Col xs={12} md={6}>
+                            <Statistic
+                                title="Loop closures"
+                                value={loopClosures ?? "—"}
+                                valueStyle={{fontSize: 18, color: (loopClosures ?? 0) > 0 ? colors.success : undefined}}
+                            />
+                        </Col>
+                        <Col xs={12} md={6}>
+                            <Statistic
+                                title="ICP success rate"
+                                value={scanRate !== null ? scanRate : "—"}
+                                suffix={scanRate !== null ? "%" : undefined}
+                                precision={0}
+                                valueStyle={{fontSize: 18}}
+                            />
+                            <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                {scanTotal > 0 ? `${scanOk}/${scanTotal} matches` : `${scansReceived ?? 0} scans received`}
+                            </Typography.Text>
+                        </Col>
+                        <Col xs={12} md={6}>
+                            <Statistic
+                                title="Pose σ"
+                                value={sigmaXY !== null ? sigmaXY : "—"}
+                                suffix={sigmaXY !== null ? "cm" : undefined}
+                                precision={1}
+                                valueStyle={{
+                                    fontSize: 18,
+                                    color: sigmaXY !== null && sigmaXY < 5 ? colors.success : sigmaXY !== null && sigmaXY < 20 ? colors.warning : colors.danger,
+                                }}
+                            />
+                            <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                {sigmaYawDeg !== null ? `yaw ±${sigmaYawDeg.toFixed(2)}°` : ""}
+                            </Typography.Text>
+                        </Col>
+                    </Row>
+                    <Typography.Paragraph type="secondary" style={{fontSize: 11, marginTop: 8, marginBottom: 0}}>
+                        GTSAM iSAM2 factor graph. Save persists nodes + scans to{" "}
+                        <Typography.Text code>/ros2_ws/maps/fusion_graph.*</Typography.Text>;
+                        Clear wipes the graph and waits for the next GPS fix or set_pose to re-initialize.
+                        Topic: <Typography.Text code>/fusion_graph/diagnostics</Typography.Text>{" "}
+                        {fusionAgeS !== null && <span>· last update {fusionAgeS}s ago</span>}
+                    </Typography.Paragraph>
+                </Card>
+            </Col>
+        </Row>
+    ) : null;
+
     const sectionHeadingSources = (
         <Row gutter={[12, 12]}>
             <Col span={24}>
-                <Card title={<Space><CompassOutlined/> Heading sources (fused by ekf_map)</Space>} size="small">
+                <Card title={<Space><CompassOutlined/> Heading sources {useFusionGraph ? "(fused by fusion_graph)" : "(fused by ekf_map)"}</Space>} size="small">
                     <Row gutter={[12, 12]}>
                         <Col xs={24} md={8}>
                             <Space direction="vertical" style={{width: "100%"}}>
@@ -1091,6 +1240,11 @@ export const DiagnosticsPage = () => {
                             label: <Space><CompassOutlined/> Localization</Space>,
                             children: sectionLocalization,
                         },
+                        ...(sectionFusionGraph ? [{
+                            key: "fusion_graph",
+                            label: <Space><CompassOutlined/> Fusion Graph</Space>,
+                            children: sectionFusionGraph,
+                        }] : []),
                         {
                             key: "heading_sources",
                             label: <Space><CompassOutlined/> Heading sources</Space>,
@@ -1133,6 +1287,7 @@ export const DiagnosticsPage = () => {
             {sectionAlerts && <Col span={24}>{sectionAlerts}</Col>}
             <Col span={24}>{sectionSystem}</Col>
             <Col span={24}>{sectionLocalization}</Col>
+            {sectionFusionGraph && <Col span={24}>{sectionFusionGraph}</Col>}
             <Col span={24}>{sectionHeadingSources}</Col>
             <Col span={24}>{sectionBtCoverage}</Col>
             <Col span={24}>{sectionCrossChecks}</Col>

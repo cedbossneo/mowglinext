@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MowgliNext — Open-Source ROS2 Robot Mower</title>
-  <meta name="description" content="Autonomous robot mower built on ROS2 Kilted with LiDAR SLAM, RTK-GPS, behavior trees, and coverage planning. Open source, community driven.">
+  <meta name="description" content="Autonomous robot mower built on ROS2 Kilted with RTK-GPS + IMU + wheel fusion (robot_localization EKF or opt-in GTSAM iSAM2 factor graph), behavior trees, and coverage planning. Open source, community driven.">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -143,7 +143,7 @@
       <div class="flow-step">
         <div class="flow-icon">📡</div>
         <h3>See</h3>
-        <p>LiDAR scans the surroundings 10x/second. RTK-GPS pinpoints position to centimeter accuracy. The robot builds a live map of your garden.</p>
+        <p>LiDAR scans the surroundings 10x/second. Required for obstacle avoidance and optional Kinematic-ICP drift correction. RTK-GPS pinpoints position to centimeter accuracy.</p>
       </div>
       <div class="flow-arrow">→</div>
       <div class="flow-step">
@@ -169,8 +169,8 @@
 
       <div class="feature-card">
         <div class="icon">🗺️</div>
-        <h3>Kinematic-ICP &amp; RTK Localization</h3>
-        <p>No SLAM needed. robot_localization's dual EKF fuses RTK-GPS + IMU + wheel odometry under REP-105. Optional Kinematic-ICP provides LiDAR drift correction under tree cover. Centimeter-accurate positioning without map-building overhead.</p>
+        <h3>RTK Localization, Two Backends</h3>
+        <p>No SLAM needed. By default robot_localization's dual EKF fuses RTK-GPS + IMU + wheel odometry under REP-105. For RTK-Float windows or GPS-denied corners, switch on the opt-in GTSAM iSAM2 factor-graph localizer (<code>fusion_graph</code>) — same inputs, plus LiDAR scan-matching and loop-closure factors. Optional Kinematic-ICP gives an extra LiDAR drift-correction layer to the local EKF in either mode.</p>
       </div>
 
       <div class="feature-card">
@@ -318,7 +318,7 @@
       <!-- LiDAR -->
       <div class="composer-group">
         <h3>LiDAR Sensor</h3>
-        <p class="composer-hint">Required for obstacle avoidance and SLAM mapping</p>
+        <p class="composer-hint">Required for obstacle avoidance and optional Kinematic-ICP drift correction</p>
         <div class="composer-options" data-group="lidar">
           <button class="composer-option active" data-value="ldlidar-uart">
             <span class="option-icon">🔴</span>

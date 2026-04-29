@@ -10,13 +10,14 @@ interface MowingSession {
   id: string;
   start_time: string;
   end_time: string;
-  duration_seconds: number;
-  area_name: string;
+  duration_sec: number;
+  area_index: number;
   coverage_percent: number;
   strips_completed: number;
-  total_strips: number;
+  strips_skipped: number;
   distance_meters: number;
   status: "completed" | "aborted" | "error";
+  errors: string[];
 }
 
 interface SessionsResponse {
@@ -26,10 +27,13 @@ interface SessionsResponse {
 
 interface SessionStats {
   total_sessions: number;
-  total_mowing_seconds: number;
-  total_distance_meters: number;
-  completed_sessions: number;
-  average_coverage_percent: number;
+  total_duration_sec: number;
+  total_distance_m: number;
+  total_strips: number;
+  completed: number;
+  aborted: number;
+  errors: number;
+  avg_coverage_pct: number;
 }
 
 function formatDuration(seconds: number): string {
@@ -92,7 +96,7 @@ export const StatisticsPage = () => {
   }, [fetchData]);
 
   const completionRate = stats && stats.total_sessions > 0
-    ? Math.round((stats.completed_sessions / stats.total_sessions) * 100) : 0;
+    ? Math.round((stats.completed / stats.total_sessions) * 100) : 0;
 
   const coverage = snapshot?.coverage ?? [];
 
@@ -118,12 +122,12 @@ export const StatisticsPage = () => {
       render: (v: string) => <span style={{fontSize: 13}}>{formatDate(v)}</span>,
     },
     ...(!isMobile ? [{
-      title: "Duration", dataIndex: "duration_seconds", key: "duration",
+      title: "Duration", dataIndex: "duration_sec", key: "duration",
       render: (v: number) => <span style={{fontSize: 13}}>{formatDuration(v)}</span>,
     }] : []),
     {
-      title: "Area", dataIndex: "area_name", key: "area_name",
-      render: (v: string) => <span style={{fontSize: 13}}>{v || "--"}</span>,
+      title: "Area", dataIndex: "area_index", key: "area_index",
+      render: (v: number) => <span style={{fontSize: 13}}>{v != null && v >= 0 ? `#${v}` : "--"}</span>,
     },
     {
       title: "Coverage", dataIndex: "coverage_percent", key: "coverage",
@@ -150,10 +154,10 @@ export const StatisticsPage = () => {
       {/* Hero stats */}
       <div style={{display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 12}}>
         {[
-          {label: 'Total distance', value: formatDistance(stats?.total_distance_meters ?? 0), unit: formatDistanceUnit(stats?.total_distance_meters ?? 0), hint: 'since install', color: colors.accent},
-          {label: 'Hours active', value: formatTotalHours(stats?.total_mowing_seconds ?? 0), unit: 'h', hint: `${stats?.total_sessions ?? 0} sessions`, color: colors.sky},
-          {label: 'Completion rate', value: `${completionRate}`, unit: '%', hint: `${stats?.completed_sessions ?? 0} completed`, color: colors.amber},
-          {label: 'Runs completed', value: `${stats?.total_sessions ?? 0}`, unit: '', hint: `avg ${Math.round(stats?.average_coverage_percent ?? 0)}% coverage`, color: colors.accent},
+          {label: 'Total distance', value: formatDistance(stats?.total_distance_m ?? 0), unit: formatDistanceUnit(stats?.total_distance_m ?? 0), hint: 'since install', color: colors.accent},
+          {label: 'Hours active', value: formatTotalHours(stats?.total_duration_sec ?? 0), unit: 'h', hint: `${stats?.total_sessions ?? 0} sessions`, color: colors.sky},
+          {label: 'Completion rate', value: `${completionRate}`, unit: '%', hint: `${stats?.completed ?? 0} completed`, color: colors.amber},
+          {label: 'Runs completed', value: `${stats?.total_sessions ?? 0}`, unit: '', hint: `avg ${Math.round(stats?.avg_coverage_pct ?? 0)}% coverage`, color: colors.accent},
         ].map(s => (
           <DashCard key={s.label} padding={18}>
             <div style={{

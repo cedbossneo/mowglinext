@@ -41,9 +41,29 @@ Check that `collision_monitor` is running and the LiDAR is publishing `/scan`. T
 
 This is expected — GPS needs a few seconds to converge after the robot moves away from the dock. The `gps_wait_after_undock_sec` parameter controls the wait time.
 
-### SLAM map doesn't persist
+### Where does the map come from?
 
-Check that the Docker volume `mowgli_maps` is mounted. The behavior tree saves the map before docking via `SaveSLAMMap`.
+There is **no SLAM**. The `/map` OccupancyGrid is built by `map_server_node` from polygons you record during area-recording mode (drive the boundary, hit *Finish*, the trajectory is Douglas-Peucker simplified and saved). Persistence is just JSON files inside the `mowgli_maps` Docker volume — make sure that volume is mounted.
+
+### EKF or fusion_graph: which map-frame localizer should I use?
+
+Both publish `map → odom` + `/odometry/filtered_map`. Pick one:
+
+- **`ekf_map_node` (default — `use_fusion_graph:=false`)** — robot_localization global EKF. Simpler, mature, fuses wheels + IMU + GPS + GPS-COG yaw under `two_d_mode`. Right answer for most installations and the only one used by CI.
+- **`fusion_graph_node` (opt-in — `use_fusion_graph:=true`)** — GTSAM iSAM2 factor graph. Same inputs as the EKF, plus optional LiDAR scan-matching (`use_scan_matching`) and loop-closure (`use_loop_closure`) factors. Worth enabling if your garden has multi-minute RTK-Float windows, GPS-denied corners, or you simply want LiDAR drift correction in the map frame. Costs ~5 ms/tick of CPU at 10 Hz with scan matching on.
+
+The two are mutually exclusive — only one publishes `map → odom`. `ekf_odom_node` (local EKF, `odom → base_footprint`) is unchanged in either mode. Toggle from the GUI's *Settings → Localization* section, then *Restart ROS2*.
+
+### What do the *Save graph* / *Clear graph* buttons in Diagnostics do?
+
+They call the `~/save_graph` / `~/clear_graph` services on `fusion_graph_node`. Only relevant when `use_fusion_graph:=true`.
+
+- **Save graph** — persists `<graph_save_prefix>.{graph,scans,meta}` to disk. The node also auto-saves on dock arrival, on RECORDING→IDLE transitions, and every 5 min during AUTONOMOUS state, so the button is mostly a "checkpoint before I shut down ROS2 manually" affordance.
+- **Clear graph** — wipes iSAM2 + accumulated factors + per-node scans. The node stays alive; the next valid pose seed (GPS, set_pose, or scan-match relocalization) re-initializes. Use after relocating the robot to a new garden.
+
+### Can I use both Kinematic-ICP and fusion_graph?
+
+Yes — they live at different layers. Kinematic-ICP runs on a parallel TF tree and feeds `ekf_odom_node` as a body-frame twist on `/encoder2/odom` (improves the local odometry). `fusion_graph_node` is the global (map-frame) localizer. They don't conflict.
 
 ## Development
 

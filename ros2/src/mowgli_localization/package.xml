@@ -6,9 +6,11 @@
   <description>
     Localization helper nodes for the Mowgli robot mower: wheel odometry
     integration, GPS conversion (NavSatFix → AbsolutePose and PoseWithCovarianceStamped),
-    COG-to-IMU absolute-yaw publisher, magnetometer yaw publisher, dock-yaw
-    auto-capture, and a localization quality monitor. The odom→base_footprint
-    and map→odom TFs are published by the stock robot_localization EKF nodes.
+    COG-to-IMU absolute-yaw publisher, magnetometer yaw publisher (with
+    autonomous calibration via calibrate_imu_yaw_node), dock-yaw
+    auto-capture, and a localization quality monitor. All nodes are
+    implemented in C++. The odom→base_footprint and map→odom TFs are
+    published by the stock robot_localization EKF nodes.
   </description>
   <maintainer email="cedric@mowgli.dev">Cedric</maintainer>
   <license>GPL-3.0</license>
@@ -25,14 +27,13 @@
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>mowgli_interfaces</depend>
+  <depend>yaml-cpp</depend>
 
   <!-- robot_localization (ekf_node, navsat_transform_node) is launched by
        mowgli_bringup and not compiled against here. -->
 
-  <!-- Python runtime deps for calibrate_imu_yaw_node.py,
-       kinematic_icp_encoder_adapter.py,
-       kinematic_icp_scan_frame_relay.py, and
-       wheel_odom_tf_node.py.
+  <!-- Python runtime deps for calibrate_imu_yaw_node.py, cog_to_imu.py,
+       dock_yaw_to_set_pose.py, and mag_yaw_publisher.py.
        sensor_msgs / nav_msgs / mowgli_interfaces are already declared
        as build+exec via <depend> above. -->
   <exec_depend>rclpy</exec_depend>

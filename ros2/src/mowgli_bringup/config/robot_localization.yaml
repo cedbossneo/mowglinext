@@ -66,16 +66,9 @@ ekf_odom_node:
     #   twist.linear.y   = 0.0     (cov=1e-4 → tight non-holo constraint)
     # The cov on linear.y is what gives us the non-holonomic lock without
     # needing a separate pseudo-measurement node.
-    # Pre-blended wheel + K-ICP body-frame twist. wheel_kicp_blend fuses
-    # /wheel_odom (15 Hz) with /encoder2/odom (10 Hz K-ICP) by inverse-
-    # variance weighting per axis and republishes at /wheel_odom_fused
-    # with a fresh stamp. Falls back to wheel-only when K-ICP goes silent.
-    # We do this upstream because robot_localization's odom1 fusion path
-    # itself caps the EKF publisher at 5 Hz when it has *any* publisher
-    # on it, regardless of source/cadence/stamps. Folding K-ICP into the
-    # wheel input keeps the K-ICP information in the state without using
-    # odom1 at all, and the EKF runs at its 25 Hz target.
-    odom0: /wheel_odom_fused
+    # Raw /wheel_odom directly. ekf_odom is dead-reckoning only, never
+    # touches GPS or any absolute-pose channel.
+    odom0: /wheel_odom
     odom0_config: [false, false, false,   # x, y, z         — no abs position
                    false, false, false,   # roll, pitch, yaw — no abs orientation
                    true,  true,  false,   # vx, vy, vz      — fuse vx + vy
@@ -108,8 +101,7 @@ ekf_odom_node:
     imu0_remove_gravitational_acceleration: true
     imu0_nodelay: false
 
-    # K-ICP fusion is now folded into odom0 upstream by wheel_kicp_blend,
-    # not given to the EKF as a separate odom1. See odom0 comment above.
+    # No second odom input.
 
     # Process noise — allow gyro bias (on yaw) and wheel slip to breathe.
     # Starting with defaults; tune after we have a session to compare.
@@ -177,9 +169,12 @@ ekf_map_node:
     # uses a Mowgli-specific message type that EKF can't subscribe to).
     # frame_id=map, same ENU coords as /gps/absolute_pose, covariance
     # built from position_accuracy.
+    # Direct /gps/pose_cov — no slam fallback mux. fusion_graph (planned)
+    # will replace this whole node and handle RTK-Float / dropout windows
+    # via LiDAR scan-matching factors instead of a separate localizer.
     pose0: /gps/pose_cov
     pose0_config: [true,  true,  false,   # x, y        — absolute position
-                   false, false, false,   # orientation — no yaw from GPS
+                   false, false, false,   # orientation — yaw via cog_heading only
                    false, false, false,
                    false, false, false,
                    false, false, false]
@@ -221,7 +216,35 @@ ekf_map_node:
     imu1_relative: false
     imu1_remove_gravitational_acceleration: false
 
-    # Process noise — same as ekf_odom
+    # ─ IMU 2 — fusion_graph yaw ─
+    # /imu/fg_yaw is published by fusion_graph_node when running
+    # (primary OR observer mode). It carries a yaw-only sensor_msgs/Imu
+    # with σ_yaw ~ 0.5° in stationary (vs ekf_map's σ ~13° from gyro
+    # alone). Subscribing here lets ekf_map absorb the periodic IMU
+    # bias-recalibration jumps that show up on robot when /scan is
+    # alive. Effective only when fusion_graph is in OBSERVER mode —
+    # in primary mode this whole ekf_map_node doesn't run.
+    # No feedback loop: fusion_graph subscribes
+    # /wheel_odom + /imu/data + /gps/fix + /imu/cog_heading + /scan,
+    # never /odometry/filtered_map.
+    # Replaced the dormant /imu/mag_yaw slot — mag was off because of
+    # motor magnetic interference (heading-dependent bias unfixable
+    # by a static cal).
+    imu2: /imu/fg_yaw
+    imu2_config: [false, false, false,
+                  false, false, true,
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+    imu2_queue_size: 2
+    imu2_differential: false
+    imu2_relative: false
+    imu2_remove_gravitational_acceleration: false
+
+    # Process noise — copied from ekf_odom (25 Hz). ekf_map_node runs at
+    # 10 Hz but robot_localization internally scales Q by dt, so the same
+    # spectral-density values should be correct.
+    # TODO: verify during next tuning session with GPS dropout test data.
     process_noise_covariance:
       [0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,
        0.0,    0.05, 0.0,    0.0,    0.0,    0.0,    0.0,    0.0,    0.0,     0.0,     0.0,     0.0,     0.0,    0.0,    0.0,

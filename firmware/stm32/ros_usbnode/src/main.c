@@ -886,7 +886,7 @@ void chirp(uint8_t count)
 void vprint(const char *fmt, va_list argp)
 {
   char string[200];
-  if (0 < vsprintf(string, fmt, argp)) // build string
+  if (0 < vsnprintf(string, sizeof(string), fmt, argp)) // build string
   {
 #if DEBUG_TYPE == DEBUG_TYPE_SWO
     for (int i = 0; i < strlen(string); i++)
@@ -968,7 +968,7 @@ static void WATCHDOG_vInit(void)
   WwdgHandle.Init.Prescaler = WWDG_PRESCALER_8;
   WwdgHandle.Init.Counter = 0x7F; /* 40.02 ms*/
   WwdgHandle.Init.Window = 0x7F;  /* 0ms */
-  // if( HAL_WWDG_Init(&WwdgHandle) != HAL_OK )
+  if( HAL_WWDG_Init(&WwdgHandle) != HAL_OK )
   {
 #ifdef DB_ACTIVE
     DB_TRACE(" WWDG init Error\r\n");

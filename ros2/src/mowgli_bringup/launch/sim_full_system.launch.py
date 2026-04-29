@@ -88,6 +88,10 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable LiDAR-dependent nodes (obstacle tracker, Kinematic-ICP). Set to false for GPS-only.",
     )
 
+    # use_fusion_graph + use_magnetometer come from
+    # mowgli_robot.yaml via navigation.launch.py — no need to declare
+    # them here. CLI override still propagates.
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # use_sim_time is always true in simulation — no argument needed.
@@ -267,6 +271,92 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 11. Sim NavSat RTK status promoter
+    #     Gazebo emits NavSatFix with STATUS_FIX (0); production code
+    #     (navsat_to_absolute_pose_node) requires
+    #     STATUS_GBAS_FIX (2) for the GPS path. The ros_gz_bridge now publishes Gazebo's
+    #     output on /gps/fix_raw; this relay rewrites status -> GBAS_FIX
+    #     and republishes on /gps/fix with a realistic RTK-Fixed
+    #     covariance (sigma ~3 mm).
+    # ------------------------------------------------------------------
+    sim_navsat_rtk_fix_node = Node(
+        package="mowgli_simulation",
+        executable="sim_navsat_rtk_fix.py",
+        name="sim_navsat_rtk_fix",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "input_topic": "/gps/fix_raw",
+                "output_topic": "/gps/fix",
+                # Realistic mowing scenario: 90 s RTK-Fixed (open sky),
+                # 30 s RTK-Float (light tree cover), 10 s no-fix (dense
+                # canopy / multipath). Set to "" for always-FIXED.
+                "quality_pattern": "90,RTK_FIXED;30,RTK_FLOAT;10,NO_FIX",
+                "noise_seed": 42,
+            }
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 11.5 NavSat -> AbsolutePose converter (production node, but full_system
+    #      .launch.py launches it directly rather than via navigation.launch.py
+    #      so the sim path needs its own copy). Reads /gps/fix and publishes
+    #      /gps/pose_cov (PoseWithCovarianceStamped in map frame) which
+    #      ekf_map_node fuses as pose0. Without this, no GPS reaches the EKF
+    #      in sim and the BT cannot transition out of IDLE.
+    #
+    #      Datum matches garden.sdf <spherical_coordinates>; if you change
+    #      the sim world's lat/lon, change these too.
+    # ------------------------------------------------------------------
+    sim_localization_params = os.path.join(
+        bringup_dir, "config", "robot_localization.yaml"
+    )
+    navsat_converter_node = Node(
+        package="mowgli_localization",
+        executable="navsat_to_absolute_pose_node",
+        name="navsat_to_absolute_pose",
+        output="screen",
+        parameters=[
+            sim_localization_params,
+            {
+                "use_sim_time": True,
+                "datum_lat": 48.137154,
+                "datum_lon": 11.576124,
+            },
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # 12. Sim IMU noise injector
+    #     Adds gyro/accel bias-random-walk + white noise to Gazebo's
+    #     perfect IMU stream (/imu/data_gz from bridge) and republishes
+    #     on /imu/data with realistic MEMS noise. Set all *_white_std and
+    #     *_walk_std parameters to 0 for a noiseless A/B baseline.
+    # ------------------------------------------------------------------
+    sim_imu_noise_node = Node(
+        package="mowgli_simulation",
+        executable="sim_imu_noise.py",
+        name="sim_imu_noise",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "input_topic": "/imu/data_gz",
+                "output_topic": "/imu/data",
+                # MPU-9250 / LIS6DSL-class MEMS defaults.
+                "gyro_white_std": 0.005,
+                "gyro_bias_walk_std": 1.0e-4,
+                "gyro_bias_init_std": 1.0e-3,
+                "accel_white_std": 0.05,
+                "accel_bias_walk_std": 1.0e-3,
+                "accel_bias_init_std": 0.05,
+                "noise_seed": 42,
+            }
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -285,6 +375,9 @@ def generate_launch_description() -> LaunchDescription:
             navigation_launch,
             # Individual nodes
             fake_hardware_bridge_node,
+            sim_navsat_rtk_fix_node,
+            navsat_converter_node,
+            sim_imu_noise_node,
             behavior_tree_node,
             map_server_node,
             obstacle_tracker_node,

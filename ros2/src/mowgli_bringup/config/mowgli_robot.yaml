@@ -17,7 +17,10 @@ mowgli:
     # -----------------------------------------------------------------
     mower_model: "YardForce500"
 
-    # Chassis dimensions (metres)
+    # Chassis dimensions (metres) — physically measured on the actual
+    # YardForce 500. Earlier the runtime YAML had 0.54 m which silently
+    # diverged from this template; the 0.60 m here is the correct value
+    # and was restored on 2026-04-26.
     chassis_length: 0.60
     chassis_width: 0.40
     chassis_height: 0.19
@@ -26,15 +29,22 @@ mowgli:
     # Drive wheels (rear)
     wheel_radius: 0.04475
     wheel_width: 0.04
-    wheel_track: 0.325         # centre-to-centre (from OpenMower)
+    wheel_track: 0.325         # centre-to-centre (from OpenMower).
+                               # Read by hardware_bridge_node and URDF.
+                               # MUST match firmware physical assumption.
     wheel_x_offset: 0.0       # drive wheels at base_link (wheel axis centre)
-    chassis_center_x: 0.20    # chassis geometric centre forward of wheel axis (m)
-                               # rear bumper at -0.10, front bumper at +0.50
-    # Informational only — no active code consumes this. Firmware uses
-    # TICKS_PER_M=300 directly (board.h). With wheel_radius=0.04475
-    # (circumference 0.281 m), that's ~84 ticks per revolution. The
-    # historical 1050 was a 12× off mismatch but harmless because
-    # nothing read it.
+    chassis_center_x: 0.18    # chassis geometric centre forward of wheel axis (m)
+                               # with chassis_length 0.60 → rear bumper -0.12,
+                               # front bumper +0.48
+    # ticks_per_metre is consumed by hardware_bridge_node to convert raw
+    # encoder tick deltas (from the STM32 firmware odom packet) into
+    # metres. MUST match the firmware constant TICKS_PER_M in
+    # firmware/stm32/ros_usbnode/include/board.h — the firmware sends
+    # raw ticks, the bridge does the scaling.
+    ticks_per_metre: 300.0
+    # Informational only — circumference 2π·0.04475 = 0.281 m, so
+    # 300 ticks/m × 0.281 m/rev ≈ 84 ticks per revolution. Kept as a
+    # cross-check for future wheel-size changes.
     ticks_per_revolution: 84
 
     # Front casters
@@ -47,11 +57,15 @@ mowgli:
 
     # -----------------------------------------------------------------
     # Lidar mount position / orientation (relative to base_link)
+    # Synced 2026-04-26 to runtime config: this robot's LD19 sits near
+    # base_link with a tiny lateral offset and is rotated ~π (mounted
+    # back-to-front so the cable side faces aft). Values per real
+    # mechanical mount, not OpenMower defaults.
     # -----------------------------------------------------------------
-    lidar_x: 0.38              # forward offset from wheel axis (m)
-    lidar_y: 0.0               # lateral offset (m)
+    lidar_x: 0.0               # forward offset from wheel axis (m)
+    lidar_y: 0.024             # lateral offset (m)
     lidar_z: 0.22              # vertical offset (m)
-    lidar_yaw: 0.0             # heading offset (rad)
+    lidar_yaw: 3.1408          # heading offset (rad) — ~π for 180°-rotated mount
 
     # IMU mounting (relative to base_link = wheel axis centre)
     imu_x: 0.18                # forward offset from wheel axis (m)
@@ -64,6 +78,41 @@ mowgli:
     gps_x: 0.3                 # forward offset from wheel axis (m)
     gps_y: 0.0                 # lateral offset (m)
     gps_z: 0.20                # vertical offset (m) — top of chassis + antenna
+
+    # -----------------------------------------------------------------
+    # Localization backend
+    # -----------------------------------------------------------------
+    # use_fusion_graph (default false): replace ekf_map_node with the
+    # GTSAM factor-graph localizer (fusion_graph package). ekf_odom
+    # keeps publishing odom→base_footprint either way. Flip to true on
+    # robots equipped with LiDAR + RTK GPS where you want
+    # scan-matching-driven map-frame consistency through RTK-Float
+    # gaps.
+    use_fusion_graph: false
+
+    # use_magnetometer (default false): subscribe to /imu/mag_yaw and
+    # let it influence the map-frame yaw. The chassis motor field
+    # induces a heading-dependent bias that no static cal can remove,
+    # so this is OFF by default. Only flip to true on a motor-isolated
+    # mag setup.
+    use_magnetometer: false
+
+    # use_scan_matching (default false; only effective when
+    # use_fusion_graph is true): per-tick ICP between the latest /scan
+    # and the previous graph-node scan. Adds a BetweenFactor with
+    # rmse-scaled covariance — bounded drift between consecutive
+    # nodes even without GPS. Required for "robot keeps mowing
+    # through GPS dropouts" scenarios.
+    use_scan_matching: false
+
+    # use_loop_closure (default false; only effective when
+    # use_scan_matching is also true): on every new node, search
+    # earlier graph nodes within ~5 m / >30 s ago for an ICP match
+    # against the current scan. Accepted matches add a BetweenFactor
+    # that snaps the trajectory back to consistency with previously-
+    # seen places. Resets accumulated drift across multi-minute GPS-
+    # less stretches at the cost of one ICP per candidate per tick.
+    use_loop_closure: false
 
     # -----------------------------------------------------------------
     # GPS / Positioning

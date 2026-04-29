@@ -52,7 +52,7 @@ The fastest way to explore and develop MowgliNext — no local setup required:
 
 The devcontainer provides a complete ROS2 Kilted development environment:
 
-- Full Nav2 navigation stack, robot_localization (sole dual-EKF localizer), Kinematic-ICP (optional LiDAR drift correction on a parallel TF tree)
+- Full Nav2 navigation stack, robot_localization (default dual-EKF localizer), Kinematic-ICP (optional LiDAR drift correction on a parallel TF tree), and an opt-in GTSAM iSAM2 factor-graph localizer (`fusion_graph`) with scan-matching and loop-closure
 - Gazebo Harmonic simulation (headless)
 - Cell-based strip coverage planner (`map_server_node`) + FTCController for swath following
 - Foxglove Bridge + rosbridge for visualization
@@ -168,10 +168,7 @@ Access the diagnostics dashboard at `http://<mower-ip>:4006/#/diagnostics`.
 - **Behavior Tree:** Current active node, execution state, mode
 - **Coverage:** Areas remaining, current strip progress, cells mowed
 - **ROS Diagnostics:** Aggregated health status (OK, WARN, ERROR, STALE) for all subsystems
-- **SLAM Map Tools:**
-  - View map info (resolution, dimensions, origin)
-  - Save map to persistent storage
-  - Delete map to reset SLAM
+- **Map Management:** View/edit mowing areas, clear mow progress, manage dock pose calibration.
 
 **Configuration Cross-Checks:**
 Verifies consistency between:

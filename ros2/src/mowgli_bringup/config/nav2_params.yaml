@@ -8,7 +8,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_footprint
-    odom_topic: /wheel_odom
+    odom_topic: /odometry/filtered
     bt_loop_duration: 10
     default_server_timeout: 60
     # Default is 1.0 s — observed on ARM that planner_server / controller_server
@@ -80,9 +80,9 @@ controller_server:
 
     stopped_goal_checker:
       plugin: "nav2_controller::StoppedGoalChecker"
-      trans_stopped_velocity: 0.25
-      xy_goal_tolerance: 0.75
-      yaw_goal_tolerance: 1.0
+      trans_stopped_velocity: 0.10
+      xy_goal_tolerance: 0.30
+      yaw_goal_tolerance: 0.5
 
     # Coverage goal checker: used by FTC controller. Only checks position,
     # not velocity. The FTC controller manages its own stopping logic.

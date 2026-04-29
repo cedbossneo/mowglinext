@@ -395,12 +395,11 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<float>("min_battery", 20.0f,
-                             "Minimum battery percent to start mowing"),
-        BT::InputPort<int>("min_gps_fix_type", 2,
+        BT::InputPort<float>("min_battery", 20.0f, "Minimum battery percent to start mowing"),
+        BT::InputPort<int>("min_gps_fix_type",
+                           2,
                            "Min GPS fix type (0=no,1=auto,2=DGPS,4=RTKfix,5=RTKfloat)"),
-        BT::InputPort<double>("tf_timeout_sec", 0.5,
-                              "Max wait for map→base_footprint TF"),
+        BT::InputPort<double>("tf_timeout_sec", 0.5, "Max wait for map→base_footprint TF"),
     };
   }
 
@@ -438,8 +437,7 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<double>("timeout_sec", 0.5,
-                              "Max service call wait in seconds"),
+        BT::InputPort<double>("timeout_sec", 0.5, "Max service call wait in seconds"),
     };
   }
 

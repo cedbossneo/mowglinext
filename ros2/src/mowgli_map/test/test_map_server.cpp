@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <string>
@@ -736,6 +738,151 @@ TEST(MBRAngleTest, SquareReturnsValidAngle)
   double angle = mowgli_map::MapServerNode::compute_optimal_mow_angle(poly);
   // Any angle is valid for a square -- just verify it's finite
   EXPECT_TRUE(std::isfinite(angle));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Strip selection — nearest-endpoint policy for adjacent boustrophedon order
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+mowgli_map::MapServerNode::Strip make_strip(int idx, double sx, double sy, double ex, double ey)
+{
+  mowgli_map::MapServerNode::Strip s;
+  s.column_index = idx;
+  s.start.x = sx;
+  s.start.y = sy;
+  s.end.x = ex;
+  s.end.y = ey;
+  return s;
+}
+}  // namespace
+
+// Three vertical strips spaced 0.3 m apart along X. Strip 0 ends at (0, 5).
+// The robot just finished strip 0 and stands at (0, 5). The selector should
+// pick strip 1 (the adjacent column) and orient it so the robot drives down
+// from y=5 to y=0 — i.e. the nearest endpoint becomes the new start.
+TEST(StripSelector, PicksAdjacentStripAndOrientsForSerpentine)
+{
+  std::vector<mowgli_map::MapServerNode::Strip> strips = {
+      make_strip(0, 0.0, 0.0, 0.0, 5.0),  // already mowed
+      make_strip(1, 0.3, 0.0, 0.3, 5.0),
+      make_strip(2, 0.6, 0.0, 0.6, 5.0),
+  };
+  std::vector<bool> eligible = {false, true, true};
+
+  int picked = -1;
+  mowgli_map::MapServerNode::Strip out;
+  mowgli_map::MapServerNode::select_nearest_endpoint_strip(strips, eligible, 0.0, 5.0, picked, out);
+
+  EXPECT_EQ(picked, 1);
+  // Robot at (0,5) is closest to strip 1's "end" endpoint (0.3, 5.0); the
+  // strip should be flipped so the new start is at y=5.
+  EXPECT_NEAR(out.start.y, 5.0, 1e-9);
+  EXPECT_NEAR(out.end.y, 0.0, 1e-9);
+  EXPECT_NEAR(out.start.x, 0.3, 1e-9);
+}
+
+// Same layout but the robot finished strip 0 at the y=0 side. The selector
+// should still pick strip 1 (adjacency wins) but enter from the y=0 endpoint.
+TEST(StripSelector, OrientsFromOppositeEndpoint)
+{
+  std::vector<mowgli_map::MapServerNode::Strip> strips = {
+      make_strip(0, 0.0, 0.0, 0.0, 5.0),
+      make_strip(1, 0.3, 0.0, 0.3, 5.0),
+      make_strip(2, 0.6, 0.0, 0.6, 5.0),
+  };
+  std::vector<bool> eligible = {false, true, true};
+
+  int picked = -1;
+  mowgli_map::MapServerNode::Strip out;
+  mowgli_map::MapServerNode::select_nearest_endpoint_strip(strips, eligible, 0.0, 0.0, picked, out);
+
+  EXPECT_EQ(picked, 1);
+  EXPECT_NEAR(out.start.y, 0.0, 1e-9);
+  EXPECT_NEAR(out.end.y, 5.0, 1e-9);
+  EXPECT_NEAR(out.start.x, 0.3, 1e-9);
+}
+
+// If a middle strip is blocked, the selector must skip it and pick the next
+// closest eligible strip — the robot should NOT teleport to a far strip when
+// a closer eligible one exists.
+TEST(StripSelector, SkipsIneligibleAndPicksNextNearest)
+{
+  std::vector<mowgli_map::MapServerNode::Strip> strips = {
+      make_strip(0, 0.0, 0.0, 0.0, 5.0),
+      make_strip(1, 0.3, 0.0, 0.3, 5.0),  // blocked
+      make_strip(2, 0.6, 0.0, 0.6, 5.0),
+      make_strip(3, 5.0, 0.0, 5.0, 5.0),  // far away
+  };
+  std::vector<bool> eligible = {false, false, true, true};
+
+  int picked = -1;
+  mowgli_map::MapServerNode::Strip out;
+  mowgli_map::MapServerNode::select_nearest_endpoint_strip(strips, eligible, 0.0, 5.0, picked, out);
+
+  EXPECT_EQ(picked, 2);
+  EXPECT_NEAR(out.start.y, 5.0, 1e-9);  // entered from the y=5 side
+  EXPECT_NEAR(out.start.x, 0.6, 1e-9);
+}
+
+// All ineligible → selector returns -1 (no strip).
+TEST(StripSelector, NoEligibleStripsReturnsNegativeIndex)
+{
+  std::vector<mowgli_map::MapServerNode::Strip> strips = {
+      make_strip(0, 0.0, 0.0, 0.0, 5.0),
+      make_strip(1, 0.3, 0.0, 0.3, 5.0),
+  };
+  std::vector<bool> eligible = {false, false};
+
+  int picked = 42;
+  mowgli_map::MapServerNode::Strip out;
+  mowgli_map::MapServerNode::select_nearest_endpoint_strip(strips, eligible, 0.0, 0.0, picked, out);
+
+  EXPECT_EQ(picked, -1);
+}
+
+// Stress: 10 strips, simulate 9 sequential calls and verify that the
+// resulting visit order is strictly adjacent (column index changes by ±1
+// at each step) — i.e. no long transit between non-adjacent columns.
+TEST(StripSelector, ProducesAdjacentVisitOrder)
+{
+  const int N = 10;
+  std::vector<mowgli_map::MapServerNode::Strip> strips;
+  for (int i = 0; i < N; ++i)
+    strips.push_back(make_strip(i, 0.3 * i, 0.0, 0.3 * i, 5.0));
+
+  std::vector<bool> eligible(N, true);
+
+  // First call: robot starts at strip 0's start → should pick strip 0.
+  double rx = 0.0, ry = 0.0;
+  int prev_col = -1;
+  std::vector<int> visit_order;
+  for (int step = 0; step < N; ++step)
+  {
+    int picked = -1;
+    mowgli_map::MapServerNode::Strip out;
+    mowgli_map::MapServerNode::select_nearest_endpoint_strip(strips, eligible, rx, ry, picked, out);
+    ASSERT_GE(picked, 0);
+    visit_order.push_back(picked);
+
+    if (prev_col >= 0)
+      EXPECT_EQ(std::abs(picked - prev_col), 1)
+          << "Non-adjacent jump at step " << step << ": from col " << prev_col << " to col "
+          << picked;
+    prev_col = picked;
+
+    eligible[picked] = false;
+    // Robot ends at the strip's `end` (after following the path).
+    rx = out.end.x;
+    ry = out.end.y;
+  }
+
+  // Should have visited every column exactly once.
+  std::vector<int> sorted_visit = visit_order;
+  std::sort(sorted_visit.begin(), sorted_visit.end());
+  for (int i = 0; i < N; ++i)
+    EXPECT_EQ(sorted_visit[i], i);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

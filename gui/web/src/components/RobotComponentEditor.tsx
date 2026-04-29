@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Card, InputNumber, Modal, Space, Typography, Row, Col, Tooltip, Button, Tag, notification } from "antd";
+import { Alert, Card, InputNumber, Modal, Space, Typography, Row, Col, Tooltip, Button, Tag, notification, Statistic } from "antd";
 import { AimOutlined, CompassOutlined, UndoOutlined } from "@ant-design/icons";
 import { useThemeMode } from "../theme/ThemeContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile.ts";
 import { useRobotDescription } from "../hooks/useRobotDescription.ts";
+import { useCalibrationStatus } from "../hooks/useCalibrationStatus.ts";
 
 const { Text } = Typography;
 
@@ -127,6 +128,16 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
     const [dragging, setDragging] = useState<SensorId | null>(null);
     const [rotating, setRotating] = useState<SensorId | null>(null);
     const [hoveredSensor, setHoveredSensor] = useState<SensorId | null>(null);
+    const { status: calibrationStatus } = useCalibrationStatus();
+    // Prefer the auto-captured calibration value (dock_calibration.yaml,
+    // written by dock_yaw_to_set_pose on first charge) over the legacy
+    // mowgli_robot.yaml seed. The user can no longer edit either — the
+    // robot recalibrates on every dock arrival.
+    const dockCal = calibrationStatus?.dock;
+    const dockYawRad = dockCal?.present && dockCal.dock_pose_yaw_rad != null
+        ? dockCal.dock_pose_yaw_rad
+        : values.dock_pose_yaw ?? 0;
+    const dockYawSource = dockCal?.present ? "dock_calibration.yaml" : "mowgli_robot.yaml (seed)";
 
     // IMU yaw auto-calibration modal state
     const [calibOpen, setCalibOpen] = useState(false);
@@ -768,13 +779,18 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                     >
                         <Row gutter={[8, 4]} align="middle">
                             <Col span={12}>
-                                <Text type="secondary" style={{ fontSize: 11 }}>Heading (compass)</Text>
-                                <InputNumber
-                                    value={roundTo(radToDeg(values.dock_pose_yaw ?? 0), 1)}
-                                    onChange={(v) => onChange("dock_pose_yaw", roundTo(degToRad(v ?? 0), 4))}
-                                    step={1} precision={1} size="small" min={0} max={360}
-                                    style={{ width: "100%" }} addonAfter="°"
+                                <Statistic
+                                    title="Heading (compass)"
+                                    value={roundTo(radToDeg(dockYawRad), 1)}
+                                    suffix="°"
+                                    precision={1}
+                                    valueStyle={{ fontSize: 18 }}
                                 />
+                                {dockCal?.present && dockCal.yaw_sigma_deg != null && (
+                                    <Tag color="success" style={{ fontSize: 10, marginTop: 4 }}>
+                                        ±{dockCal.yaw_sigma_deg.toFixed(2)}°
+                                    </Tag>
+                                )}
                             </Col>
                             <Col span={12}>
                                 {/* Mini compass */}
@@ -795,7 +811,7 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                                         })}
                                         {/* Robot heading arrow */}
                                         {(() => {
-                                            const yawDeg = radToDeg(values.dock_pose_yaw ?? 0);
+                                            const yawDeg = radToDeg(dockYawRad);
                                             // Convert compass bearing to SVG angle (compass 0°=N=up, SVG 0°=right)
                                             const svgAngle = yawDeg - 90;
                                             const rad = svgAngle * Math.PI / 180;
@@ -818,7 +834,9 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                             </Col>
                         </Row>
                         <Typography.Paragraph type="secondary" style={{ fontSize: 10, marginTop: 4, marginBottom: 0 }}>
-                            Direction the robot faces when docked. Measure with a phone compass app.
+                            Auto-captured on first charge by dock_yaw_to_set_pose
+                            (source: <code>{dockYawSource}</code>). Re-runs each time the
+                            robot returns to the dock — no manual entry needed.
                         </Typography.Paragraph>
                     </Card>
 

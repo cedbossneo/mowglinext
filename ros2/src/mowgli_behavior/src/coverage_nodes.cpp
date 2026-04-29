@@ -15,6 +15,8 @@
 
 #include "mowgli_behavior/coverage_nodes.hpp"
 
+#include <cmath>
+
 #include "action_msgs/msg/goal_status.hpp"
 #include "tf2/exceptions.h"
 
@@ -337,10 +339,132 @@ void TransitToStrip::onHalted()
 }
 
 // ===========================================================================
+// DetourAroundObstacle — short side-step via global planner so the robot
+// gets out from in front of an obstacle that aborted the strip.
+// ===========================================================================
+
+BT::NodeStatus DetourAroundObstacle::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  double forward_m = 0.8;
+  double lateral_m = 0.6;
+  getInput("forward_m", forward_m);
+  getInput("lateral_m", lateral_m);
+
+  // Read current pose from map → base_footprint. If TF isn't ready, bail —
+  // the BT will fall through to SkipStrip and we don't risk sending a
+  // stale-pose-based goal.
+  geometry_msgs::msg::TransformStamped t_map_base;
+  try
+  {
+    t_map_base = ctx->tf_buffer->lookupTransform("map",
+                                                 "base_footprint",
+                                                 tf2::TimePointZero,
+                                                 tf2::durationFromSec(0.2));
+  }
+  catch (const tf2::TransformException& ex)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(), "DetourAroundObstacle: TF lookup failed: %s", ex.what());
+    return BT::NodeStatus::FAILURE;
+  }
+
+  // Yaw from quaternion: standard ZYX Euler extraction. Avoids pulling
+  // in tf2_geometry_msgs just for tf2::getYaw().
+  const auto& q = t_map_base.transform.rotation;
+  const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+  const double cy = std::cos(yaw);
+  const double sy = std::sin(yaw);
+
+  // Body-frame (forward, lateral) → map frame, added to current position.
+  // Lateral positive = left (right-hand-rule with z-up).
+  geometry_msgs::msg::PoseStamped goal;
+  goal.header.frame_id = "map";
+  goal.header.stamp = ctx->node->now();
+  goal.pose.position.x = t_map_base.transform.translation.x + cy * forward_m - sy * lateral_m;
+  goal.pose.position.y = t_map_base.transform.translation.y + sy * forward_m + cy * lateral_m;
+  goal.pose.position.z = 0.0;
+
+  // Keep the same heading. The global planner adjusts the path heading;
+  // we just don't want to hand Nav2 a wildly different goal yaw.
+  goal.pose.orientation = t_map_base.transform.rotation;
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "DetourAroundObstacle: goal=(%.2f, %.2f) "
+              "from (%.2f, %.2f), forward=%.2f lateral=%.2f",
+              goal.pose.position.x,
+              goal.pose.position.y,
+              t_map_base.transform.translation.x,
+              t_map_base.transform.translation.y,
+              forward_m,
+              lateral_m);
+
+  if (!nav_client_)
+  {
+    nav_client_ = rclcpp_action::create_client<Nav2Navigate>(ctx->node, "/navigate_to_pose");
+  }
+  if (!nav_client_->wait_for_action_server(std::chrono::seconds(2)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "DetourAroundObstacle: navigate_to_pose not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  Nav2Navigate::Goal nav_goal;
+  nav_goal.pose = goal;
+
+  nav_handle_.reset();
+  nav_future_ = nav_client_->async_send_goal(nav_goal);
+
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus DetourAroundObstacle::onRunning()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  if (!nav_handle_)
+  {
+    if (nav_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+      return BT::NodeStatus::RUNNING;
+    nav_handle_ = nav_future_.get();
+    if (!nav_handle_)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(), "DetourAroundObstacle: goal rejected");
+      return BT::NodeStatus::FAILURE;
+    }
+  }
+
+  const auto status = nav_handle_->get_status();
+  if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(), "DetourAroundObstacle: detour complete");
+    nav_handle_.reset();
+    return BT::NodeStatus::SUCCESS;
+  }
+  if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
+      status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
+  {
+    RCLCPP_WARN(ctx->node->get_logger(), "DetourAroundObstacle: detour navigation failed");
+    nav_handle_.reset();
+    return BT::NodeStatus::FAILURE;
+  }
+  return BT::NodeStatus::RUNNING;
+}
+
+void DetourAroundObstacle::onHalted()
+{
+  if (nav_handle_)
+  {
+    nav_client_->async_cancel_goal(nav_handle_);
+  }
+  nav_handle_.reset();
+}
+
+// ===========================================================================
 // GetNextUnmowedArea — iterate areas, find first with strips remaining
 // ===========================================================================
 
-BT::NodeStatus GetNextUnmowedArea::tick()
+BT::NodeStatus GetNextUnmowedArea::onStart()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
   auto helper = ctx->helper_node;
@@ -351,105 +475,117 @@ BT::NodeStatus GetNextUnmowedArea::tick()
         "/map_server_node/get_coverage_status");
   }
 
-  if (!client_->wait_for_service(std::chrono::seconds(2)))
+  if (!client_->service_is_ready())
   {
     RCLCPP_ERROR(ctx->node->get_logger(),
                  "GetNextUnmowedArea: get_coverage_status service not available");
     return BT::NodeStatus::FAILURE;
   }
 
-  uint32_t max_areas = 20;
-  getInput<uint32_t>("max_areas", max_areas);
+  // Reset per-run state
+  getInput<uint32_t>("max_areas", max_areas_);
+  current_area_idx_ = 0;
+  areas_queried_ = 0;
+  areas_complete_ = 0;
 
-  uint32_t areas_queried = 0;
-  uint32_t areas_complete = 0;
+  // Fire off the first async request
+  auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
+  request->area_index = current_area_idx_;
+  pending_future_.emplace(client_->async_send_request(request));
+  call_start_ = std::chrono::steady_clock::now();
 
-  for (uint32_t i = 0; i < max_areas; ++i)
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus GetNextUnmowedArea::onRunning()
+{
+  // Check if current async call has completed
+  if (pending_future_->future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
   {
-    auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
-    request->area_index = i;
-
-    auto future = client_->async_send_request(request);
-    // Poll future without spinning (avoids executor deadlock)
+    // Still waiting — check 2s timeout
+    if (std::chrono::steady_clock::now() - call_start_ > std::chrono::seconds(2))
     {
-      auto timeout = std::chrono::seconds(2);
-      auto start = std::chrono::steady_clock::now();
-      bool completed = false;
-      while (rclcpp::ok())
-      {
-        if (future.wait_for(std::chrono::milliseconds(10)) == std::future_status::ready)
-        {
-          completed = true;
-          break;
-        }
-        if (std::chrono::steady_clock::now() - start > timeout)
-        {
-          break;
-        }
-      }
-      if (!completed)
-      {
-        // Service call timed out. This is DIFFERENT from "no more areas";
-        // we must NOT conclude mowing is done. FAIL loudly so the BT can
-        // retry instead of falling through to the dock-return branch.
-        RCLCPP_ERROR(ctx->node->get_logger(),
-                     "GetNextUnmowedArea: get_coverage_status timed out for area %u after 2s — "
-                     "returning FAILURE (BT should retry, not assume mowing complete)",
-                     i);
-        return BT::NodeStatus::FAILURE;
-      }
+      auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+      RCLCPP_ERROR(ctx->node->get_logger(),
+                   "GetNextUnmowedArea: get_coverage_status timed out for area %u after 2s — "
+                   "returning FAILURE (BT should retry, not assume mowing complete)",
+                   current_area_idx_);
+      return BT::NodeStatus::FAILURE;
     }
+    return BT::NodeStatus::RUNNING;
+  }
 
-    auto response = future.get();
-    if (!response->success)
+  return processResponse();
+}
+
+BT::NodeStatus GetNextUnmowedArea::processResponse()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  auto response = pending_future_->future.get();
+
+  if (!response->success)
+  {
+    // Area index out of range — no more areas to check.
+    if (areas_queried_ == 0)
     {
-      // Area index out of range — no more areas to check.
-      // If we haven't queried any area yet, this means map_server has no
-      // areas defined at all — distinct from "all areas mowed".
-      if (areas_queried == 0)
-      {
-        RCLCPP_WARN(ctx->node->get_logger(),
-                    "GetNextUnmowedArea: no mowing areas defined in map_server "
-                    "(first get_coverage_status returned success=false). "
-                    "Record an area via the GUI before starting mowing.");
-      }
-      break;
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "GetNextUnmowedArea: no mowing areas defined in map_server "
+                  "(first get_coverage_status returned success=false). "
+                  "Record an area via the GUI before starting mowing.");
     }
-
-    areas_queried++;
-
-    if (response->strips_remaining > 0)
+    else
     {
-      setOutput("area_index", i);
-      ctx->current_area = static_cast<int>(i);
-
       RCLCPP_INFO(ctx->node->get_logger(),
-                  "GetNextUnmowedArea: area %u has %u strips remaining (%.1f%% done)",
-                  i,
-                  response->strips_remaining,
-                  response->coverage_percent);
-      return BT::NodeStatus::SUCCESS;
+                  "GetNextUnmowedArea: all %u area(s) complete",
+                  areas_complete_);
     }
-
-    areas_complete++;
-    RCLCPP_INFO(ctx->node->get_logger(),
-                "GetNextUnmowedArea: area %u complete (%.1f%%)",
-                i,
-                response->coverage_percent);
+    return BT::NodeStatus::FAILURE;
   }
 
-  if (areas_queried == 0)
+  areas_queried_++;
+
+  if (response->strips_remaining > 0)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "GetNextUnmowedArea: no areas to mow (none defined)");
+    setOutput("area_index", current_area_idx_);
+    ctx->current_area = static_cast<int>(current_area_idx_);
+
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "GetNextUnmowedArea: area %u has %u strips remaining (%.1f%% done)",
+                current_area_idx_,
+                response->strips_remaining,
+                response->coverage_percent);
+    return BT::NodeStatus::SUCCESS;
   }
-  else
+
+  areas_complete_++;
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "GetNextUnmowedArea: area %u complete (%.1f%%)",
+              current_area_idx_,
+              response->coverage_percent);
+
+  // Move to the next area
+  current_area_idx_++;
+  if (current_area_idx_ >= max_areas_)
   {
     RCLCPP_INFO(ctx->node->get_logger(),
                 "GetNextUnmowedArea: all %u area(s) complete",
-                areas_complete);
+                areas_complete_);
+    return BT::NodeStatus::FAILURE;
   }
-  return BT::NodeStatus::FAILURE;
+
+  // Fire off the next async request
+  auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
+  request->area_index = current_area_idx_;
+  pending_future_.emplace(client_->async_send_request(request));
+  call_start_ = std::chrono::steady_clock::now();
+
+  return BT::NodeStatus::RUNNING;
+}
+
+void GetNextUnmowedArea::onHalted()
+{
+  // Nothing to cancel — service calls complete on their own.
+  // State will be reset in onStart() on next invocation.
 }
 
 }  // namespace mowgli_behavior

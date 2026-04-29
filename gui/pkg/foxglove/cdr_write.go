@@ -52,7 +52,10 @@ func (w *cdrWriter) align(n int) {
 	if n > w.maxAlign {
 		n = w.maxAlign
 	}
-	rem := len(w.buf) % n
+	// Alignment is relative to the encapsulation body start (the byte after
+	// the 4-byte CDR header). Mirrors cdrReader.align in cdr.go.
+	bodyOff := len(w.buf) - 4
+	rem := bodyOff % n
 	if rem != 0 {
 		pad := n - rem
 		for i := 0; i < pad; i++ {

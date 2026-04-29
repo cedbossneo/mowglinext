@@ -95,6 +95,14 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable LiDAR-dependent nodes (Kinematic-ICP drift correction, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
     )
 
+    # use_fusion_graph and use_magnetometer are NOT declared here —
+    # navigation.launch.py reads them from mowgli_robot.yaml directly
+    # so the operator flips them via the runtime config (and a
+    # container restart picks the change up). CLI override on the
+    # top-level launch (`... use_fusion_graph:=true`) still works
+    # because the arg is declared in navigation.launch.py and CLI
+    # values propagate to all included files.
+
     # ------------------------------------------------------------------
     # Resolved substitutions
     # ------------------------------------------------------------------
@@ -111,7 +119,7 @@ def generate_launch_description() -> LaunchDescription:
     behavior_params = os.path.join(behavior_dir, "config", "behavior_tree.yaml")
     map_params = os.path.join(map_dir, "config", "map_server.yaml")
     nav2_params_file = os.path.join(bringup_dir, "config", "nav2_params.yaml")
-    localization_params = os.path.join(bringup_dir, "config", "localization.yaml")
+    localization_params = os.path.join(bringup_dir, "config", "robot_localization.yaml")
     monitoring_params = os.path.join(monitoring_dir, "config", "diagnostics.yaml")
     mqtt_params = os.path.join(monitoring_dir, "config", "mqtt_bridge.yaml")
     # Robot-specific config (bind-mounted from mowgli-docker/config/mowgli/)
@@ -228,7 +236,7 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     calibrate_imu_yaw_node = Node(
         package="mowgli_localization",
-        executable="calibrate_imu_yaw_node.py",
+        executable="calibrate_imu_yaw_node",
         name="calibrate_imu_yaw_node",
         output="screen",
         parameters=[

@@ -6,7 +6,7 @@
   <description>
     Launch files, parameter configurations, and URDF/xacro for the Mowgli
     autonomous robot mower. Provides bringup for hardware, navigation stack
-    (Nav2 + robot_localization dual EKF + optional Kinematic-ICP), and Gazebo Ignition simulation.
+    (Nav2 + robot_localization dual EKF), and Gazebo Ignition simulation.
   </description>
   <maintainer email="cedric@example.com">Cedric</maintainer>
   <license>GPL-3.0</license>
@@ -33,9 +33,10 @@
 
   <!-- Localization -->
   <exec_depend>robot_localization</exec_depend>
-  <!-- Kinematic-ICP is built from source as a submodule under
-       ros2/src/kinematic_icp; no rosdep entry because it is not in the
-       ROS2 index for Kilted. -->
+  <!-- slam_toolbox was the RTK-fallback LiDAR localizer; removed in
+       favor of fusion_graph (planned) — see docs/HANDOFF_FUSION_GRAPH.md.
+       Kinematic-ICP source under ros2/src/kinematic_icp is retained for
+       revertability but the launch + helper scripts are gone. -->
 
 
   <!-- Velocity multiplexing -->

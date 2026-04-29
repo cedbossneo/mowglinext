@@ -97,8 +97,7 @@ BT::NodeStatus StopMoving::onStart()
 
   if (!pub_)
   {
-    pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>(
-        "/cmd_vel_emergency", 10);
+    pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel_emergency", 10);
   }
 
   duration_sec_ = 0.5;
@@ -107,7 +106,8 @@ BT::NodeStatus StopMoving::onStart()
 
   publish_zero(ctx->node);
   RCLCPP_INFO(ctx->node->get_logger(),
-              "StopMoving: streaming zero velocity for %.2fs", duration_sec_);
+              "StopMoving: streaming zero velocity for %.2fs",
+              duration_sec_);
   return BT::NodeStatus::RUNNING;
 }
 
@@ -291,8 +291,7 @@ BT::NodeStatus NavigateInsideBoundary::onStart()
 
   if (!service_client_)
   {
-    service_client_ = ctx->node->create_client<RecoverySrv>(
-        "/map_server_node/get_recovery_point");
+    service_client_ = ctx->node->create_client<RecoverySrv>("/map_server_node/get_recovery_point");
   }
   if (!action_client_)
   {
@@ -306,9 +305,8 @@ BT::NodeStatus NavigateInsideBoundary::onStart()
     return BT::NodeStatus::FAILURE;
   }
 
-  service_future_ = service_client_->async_send_request(
-                                     std::make_shared<RecoverySrv::Request>())
-                        .share();
+  service_future_ =
+      service_client_->async_send_request(std::make_shared<RecoverySrv::Request>()).share();
   goal_handle_.reset();
   phase_ = Phase::WaitingForService;
 
@@ -338,8 +336,7 @@ BT::NodeStatus NavigateInsideBoundary::onRunning()
 
     if (!action_client_->wait_for_action_server(std::chrono::seconds(5)))
     {
-      RCLCPP_WARN(ctx->node->get_logger(),
-                  "NavigateInsideBoundary: /navigate_to_pose unavailable");
+      RCLCPP_WARN(ctx->node->get_logger(), "NavigateInsideBoundary: /navigate_to_pose unavailable");
       return BT::NodeStatus::FAILURE;
     }
 
@@ -368,8 +365,7 @@ BT::NodeStatus NavigateInsideBoundary::onRunning()
     goal_handle_ = goal_handle_future_.get();
     if (!goal_handle_)
     {
-      RCLCPP_ERROR(ctx->node->get_logger(),
-                   "NavigateInsideBoundary: nav2 rejected recovery goal");
+      RCLCPP_ERROR(ctx->node->get_logger(), "NavigateInsideBoundary: nav2 rejected recovery goal");
       return BT::NodeStatus::FAILURE;
     }
     phase_ = Phase::WaitingForResult;
@@ -526,9 +522,7 @@ BT::NodeStatus SetNavMode::tick()
   if (!param_client->wait_for_service(std::chrono::milliseconds(200)))
   {
     RCLCPP_WARN(ctx->node->get_logger(), "SetNavMode: controller_server param service unavailable");
-    // Still update the mode in context so we don't retry every tick.
-    ctx->current_nav_mode = mode;
-    return BT::NodeStatus::SUCCESS;
+    return BT::NodeStatus::FAILURE;
   }
 
   std::vector<rclcpp::Parameter> params;

@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fusion_graph</name>
+  <version>0.1.0</version>
+  <description>
+    Factor-graph localizer for the Mowgli robot mower (GTSAM iSAM2).
+    Replaces the robot_localization dual-EKF + slam_toolbox stack with a
+    single graph-based fusion that combines wheel odometry, gyro
+    preintegration, GNSS unary factors with lever-arm correction, GPS
+    course-over-ground heading, magnetometer yaw, and LiDAR scan-matching
+    between/loop-closure factors. Publishes map -> odom TF + filtered
+    pose. See docs/HANDOFF_FUSION_GRAPH.md for design.
+  </description>
+  <maintainer email="cedric@mowgli.dev">Cedric</maintainer>
+  <license>GPL-3.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>tf2_eigen</depend>
+  <depend>mowgli_interfaces</depend>
+  <depend>eigen</depend>
+
+  <!-- GTSAM is not in the rosdep index for Kilted; the Docker image
+       installs it from source (libgtsam-dev >= 4.2). The build looks it
+       up via find_package(GTSAM CONFIG REQUIRED). -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

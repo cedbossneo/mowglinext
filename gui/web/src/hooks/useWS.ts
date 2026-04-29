@@ -6,7 +6,7 @@ const useWebSocket = (reactUseWebSocketModule as unknown as { default: typeof re
 
 export const useWS = <T>(onError: (e: Error) => void, onInfo: (msg: string) => void, onData: (data: T, first?: boolean) => void) => {
     const [uri, setUri] = useState<string | null>(null);
-    const [first, setFirst] = useState(false)
+    const firstRef = useRef(true);
 
     // Keep refs to always call the latest callbacks, avoiding stale closures
     const onDataRef = useRef(onData);
@@ -34,14 +34,15 @@ export const useWS = <T>(onError: (e: Error) => void, onInfo: (msg: string) => v
             onErrorRef.current(new Error(`Stream closed`))
         },
         onMessage: (e: MessageEvent) => {
-            if (first) {
-                setFirst(false)
+            const isFirst = firstRef.current;
+            if (isFirst) {
+                firstRef.current = false;
             }
-            onDataRef.current(atob(e.data) as T, first);
+            onDataRef.current(atob(e.data) as T, isFirst);
         }
     });
     const start = (uri: string) => {
-        setFirst(true)
+        firstRef.current = true;
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         if (import.meta.env.DEV) {
             setUri(`${protocol}://localhost:4006${uri}`)
@@ -52,7 +53,7 @@ export const useWS = <T>(onError: (e: Error) => void, onInfo: (msg: string) => v
     const stop = () => {
         console.log(`Closing stream ${ws.getWebSocket()?.url}`)
         setUri(null)
-        setFirst(false)
+        firstRef.current = false;
     }
     return {start, stop, sendJsonMessage: ws.sendJsonMessage}
 }
