@@ -92,6 +92,16 @@ func ConfigSetKeysRoute(r *gin.RouterGroup, db types.IDBProvider) gin.IRoutes {
 // @Router /config/envs [get]
 func ConfigEnvRoute(r *gin.RouterGroup, db types.IDBProvider) gin.IRoutes {
 	return r.GET("/config/envs", func(context *gin.Context) {
+		// Only advertise a tileUri when the tile proxy is actually mounted
+		// (gated on system.map.enabled in api.go). Otherwise the frontend
+		// would fetch /tiles/... and 404, breaking the whole map view.
+		// An empty tileUri is treated as "no overlay" — the React component
+		// then falls back to the base Mapbox style.
+		mapEnabled, _ := db.Get("system.map.enabled")
+		if string(mapEnabled) != "true" {
+			context.JSON(200, GetConfigResponse{TileUri: ""})
+			return
+		}
 		tileUri, err := db.Get("system.map.tileUri")
 		if err != nil {
 			context.JSON(500, ErrorResponse{

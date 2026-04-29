@@ -571,7 +571,12 @@ func (r *cdrReader) readUint64() (uint64, error) {
 	return v, nil
 }
 
-// align advances offset to the next multiple of n, capped by maxAlign.
+// align advances offset to the next multiple of n (capped by maxAlign),
+// where alignment is computed relative to the start of the encapsulation body
+// — i.e., the byte just after the 4-byte CDR encapsulation header (OMG CORBA
+// §15.3.3, "beginning of the message"). Aligning from the absolute buffer
+// offset would land 4 bytes off for any field that follows a string in
+// XCDR1/CDR2_LE wire frames produced by foxglove_bridge / FastDDS / Cyclone.
 func (r *cdrReader) align(n int) {
 	if n <= 1 {
 		return
@@ -579,7 +584,8 @@ func (r *cdrReader) align(n int) {
 	if n > r.maxAlign {
 		n = r.maxAlign
 	}
-	rem := r.offset % n
+	bodyOff := r.offset - 4
+	rem := bodyOff % n
 	if rem != 0 {
 		r.offset += n - rem
 	}

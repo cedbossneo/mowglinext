@@ -271,37 +271,38 @@ func TestRoundTripStringThenFloat64(t *testing.T) {
 
 // The canonical differentiator: schema "float64 value" (single field).
 //
-// Layout after the 4-byte header:
-//   XCDR1 (maxAlign=8): offset=4 → align(8,8) → 4%8=4 → pad 4 → float64 at offset 8
-//   CDR2  (maxAlign=4): offset=4 → align(8,4) → 4%4=0 → no pad → float64 at offset 4
+// CDR alignment is relative to the encapsulation BODY (the byte after the
+// 4-byte CDR header), not to the absolute buffer offset. So body offset 0
+// is always 8-byte aligned — the first float64 sits there, with no padding,
+// regardless of XCDR1 vs CDR2.
 //
-// The writer always writes XCDR1 (0x0001) so serialized payloads put float64 at 8.
-// Hand-crafting lets us also test the CDR2 path that the reader must handle.
+// Layout after the 4-byte header:
+//   XCDR1 (maxAlign=8): body offset 0 → align(8) → 0%8=0 → float64 at body 0 (abs 4)
+//   CDR2  (maxAlign=4): body offset 0 → align(8,4) → 0%4=0 → float64 at body 0 (abs 4)
 
 // buildXCDR1SingleFloat64 builds a minimal XCDR1_LE payload for "float64 value".
-// float64 is at offset 8 (4 pad bytes after the 4-byte header).
+// float64 is at body offset 0 (absolute offset 4 — directly after the header).
 func buildXCDR1SingleFloat64(f float64) []byte {
-	// header 0x0001 = XCDR1_LE, then 4 padding bytes, then the float64 (LE)
-	buf := []byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	buf := []byte{0x00, 0x01, 0x00, 0x00}
 	return append(buf, leFloat64(f)...)
 }
 
 // buildCDR2SingleFloat64 builds a minimal PLAIN_CDR2_LE payload for "float64 value".
-// float64 is at offset 4 (no padding needed; 4%4==0).
+// float64 is at body offset 0 (absolute offset 4 — directly after the header).
 func buildCDR2SingleFloat64(f float64) []byte {
 	buf := []byte{0x00, 0x07, 0x00, 0x00}
 	return append(buf, leFloat64(f)...)
 }
 
-// TestHeaderXCDR1SingleFloat64 verifies that header 0x0001 (XCDR1_LE) triggers
-// maxAlign=8 so the float64 is read from offset 8.
+// TestHeaderXCDR1SingleFloat64 verifies that header 0x0001 (XCDR1_LE) decodes
+// the body-relative-aligned float64 (body offset 0) correctly.
 func TestHeaderXCDR1SingleFloat64(t *testing.T) {
 	schema := mustParseSchema(t, schemaSingleFloat64)
 	const wantF = 1.23456789e10
 	payload := buildXCDR1SingleFloat64(wantF)
 
-	if len(payload) != 8+8 {
-		t.Fatalf("unexpected payload length %d, want 16", len(payload))
+	if len(payload) != 4+8 {
+		t.Fatalf("unexpected payload length %d, want 12", len(payload))
 	}
 
 	out := mustDeserialize(t, payload, schema)
@@ -323,54 +324,46 @@ func TestHeaderCDR2SingleFloat64(t *testing.T) {
 	assertFloat64(t, out, "value", wantF)
 }
 
-// TestHeaderXCDR1WrongAlignDetected is the regression guard: if maxAlign were
-// still hardcoded to 4, reading the XCDR1 single-float64 payload (float64 at
-// offset 8) would instead read from offset 4 and return garbage. We confirm
-// the old broken reader misreads the value so the test logic is sound.
+// TestHeaderXCDR1WrongAlignDetected is a regression guard for the body-relative
+// alignment fix. The wire frame here has a string followed by a float64 — the
+// case where absolute-offset alignment would land 4 bytes off and read garbage.
+// We confirm the current reader pulls the correct value.
 func TestHeaderXCDR1WrongAlignDetected(t *testing.T) {
-	schema := mustParseSchema(t, schemaSingleFloat64)
+	schema := mustParseSchema(t, schemaStringThenFloat64)
 	const wantF = 1.23456789e10
-	payload := buildXCDR1SingleFloat64(wantF)
 
-	// Simulate old broken reader: maxAlign=4 forces float64 to offset 4.
-	r := &cdrReader{data: payload, offset: 4, le: true, maxAlign: 4}
-	out, err := r.readMessage(schema.Fields)
-	if err != nil {
-		t.Fatalf("readMessage: %v", err)
-	}
-	got := out["value"].(float64)
-	if math.Float64bits(got) == math.Float64bits(wantF) {
-		t.Fatal("expected misread with maxAlign=4 on XCDR1 payload — got correct value, test logic error")
-	}
+	// XCDR1_LE: header(4) + strlen(4) + "hi\0"(3) = body offset 7.
+	// align(8) on body 7 → pad 1 → float64 at body offset 8 (abs 12).
+	buf := []byte{0x00, 0x01, 0x00, 0x00}
+	buf = append(buf, []byte{0x03, 0x00, 0x00, 0x00, 'h', 'i', 0x00, 0x00}...)
+	buf = append(buf, leFloat64(wantF)...)
+
+	out := mustDeserialize(t, buf, schema)
+	assertFloat64(t, out, "value", wantF)
 }
 
-// TestHeaderXCDR1Int32BoolFloat64 tests a schema where XCDR1 and CDR2 produce
-// genuinely different padding:
+// TestHeaderXCDR1Int32BoolFloat64 tests "int32 + bool + float64" under XCDR1.
+// All offsets are body-relative (body starts at absolute byte 4).
 //
-//	int32 (4 bytes) + bool (1 byte) → offset 9
-//	XCDR1 (maxAlign=8): 9%8=1 → pad 7 → float64 at offset 16
-//	CDR2  (maxAlign=4): 9%4=1 → pad 3 → float64 at offset 12
+//	int32 a:  body 0-3
+//	bool b:   body 4
+//	float64 c: body 5 → align(8) 5%8=5 → pad 3 → body 8 (abs 12)
 func TestHeaderXCDR1Int32BoolFloat64(t *testing.T) {
 	schema := mustParseSchema(t, schemaInt32BoolFloat64)
 	const wantA int32 = 42
 	const wantB = true
 	const wantC = math.Pi
 
-	// Build XCDR1_LE payload manually.
 	buf := []byte{0x00, 0x01, 0x00, 0x00} // header
-	// int32 at offset 4 (no padding needed — 4%4=0)
 	var i32b [4]byte
 	binary.LittleEndian.PutUint32(i32b[:], uint32(wantA))
-	buf = append(buf, i32b[:]...)
-	// bool at offset 8
-	buf = append(buf, 0x01)
-	// offset now 9; align(8,8): 9%8=1 → pad 7 bytes
-	buf = append(buf, 0, 0, 0, 0, 0, 0, 0)
-	// float64 at offset 16
-	buf = append(buf, leFloat64(wantC)...)
+	buf = append(buf, i32b[:]...)        // int32 at body 0
+	buf = append(buf, 0x01)              // bool at body 4
+	buf = append(buf, 0, 0, 0)           // pad 3 to reach body 8
+	buf = append(buf, leFloat64(wantC)...) // float64 at body 8
 
-	if len(buf) != 16+8 {
-		t.Fatalf("unexpected XCDR1 payload length %d, want 24", len(buf))
+	if len(buf) != 4+16 {
+		t.Fatalf("unexpected XCDR1 payload length %d, want 20", len(buf))
 	}
 
 	out := mustDeserialize(t, buf, schema)
@@ -379,28 +372,24 @@ func TestHeaderXCDR1Int32BoolFloat64(t *testing.T) {
 	assertFloat64(t, out, "c", wantC)
 }
 
-// TestHeaderCDR2Int32BoolFloat64 is the CDR2 counterpart of the above test.
-// float64 is at offset 12 (only 3 padding bytes needed for 4-byte alignment).
+// TestHeaderCDR2Int32BoolFloat64 is the CDR2 counterpart. Under CDR2 the float64
+// align caps at 4, so body offset 5 → 5%4=1 → pad 3 → body 8 (same as XCDR1
+// here because both pads happen to be 3).
 func TestHeaderCDR2Int32BoolFloat64(t *testing.T) {
 	schema := mustParseSchema(t, schemaInt32BoolFloat64)
 	const wantA int32 = 99
 	const wantB = false
 	const wantC = math.E
 
-	// Build CDR2_LE payload manually.
-	buf := []byte{0x00, 0x07, 0x00, 0x00} // header PLAIN_CDR2_LE
-	// int32 at offset 4
+	buf := []byte{0x00, 0x07, 0x00, 0x00} // PLAIN_CDR2_LE
 	var i32b [4]byte
 	binary.LittleEndian.PutUint32(i32b[:], uint32(wantA))
 	buf = append(buf, i32b[:]...)
-	// bool at offset 8
 	buf = append(buf, 0x00)
-	// offset now 9; align(8,4): 9%4=1 → pad 3 bytes
 	buf = append(buf, 0, 0, 0)
-	// float64 at offset 12
 	buf = append(buf, leFloat64(wantC)...)
 
-	if len(buf) != 12+8 {
+	if len(buf) != 4+16 {
 		t.Fatalf("unexpected CDR2 payload length %d, want 20", len(buf))
 	}
 
@@ -434,25 +423,23 @@ func TestEndiannessLECDR2(t *testing.T) {
 }
 
 // TestEndiannessXCDR1LE verifies that header 0x0001 (XCDR1_LE) is decoded as
-// little-endian. float64 sits at offset 8 (4 padding bytes after header).
+// little-endian. float64 sits at body offset 0 (absolute 4).
 func TestEndiannessXCDR1LE(t *testing.T) {
 	schema := mustParseSchema(t, schemaSingleFloat64)
 	const wantF = 98765.4321
 
-	// XCDR1_LE: 4-byte header + 4 pad + 8-byte float64 (LE).
-	payload := append([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, leFloat64(wantF)...)
+	payload := append([]byte{0x00, 0x01, 0x00, 0x00}, leFloat64(wantF)...)
 	out := mustDeserialize(t, payload, schema)
 	assertFloat64(t, out, "value", wantF)
 }
 
 // TestEndiannessXCDR1BE verifies that header 0x0000 (CDR_BE / XCDR1 big-endian)
-// is decoded as big-endian. float64 sits at offset 8 (4 padding bytes after header).
+// is decoded as big-endian. float64 sits at body offset 0 (absolute 4).
 func TestEndiannessXCDR1BE(t *testing.T) {
 	schema := mustParseSchema(t, schemaSingleFloat64)
 	const wantF = 11111.2222
 
-	// CDR_BE: 4-byte header + 4 pad + 8-byte float64 (BE).
-	payload := append([]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, beFloat64(wantF)...)
+	payload := append([]byte{0x00, 0x00, 0x00, 0x00}, beFloat64(wantF)...)
 	out := mustDeserialize(t, payload, schema)
 	assertFloat64(t, out, "value", wantF)
 }
@@ -753,46 +740,35 @@ func TestRoundTripNavSatFix(t *testing.T) {
 // sentinel. This matches the alignment shape of the first float64 field that
 // foxglove_bridge puts on the wire for Odometry/IMU messages.
 //
-// Byte layout (XCDR1_LE, starting at CDR offset 4 after header):
-//
-//	offset 4:  sec (uint32, 4 bytes) → offset 8
-//	offset 8:  nanosec (uint32, 4 bytes) → offset 12
-//	offset 12: frame_id string-length (uint32=8) → offset 16; "abcdefg\0" → offset 24
-//	offset 24: float64 sentinel
-//	           XCDR1 align(8): 24%8=0 → no pad → offset 24  ✓
-//	           broken align(4): 24%4=0 → same offset 24 (coincidence — need different string)
+// All offsets below are body-relative (CDR alignment is computed from the
+// start of the encapsulation body, not the absolute buffer offset).
 //
 // With frame_id = "abc" (length=4, 3 chars + null):
 //
-//	string-length uint32 at 12 → offset 16; "abc\0" (4 bytes) → offset 20
-//	float64 sentinel:
-//	   XCDR1 align(8): 20%8=4 → pad 4 → float64 at offset 24
-//	   broken align(4): 20%4=0 → no pad → float64 at offset 20  ← DIFFERENT
+//	body 0:  sec (uint32, 4 bytes) → body 4
+//	body 4:  nanosec (uint32, 4 bytes) → body 8
+//	body 8:  string-length (uint32=4) → body 12; "abc\0" (4 bytes) → body 16
+//	body 16: float64 sentinel → align(8): 16%8=0 → no pad → at body 16 (abs 20)
 const schemaFrameIdAndFloat = `uint32 sec
 uint32 nanosec
 string frame_id
 float64 sentinel`
 
 // buildXCDR1FramePayload builds an XCDR1_LE payload for schemaFrameIdAndFloat.
-// frame_id="abc" (3 chars) is chosen so the float64 sits at offset 24 under
-// XCDR1 (maxAlign=8) and would be read from offset 20 under a broken maxAlign=4.
+// With frame_id="abc" (4 bytes incl. null) the float64 lands at body offset 16
+// (absolute offset 20).
 func buildXCDR1FramePayload(sentinel float64) []byte {
 	buf := []byte{0x00, 0x01, 0x00, 0x00} // XCDR1_LE header
-	// sec uint32 at offset 4 (aligned)
 	sec := make([]byte, 4)
 	binary.LittleEndian.PutUint32(sec, 1700000000)
 	buf = append(buf, sec...)
-	// nanosec uint32 at offset 8
 	ns := make([]byte, 4)
 	binary.LittleEndian.PutUint32(ns, 0)
 	buf = append(buf, ns...)
-	// frame_id string: length=4 ("abc\0") at offset 12
 	strlen := make([]byte, 4)
 	binary.LittleEndian.PutUint32(strlen, 4)
 	buf = append(buf, strlen...)
-	buf = append(buf, 'a', 'b', 'c', 0x00) // offset now 20
-	// XCDR1: align(8) at offset 20 → 20%8=4 → pad 4 → float64 at offset 24
-	buf = append(buf, 0, 0, 0, 0)
+	buf = append(buf, 'a', 'b', 'c', 0x00)
 	buf = append(buf, leFloat64(sentinel)...)
 	return buf
 }
@@ -818,18 +794,15 @@ func buildCDR2FramePayload(sentinel float64) []byte {
 }
 
 // TestXCDR1OdometryWireFrame proves the fixed reader extracts a sentinel float64
-// from an XCDR1 wire payload where the float lives at offset 24 (8-byte aligned).
-// Running this test against the old reader (maxAlign=4 hardcoded) would fail:
-// it would read from offset 20 and return garbage bytes instead of the sentinel.
+// from an XCDR1 wire payload where the float lives at body offset 16 (abs 20).
 func TestXCDR1OdometryWireFrame(t *testing.T) {
 	schema := mustParseSchema(t, schemaFrameIdAndFloat)
 	const sentinel = math.Pi
 
 	payload := buildXCDR1FramePayload(sentinel)
-	// Verify float64 is at byte offset 24 in the payload (the 8-aligned slot).
-	gotBits := binary.LittleEndian.Uint64(payload[24:])
+	gotBits := binary.LittleEndian.Uint64(payload[20:])
 	if gotBits != math.Float64bits(sentinel) {
-		t.Fatalf("test setup: sentinel not at offset 24 in XCDR1 payload")
+		t.Fatalf("test setup: sentinel not at offset 20 in XCDR1 payload")
 	}
 
 	out := mustDeserialize(t, payload, schema)
@@ -856,11 +829,13 @@ func TestCDR2OdometryWireFrame(t *testing.T) {
 
 // schemaQuatAfterString is a minimal schema mirroring the shape of the IMU
 // orientation quaternion that follows a Header (string field) on the wire.
-// The string "imu_link" has 9 chars including null → length=9; after the 4-byte
-// length uint32 and 9 bytes: offset = 4 (header) + 4(sec) + 4(ns) + 4(len) + 9 = 25.
 //
-// XCDR1 float64 align(8): 25%8=1 → pad 7 → first float64 at offset 32.
-// Broken maxAlign=4:       25%4=1 → pad 3 → first float64 at offset 28. ← GARBLED
+// All offsets below are body-relative.
+//
+//	body 0:  sec (uint32) → body 4
+//	body 4:  nanosec (uint32) → body 8
+//	body 8:  string-length (uint32) → body 12; "imu_link\0" (9 bytes) → body 21
+//	body 21: align(8) → 21%8=5 → pad 3 → first float64 at body 24 (abs 28)
 const schemaQuatAfterString = `uint32 sec
 uint32 nanosec
 string frame_id
@@ -871,10 +846,8 @@ float64 qw`
 
 // TestImuOrientationGarbledOnWrongAlign is the regression guard for the diagnostics
 // "orientation -180/90/-14" symptom. It builds an XCDR1_LE wire frame where
-// the quaternion floats sit at 8-byte-aligned offsets. The fixed reader extracts
-// a unit quaternion (magnitude ≈ 1). A reader with maxAlign=4 reads from the wrong
-// offsets and produces large-magnitude garbage — we demonstrate both outcomes to
-// prove the fix is load-bearing.
+// the quaternion floats sit at body-relative-aligned offsets. The fixed reader
+// extracts a unit quaternion (magnitude ≈ 1).
 func TestImuOrientationGarbledOnWrongAlign(t *testing.T) {
 	schema := mustParseSchema(t, schemaQuatAfterString)
 
@@ -882,42 +855,31 @@ func TestImuOrientationGarbledOnWrongAlign(t *testing.T) {
 	const qz = -0.3826834323650898
 	const qw = 0.9238795325112867
 
-	// Build XCDR1_LE payload by hand.
-	buf := []byte{0x00, 0x01, 0x00, 0x00} // XCDR1_LE header; CDR body starts at offset 4
-	// sec uint32 at offset 4
+	buf := []byte{0x00, 0x01, 0x00, 0x00} // XCDR1_LE header; body starts at abs 4
 	s := make([]byte, 4)
 	binary.LittleEndian.PutUint32(s, 1700000003)
-	buf = append(buf, s...)
-	// nanosec uint32 at offset 8
+	buf = append(buf, s...) // body 0-3 (sec)
 	ns := make([]byte, 4)
 	binary.LittleEndian.PutUint32(ns, 0)
-	buf = append(buf, ns...)
-	// frame_id string: length = 9 ("imu_link\0") at offset 12 → offset 16; string 9 bytes → offset 25
+	buf = append(buf, ns...) // body 4-7 (nanosec)
 	slen := make([]byte, 4)
 	binary.LittleEndian.PutUint32(slen, 9)
-	buf = append(buf, slen...)
-	buf = append(buf, []byte("imu_link\x00")...)
-	// offset is now 25
-	// XCDR1 align(8): 25%8=1 → pad 7 → first float64 at offset 32
-	buf = append(buf, 0, 0, 0, 0, 0, 0, 0)
-	// qx=0 at offset 32
-	buf = append(buf, leFloat64(0.0)...)
-	// qy=0 at offset 40 (8-byte aligned, no pad needed)
-	buf = append(buf, leFloat64(0.0)...)
-	// qz at offset 48
-	buf = append(buf, leFloat64(qz)...)
-	// qw at offset 56
-	buf = append(buf, leFloat64(qw)...)
+	buf = append(buf, slen...)                    // body 8-11
+	buf = append(buf, []byte("imu_link\x00")...)  // body 12-20
+	// body 21; align(8): 21%8=5 → pad 3 → body 24
+	buf = append(buf, 0, 0, 0)
+	buf = append(buf, leFloat64(0.0)...) // qx at body 24 (abs 28)
+	buf = append(buf, leFloat64(0.0)...) // qy at body 32 (abs 36)
+	buf = append(buf, leFloat64(qz)...)  // qz at body 40 (abs 44)
+	buf = append(buf, leFloat64(qw)...)  // qw at body 48 (abs 52)
 
-	// Sanity check: verify the sentinel floats are where we expect them.
-	if binary.LittleEndian.Uint64(buf[48:]) != math.Float64bits(qz) {
-		t.Fatalf("test setup: qz not at offset 48")
+	if binary.LittleEndian.Uint64(buf[44:]) != math.Float64bits(qz) {
+		t.Fatalf("test setup: qz not at offset 44")
 	}
-	if binary.LittleEndian.Uint64(buf[56:]) != math.Float64bits(qw) {
-		t.Fatalf("test setup: qw not at offset 56")
+	if binary.LittleEndian.Uint64(buf[52:]) != math.Float64bits(qw) {
+		t.Fatalf("test setup: qw not at offset 52")
 	}
 
-	// Fixed reader (XCDR1, maxAlign=8) — must decode a unit quaternion.
 	out := mustDeserialize(t, buf, schema)
 	gotQx := out["qx"].(float64)
 	gotQy := out["qy"].(float64)
@@ -934,28 +896,4 @@ func TestImuOrientationGarbledOnWrongAlign(t *testing.T) {
 		t.Errorf("fixed reader: qw got %v, want %v", gotQw, qw)
 	}
 
-	// Broken reader (maxAlign=4 hardcoded) — demonstrates the garbled symptom.
-	// With maxAlign=4, the reader aligns to offset 28 (25%4=1 → pad 3) instead
-	// of offset 32, so it reads 8 bytes starting from a padding/string byte region.
-	rBroken := &cdrReader{data: buf, offset: 4, le: true, maxAlign: 4}
-	broken, err := rBroken.readMessage(schema.Fields)
-	if err != nil {
-		// A broken reader may also return an error (short read) — that's also a failure.
-		t.Logf("broken reader returned error (also evidence of misalignment): %v", err)
-		return
-	}
-	brokenQz := broken["qz"].(float64)
-	brokenQw := broken["qw"].(float64)
-	brokenMag := math.Sqrt(
-		broken["qx"].(float64)*broken["qx"].(float64) +
-			broken["qy"].(float64)*broken["qy"].(float64) +
-			brokenQz*brokenQz +
-			brokenQw*brokenQw,
-	)
-	// The broken reader must NOT produce a unit quaternion — it reads garbage bytes.
-	if math.Abs(brokenMag-1.0) <= 1e-9 {
-		t.Errorf("broken reader (maxAlign=4) still produced a unit quaternion (magnitude %v) — "+
-			"test is not exercising the alignment bug; re-check wire layout", brokenMag)
-	}
-	t.Logf("broken reader produces quaternion magnitude %v (expected far from 1.0) — bug confirmed", brokenMag)
 }
