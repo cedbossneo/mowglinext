@@ -13,20 +13,15 @@
 # locally (safe reference for Nav2 local_costmap, collision_monitor), while
 # the "map" frame gets the jumpy GPS corrections. Canonical REP-105.
 #
-# Migration notes 2026-04-24:
-#   - FusionCore's 22D UKF would not collapse σ_xy below ~30 cm even under
-#     RTK-Fixed σ=5 mm; every Nav2 path got "start occupied" and the dock-
-#     return bug was the filter drifting 2 m during transit.
-#   - Our custom features in the FusionCore fork have robot_localization
-#     equivalents:
-#       * non-holonomic constraint    → two_d_mode + tight vy covariance in
-#                                        wheel_odom publisher
-#       * per-fix-type σ floors       → not needed (EKF honors NavSatFix.cov
-#                                        directly, and with frequent updates
-#                                        the filter converges to fix precision)
-#       * velocity-heading (GPS COG)  → navsat_transform provides natively
-#       * reverse-aware               → same
-#       * IMU bias tracking           → EKF has adaptive_noise option
+# Design notes:
+#   - non-holonomic constraint    → two_d_mode + tight vy covariance in
+#                                    wheel_odom publisher
+#   - per-fix-type σ floors       → not needed (EKF honors NavSatFix.cov
+#                                    directly, and with frequent updates
+#                                    the filter converges to fix precision)
+#   - velocity-heading (GPS COG)  → cog_to_imu.py + /imu/cog_heading
+#   - magnetometer yaw            → mag_yaw_publisher.py + /imu/mag_yaw
+#   - IMU bias tracking           → EKF has adaptive_noise option
 # ---------------------------------------------------------------------------
 
 # -----------------------------------------------------------------

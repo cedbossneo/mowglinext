@@ -42,10 +42,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Init Kinematic-ICP submodule
-        working-directory: .
-        run: git submodule update --init ros2/src/kinematic_icp
-
       - name: Setup ROS2 ${{ matrix.ros_distro }}
         uses: ros-tooling/setup-ros@v0.7
         with:
@@ -183,7 +179,7 @@ jobs:
         run: |
           FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" \) \
             -not -path "*/opennav_coverage/*" \
-            -not -path "*/fusioncore/*")
+            )
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0
@@ -209,7 +205,7 @@ jobs:
         run: |
           FILES=$(find ros2/src/ \( -name "*.cpp" -o -name "*.hpp" \) \
             -not -path "*/test/*" -not -path "*/opennav_coverage/*" \
-            -not -path "*/fusioncore/*")
+            )
           if [ -z "$FILES" ]; then
             echo "No C++ files found — skipping."
             exit 0

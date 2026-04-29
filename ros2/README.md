@@ -1,8 +1,8 @@
 # Mowgli ROS2
 
-A complete ROS2 Kilted robot mower stack built from scratch. Autonomous coverage mowing with RTK-GPS, robot_localization dual-EKF sensor fusion, optional Kinematic-ICP LiDAR drift correction, cell-based strip coverage planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
+A complete ROS2 Kilted robot mower stack built from scratch. Autonomous coverage mowing with RTK-GPS, robot_localization dual-EKF sensor fusion (with an opt-in GTSAM iSAM2 factor-graph localizer for LiDAR scan-matching and loop-closure), cell-based strip coverage planning, and a BehaviorTree.CPP v4 mission executor. Targets ARM boards (Rockchip) deployed in Docker containers.
 
-Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Kilted with Nav2, a REP-105-compliant dual-EKF GPS+IMU+wheels localizer, and cell-based strip coverage. Previously used slam_toolbox for continuous SLAM; that was removed once RTK-GPS alone proved cm-accurate and less brittle under real-world mower conditions (sparse features, long idle periods on dock, wind-moved foliage). The localizer has itself gone through several iterations (robot_localization → FusionCore UKF → robot_localization dual EKF); the current stack is the standard `ekf_odom_node` + `navsat_transform_node` + `ekf_map_node` trio under `two_d_mode`.
+Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mower_ros) project but rewritten from the ground up for ROS2 Kilted with Nav2, a REP-105-compliant dual-EKF GPS+IMU+wheels localizer, and cell-based strip coverage. The current localizer is the standard `ekf_odom_node` + `navsat_transform_node` + `ekf_map_node` trio under `two_d_mode`, with `fusion_graph_node` (GTSAM iSAM2) as an opt-in 1-for-1 replacement for `ekf_map_node` that adds LiDAR scan-matching between-factors and loop-closure factors.
 
 [![CI](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/ci.yml)
 [![Docker](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml/badge.svg)](https://github.com/cedbossneo/mowgli-ros2/actions/workflows/docker.yml)
@@ -57,11 +57,11 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
  +------v--------------------------------------------------------------+
  |                        Localization                                  |
  |                                                                      |
- |  robot_localization dual EKF      Kinematic-ICP (optional)           |
- |  ekf_odom_node  (50 Hz)           2D LiDAR on parallel TF tree       |
- |    wheels + gyro -> odom          feeds ekf_odom as /encoder2/odom   |
- |  navsat_transform_node (30 Hz)    twist-only, never TF               |
- |    /gps/fix -> /odometry/gps                                         |
+ |  robot_localization dual EKF      fusion_graph (opt-in)              |
+ |  ekf_odom_node  (50 Hz)           GTSAM iSAM2 factor graph (10 Hz)   |
+ |    wheels + gyro -> odom          replaces ekf_map_node 1-for-1      |
+ |  navsat_transform_node (30 Hz)    + LiDAR scan-matching factors      |
+ |    /gps/fix -> /odometry/gps      + loop-closure factors             |
  |  ekf_map_node (30 Hz)                                                 |
  |    + GPS + COG yaw -> map->odom                                      |
  |                                                                      |
@@ -91,7 +91,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 - **Full autonomous mowing** — plan, mow, dock, charge, resume. No manual intervention required.
 - **Multi-area strip coverage** — areas are mowed sequentially. For each area, strips are planned on demand by `map_server_node` and fetched one at a time by the BT via `GetNextUnmowedArea` (outer loop) and `GetNextStrip` (inner loop). Nav2 handles transit between strips (`TransitToStrip`), FTCController follows each strip (`FollowStrip`). No pre-planned full path. Progress tracked in `mow_progress` grid layer and survives restarts. Coverage status published on `/map_server_node/coverage_cells` (OccupancyGrid).
 - **robot_localization dual EKF (sole localizer)** — Two cooperating EKFs under `two_d_mode` (roll/pitch/Z clamped). `ekf_odom_node` fuses wheel twist + IMU gyro_z → `odom→base_footprint` at 50 Hz (continuous dead reckoning, never jumps). `navsat_transform_node` converts `/gps/fix` + local pose + IMU → `/odometry/gps` in map frame using a fixed lat/lon datum from `mowgli_robot.yaml`. `ekf_map_node` adds `/gps/pose_cov` (the PoseWithCovarianceStamped twin of `/gps/absolute_pose`) and `/imu/cog_heading` (GPS-course-over-ground absolute yaw) and publishes `map→odom` at 30 Hz. Non-holonomic motion is enforced by a tight `vy≈0` covariance in `/wheel_odom`. There is **no SLAM**; the map frame is GPS-anchored.
-- **Kinematic-ICP drift correction** (optional, LiDAR required) — PRBonn 2024 successor to KISS-ICP with a non-holonomic motion prior that kills lateral hallucinations on featureless grass. Runs on a decoupled parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`) so there is no feedback loop. An adapter finite-differences K-ICP's pose into body-frame twist on `/encoder2/odom` which `ekf_odom_node` fuses as a secondary velocity source.
+- **fusion_graph factor-graph localizer** (opt-in, GTSAM iSAM2) — replaces `ekf_map_node` 1-for-1 when `use_fusion_graph:=true`. Same inputs as the EKF (wheel between-factor, gyro between-factor, custom `GnssLeverArmFactor` with analytic Jacobian, COG/mag yaw unary factors), plus optional LiDAR scan-matching between-factors and loop-closure factors that keep the map-frame estimate stable across multi-minute RTK-Float windows. Surface: `/fusion_graph/diagnostics`, `/fusion_graph/markers`, services `~/save_graph` + `~/clear_graph`.
 - **RTK GPS localization** — UBX protocol. RTK Fixed gives σ ~3 mm. `ekf_map_node` honors the NavSatFix covariance directly and converges to fix precision without per-fix-type σ floors or outlier gating.
 - **BehaviorTree.CPP v4 mission executor** — reactive guards for emergency, boundary, rain, and battery. Automatic rain-stop-dock-wait-resume cycle. Battery-aware dock-charge-undock-resume cycle.
 - **Persistent obstacle tracking** — `obstacle_tracker_node` promotes LiDAR detections to persistent after age and observation thresholds. Obstacles are reflected in Nav2 costmaps for dynamic avoidance during strip transit and mowing.
@@ -103,7 +103,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 - **Docker multi-stage build** — 6 stages from `ros:kilted-ros-base`. ARM-tested on Rockchip. Dev workflow with bind-mounted source for fast iteration.
 - **Foxglove Studio bridge** — WebSocket on port 8765. Pre-built layout at `foxglove/mowgli_sim.json`.
 - **openmower-gui integration** — rosbridge WebSocket on port 9090.
-- **Diagnostics** — `diagnostics_node` monitors 8+ subsystems: hardware bridge, GPS localization modes, robot_localization (rate and covariance of `/odometry/filtered_map`), Kinematic-ICP (when enabled), obstacle tracker, wheel odometry, published as `diagnostic_msgs/DiagnosticArray` at 1 Hz. Optional MQTT bridge.
+- **Diagnostics** — `diagnostics_node` monitors 8+ subsystems: hardware bridge, GPS localization modes, the active map-frame localizer (rate and covariance of `/odometry/filtered_map`, plus `/fusion_graph/diagnostics` when `use_fusion_graph:=true`), obstacle tracker, wheel odometry, published as `diagnostic_msgs/DiagnosticArray` at 1 Hz. Optional MQTT bridge.
 
 ---
 
@@ -113,7 +113,7 @@ Originally inspired by the [OpenMower](https://github.com/ClemensElflein/open_mo
 |---------|-------------|-------------|
 | `mowgli_interfaces` | — | All ROS2 msg/srv/action definitions: 12 messages, 9 services, 2 actions |
 | `mowgli_hardware` | `hardware_bridge_node` | COBS+CRC-16 serial bridge to STM32. Publishes sensor data, subscribes to `cmd_vel` |
-| `mowgli_bringup` | — | Launch files, Nav2/robot_localization/Kinematic-ICP config, URDF/xacro, `twist_mux` config |
+| `mowgli_bringup` | — | Launch files, Nav2 / robot_localization config, URDF/xacro, `twist_mux` config |
 | `mowgli_localization` | `wheel_odometry_node` `navsat_to_absolute_pose_node` `localization_monitor_node` | Wheel odometry, GPS absolute pose + `/gps/pose_cov` conversion, localization mode monitor, COG-to-IMU absolute-yaw publisher, magnetometer yaw publisher, dock-yaw auto-capture. robot_localization's `ekf_odom_node`/`ekf_map_node`/`navsat_transform_node` are launched directly from the stock package |
 | `mowgli_behavior` | `behavior_tree_node` | BehaviorTree.CPP v4 executor. Loads `main_tree.xml`. All BT action and condition nodes |
 | `mowgli_map` | `map_server_node` `obstacle_tracker_node` | GridMap with 4 layers, area CRUD services, keepout/speed filter masks, mow progress, strip coverage planner (`~/get_next_strip`, `~/get_coverage_status`). Persistent LiDAR obstacle detection |
@@ -138,18 +138,13 @@ map                   (published by ekf_map_node at 30 Hz —
                 +-- imu_link               (fixed — offset from mowgli_robot.yaml)
                 +-- gps_link               (fixed — offset from mowgli_robot.yaml)
                 +-- lidar_link             (fixed — offset from mowgli_robot.yaml)
-
-(parallel tree for Kinematic-ICP, fully decoupled:
- wheel_odom_raw
-   +-- base_footprint_wheels
-        +-- lidar_link_wheels)
 ```
 
 Frame conventions follow REP-105: `map` (global, GPS-anchored via fixed datum), `odom` (continuous local, drift-only), `base_footprint` (robot frame for Nav2/robot_localization), `base_link` (rear wheel axis, OpenMower convention).
 
 `base_link` is placed at the centre of the rear drive wheel axis at wheel axle height. The chassis geometric centre sits `chassis_center_x` (default 0.18 m) forward of `base_link`. `base_footprint` is directly below `base_link` on the ground plane. The Nav2 footprint polygon is computed at launch from `chassis_length`, `chassis_width`, and `chassis_center_x` read from `mowgli_robot.yaml`.
 
-`ekf_odom_node` publishes `odom→base_footprint` at 50 Hz from wheels + gyro; `ekf_map_node` publishes `map→odom` at 30 Hz once GPS arrives — there is no SLAM back-end. Kinematic-ICP, when enabled, publishes its own small parallel tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`) that is never consumed by Nav2 or the main robot tree; it exists solely so K-ICP has a motion-prior TF + sensor extrinsic that does not depend on the fused state.
+`ekf_odom_node` publishes `odom→base_footprint` at 50 Hz from wheels + gyro; `ekf_map_node` (default) or `fusion_graph_node` (opt-in) publishes `map→odom` once GPS arrives — there is no SLAM back-end. The two map-frame backends are mutually exclusive in `navigation.launch.py`.
 
 ---
 
@@ -247,14 +242,14 @@ ros2 service call /behavior_tree_node/high_level_control \
 
 ### Localization Modes
 
-`localization_monitor_node` publishes the current mode on `/localization/mode` (string) and `/localization/mode_id` (int32). With robot_localization as the sole localizer the modes reflect GPS quality + whether Kinematic-ICP is actively contributing:
+`localization_monitor_node` publishes the current mode on `/localization/mode` (string) and `/localization/mode_id` (int32). The modes reflect GPS quality + whether the active map-frame localizer is healthy:
 
 | mode_id | mode string | Condition | Typical accuracy |
 |---------|-------------|-----------|-----------------|
 | `4` | `RTK_FIXED` | RTK Fixed, fusion healthy | σ ~3 mm (bounded by GPS σ + EKF innovation) |
-| `3` | `RTK_FLOAT` | RTK Float, fusion healthy | ~5–20 cm |
+| `3` | `RTK_FLOAT` | RTK Float, fusion healthy | ~5–20 cm; bounded further when `use_fusion_graph + use_scan_matching` are on |
 | `2` | `DGPS` | DGPS / SBAS, fusion healthy | ~0.5–1 m |
-| `1` | `DEAD_RECKONING` | GPS degraded, relying on wheels + IMU (+ Kinematic-ICP if LiDAR enabled) | drifts ~1 %/m, bounded by K-ICP when LiDAR is present |
+| `1` | `DEAD_RECKONING` | GPS degraded, relying on wheels + IMU | drifts ~1 %/m; with `use_fusion_graph + use_scan_matching` and a LiDAR, scan-matching factors keep the map-frame estimate bounded |
 | `0` | `NO_FIX` | All sources degraded | Return to dock |
 
 ---
@@ -364,7 +359,6 @@ Coverage strip planning is handled by `map_server_node`. Mowing parameters are c
 | `src/mowgli_bringup/config/mowgli_robot.yaml` | All physical, operational, and safety parameters |
 | `src/mowgli_bringup/config/nav2_params.yaml` | Nav2 controllers, planner, costmaps, collision monitor |
 | `src/mowgli_bringup/config/robot_localization.yaml` | robot_localization dual-EKF tuning (process noise, fused inputs, datum) |
-| `src/mowgli_bringup/config/kinematic_icp.yaml` | Kinematic-ICP voxel/registration/threshold tuning (2D LD19 LiDAR) |
 | `src/mowgli_bringup/config/hardware_bridge.yaml` | Serial bridge (port/baud/rate, IMU cal sample count) |
 | `src/mowgli_bringup/config/twist_mux.yaml` | `cmd_vel` multiplexer priorities and timeouts |
 | `src/mowgli_map/config/obstacle_tracker.yaml` | LiDAR obstacle detection thresholds |
@@ -425,7 +419,7 @@ make lint            # cppcheck + cpplint
 
 | Stage | From | Contents |
 |-------|------|----------|
-| `base` | `ros:kilted-ros-base` | All apt runtime deps: Nav2, robot_localization, rosbridge-suite, foxglove-bridge, Cyclone DDS (Kinematic-ICP is built from source as a git submodule) |
+| `base` | `ros:kilted-ros-base` | All apt runtime deps: Nav2, robot_localization, rosbridge-suite, foxglove-bridge, Cyclone DDS, GTSAM (built from source for `fusion_graph`) |
 | `deps` | `base` | Build tools, rosdep resolution |
 | `build-interfaces` | `deps` | `mowgli_interfaces` compiled only (cached layer, rarely rebuilt) |
 | `build` | `build-interfaces` | All remaining packages compiled, unit tests run |
@@ -506,7 +500,7 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 
 **Tier 2 — `full_system.launch.py`** (includes Tier 1 + full navigation stack):
 
-- `navigation.launch.py` — robot_localization dual EKF (`ekf_odom_node` + `navsat_transform_node` + `ekf_map_node`), optional Kinematic-ICP (gated on `use_lidar`), Nav2 bringup
+- `navigation.launch.py` — robot_localization dual EKF (`ekf_odom_node` + `navsat_transform_node` + `ekf_map_node`), optional `fusion_graph_node` (gated on `use_fusion_graph`), Nav2 bringup
 - `behavior_tree_node` — BT mission executor
 - `map_server_node` + `obstacle_tracker_node` — area management and obstacle tracking
 - `wheel_odometry_node`, `navsat_to_absolute_pose_node`, `localization_monitor_node` — localization pipeline
@@ -523,7 +517,7 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 |----------|---------|-------------|
 | `use_sim_time` | `false` | Use Gazebo simulation clock |
 | `serial_port` | `/dev/mowgli` | Hardware bridge serial device |
-| `use_lidar` | `true` | Launch LiDAR-dependent nodes (Kinematic-ICP drift correction, obstacle layer, collision-monitor scan). `false` runs a GPS-only configuration |
+| `use_lidar` | `true` | Launch LiDAR-dependent nodes (fusion_graph scan-matching when `use_fusion_graph` is on, obstacle layer, collision-monitor scan). `false` runs a GPS-only configuration |
 | `enable_mqtt` | `false` | Launch MQTT bridge node |
 | `enable_foxglove` | `true` | Launch Foxglove Bridge |
 | `enable_rosbridge` | `true` | Launch rosbridge_server |
@@ -536,7 +530,7 @@ A `systemd/mowgli.service` unit file is provided for running the stack as a syst
 |----------|---------|-------------|
 | `use_sim_time` | `false` | Use Gazebo simulation clock |
 | `use_ekf` | `true` | Launch robot_localization dual EKF (always true on real hardware; disable only for isolated Nav2 tests) |
-| `use_lidar` | `true` | Launch Kinematic-ICP + LiDAR-aware Nav2 config (`nav2_params.yaml`). `false` uses `nav2_params_no_lidar.yaml` |
+| `use_lidar` | `true` | Launch LiDAR-aware Nav2 config (`nav2_params.yaml`) and enable scan-matching when `use_fusion_graph` is on. `false` uses `nav2_params_no_lidar.yaml` |
 
 ### Simulation Launch Files
 
@@ -667,7 +661,7 @@ MowingSequence
 | `FollowStrip` | Follows the current strip path via Nav2 `FollowPath` with FTCController |
 | `DockRobot(dock_id, dock_type)` | `opennav_docking` `/dock_robot` action |
 | `UndockRobot(dock_type)` | `opennav_docking` `/undock_robot` action |
-| `SaveSlamMap(map_path)` | Deprecated no-op stub (kept so older BT XML files load). Returns SUCCESS immediately — SLAM backend was removed once RTK + Kinematic-ICP proved sufficient |
+| `SaveSlamMap(map_path)` | Deprecated no-op stub (kept so older BT XML files load). Returns SUCCESS immediately — SLAM backend was removed once RTK proved sufficient (and fusion_graph now persists its own factor graph via `~/save_graph`) |
 | `SaveObstacles` | Calls `/obstacle_tracker/save_obstacles` service |
 | `ClearCostmap` | Clears global and local costmaps via Nav2 services |
 | `SetNavMode(mode)` | Adjusts Nav2 speed limits based on GPS quality (`precise` / `degraded`) |

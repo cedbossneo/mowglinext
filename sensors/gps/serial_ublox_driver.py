@@ -80,7 +80,7 @@ class SerialUbloxDriver(Node):
         self.frame_id = self.get_parameter("frame_id").value
         self.publish_pvt = self.get_parameter("publish_pvt").value
 
-        # Reliable QoS to match what fusioncore/rtabmap/navsat_to_absolute_pose expect.
+        # Reliable QoS to match what navsat_to_absolute_pose/ekf_map_node/rtabmap expect.
         gps_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,

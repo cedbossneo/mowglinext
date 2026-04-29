@@ -86,7 +86,7 @@ RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
 
 #### 3. TF Authority
 
-AI may suggest having multiple nodes publish the same TF transforms. **Don't.** `map→odom` is owned by `ekf_map_node` (GPS-corrected), `odom→base_footprint` by `ekf_odom_node` (local dead reckoning) — there is no SLAM back-end. Kinematic-ICP (when enabled) publishes its own parallel TF tree (`wheel_odom_raw → base_footprint_wheels → lidar_link_wheels`), which nothing else in the stack consumes — that isolation is what prevents K-ICP's output from feeding back into its own motion prior.
+AI may suggest having multiple nodes publish the same TF transforms. **Don't.** `map→odom` is owned by either `ekf_map_node` (default) or `fusion_graph_node` (when `use_fusion_graph:=true`) — never both. `odom→base_footprint` is owned by `ekf_odom_node` (local dead reckoning). There is no SLAM back-end; the `/map` is built from user-recorded area polygons.
 
 #### 4. MPPI Controller for Coverage
 

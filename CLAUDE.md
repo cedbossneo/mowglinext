@@ -31,7 +31,7 @@ This robot has spinning blades. The STM32 firmware is the sole blade safety auth
     - **Default (`use_fusion_graph:=false`)**: `ekf_map_node` fuses wheel + IMU + `/gps/pose_cov` (`pose0`, from `navsat_to_absolute_pose_node` with datum from `mowgli_robot.yaml` and lever-arm correction) + `/imu/cog_heading` (GPS course-over-ground yaw, `cog_to_imu.py`) + `/imu/mag_yaw` (when calibrated) and publishes `map → odom`. RTK-Fixed σ ~3 mm flows through as-is.
     - **Opt-in (`use_fusion_graph:=true`, see `ros2/src/fusion_graph/`)**: a GTSAM iSAM2 factor-graph node replaces `ekf_map_node` 1-for-1 — same inputs, same outputs (`map → odom` TF + `/odometry/filtered_map`), Pose2 graph at 10 Hz with custom `GnssLeverArmFactor` (analytic Jacobian), wheel between-factor with non-holo covariance, gyro between-factor on yaw, COG/mag yaw unary factors. **LiDAR scan-matching between-factors and loop-closure factors are wired** and gated by `use_scan_matching` / `use_loop_closure`; they let the map-frame estimate ride through multi-minute RTK-Float windows. Adds `/fusion_graph/diagnostics` (1 Hz `DiagnosticArray` with `total_nodes / loop_closures / scan_matches_ok|fail / cov_xx|yy|yawyaw`), `/fusion_graph/markers` (transient_local viz), `/imu/fg_yaw` (yaw-only output), and the services `~/save_graph` + `~/clear_graph` (both `std_srvs/Trigger`, surfaced in the GUI's Diagnostics → Fusion Graph panel).
 
-   **slam_toolbox + Kinematic-ICP are gone.** The previous RTK-fallback architecture (parallel TF tree, `slam_pose_anchor_node` EWMA, `wheel_odom_tf_node`, `slam_scan_frame_relay`, `slam_map_persist_node`, `rtk_pose_mux_node`, fusion as `pose1`) and the K-ICP encoder adapter were both removed in favor of the factor-graph approach. The submodules under `ros2/src/kinematic_icp/` and `ros2/src/fusioncore/` are retained empty for revertability only; do not wire them back.
+   **slam_toolbox, Kinematic-ICP, and FusionCore are gone.** The previous RTK-fallback architecture (parallel TF tree, `slam_pose_anchor_node` EWMA, `wheel_odom_tf_node`, `slam_scan_frame_relay`, `slam_map_persist_node`, `rtk_pose_mux_node`, fusion as `pose1`), the K-ICP encoder adapter, and the FusionCore 22D UKF were all removed in favor of the factor-graph approach. `fusion_graph` is the only LiDAR-aware localizer; the `kinematic_icp` and `fusioncore` submodules are no longer part of the build.
 2. **TF chain follows REP-105** — `map → odom → base_footprint → base_link → sensors`. `map→odom` is published by `ekf_map_node` and `odom→base_footprint` by `ekf_odom_node`. All Nav2 nodes use `base_footprint` as the robot frame. `base_link` is at the rear wheel axis (OpenMower convention, do not move).
 3. **Cyclone DDS** — not FastRTPS (stale shm issues on ARM)
 4. **Map frame = GPS frame** — X=east, Y=north, no rotation transform
@@ -203,7 +203,7 @@ Do NOT hand-edit `*_generated.go`, `ros_lib/mower_msgs/*.h`, or `gui/web/src/typ
 docker exec -d mowgli-ros2 bash -c '
   source /opt/ros/kilted/setup.bash && source /ros2_ws/install/setup.bash && \
   python3 /ros2_ws/scripts/mow_session_monitor.py \
-    --session 2026-04-20-kinematic-icp-tuning-v1 \
+    --session 2026-04-29-fusion-graph-tuning-v1 \
     --output-dir /ros2_ws/maps'
 
 # Interactively from inside the container (Ctrl-C to stop + write summary):
@@ -230,7 +230,7 @@ The `--output-dir /ros2_ws/maps` redirects to the bind-mounted `install_mowgli_m
 - **Cross-source consistency**: `fusion ↔ gps` distance, `wheel ↔ gyro` yaw drift, and (when `use_fusion_graph:=true`) `fusion ↔ scan-match` ICP success rate from `/fusion_graph/diagnostics`
 - **RTK covariance-drop health**: on every RTK-Fixed GPS arrival, confirm `/odometry/filtered_map` cov drops to σ≤~3 cm within 300 ms — surfaced as `cross_checks.rtk_cov_check.{arrivals,ok,violations}` per sample and rolled into a `rtk_cov_check.verdict` ("healthy" / "intermittent" / "gate_rejecting" / "no_rtk") in the summary.
 
-**Metadata header** (first line of the JSONL): session name, UTC timestamp, git branch + commit + dirty flag, docker image tags from `.env`, SHA-256 truncated hashes of `mowgli_robot.yaml`, `localization.yaml`, `nav2_params.yaml`, `kinematic_icp.yaml` — so sessions from different tunings are grouped/comparable.
+**Metadata header** (first line of the JSONL): session name, UTC timestamp, git branch + commit + dirty flag, docker image tags from `.env`, SHA-256 truncated hashes of `mowgli_robot.yaml`, `robot_localization.yaml`, `nav2_params.yaml` — so sessions from different tunings are grouped/comparable.
 
 **Summary record** (last line, written on Ctrl-C or clean shutdown): total duration, samples written, wheel-integrated distance, straight-line displacement, peak `fusion↔gps` error, peak `wheel↔gyro` yaw drift, RTK cov-check totals + verdict, final BT state.
 
@@ -260,7 +260,7 @@ When using Claude Code on this project:
 - Do NOT use FastRTPS — Cyclone DDS is required
 - Do NOT mock the database/firmware in integration tests — use real interfaces
 - Do NOT publish a `map→odom` TF from any node other than the active map-frame localizer. `map→odom` is owned by `ekf_map_node` (default) or `fusion_graph_node` (when `use_fusion_graph:=true`) — never both. The two are mutually exclusive in `navigation.launch.py`.
-- Do NOT re-introduce slam_toolbox or Kinematic-ICP. Both were tried and removed: slam_toolbox required a parallel TF tree + EWMA anchor + gating that was fragile across RTK-Float windows; K-ICP only gave a body-frame twist with no absolute-pose information. The factor-graph design (`fusion_graph`) is the replacement — LiDAR enters the same graph as scan-matching between/loop-closure factors (see `wiki/Architecture.md` § *Optional: Factor-Graph Localizer*). The submodules under `ros2/src/kinematic_icp/` and `ros2/src/fusioncore/` are retained empty for revertability only; do not wire them back.
+- Do NOT re-introduce slam_toolbox, Kinematic-ICP, or FusionCore. All three were tried and removed: slam_toolbox required a parallel TF tree + EWMA anchor + gating that was fragile across RTK-Float windows; K-ICP only gave a body-frame twist with no absolute-pose information; FusionCore's 22D UKF would not collapse σ_xy below ~30 cm even under RTK-Fixed. The factor-graph design (`fusion_graph`) is the replacement — LiDAR enters the same graph as scan-matching between/loop-closure factors (see `wiki/Architecture.md` § *Optional: Factor-Graph Localizer*).
 - Do NOT send blade commands without firmware safety checks
 - Do NOT hardcode GPS coordinates, dock poses, or NTRIP credentials
 - Do NOT use MPPI controller for coverage paths — it jumps between swaths

@@ -10,7 +10,7 @@ After `mowglinext.sh` finishes and the containers come up, walk through this onc
   - `fusion` → publishing at ~25–50 Hz.
   - `gps` → publishing at 5 Hz. **Status: RTK Fixed** is the goal — keep reading if you are not there yet.
   - `lidar` (if enabled) → `/scan` publishing at ~10 Hz.
-  - `kinematic_icp` (if LiDAR enabled) → publishing on `/kinematic_icp/lidar_odometry` at ~10 Hz.
+  - `fusion_graph` (if `use_fusion_graph:=true` and LiDAR enabled) → publishing on `/fusion_graph/diagnostics` at 1 Hz.
 
 ## 2. RTK Fixed
 

@@ -313,7 +313,7 @@ void DiagnosticsNode::publish_diagnostics()
   array.status.push_back(check_lidar(t));
   array.status.push_back(check_gps(t));
   array.status.push_back(check_odometry(t));
-  array.status.push_back(check_fusioncore(t));
+  array.status.push_back(check_fusion(t));
   array.status.push_back(check_motors());
 
   pub_diagnostics_->publish(array);
@@ -532,8 +532,7 @@ diagnostic_msgs::msg::DiagnosticStatus DiagnosticsNode::check_odometry(
   return status;
 }
 
-diagnostic_msgs::msg::DiagnosticStatus DiagnosticsNode::check_fusioncore(
-    const rclcpp::Time& now) const
+diagnostic_msgs::msg::DiagnosticStatus DiagnosticsNode::check_fusion(const rclcpp::Time& now) const
 {
   diagnostic_msgs::msg::DiagnosticStatus status;
   status.name = "EKF Map";

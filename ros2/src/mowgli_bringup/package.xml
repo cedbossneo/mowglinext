@@ -33,11 +33,8 @@
 
   <!-- Localization -->
   <exec_depend>robot_localization</exec_depend>
-  <!-- slam_toolbox was the RTK-fallback LiDAR localizer; removed in
-       favor of fusion_graph (planned) — see docs/HANDOFF_FUSION_GRAPH.md.
-       Kinematic-ICP source under ros2/src/kinematic_icp is retained for
-       revertability but the launch + helper scripts are gone. -->
-
+  <!-- LiDAR-aware localization is provided by fusion_graph (opt-in via
+       use_fusion_graph). -->
 
   <!-- Velocity multiplexing -->
   <exec_depend>twist_mux</exec_depend>
