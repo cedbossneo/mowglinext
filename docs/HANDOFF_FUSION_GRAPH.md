@@ -1,5 +1,14 @@
 # Handoff — `fusion_graph` (factor-graph localizer) + suppression de slam_toolbox
 
+> ⚠️ **Document historique.** La migration FusionCore → iSAM2 décrite ici est terminée et en
+> production. Pour comprendre le comportement actuel du localiseur (steady state),
+> ouvrir [`wiki/Architecture.md`][archi] et la section [`Configuration.md` § fusion_graph][cfg].
+> Cette page reste publiée comme trace de la transition (commits, choix de design,
+> liste des helpers retirés) — utile pour archéologie git, pas pour onboarder.
+>
+> [archi]: https://github.com/cedbossneo/mowglinext/wiki/Architecture#optional-factor-graph-localizer-fusion_graph
+> [cfg]: https://github.com/cedbossneo/mowglinext/wiki/Configuration#7-fusion_graph
+
 > Document de passation pour reprise dans une nouvelle session Claude Code.
 > **Branche de départ :** `feat/slam-rtk-fallback` (ou créer `feat/fusion-graph` from `main`).
 > **Date :** 2026-04-28.

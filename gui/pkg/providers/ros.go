@@ -46,6 +46,7 @@ var topicMap = map[string]topicDef{
 	"emergency":           {"/hardware_bridge/emergency", "mowgli_interfaces/msg/Emergency"},   // safety-critical
 	"lidar":               {"/scan", "sensor_msgs/msg/LaserScan"},                              // large message
 	"diagnostics":         {"/diagnostics", "diagnostic_msgs/msg/DiagnosticArray"},
+	"fusionDiag":          {"/fusion_graph/diagnostics", "diagnostic_msgs/msg/DiagnosticArray"},
 	"obstacles":           {"/obstacle_tracker/obstacles", "mowgli_interfaces/msg/ObstacleArray"},
 	"robotDescription":    {"/robot_description", "std_msgs/msg/String"},                       // published once
 	"recordingTrajectory": {"/behavior_tree_node/recording_trajectory", "nav_msgs/msg/Path"},   // area recording preview

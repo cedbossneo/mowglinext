@@ -16,6 +16,7 @@ import { SettingsNav } from "../components/settings/SettingsNav.tsx";
 import { HardwareSection } from "../components/settings/HardwareSection.tsx";
 import { PositioningSection } from "../components/settings/PositioningSection.tsx";
 import { SensorsSection } from "../components/settings/SensorsSection.tsx";
+import { LocalizationSection } from "../components/settings/LocalizationSection.tsx";
 import { MowingSection } from "../components/settings/MowingSection.tsx";
 import { DockingSection } from "../components/settings/DockingSection.tsx";
 import { BatterySection } from "../components/settings/BatterySection.tsx";
@@ -68,6 +69,8 @@ export const SettingsPage = () => {
                 return <PositioningSection values={values} onChange={handleChange} />;
             case "sensors":
                 return <SensorsSection values={values} onChange={handleChange} />;
+            case "localization":
+                return <LocalizationSection values={values} onChange={handleChange} />;
             case "mowing":
                 return <MowingSection values={values} onChange={handleChange} />;
             case "docking":

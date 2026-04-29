@@ -35,30 +35,32 @@
 #include <gtsam/nonlinear/NonlinearFactorGraph.h>
 #include <gtsam/nonlinear/Values.h>
 
-namespace fusion_graph {
+namespace fusion_graph
+{
 
-struct GraphParams {
+struct GraphParams
+{
   // Node creation cadence — one Pose2 per node_period_s of wall-clock.
   // 10 Hz default per the plan.
   double node_period_s = 0.1;
 
   // Wheel between-factor noise (sigmas, body-frame). Tight vy enforces
   // non-holonomic motion.
-  double wheel_sigma_x = 0.05;        // m per node @ 10 Hz
-  double wheel_sigma_y = 0.005;       // m per node — non-holo
-  double wheel_sigma_theta = 0.01;    // rad per node
+  double wheel_sigma_x = 0.05;  // m per node @ 10 Hz
+  double wheel_sigma_y = 0.005;  // m per node — non-holo
+  double wheel_sigma_theta = 0.01;  // rad per node
 
   // Gyro yaw between-factor noise (overrides wheel_sigma_theta when used).
-  double gyro_sigma_theta = 0.005;    // rad per node — gyro is much
-                                      // tighter than wheel-derived yaw.
+  double gyro_sigma_theta = 0.005;  // rad per node — gyro is much
+                                    // tighter than wheel-derived yaw.
 
   // GPS unary noise floor (when the message covariance is unrealistically
   // small).
-  double gps_sigma_floor = 0.003;     // m — RTK-Fixed σ ~3 mm
+  double gps_sigma_floor = 0.003;  // m — RTK-Fixed σ ~3 mm
 
   // Initial-pose prior noise — applied only at graph initialization.
-  double prior_sigma_xy = 0.05;       // m
-  double prior_sigma_theta = 0.05;    // rad
+  double prior_sigma_xy = 0.05;  // m
+  double prior_sigma_theta = 0.05;  // rad
 
   // Huber kernel cutoff "k" for robustified factors. k is in σ-space:
   // residuals smaller than k σ stay quadratic, larger become linear.
@@ -92,28 +94,31 @@ struct GraphParams {
   // node creation unless at least `stationary_node_period_s` has
   // elapsed since the last node. Prevents the graph from inflating
   // by 10 nodes/s while parked at the dock or paused mid-session.
-  double stationary_motion_thresh_m = 0.02;     // m
-  double stationary_motion_thresh_theta = 0.01; // rad (~0.6°)
-  double stationary_node_period_s = 5.0;        // 1 node / 5 s when still
+  double stationary_motion_thresh_m = 0.02;  // m
+  double stationary_motion_thresh_theta = 0.01;  // rad (~0.6°)
+  double stationary_node_period_s = 5.0;  // 1 node / 5 s when still
 };
 
 // What goes out to the publisher every tick.
-struct TickOutput {
+struct TickOutput
+{
   gtsam::Pose2 pose;
-  Eigen::Matrix3d covariance;        // (x, y, theta) marginal
-  uint64_t node_index;               // monotonically increasing
-  double timestamp;                  // ROS time, seconds
+  Eigen::Matrix3d covariance;  // (x, y, theta) marginal
+  uint64_t node_index;  // monotonically increasing
+  double timestamp;  // ROS time, seconds
 };
 
 // Lightweight stats snapshot for diagnostics.
-struct GraphStats {
-  uint64_t total_nodes = 0;          // # nodes created since boot
-  uint64_t scans_attached = 0;       // # nodes with a scan
-  uint64_t loop_closures = 0;        // # AddLoopClosure successes
+struct GraphStats
+{
+  uint64_t total_nodes = 0;  // # nodes created since boot
+  uint64_t scans_attached = 0;  // # nodes with a scan
+  uint64_t loop_closures = 0;  // # AddLoopClosure successes
 };
 
-class GraphManager {
- public:
+class GraphManager
+{
+public:
   explicit GraphManager(const GraphParams& params);
 
   // Mutators — thread-safe (internal mutex). The node accepts inputs
@@ -130,8 +135,7 @@ class GraphManager {
   // `robust` is true, the noise model is wrapped in a Huber kernel —
   // appropriate for RTK-Float / single-fix samples where multipath
   // outliers can lie outside the reported covariance.
-  void QueueGnss(double x, double y, double sigma_xy,
-                 bool robust = false);
+  void QueueGnss(double x, double y, double sigma_xy, bool robust = false);
 
   // Yaw observation (COG or mag). sigma_yaw is rad. `robust` should be
   // true for magnetometer yaw (uncalibrated / heading-dependent bias),
@@ -142,15 +146,17 @@ class GraphManager {
   // BetweenFactor(X_{k-1}, X_k, delta, [sigma_xy, sigma_xy, sigma_theta]).
   // Applied in addition to the wheel between, both contribute under
   // their respective covariances.
-  void QueueScanBetween(const gtsam::Pose2& delta,
-                        double sigma_xy, double sigma_theta);
+  void QueueScanBetween(const gtsam::Pose2& delta, double sigma_xy, double sigma_theta);
 
   // Initial-pose seed. Required before the first tick if no GPS has
   // arrived yet — sets the prior on X_0. Must be called exactly once.
   void Initialize(const gtsam::Pose2& X0, double timestamp);
 
   // True once Initialize() has been called.
-  bool IsInitialized() const { return initialized_; }
+  bool IsInitialized() const
+  {
+    return initialized_;
+  }
 
   // Tick: if at least node_period_s has elapsed since the last node,
   // create a new node + factors and run iSAM2. Returns the new tick
@@ -175,8 +181,7 @@ class GraphManager {
   //
   // Attach a scan (in body frame) to an existing node. Used for
   // future loop-closure searches and persisted to disk.
-  void AttachScan(uint64_t node_index,
-                  const std::vector<Eigen::Vector2d>& scan_body);
+  void AttachScan(uint64_t node_index, const std::vector<Eigen::Vector2d>& scan_body);
 
   // Retrieve the scan stored at a node, or empty if none.
   std::vector<Eigen::Vector2d> GetScan(uint64_t node_index) const;
@@ -187,17 +192,19 @@ class GraphManager {
   // Find the K node indices closest to a query xy position
   // (Pose2.translation()), regardless of age. Used at cold boot to
   // narrow scan-matching candidates around dock_pose.
-  std::vector<uint64_t> FindNodesNearXY(
-      double x, double y,
-      double max_dist_m,
-      size_t max_candidates) const;
+  std::vector<uint64_t> FindNodesNearXY(double x,
+                                        double y,
+                                        double max_dist_m,
+                                        size_t max_candidates) const;
 
   // Force-anchor the current trajectory at `pose` by adding a tight
   // PriorFactor on the latest loaded node. Used after a successful
   // cold-boot scan-match relocalization. iSAM2 update happens
   // immediately; subsequent factors arrive on top.
-  void ForceAnchor(uint64_t node_index, const gtsam::Pose2& pose,
-                   double sigma_xy, double sigma_theta);
+  void ForceAnchor(uint64_t node_index,
+                   const gtsam::Pose2& pose,
+                   double sigma_xy,
+                   double sigma_theta);
 
   // Find candidate node indices for loop closure: poses within
   // `max_dist_m` (xy plane) of `query_index`'s pose AND created
@@ -207,11 +214,10 @@ class GraphManager {
   //
   // Returns at most `max_candidates` indices, sorted by ascending xy
   // distance to the query node.
-  std::vector<uint64_t> FindLoopClosureCandidates(
-      uint64_t query_index,
-      double max_dist_m,
-      double min_age_s,
-      size_t max_candidates) const;
+  std::vector<uint64_t> FindLoopClosureCandidates(uint64_t query_index,
+                                                  double max_dist_m,
+                                                  double min_age_s,
+                                                  size_t max_candidates) const;
 
   // ── Memory + compute bounding ───────────────────────────────────
   //
@@ -231,9 +237,11 @@ class GraphManager {
   // delta is the relative Pose2 such that X_curr = X_prev * delta.
   // Triggers an iSAM2 update + returns the refreshed marginal pose
   // of the curr node.
-  void AddLoopClosure(uint64_t prev_index, uint64_t curr_index,
+  void AddLoopClosure(uint64_t prev_index,
+                      uint64_t curr_index,
                       const gtsam::Pose2& delta,
-                      double sigma_xy, double sigma_theta);
+                      double sigma_xy,
+                      double sigma_theta);
 
   // ── Persistence ──────────────────────────────────────────────────
   //
@@ -252,25 +260,41 @@ class GraphManager {
   // next_index_ resumes after the highest loaded index.
   bool Load(const std::string& prefix);
 
- private:
+  // Wipe all graph state (iSAM2, accumulators, scans, loop-closure
+  // edges, queues, latest snapshot). After Reset() the manager is back
+  // to its post-construction state — IsInitialized() returns false, and
+  // a fresh Initialize() (or Load()) is required before any factor
+  // input is accepted.
+  // Used by the GUI / BT to start a clean session without restarting
+  // the whole node (e.g. after relocating to a new garden).
+  void Reset();
+
+private:
   // Per-node accumulator for between-factors.
-  struct Accumulator {
-    double dx = 0.0;     // body-frame integration since last tick
+  struct Accumulator
+  {
+    double dx = 0.0;  // body-frame integration since last tick
     double dy = 0.0;
     double dtheta_wheel = 0.0;
     double dtheta_gyro = 0.0;
     double dt_total = 0.0;
-    void Reset() { *this = Accumulator{}; }
+    void Reset()
+    {
+      *this = Accumulator{};
+    }
   };
 
   // Cached unary observation queue.
-  struct UnaryQueue {
-    struct Gnss {
+  struct UnaryQueue
+  {
+    struct Gnss
+    {
       gtsam::Vector2 xy;
       double sigma;
       bool robust;
     };
-    struct Yaw {
+    struct Yaw
+    {
       double yaw;
       double sigma;
       bool robust;
@@ -279,7 +303,8 @@ class GraphManager {
     std::optional<Yaw> yaw;
     // Scan-matching between (delta, sigma_xy, sigma_theta). Applied
     // alongside the wheel between at the next node.
-    struct ScanBetween {
+    struct ScanBetween
+    {
       gtsam::Pose2 delta;
       double sigma_xy;
       double sigma_theta;
@@ -309,7 +334,7 @@ class GraphManager {
   bool HasPoseAt(uint64_t idx) const;
   void RefreshEstimateLocked() const;
 
-  uint64_t next_index_ = 0;        // index of the next node to create
+  uint64_t next_index_ = 0;  // index of the next node to create
   double last_node_time_s_ = 0.0;  // wall time of last created node
 
   Accumulator accum_;
@@ -330,8 +355,7 @@ class GraphManager {
   std::map<uint64_t, std::vector<Eigen::Vector2d>> scans_;
 
   // Helper — create a NoiseModel with diagonal sigmas.
-  static gtsam::SharedNoiseModel MakeDiagonal(
-      const std::vector<double>& sigmas);
+  static gtsam::SharedNoiseModel MakeDiagonal(const std::vector<double>& sigmas);
 
   // Internal — actually creates the node and runs iSAM2. Caller must
   // hold mu_.

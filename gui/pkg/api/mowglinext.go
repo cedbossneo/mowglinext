@@ -251,6 +251,8 @@ func SubscriberRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			def, err = subscribe(provider, c, conn, "cogHeading", 200)
 		case "magYaw":
 			def, err = subscribe(provider, c, conn, "magYaw", 200)
+		case "fusionDiag":
+			def, err = subscribe(provider, c, conn, "fusionDiag", -1)
 		default:
 			log.Printf("SubscriberRoute: unknown topic %q", topic)
 			return
@@ -393,6 +395,25 @@ func ServiceRoute(group *gin.RouterGroup, provider types.IRosProvider) {
 			}
 			var res TriggerRes
 			err = provider.CallService(c.Request.Context(), "/navsat_to_absolute_pose/set_datum", &struct{}{}, &res, "std_srvs/srv/Trigger")
+			if err == nil && !res.Success {
+				err = errors.New(res.Message)
+			}
+			if err == nil {
+				c.JSON(200, map[string]interface{}{"message": res.Message})
+				return
+			}
+		case "fusion_graph_save", "fusion_graph_clear":
+			// Both target std_srvs/Trigger services on fusion_graph_node.
+			type TriggerRes struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+			}
+			service := "/fusion_graph_node/save_graph"
+			if command == "fusion_graph_clear" {
+				service = "/fusion_graph_node/clear_graph"
+			}
+			var res TriggerRes
+			err = provider.CallService(c.Request.Context(), service, &struct{}{}, &res, "std_srvs/srv/Trigger")
 			if err == nil && !res.Success {
 				err = errors.New(res.Message)
 			}

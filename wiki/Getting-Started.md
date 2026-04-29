@@ -52,7 +52,7 @@ The fastest way to explore and develop MowgliNext — no local setup required:
 
 The devcontainer provides a complete ROS2 Kilted development environment:
 
-- Full Nav2 navigation stack, robot_localization (sole dual-EKF localizer), Kinematic-ICP (optional LiDAR drift correction on a parallel TF tree)
+- Full Nav2 navigation stack, robot_localization (default dual-EKF localizer), Kinematic-ICP (optional LiDAR drift correction on a parallel TF tree), and an opt-in GTSAM iSAM2 factor-graph localizer (`fusion_graph`) with scan-matching and loop-closure
 - Gazebo Harmonic simulation (headless)
 - Cell-based strip coverage planner (`map_server_node`) + FTCController for swath following
 - Foxglove Bridge + rosbridge for visualization

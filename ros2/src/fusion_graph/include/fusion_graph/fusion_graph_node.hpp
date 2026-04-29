@@ -20,36 +20,35 @@
 #include <string>
 #include <vector>
 
-#include <rclcpp/rclcpp.hpp>
-
-#include <diagnostic_msgs/msg/diagnostic_array.hpp>
-#include <visualization_msgs/msg/marker_array.hpp>
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
-#include <std_srvs/srv/trigger.hpp>
-
-#include <mowgli_interfaces/msg/high_level_status.hpp>
-#include <mowgli_interfaces/msg/status.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
-#include <Eigen/Core>
-
 #include "fusion_graph/graph_manager.hpp"
 #include "fusion_graph/scan_matcher.hpp"
+#include <Eigen/Core>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <mowgli_interfaces/msg/high_level_status.hpp>
+#include <mowgli_interfaces/msg/status.hpp>
+#include <std_srvs/srv/trigger.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
-namespace fusion_graph {
+namespace fusion_graph
+{
 
-class FusionGraphNode : public rclcpp::Node {
- public:
+class FusionGraphNode : public rclcpp::Node
+{
+public:
   explicit FusionGraphNode(const rclcpp::NodeOptions& opts = {});
 
- private:
+private:
   // ── Callbacks ──────────────────────────────────────────────────────
   void OnWheelOdom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
   void OnImu(sensor_msgs::msg::Imu::ConstSharedPtr msg);
@@ -57,12 +56,9 @@ class FusionGraphNode : public rclcpp::Node {
   void OnCogHeading(sensor_msgs::msg::Imu::ConstSharedPtr msg);
   void OnMagYaw(sensor_msgs::msg::Imu::ConstSharedPtr msg);
   void OnScan(sensor_msgs::msg::LaserScan::ConstSharedPtr msg);
-  void OnHighLevelStatus(
-      mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg);
-  void OnHardwareStatus(
-      mowgli_interfaces::msg::Status::ConstSharedPtr msg);
-  void OnSetPose(
-      geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg);
+  void OnHighLevelStatus(mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg);
+  void OnHardwareStatus(mowgli_interfaces::msg::Status::ConstSharedPtr msg);
+  void OnSetPose(geometry_msgs::msg::PoseWithCovarianceStamped::ConstSharedPtr msg);
   void OnTimer();
   void OnPeriodicSaveTimer();
 
@@ -102,12 +98,12 @@ class FusionGraphNode : public rclcpp::Node {
   std::optional<rclcpp::Time> last_imu_stamp_;
 
   // Latched seeds for initialization.
-  std::optional<gtsam::Vector2> seed_xy_;       // from latest GPS
-  std::optional<double> seed_yaw_;              // from latest COG/mag
+  std::optional<gtsam::Vector2> seed_xy_;  // from latest GPS
+  std::optional<double> seed_yaw_;  // from latest COG/mag
 
   // Scan matching state.
   std::mutex scan_mu_;
-  std::vector<Eigen::Vector2d> latest_scan_;    // latest scan in body frame
+  std::vector<Eigen::Vector2d> latest_scan_;  // latest scan in body frame
   bool latest_scan_valid_ = false;
   std::vector<Eigen::Vector2d> prev_node_scan_;  // scan stored at last node
   bool prev_node_scan_valid_ = false;
@@ -124,15 +120,14 @@ class FusionGraphNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_cog_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_mag_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr sub_scan_;
-  rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr
-      sub_hl_status_;
-  rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr
-      sub_hw_status_;
-  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
-      sub_set_pose_;
+  rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr sub_hl_status_;
+  rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr sub_hw_status_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_set_pose_;
 
   // Save-graph service handle.
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_save_;
+  // Clear-graph service handle (wipes iSAM2 + scans, keeps the node alive).
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_clear_;
 
   // Persistence + loop-closure config.
   std::string graph_save_prefix_;
@@ -140,22 +135,20 @@ class FusionGraphNode : public rclcpp::Node {
   double lc_max_dist_m_ = 5.0;
   double lc_min_age_s_ = 30.0;
   size_t lc_max_candidates_ = 3;
-  double lc_max_rmse_ = 0.10;          // ICP RMSE acceptance gate
+  double lc_max_rmse_ = 0.10;  // ICP RMSE acceptance gate
   double lc_sigma_xy_ = 0.05;
   double lc_sigma_theta_ = 0.02;
   // Skip a loop-closure if its delta is so small it carries no
   // information (robot was effectively stationary at the candidate's
   // position) — saves iSAM2 bandwidth on dock-clutter revisits.
-  double lc_min_delta_m_ = 0.05;       // m
-  double lc_min_delta_theta_ = 0.05;   // rad (~3°)
+  double lc_min_delta_m_ = 0.05;  // m
+  double lc_min_delta_theta_ = 0.05;  // rad (~3°)
 
   // Publishers.
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_fg_yaw_;
-  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
-      pub_diag_;
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
-      pub_markers_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr pub_diag_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_markers_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   // TF for odom->base_footprint (we publish map->odom; need to compose
@@ -175,7 +168,7 @@ class FusionGraphNode : public rclcpp::Node {
 
   // Auto-checkpoint state.
   bool auto_save_enabled_ = true;
-  uint8_t last_hl_state_ = 0;        // HighLevelStatus.state
+  uint8_t last_hl_state_ = 0;  // HighLevelStatus.state
   bool last_hl_state_valid_ = false;
   bool last_is_charging_ = false;
   bool last_is_charging_valid_ = false;

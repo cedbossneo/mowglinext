@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MowgliNext — Open-Source ROS2 Robot Mower</title>
-  <meta name="description" content="Autonomous robot mower built on ROS2 Kilted with LiDAR SLAM, RTK-GPS, behavior trees, and coverage planning. Open source, community driven.">
+  <meta name="description" content="Autonomous robot mower built on ROS2 Kilted with RTK-GPS + IMU + wheel fusion (robot_localization EKF or opt-in GTSAM iSAM2 factor graph), behavior trees, and coverage planning. Open source, community driven.">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -169,8 +169,8 @@
 
       <div class="feature-card">
         <div class="icon">🗺️</div>
-        <h3>Kinematic-ICP &amp; RTK Localization</h3>
-        <p>No SLAM needed. robot_localization's dual EKF fuses RTK-GPS + IMU + wheel odometry under REP-105. Optional Kinematic-ICP provides LiDAR drift correction under tree cover. Centimeter-accurate positioning without map-building overhead.</p>
+        <h3>RTK Localization, Two Backends</h3>
+        <p>No SLAM needed. By default robot_localization's dual EKF fuses RTK-GPS + IMU + wheel odometry under REP-105. For RTK-Float windows or GPS-denied corners, switch on the opt-in GTSAM iSAM2 factor-graph localizer (<code>fusion_graph</code>) — same inputs, plus LiDAR scan-matching and loop-closure factors. Optional Kinematic-ICP gives an extra LiDAR drift-correction layer to the local EKF in either mode.</p>
       </div>
 
       <div class="feature-card">
