@@ -12,8 +12,6 @@
 // Behaviour (rising edge / continuous-while-charging, 1 Hz throttle,
 // dock_calibration.yaml file preference) matches the Python implementation.
 
-#include <yaml-cpp/yaml.h>
-
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -28,12 +26,12 @@
 #include "rclcpp/qos.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
+#include <yaml-cpp/yaml.h>
 
 namespace mowgli_localization
 {
 
-constexpr const char * kDockCalibrationPath =
-    "/ros2_ws/maps/dock_calibration.yaml";
+constexpr const char* kDockCalibrationPath = "/ros2_ws/maps/dock_calibration.yaml";
 
 class DockYawToSetPoseNode : public rclcpp::Node
 {
@@ -49,30 +47,37 @@ public:
     qos_sensor.durability_volatile();
 
     sub_status_ = create_subscription<mowgli_interfaces::msg::Status>(
-        "/hardware_bridge/status", qos_reliable,
+        "/hardware_bridge/status",
+        qos_reliable,
         [this](mowgli_interfaces::msg::Status::ConstSharedPtr msg)
-        { on_status(*msg); });
-    sub_heading_ = create_subscription<sensor_msgs::msg::Imu>(
-        "/gnss/heading", qos_reliable,
-        [this](sensor_msgs::msg::Imu::ConstSharedPtr msg)
-        { on_heading(msg); });
+        {
+          on_status(*msg);
+        });
+    sub_heading_ =
+        create_subscription<sensor_msgs::msg::Imu>("/gnss/heading",
+                                                   qos_reliable,
+                                                   [this](sensor_msgs::msg::Imu::ConstSharedPtr msg)
+                                                   {
+                                                     on_heading(msg);
+                                                   });
     sub_gps_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
-        "/gps/absolute_pose", qos_sensor,
+        "/gps/absolute_pose",
+        qos_sensor,
         [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
-        { on_gps(msg); });
+        {
+          on_gps(msg);
+        });
 
     pub_map_ =
-        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
-            "/ekf_map_node/set_pose", qos_reliable);
+        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/ekf_map_node/set_pose",
+                                                                        qos_reliable);
     pub_odom_ =
-        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
-            "/set_pose", qos_reliable);
+        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/set_pose", qos_reliable);
     // Dual-publish to fusion_graph_node: works regardless of which
     // localizer is the active map-frame primary. The unused publisher
     // costs ~zero (no subscribers).
-    pub_fg_ =
-        create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
-            "/fusion_graph_node/set_pose", qos_reliable);
+    pub_fg_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        "/fusion_graph_node/set_pose", qos_reliable);
 
     yaw_var_ = declare_parameter<double>("seed_yaw_variance", 0.1);
 
@@ -103,18 +108,18 @@ private:
       auto cal = root["dock_calibration"];
       if (!cal)
       {
-        RCLCPP_ERROR(get_logger(), "%s: missing dock_calibration key",
-                     kDockCalibrationPath);
+        RCLCPP_ERROR(get_logger(), "%s: missing dock_calibration key", kDockCalibrationPath);
         return;
       }
       yaw_rad = cal["dock_pose_yaw_rad"].as<double>();
       sigma_rad = cal["yaw_sigma_rad"].as<double>(0.035);
     }
-    catch (const std::exception & exc)
+    catch (const std::exception& exc)
     {
       RCLCPP_ERROR(get_logger(),
                    "Failed to parse %s: %s. Falling back to /gnss/heading.",
-                   kDockCalibrationPath, exc.what());
+                   kDockCalibrationPath,
+                   exc.what());
       return;
     }
     file_yaw_rad_ = yaw_rad;
@@ -122,44 +127,43 @@ private:
     file_yaw_var_ = std::max(sigma_rad * sigma_rad, 0.03);
     RCLCPP_INFO(get_logger(),
                 "Loaded dock calibration: yaw=%.2f° (σ=%.2f°) from %s",
-                yaw_rad * 180.0 / M_PI, sigma_rad * 180.0 / M_PI,
+                yaw_rad * 180.0 / M_PI,
+                sigma_rad * 180.0 / M_PI,
                 kDockCalibrationPath);
   }
 
   void on_heading(sensor_msgs::msg::Imu::ConstSharedPtr msg)
   {
     latest_heading_ = msg;
-    if (need_to_publish_) try_publish();
+    if (need_to_publish_)
+      try_publish();
   }
 
   void on_gps(mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
   {
     latest_gps_ = msg;
-    if (need_to_publish_) try_publish();
+    if (need_to_publish_)
+      try_publish();
   }
 
-  void on_status(const mowgli_interfaces::msg::Status & msg)
+  void on_status(const mowgli_interfaces::msg::Status& msg)
   {
     const bool is_charging = msg.is_charging;
     bool fire = false;
 
     if (!last_is_charging_known_ && is_charging)
     {
-      RCLCPP_INFO(
-          get_logger(),
-          "boot detected docked state → seeding pose once");
+      RCLCPP_INFO(get_logger(), "boot detected docked state → seeding pose once");
       fire = true;
     }
     else if (is_charging && last_is_charging_known_ && !last_is_charging_)
     {
-      RCLCPP_INFO(get_logger(),
-                  "charging rising edge → seeding pose once");
+      RCLCPP_INFO(get_logger(), "charging rising edge → seeding pose once");
       fire = true;
     }
     else if (last_is_charging_known_ && last_is_charging_ && !is_charging)
     {
-      RCLCPP_INFO(get_logger(),
-                  "charging dropped → seed no longer asserted");
+      RCLCPP_INFO(get_logger(), "charging dropped → seed no longer asserted");
     }
 
     last_is_charging_ = is_charging;
@@ -181,13 +185,15 @@ private:
 
   void try_publish()
   {
-    if (!latest_gps_) return;
-    if (!file_yaw_rad_.has_value() && !latest_heading_) return;
+    if (!latest_gps_)
+      return;
+    if (!file_yaw_rad_.has_value() && !latest_heading_)
+      return;
 
     const auto now_mono = std::chrono::steady_clock::now();
-    const double now_s =
-        std::chrono::duration<double>(now_mono.time_since_epoch()).count();
-    if (now_s - last_publish_time_ < min_publish_period_) return;
+    const double now_s = std::chrono::duration<double>(now_mono.time_since_epoch()).count();
+    if (now_s - last_publish_time_ < min_publish_period_)
+      return;
     last_publish_time_ = now_s;
 
     geometry_msgs::msg::Quaternion yaw_quat;
@@ -234,27 +240,24 @@ private:
     need_to_publish_ = false;
 
     const double yaw =
-        std::atan2(2.0 * yaw_quat.w * yaw_quat.z,
-                   1.0 - 2.0 * yaw_quat.z * yaw_quat.z);
-    const char * source =
-        file_yaw_rad_.has_value() ? "file" : "/gnss/heading";
+        std::atan2(2.0 * yaw_quat.w * yaw_quat.z, 1.0 - 2.0 * yaw_quat.z * yaw_quat.z);
+    const char* source = file_yaw_rad_.has_value() ? "file" : "/gnss/heading";
     RCLCPP_INFO(get_logger(),
                 "published dock set_pose (%s): map=(%.3f, %.3f) yaw=%.1f°, "
                 "odom=(0, 0) yaw=%.1f°",
-                source, map_seed.pose.pose.position.x,
-                map_seed.pose.pose.position.y, yaw * 180.0 / M_PI,
+                source,
+                map_seed.pose.pose.position.x,
+                map_seed.pose.pose.position.y,
+                yaw * 180.0 / M_PI,
                 yaw * 180.0 / M_PI);
   }
 
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr sub_status_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_heading_;
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr sub_gps_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
-      pub_map_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
-      pub_odom_;
-  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr
-      pub_fg_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_map_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_odom_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pub_fg_;
 
   bool last_is_charging_{false};
   bool last_is_charging_known_{false};
@@ -271,7 +274,7 @@ private:
 
 }  // namespace mowgli_localization
 
-int main(int argc, char ** argv)
+int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<mowgli_localization::DockYawToSetPoseNode>());

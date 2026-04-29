@@ -13,8 +13,6 @@
 // Topics, parameters, formulas and gating thresholds match the Python
 // implementation 1:1.
 
-#include <yaml-cpp/yaml.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -36,6 +34,7 @@
 #include "sensor_msgs/msg/magnetic_field.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
 #include "sensor_msgs/msg/nav_sat_status.hpp"
+#include <yaml-cpp/yaml.h>
 
 namespace mowgli_localization
 {
@@ -60,17 +59,21 @@ std::string utc_iso8601_now()
   // (used as a free-form string in the YAML — consumers don't parse it).
   const auto now = std::chrono::system_clock::now();
   const std::time_t tt = std::chrono::system_clock::to_time_t(now);
-  const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
-                      now.time_since_epoch())
-                      .count() %
-                  1000000;
+  const auto us =
+      std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count() %
+      1000000;
   std::tm tm_utc{};
   gmtime_r(&tt, &tm_utc);
   char buf[64];
-  std::snprintf(buf, sizeof(buf),
+  std::snprintf(buf,
+                sizeof(buf),
                 "%04d-%02d-%02dT%02d:%02d:%02d.%06ld+00:00",
-                tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
-                tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec,
+                tm_utc.tm_year + 1900,
+                tm_utc.tm_mon + 1,
+                tm_utc.tm_mday,
+                tm_utc.tm_hour,
+                tm_utc.tm_min,
+                tm_utc.tm_sec,
                 static_cast<long>(us));
   return std::string(buf);
 }
@@ -82,20 +85,17 @@ public:
   CogToImuNode() : Node("cog_to_imu")
   {
     // ── Sample-pair gating thresholds ────────────────────────────────
-    min_abs_wheel_       = declare_parameter<double>("min_abs_wheel_ms", 0.05);
-    max_pos_accuracy_    = declare_parameter<double>("max_pos_accuracy_m", 0.05);
-    min_dt_              = declare_parameter<double>("min_sample_dt_s", 0.05);
-    max_dt_              = declare_parameter<double>("max_sample_dt_s", 0.50);
-    max_yaw_var_         = declare_parameter<double>("max_yaw_variance", 3.0);
-    min_yaw_var_         = declare_parameter<double>("min_yaw_variance", 7.6e-5);
+    min_abs_wheel_ = declare_parameter<double>("min_abs_wheel_ms", 0.05);
+    max_pos_accuracy_ = declare_parameter<double>("max_pos_accuracy_m", 0.05);
+    min_dt_ = declare_parameter<double>("min_sample_dt_s", 0.05);
+    max_dt_ = declare_parameter<double>("max_sample_dt_s", 0.50);
+    max_yaw_var_ = declare_parameter<double>("max_yaw_variance", 3.0);
+    min_yaw_var_ = declare_parameter<double>("min_yaw_variance", 7.6e-5);
 
     // ── Stationary yaw latch ────────────────────────────────────────
-    stationary_seed_rate_hz_ =
-        declare_parameter<double>("stationary_seed_rate_hz", 2.0);
-    stationary_drift_rate_ =
-        declare_parameter<double>("stationary_yaw_drift_rate", 0.005);
-    stationary_max_age_s_ =
-        declare_parameter<double>("stationary_max_age_s", 600.0);
+    stationary_seed_rate_hz_ = declare_parameter<double>("stationary_seed_rate_hz", 2.0);
+    stationary_drift_rate_ = declare_parameter<double>("stationary_yaw_drift_rate", 0.005);
+    stationary_max_age_s_ = declare_parameter<double>("stationary_max_age_s", 600.0);
 
     // Datum for flat-earth ENU projection.
     datum_lat_ = declare_parameter<double>("datum_lat", 0.0);
@@ -105,42 +105,59 @@ public:
 
     // ── Online mag calibration parameters ───────────────────────────
     enable_mag_cal_ = declare_parameter<bool>("enable_mag_cal", true);
-    mag_cal_path_ = declare_parameter<std::string>(
-        "mag_calibration_path", "/ros2_ws/maps/mag_calibration.yaml");
+    mag_cal_path_ = declare_parameter<std::string>("mag_calibration_path",
+                                                   "/ros2_ws/maps/mag_calibration.yaml");
     mag_min_samples_ = declare_parameter<int>("mag_min_samples", 30);
     mag_max_samples_ = declare_parameter<int>("mag_max_samples", 600);
-    mag_refit_period_sec_ =
-        declare_parameter<double>("mag_refit_period_sec", 60.0);
-    mag_refit_throttle_sec_ =
-        declare_parameter<double>("mag_refit_throttle_sec", 300.0);
+    mag_refit_period_sec_ = declare_parameter<double>("mag_refit_period_sec", 60.0);
+    mag_refit_throttle_sec_ = declare_parameter<double>("mag_refit_throttle_sec", 300.0);
 
     auto qos = sensor_qos();
     fix_sub_ = create_subscription<sensor_msgs::msg::NavSatFix>(
-        "/gps/fix", qos,
-        [this](sensor_msgs::msg::NavSatFix::ConstSharedPtr msg) { on_fix(*msg); });
+        "/gps/fix",
+        qos,
+        [this](sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
+        {
+          on_fix(*msg);
+        });
     wheel_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/wheel_odom", qos,
-        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { on_wheel(*msg); });
+        "/wheel_odom",
+        qos,
+        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
+        {
+          on_wheel(*msg);
+        });
     pub_ = create_publisher<sensor_msgs::msg::Imu>("/imu/cog_heading", qos);
 
     if (enable_mag_cal_)
     {
       mag_sub_ = create_subscription<sensor_msgs::msg::MagneticField>(
-          "/imu/mag_raw", qos,
+          "/imu/mag_raw",
+          qos,
           [this](sensor_msgs::msg::MagneticField::ConstSharedPtr msg)
-          { on_mag_raw(*msg); });
-      mag_refit_timer_ = create_wall_timer(
-          std::chrono::duration<double>(mag_refit_period_sec_),
-          [this]() { maybe_refit_mag(); });
+          {
+            on_mag_raw(*msg);
+          });
+      mag_refit_timer_ = create_wall_timer(std::chrono::duration<double>(mag_refit_period_sec_),
+                                           [this]()
+                                           {
+                                             maybe_refit_mag();
+                                           });
     }
 
     stats_timer_ = create_wall_timer(std::chrono::seconds(30),
-                                     [this]() { log_stats(); });
+                                     [this]()
+                                     {
+                                       log_stats();
+                                     });
     if (stationary_seed_rate_hz_ > 0.0)
     {
-      stationary_timer_ = create_wall_timer(
-          std::chrono::duration<double>(1.0 / stationary_seed_rate_hz_),
-          [this]() { republish_latched_when_stationary(); });
+      stationary_timer_ =
+          create_wall_timer(std::chrono::duration<double>(1.0 / stationary_seed_rate_hz_),
+                            [this]()
+                            {
+                              republish_latched_when_stationary();
+                            });
     }
 
     RCLCPP_INFO(get_logger(),
@@ -151,21 +168,20 @@ public:
   }
 
 private:
-  void on_wheel(const nav_msgs::msg::Odometry & msg)
+  void on_wheel(const nav_msgs::msg::Odometry& msg)
   {
     wheel_vx_ = msg.twist.twist.linear.x;
   }
 
-  void on_mag_raw(const sensor_msgs::msg::MagneticField & msg)
+  void on_mag_raw(const sensor_msgs::msg::MagneticField& msg)
   {
-    latest_mag_ = std::array<double, 3>{
-        static_cast<double>(msg.magnetic_field.x) * 1e6,
-        static_cast<double>(msg.magnetic_field.y) * 1e6,
-        static_cast<double>(msg.magnetic_field.z) * 1e6};
+    latest_mag_ = std::array<double, 3>{static_cast<double>(msg.magnetic_field.x) * 1e6,
+                                        static_cast<double>(msg.magnetic_field.y) * 1e6,
+                                        static_cast<double>(msg.magnetic_field.z) * 1e6};
     latest_mag_valid_ = true;
   }
 
-  void on_fix(const sensor_msgs::msg::NavSatFix & msg)
+  void on_fix(const sensor_msgs::msg::NavSatFix& msg)
   {
     using sensor_msgs::msg::NavSatStatus;
     if (msg.status.status < NavSatStatus::STATUS_GBAS_FIX)
@@ -199,11 +215,11 @@ private:
       datum_seeded_ = true;
       RCLCPP_INFO(get_logger(),
                   "datum self-seeded from first RTK fix: lat=%.8f lon=%.8f",
-                  datum_lat_, datum_lon_);
+                  datum_lat_,
+                  datum_lon_);
     }
 
-    const double x =
-        (msg.longitude - datum_lon_) * cos_datum_lat_ * kMetersPerDeg;
+    const double x = (msg.longitude - datum_lon_) * cos_datum_lat_ * kMetersPerDeg;
     const double y = (msg.latitude - datum_lat_) * kMetersPerDeg;
     const double t = static_cast<double>(msg.header.stamp.sec) +
                      static_cast<double>(msg.header.stamp.nanosec) * 1e-9;
@@ -266,23 +282,18 @@ private:
     }
 
     const double sigma_pos = std::hypot(pos_acc, pa0);
-    const double sigma_yaw =
-        std::atan2(2.0 * sigma_pos, std::max(displacement, 1e-3));
-    const double yaw_var = std::max(
-        min_yaw_var_, std::min(sigma_yaw * sigma_yaw, max_yaw_var_));
+    const double sigma_yaw = std::atan2(2.0 * sigma_pos, std::max(displacement, 1e-3));
+    const double yaw_var = std::max(min_yaw_var_, std::min(sigma_yaw * sigma_yaw, max_yaw_var_));
 
     publish_imu(now(), yaw, yaw_var);
 
-    const double mono_now =
-        static_cast<double>(get_clock()->now().nanoseconds()) * 1e-9;
+    const double mono_now = static_cast<double>(get_clock()->now().nanoseconds()) * 1e-9;
     latched_yaw_ = LatchedYaw{mono_now, yaw, yaw_var};
 
     // Online mag-cal sample collection.
-    if (enable_mag_cal_ && latest_mag_valid_ &&
-        sigma_yaw < (15.0 * kDegToRad))
+    if (enable_mag_cal_ && latest_mag_valid_ && sigma_yaw < (15.0 * kDegToRad))
     {
-      mag_samples_.emplace_back(latest_mag_[0], latest_mag_[1],
-                                latest_mag_[2], yaw);
+      mag_samples_.emplace_back(latest_mag_[0], latest_mag_[1], latest_mag_[2], yaw);
       while (static_cast<int>(mag_samples_.size()) > mag_max_samples_)
       {
         mag_samples_.pop_front();
@@ -300,24 +311,21 @@ private:
     {
       return;
     }
-    const double mono_now =
-        static_cast<double>(get_clock()->now().nanoseconds()) * 1e-9;
+    const double mono_now = static_cast<double>(get_clock()->now().nanoseconds()) * 1e-9;
     const double age = std::max(0.0, mono_now - latched_yaw_->stamp);
     if (age > stationary_max_age_s_)
     {
       latched_yaw_.reset();
       return;
     }
-    const double drift_var =
-        (stationary_drift_rate_ * age) * (stationary_drift_rate_ * age);
+    const double drift_var = (stationary_drift_rate_ * age) * (stationary_drift_rate_ * age);
     const double yaw_var =
-        std::max(min_yaw_var_,
-                 std::min(latched_yaw_->base_var + drift_var, max_yaw_var_));
+        std::max(min_yaw_var_, std::min(latched_yaw_->base_var + drift_var, max_yaw_var_));
     publish_imu(now(), latched_yaw_->yaw, yaw_var);
     ++stationary_seeds_published_;
   }
 
-  void publish_imu(const rclcpp::Time & stamp, double yaw, double yaw_var)
+  void publish_imu(const rclcpp::Time& stamp, double yaw, double yaw_var)
   {
     sensor_msgs::msg::Imu imu;
     imu.header.stamp = stamp;
@@ -326,11 +334,14 @@ private:
     imu.orientation.x = 0.0;
     imu.orientation.y = 0.0;
     imu.orientation.z = std::sin(yaw / 2.0);
-    for (auto & v : imu.orientation_covariance) v = 0.0;
+    for (auto& v : imu.orientation_covariance)
+      v = 0.0;
     imu.orientation_covariance[8] = yaw_var;
-    for (auto & v : imu.angular_velocity_covariance) v = 0.0;
+    for (auto& v : imu.angular_velocity_covariance)
+      v = 0.0;
     imu.angular_velocity_covariance[0] = -1.0;
-    for (auto & v : imu.linear_acceleration_covariance) v = 0.0;
+    for (auto& v : imu.linear_acceleration_covariance)
+      v = 0.0;
     imu.linear_acceleration_covariance[0] = -1.0;
     pub_->publish(imu);
   }
@@ -341,9 +352,15 @@ private:
                 "cog_to_imu stats: published fwd=%d rev=%d seed=%d, "
                 "rejected fix=%d accuracy=%d stationary=%d displacement=%d, "
                 "mag_cal samples=%zu (writes=%d)",
-                published_fwd_, published_rev_, stationary_seeds_published_,
-                rejected_fix_, rejected_accuracy_, rejected_stationary_,
-                rejected_displacement_, mag_samples_.size(), mag_fit_count_);
+                published_fwd_,
+                published_rev_,
+                stationary_seeds_published_,
+                rejected_fix_,
+                rejected_accuracy_,
+                rejected_stationary_,
+                rejected_displacement_,
+                mag_samples_.size(),
+                mag_fit_count_);
     published_fwd_ = 0;
     published_rev_ = 0;
     stationary_seeds_published_ = 0;
@@ -355,10 +372,10 @@ private:
 
   // ── Online magnetometer calibration ────────────────────────────────
   static bool headings_well_distributed(
-      const std::deque<std::tuple<double, double, double, double>> & samples)
+      const std::deque<std::tuple<double, double, double, double>>& samples)
   {
     int bins[8] = {0};
-    for (const auto & s : samples)
+    for (const auto& s : samples)
     {
       const double psi = std::get<3>(s);
       int idx = static_cast<int>(((psi + M_PI) / (2.0 * M_PI)) * 8.0);
@@ -367,7 +384,8 @@ private:
     }
     int populated = 0;
     for (int b : bins)
-      if (b > 0) ++populated;
+      if (b > 0)
+        ++populated;
     return populated >= 3;
   }
 
@@ -377,10 +395,8 @@ private:
     {
       return;
     }
-    const double now_s =
-        static_cast<double>(get_clock()->now().nanoseconds()) * 1e-9;
-    if (mag_fit_count_ > 0 &&
-        (now_s - mag_last_write_t_) < mag_refit_throttle_sec_)
+    const double now_s = static_cast<double>(get_clock()->now().nanoseconds()) * 1e-9;
+    if (mag_fit_count_ > 0 && (now_s - mag_last_write_t_) < mag_refit_throttle_sec_)
     {
       return;
     }
@@ -403,7 +419,7 @@ private:
     bzs.reserve(mag_samples_.size());
     const std::size_t n = mag_samples_.size();
 
-    for (const auto & s : mag_samples_)
+    for (const auto& s : mag_samples_)
     {
       const double bx = std::get<0>(s);
       const double by = std::get<1>(s);
@@ -430,7 +446,8 @@ private:
     double a[4][5];
     for (int i = 0; i < 4; ++i)
     {
-      for (int j = 0; j < 4; ++j) a[i][j] = mtm[i][j];
+      for (int j = 0; j < 4; ++j)
+        a[i][j] = mtm[i][j];
       a[i][4] = mtr[i];
     }
     for (int i = 0; i < 4; ++i)
@@ -448,22 +465,26 @@ private:
       }
       if (pv < 1e-12)
       {
-        RCLCPP_WARN(get_logger(),
-                    "online mag fit: singular normal matrix, skipping.");
+        RCLCPP_WARN(get_logger(), "online mag fit: singular normal matrix, skipping.");
         return;
       }
       if (p != i)
       {
-        for (int j = 0; j < 5; ++j) std::swap(a[i][j], a[p][j]);
+        for (int j = 0; j < 5; ++j)
+          std::swap(a[i][j], a[p][j]);
       }
       const double inv = 1.0 / a[i][i];
-      for (int j = i; j < 5; ++j) a[i][j] *= inv;
+      for (int j = i; j < 5; ++j)
+        a[i][j] *= inv;
       for (int k = 0; k < 4; ++k)
       {
-        if (k == i) continue;
+        if (k == i)
+          continue;
         const double f = a[k][i];
-        if (f == 0.0) continue;
-        for (int j = i; j < 5; ++j) a[k][j] -= f * a[i][j];
+        if (f == 0.0)
+          continue;
+        for (int j = i; j < 5; ++j)
+          a[k][j] -= f * a[i][j];
       }
     }
     const double ox = a[0][4];
@@ -473,7 +494,7 @@ private:
 
     // Compute residual rms over both halves.
     double sse = 0.0;
-    for (const auto & s : mag_samples_)
+    for (const auto& s : mag_samples_)
     {
       const double bx = std::get<0>(s);
       const double by = std::get<1>(s);
@@ -493,7 +514,8 @@ private:
       RCLCPP_WARN(get_logger(),
                   "online mag fit rejected: |B_h|=%.1f µT out of range "
                   "(expected 25–60). N=%zu.",
-                  bh, n);
+                  bh,
+                  n);
       return;
     }
     if (rms > 0.4 * bh)
@@ -501,22 +523,22 @@ private:
       RCLCPP_WARN(get_logger(),
                   "online mag fit rejected: rms=%.1f µT > 40%% of |B_h|=%.1f "
                   "µT. N=%zu.",
-                  rms, bh, n);
+                  rms,
+                  bh,
+                  n);
       return;
     }
 
     // Median of bz.
     std::sort(bzs.begin(), bzs.end());
-    const double oz = (bzs.size() % 2 == 1)
-                          ? bzs[bzs.size() / 2]
-                          : 0.5 * (bzs[bzs.size() / 2 - 1] +
-                                   bzs[bzs.size() / 2]);
+    const double oz = (bzs.size() % 2 == 1) ? bzs[bzs.size() / 2]
+                                            : 0.5 * (bzs[bzs.size() / 2 - 1] + bzs[bzs.size() / 2]);
 
     try
     {
       write_mag_cal(ox, oy, oz, bh, rms, static_cast<int>(n));
     }
-    catch (const std::exception & exc)
+    catch (const std::exception& exc)
     {
       RCLCPP_ERROR(get_logger(), "online mag cal write failed: %s", exc.what());
       return;
@@ -526,11 +548,17 @@ private:
     RCLCPP_INFO(get_logger(),
                 "online mag cal #%d: offset=(%+7.2f, %+7.2f, %+7.2f) µT  "
                 "|B_h|=%.2f µT  rms=%.2f µT  N=%zu  → %s",
-                mag_fit_count_, ox, oy, oz, bh, rms, n, mag_cal_path_.c_str());
+                mag_fit_count_,
+                ox,
+                oy,
+                oz,
+                bh,
+                rms,
+                n,
+                mag_cal_path_.c_str());
   }
 
-  void write_mag_cal(double ox, double oy, double oz, double bh, double rms,
-                     int n)
+  void write_mag_cal(double ox, double oy, double oz, double bh, double rms, int n)
   {
     YAML::Emitter out;
     out << YAML::BeginMap;
@@ -626,7 +654,7 @@ private:
 
 }  // namespace mowgli_localization
 
-int main(int argc, char ** argv)
+int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<mowgli_localization::CogToImuNode>());

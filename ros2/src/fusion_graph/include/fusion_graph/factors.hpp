@@ -13,7 +13,8 @@
 #include <gtsam/geometry/Pose2.h>
 #include <gtsam/nonlinear/NonlinearFactor.h>
 
-namespace fusion_graph {
+namespace fusion_graph
+{
 
 // GTSAM 4.3+ uses a raw pointer type alias `gtsam::OptionalMatrixType`
 // (= Matrix*) for the optional Jacobian argument of custom factors.
@@ -36,9 +37,9 @@ using OptMat = gtsam::OptionalMatrixType;
 //
 // Jacobian is analytic (computed in evaluateError when H is non-null).
 // Autodiff would work but doubles the per-factor cost on ARM.
-class GnssLeverArmFactor
-  : public gtsam::NoiseModelFactor1<gtsam::Pose2> {
- public:
+class GnssLeverArmFactor : public gtsam::NoiseModelFactor1<gtsam::Pose2>
+{
+public:
   using This = GnssLeverArmFactor;
   using Base = gtsam::NoiseModelFactor1<gtsam::Pose2>;
 
@@ -48,13 +49,11 @@ class GnssLeverArmFactor
                      const gtsam::SharedNoiseModel& model);
 
   // GTSAM API
-  gtsam::Vector evaluateError(
-      const gtsam::Pose2& X,
-      OptMat H = nullptr) const override;
+  gtsam::Vector evaluateError(const gtsam::Pose2& X, OptMat H = nullptr) const override;
 
   gtsam::NonlinearFactor::shared_ptr clone() const override;
 
- private:
+private:
   gtsam::Vector2 gps_xy_;
   gtsam::Vector2 lever_arm_xy_;
 };
@@ -70,31 +69,31 @@ class GnssLeverArmFactor
 //
 // The wrap is essential: a 359° measurement vs a 1° estimate is +2° of
 // real error, not -358°.
-class YawUnaryFactor
-  : public gtsam::NoiseModelFactor1<gtsam::Pose2> {
- public:
+class YawUnaryFactor : public gtsam::NoiseModelFactor1<gtsam::Pose2>
+{
+public:
   using This = YawUnaryFactor;
   using Base = gtsam::NoiseModelFactor1<gtsam::Pose2>;
 
-  YawUnaryFactor(gtsam::Key key, double meas_yaw,
-                 const gtsam::SharedNoiseModel& model);
+  YawUnaryFactor(gtsam::Key key, double meas_yaw, const gtsam::SharedNoiseModel& model);
 
-  gtsam::Vector evaluateError(
-      const gtsam::Pose2& X,
-      OptMat H = nullptr) const override;
+  gtsam::Vector evaluateError(const gtsam::Pose2& X, OptMat H = nullptr) const override;
 
   gtsam::NonlinearFactor::shared_ptr clone() const override;
 
- private:
+private:
   double meas_yaw_;
 };
 
 // ---------------------------------------------------------------------------
 // Helper: yaw wrap to (-pi, pi]
 // ---------------------------------------------------------------------------
-inline double WrapAngle(double a) {
-  while (a >  M_PI) a -= 2.0 * M_PI;
-  while (a <= -M_PI) a += 2.0 * M_PI;
+inline double WrapAngle(double a)
+{
+  while (a > M_PI)
+    a -= 2.0 * M_PI;
+  while (a <= -M_PI)
+    a += 2.0 * M_PI;
   return a;
 }
 

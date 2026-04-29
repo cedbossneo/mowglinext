@@ -10,26 +10,29 @@
 #include <Eigen/Geometry>
 #include <Eigen/SVD>
 
-namespace fusion_graph {
+namespace fusion_graph
+{
 
-ScanMatcher::ScanMatcher(const ScanMatcherParams& params) : p_(params) {}
-
-Eigen::Vector2d ScanMatcher::Transform(const gtsam::Pose2& T,
-                                       const Eigen::Vector2d& p) {
-  const double c = std::cos(T.theta());
-  const double s = std::sin(T.theta());
-  return Eigen::Vector2d(T.x() + c * p.x() - s * p.y(),
-                         T.y() + s * p.x() + c * p.y());
+ScanMatcher::ScanMatcher(const ScanMatcherParams& params) : p_(params)
+{
 }
 
-gtsam::Pose2 ScanMatcher::RigidAlign2D(
-    const std::vector<Eigen::Vector2d>& src_corr,
-    const std::vector<Eigen::Vector2d>& tgt_corr) {
+Eigen::Vector2d ScanMatcher::Transform(const gtsam::Pose2& T, const Eigen::Vector2d& p)
+{
+  const double c = std::cos(T.theta());
+  const double s = std::sin(T.theta());
+  return Eigen::Vector2d(T.x() + c * p.x() - s * p.y(), T.y() + s * p.x() + c * p.y());
+}
+
+gtsam::Pose2 ScanMatcher::RigidAlign2D(const std::vector<Eigen::Vector2d>& src_corr,
+                                       const std::vector<Eigen::Vector2d>& tgt_corr)
+{
   // Kabsch in 2D: centroids -> SVD on covariance.
   const size_t n = src_corr.size();
   Eigen::Vector2d cs = Eigen::Vector2d::Zero();
   Eigen::Vector2d ct = Eigen::Vector2d::Zero();
-  for (size_t i = 0; i < n; ++i) {
+  for (size_t i = 0; i < n; ++i)
+  {
     cs += src_corr[i];
     ct += tgt_corr[i];
   }
@@ -37,20 +40,21 @@ gtsam::Pose2 ScanMatcher::RigidAlign2D(
   ct /= static_cast<double>(n);
 
   Eigen::Matrix2d H = Eigen::Matrix2d::Zero();
-  for (size_t i = 0; i < n; ++i) {
+  for (size_t i = 0; i < n; ++i)
+  {
     const Eigen::Vector2d s = src_corr[i] - cs;
     const Eigen::Vector2d t = tgt_corr[i] - ct;
     H += s * t.transpose();
   }
 
-  Eigen::JacobiSVD<Eigen::Matrix2d> svd(
-      H, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  Eigen::JacobiSVD<Eigen::Matrix2d> svd(H, Eigen::ComputeFullU | Eigen::ComputeFullV);
   Eigen::Matrix2d U = svd.matrixU();
   Eigen::Matrix2d V = svd.matrixV();
 
   // Reflection guard: ensure det(R) = +1 for a proper rotation.
   Eigen::Matrix2d D = Eigen::Matrix2d::Identity();
-  if ((V * U.transpose()).determinant() < 0.0) D(1, 1) = -1.0;
+  if ((V * U.transpose()).determinant() < 0.0)
+    D(1, 1) = -1.0;
 
   Eigen::Matrix2d R = V * D * U.transpose();
   Eigen::Vector2d t = ct - R * cs;
@@ -58,25 +62,28 @@ gtsam::Pose2 ScanMatcher::RigidAlign2D(
   return gtsam::Pose2(t.x(), t.y(), theta);
 }
 
-ScanMatcherResult ScanMatcher::Match(
-    const std::vector<Eigen::Vector2d>& source,
-    const std::vector<Eigen::Vector2d>& target,
-    const gtsam::Pose2& init_guess) const {
+ScanMatcherResult ScanMatcher::Match(const std::vector<Eigen::Vector2d>& source,
+                                     const std::vector<Eigen::Vector2d>& target,
+                                     const gtsam::Pose2& init_guess) const
+{
   ScanMatcherResult res;
-  if (source.empty() || target.empty()) return res;
+  if (source.empty() || target.empty())
+    return res;
 
   // Subsample source for speed. Stride-pick keeps angular coverage.
   std::vector<Eigen::Vector2d> src;
-  if (source.size() <= p_.source_subsample) {
+  if (source.size() <= p_.source_subsample)
+  {
     src = source;
-  } else {
+  }
+  else
+  {
     src.reserve(p_.source_subsample);
-    const double step =
-        static_cast<double>(source.size()) / p_.source_subsample;
-    for (size_t i = 0; i < p_.source_subsample; ++i) {
-      const size_t idx = std::min<size_t>(
-          source.size() - 1,
-          static_cast<size_t>(static_cast<double>(i) * step));
+    const double step = static_cast<double>(source.size()) / p_.source_subsample;
+    for (size_t i = 0; i < p_.source_subsample; ++i)
+    {
+      const size_t idx =
+          std::min<size_t>(source.size() - 1, static_cast<size_t>(static_cast<double>(i) * step));
       src.push_back(source[idx]);
     }
   }
@@ -86,37 +93,42 @@ ScanMatcherResult ScanMatcher::Match(
   src_corr.reserve(src.size());
   tgt_corr.reserve(src.size());
 
-  const double max_d2 = p_.max_correspondence_dist *
-                        p_.max_correspondence_dist;
+  const double max_d2 = p_.max_correspondence_dist * p_.max_correspondence_dist;
 
   double last_rmse = std::numeric_limits<double>::infinity();
 
-  for (int iter = 0; iter < p_.max_iterations; ++iter) {
+  for (int iter = 0; iter < p_.max_iterations; ++iter)
+  {
     src_corr.clear();
     tgt_corr.clear();
     double sse = 0.0;
 
     // Brute-force NN: for each transformed source point, find the
     // closest target point, gate by max_correspondence_dist.
-    for (const auto& p : src) {
+    for (const auto& p : src)
+    {
       const Eigen::Vector2d ps = Transform(T, p);
       double best = max_d2;
       int best_idx = -1;
-      for (size_t j = 0; j < target.size(); ++j) {
+      for (size_t j = 0; j < target.size(); ++j)
+      {
         const double d2 = (target[j] - ps).squaredNorm();
-        if (d2 < best) {
+        if (d2 < best)
+        {
           best = d2;
           best_idx = static_cast<int>(j);
         }
       }
-      if (best_idx >= 0) {
+      if (best_idx >= 0)
+      {
         src_corr.push_back(p);  // pre-transform — RigidAlign re-applies
         tgt_corr.push_back(target[best_idx]);
         sse += best;
       }
     }
 
-    if (static_cast<int>(src_corr.size()) < p_.min_inliers) {
+    if (static_cast<int>(src_corr.size()) < p_.min_inliers)
+    {
       // Too few correspondences. Bail out with current T but flag fail.
       res.iterations = iter;
       res.inliers = static_cast<int>(src_corr.size());
@@ -127,12 +139,12 @@ ScanMatcherResult ScanMatcher::Match(
 
     // Convergence check — composed delta from previous T.
     const gtsam::Pose2 dT = T.between(T_new);
-    const double change =
-        std::abs(dT.x()) + std::abs(dT.y()) + std::abs(dT.theta());
+    const double change = std::abs(dT.x()) + std::abs(dT.y()) + std::abs(dT.theta());
     T = T_new;
     last_rmse = std::sqrt(sse / src_corr.size());
 
-    if (change < p_.convergence_eps) {
+    if (change < p_.convergence_eps)
+    {
       res.iterations = iter + 1;
       break;
     }
@@ -147,8 +159,7 @@ ScanMatcherResult ScanMatcher::Match(
   // Noise model: sigma scales with rmse. Tight floors so we don't
   // outdrive the wheel between-factor when ICP looks great.
   res.sigma_xy = p_.sigma_xy_base + p_.sigma_xy_scale * res.rmse;
-  res.sigma_theta = p_.sigma_theta_base +
-                    p_.sigma_theta_scale * res.rmse;
+  res.sigma_theta = p_.sigma_theta_base + p_.sigma_theta_scale * res.rmse;
 
   return res;
 }

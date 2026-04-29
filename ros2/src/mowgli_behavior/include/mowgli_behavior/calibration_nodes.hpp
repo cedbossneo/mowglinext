@@ -78,7 +78,8 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<double>("min_displacement_m", 0.5,
+        BT::InputPort<double>("min_displacement_m",
+                              0.5,
                               "Minimum GPS displacement for a valid yaw"),
     };
   }
@@ -112,13 +113,11 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<double>("distance_m", 1.0,
-                              "Forward distance [m] to drive for yaw seeding"),
-        BT::InputPort<double>("speed_ms", 0.2,
-                              "Forward speed [m/s] during the seed drive"),
-        BT::InputPort<double>("timeout_sec", 30.0,
-                              "Abort if distance not reached within timeout"),
-        BT::InputPort<double>("min_displacement_m", 0.5,
+        BT::InputPort<double>("distance_m", 1.0, "Forward distance [m] to drive for yaw seeding"),
+        BT::InputPort<double>("speed_ms", 0.2, "Forward speed [m/s] during the seed drive"),
+        BT::InputPort<double>("timeout_sec", 30.0, "Abort if distance not reached within timeout"),
+        BT::InputPort<double>("min_displacement_m",
+                              0.5,
                               "Minimum GPS displacement for a valid yaw"),
     };
   }

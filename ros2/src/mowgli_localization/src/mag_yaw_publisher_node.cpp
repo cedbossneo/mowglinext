@@ -11,8 +11,6 @@
 //
 // Behaviour matches the Python implementation 1:1.
 
-#include <yaml-cpp/yaml.h>
-
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -28,6 +26,7 @@
 #include "sensor_msgs/msg/magnetic_field.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include <yaml-cpp/yaml.h>
 
 namespace mowgli_localization
 {
@@ -48,13 +47,11 @@ class MagYawPublisherNode : public rclcpp::Node
 public:
   MagYawPublisherNode() : Node("mag_yaw_publisher")
   {
-    cal_path_ = declare_parameter<std::string>(
-        "calibration_path", "/ros2_ws/maps/mag_calibration.yaml");
-    const double declination_deg =
-        declare_parameter<double>("declination_deg", 1.5);
+    cal_path_ =
+        declare_parameter<std::string>("calibration_path", "/ros2_ws/maps/mag_calibration.yaml");
+    const double declination_deg = declare_parameter<double>("declination_deg", 1.5);
     declination_rad_ = declination_deg * M_PI / 180.0;
-    min_horizontal_uT_ =
-        declare_parameter<double>("min_horizontal_uT", 5.0);
+    min_horizontal_uT_ = declare_parameter<double>("min_horizontal_uT", 5.0);
     yaw_var_ = declare_parameter<double>("yaw_variance", 2.7e-3);
 
     qos_sensor_ = rclcpp::QoS(rclcpp::KeepLast(10));
@@ -69,9 +66,15 @@ public:
     cal_ = load_calibration(cal_path_);
 
     stats_timer_ = create_wall_timer(std::chrono::seconds(30),
-                                     [this]() { log_stats(); });
+                                     [this]()
+                                     {
+                                       log_stats();
+                                     });
     reload_timer_ = create_wall_timer(std::chrono::seconds(30),
-                                      [this]() { reload_cal_if_needed(); });
+                                      [this]()
+                                      {
+                                        reload_cal_if_needed();
+                                      });
 
     if (!cal_)
     {
@@ -86,8 +89,12 @@ public:
       RCLCPP_INFO(get_logger(),
                   "Mag calibration loaded: offset=(%+.2f, %+.2f, %+.2f) µT, "
                   "scale=(%.3f, %.3f, %.3f), |B|cal=%.2f µT",
-                  cal_->offset_x_uT, cal_->offset_y_uT, cal_->offset_z_uT,
-                  cal_->scale_x, cal_->scale_y, cal_->scale_z,
+                  cal_->offset_x_uT,
+                  cal_->offset_y_uT,
+                  cal_->offset_z_uT,
+                  cal_->scale_x,
+                  cal_->scale_y,
+                  cal_->scale_z,
                   cal_->magnitude_mean_uT);
     }
   }
@@ -95,28 +102,37 @@ public:
 private:
   void activate_subs()
   {
-    if (imu_sub_) return;
-    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-        "/imu/data", qos_sensor_,
-        [this](sensor_msgs::msg::Imu::ConstSharedPtr msg) { on_imu(msg); });
+    if (imu_sub_)
+      return;
+    imu_sub_ =
+        create_subscription<sensor_msgs::msg::Imu>("/imu/data",
+                                                   qos_sensor_,
+                                                   [this](sensor_msgs::msg::Imu::ConstSharedPtr msg)
+                                                   {
+                                                     on_imu(msg);
+                                                   });
     mag_sub_ = create_subscription<sensor_msgs::msg::MagneticField>(
-        "/imu/mag_raw", qos_sensor_,
+        "/imu/mag_raw",
+        qos_sensor_,
         [this](sensor_msgs::msg::MagneticField::ConstSharedPtr msg)
-        { on_mag(*msg); });
+        {
+          on_mag(*msg);
+        });
   }
 
   void reload_cal_if_needed()
   {
-    if (cal_) return;
+    if (cal_)
+      return;
     auto cal = load_calibration(cal_path_);
-    if (!cal) return;
+    if (!cal)
+      return;
     cal_ = cal;
     activate_subs();
-    RCLCPP_INFO(get_logger(),
-                "Mag calibration appeared — subscriptions activated.");
+    RCLCPP_INFO(get_logger(), "Mag calibration appeared — subscriptions activated.");
   }
 
-  std::optional<MagCalibration> load_calibration(const std::string & path)
+  std::optional<MagCalibration> load_calibration(const std::string &path)
   {
     namespace fs = std::filesystem;
     if (!fs::exists(path))
@@ -128,8 +144,7 @@ private:
       YAML::Node root = YAML::LoadFile(path);
       if (!root["mag_calibration"])
       {
-        RCLCPP_ERROR(get_logger(), "%s: missing 'mag_calibration' key",
-                     path.c_str());
+        RCLCPP_ERROR(get_logger(), "%s: missing 'mag_calibration' key", path.c_str());
         return std::nullopt;
       }
       const auto cal = root["mag_calibration"];
@@ -143,17 +158,19 @@ private:
       out.magnitude_mean_uT = cal["magnitude_mean_uT"].as<double>(0.0);
       return out;
     }
-    catch (const std::exception & exc)
+    catch (const std::exception &exc)
     {
-      RCLCPP_ERROR(get_logger(), "Failed to load %s: %s", path.c_str(),
-                   exc.what());
+      RCLCPP_ERROR(get_logger(), "Failed to load %s: %s", path.c_str(), exc.what());
       return std::nullopt;
     }
   }
 
-  void on_imu(sensor_msgs::msg::Imu::ConstSharedPtr msg) { latest_imu_ = msg; }
+  void on_imu(sensor_msgs::msg::Imu::ConstSharedPtr msg)
+  {
+    latest_imu_ = msg;
+  }
 
-  void on_mag(const sensor_msgs::msg::MagneticField & msg)
+  void on_mag(const sensor_msgs::msg::MagneticField &msg)
   {
     if (!cal_)
     {
@@ -178,8 +195,7 @@ private:
     const double ax_imu = latest_imu_->linear_acceleration.x;
     const double ay_imu = latest_imu_->linear_acceleration.y;
     const double az_imu = latest_imu_->linear_acceleration.z;
-    if (std::abs(az_imu) < 1e-6 && std::abs(ax_imu) < 1e-6 &&
-        std::abs(ay_imu) < 1e-6)
+    if (std::abs(az_imu) < 1e-6 && std::abs(ax_imu) < 1e-6 && std::abs(ay_imu) < 1e-6)
     {
       ++rejected_no_imu_;
       return;
@@ -188,7 +204,8 @@ private:
     geometry_msgs::msg::TransformStamped tf;
     try
     {
-      tf = tf_buffer_->lookupTransform("base_footprint", "imu_link",
+      tf = tf_buffer_->lookupTransform("base_footprint",
+                                       "imu_link",
                                        tf2::TimePointZero,
                                        tf2::durationFromSec(0.2));
     }
@@ -200,12 +217,10 @@ private:
 
     double bx_b, by_b, bz_b, ax_b, ay_b, az_b;
     rotate_by_quat(bx, by, bz, tf.transform.rotation, bx_b, by_b, bz_b);
-    rotate_by_quat(ax_imu, ay_imu, az_imu, tf.transform.rotation, ax_b, ay_b,
-                   az_b);
+    rotate_by_quat(ax_imu, ay_imu, az_imu, tf.transform.rotation, ax_b, ay_b, az_b);
 
     const double roll = std::atan2(ay_b, az_b);
-    const double pitch =
-        std::atan2(-ax_b, std::sqrt(ay_b * ay_b + az_b * az_b));
+    const double pitch = std::atan2(-ax_b, std::sqrt(ay_b * ay_b + az_b * az_b));
 
     const double cr = std::cos(roll), sr = std::sin(roll);
     const double cp = std::cos(pitch), sp = std::sin(pitch);
@@ -226,9 +241,13 @@ private:
     ++published_;
   }
 
-  static void rotate_by_quat(double vx, double vy, double vz,
-                             const geometry_msgs::msg::Quaternion & q,
-                             double & xp, double & yp, double & zp)
+  static void rotate_by_quat(double vx,
+                             double vy,
+                             double vz,
+                             const geometry_msgs::msg::Quaternion &q,
+                             double &xp,
+                             double &yp,
+                             double &zp)
   {
     const double qw = q.w, qx = q.x, qy = q.y, qz = q.z;
     const double tx = 2.0 * (qy * vz - qz * vy);
@@ -239,7 +258,7 @@ private:
     zp = vz + qw * tz + (qx * ty - qy * tx);
   }
 
-  void publish_imu(const builtin_interfaces::msg::Time & stamp, double yaw)
+  void publish_imu(const builtin_interfaces::msg::Time &stamp, double yaw)
   {
     sensor_msgs::msg::Imu imu;
     imu.header.stamp = stamp;
@@ -248,11 +267,14 @@ private:
     imu.orientation.x = 0.0;
     imu.orientation.y = 0.0;
     imu.orientation.z = std::sin(yaw / 2.0);
-    for (auto & v : imu.orientation_covariance) v = 0.0;
+    for (auto &v : imu.orientation_covariance)
+      v = 0.0;
     imu.orientation_covariance[8] = yaw_var_;
-    for (auto & v : imu.angular_velocity_covariance) v = 0.0;
+    for (auto &v : imu.angular_velocity_covariance)
+      v = 0.0;
     imu.angular_velocity_covariance[0] = -1.0;
-    for (auto & v : imu.linear_acceleration_covariance) v = 0.0;
+    for (auto &v : imu.linear_acceleration_covariance)
+      v = 0.0;
     imu.linear_acceleration_covariance[0] = -1.0;
     pub_->publish(imu);
   }
@@ -262,7 +284,10 @@ private:
     RCLCPP_INFO(get_logger(),
                 "mag_yaw_publisher stats: published=%d, rejected no_cal=%d "
                 "no_imu=%d no_tf=%d noise=%d",
-                published_, rejected_no_cal_, rejected_no_imu_, rejected_no_tf_,
+                published_,
+                rejected_no_cal_,
+                rejected_no_imu_,
+                rejected_no_tf_,
                 rejected_noise_);
     published_ = 0;
     rejected_no_cal_ = 0;
@@ -288,13 +313,12 @@ private:
   sensor_msgs::msg::Imu::ConstSharedPtr latest_imu_;
 
   int published_{0};
-  int rejected_noise_{0}, rejected_no_cal_{0}, rejected_no_imu_{0},
-      rejected_no_tf_{0};
+  int rejected_noise_{0}, rejected_no_cal_{0}, rejected_no_imu_{0}, rejected_no_tf_{0};
 };
 
 }  // namespace mowgli_localization
 
-int main(int argc, char ** argv)
+int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
   rclcpp::spin(std::make_shared<mowgli_localization::MagYawPublisherNode>());

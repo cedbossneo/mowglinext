@@ -149,13 +149,16 @@ BT::NodeStatus WaitForGpsFix::onStart()
   {
     RCLCPP_INFO(ctx->node->get_logger(),
                 "WaitForGpsFix: already at fix_type=%u (>= %d), proceeding",
-                current_fix, min_fix_type_);
+                current_fix,
+                min_fix_type_);
     return BT::NodeStatus::SUCCESS;
   }
 
   RCLCPP_INFO(ctx->node->get_logger(),
               "WaitForGpsFix: waiting up to %.1fs for fix_type >= %d (current=%u)",
-              timeout_sec, min_fix_type_, current_fix);
+              timeout_sec,
+              min_fix_type_,
+              current_fix);
   return BT::NodeStatus::RUNNING;
 }
 
@@ -175,7 +178,8 @@ BT::NodeStatus WaitForGpsFix::onRunning()
     const double waited_sec = std::chrono::duration<double>(waited).count();
     RCLCPP_INFO(ctx->node->get_logger(),
                 "WaitForGpsFix: fix_type=%u reached after %.1fs",
-                current_fix, waited_sec);
+                current_fix,
+                waited_sec);
     return BT::NodeStatus::SUCCESS;
   }
 
@@ -186,7 +190,8 @@ BT::NodeStatus WaitForGpsFix::onRunning()
                 "WaitForGpsFix: timeout after %.1fs (last fix_type=%u < %d) — "
                 "proceeding at degraded GPS quality",
                 std::chrono::duration<double>(timeout_).count(),
-                current_fix, min_fix_type_);
+                current_fix,
+                min_fix_type_);
     return BT::NodeStatus::SUCCESS;
   }
 

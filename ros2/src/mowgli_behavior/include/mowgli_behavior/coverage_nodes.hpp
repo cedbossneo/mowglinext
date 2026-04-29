@@ -157,10 +157,8 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<double>("forward_m", 0.8,
-                              "Forward offset from current pose, body frame"),
-        BT::InputPort<double>("lateral_m", 0.6,
-                              "Lateral offset (positive = left), body frame"),
+        BT::InputPort<double>("forward_m", 0.8, "Forward offset from current pose, body frame"),
+        BT::InputPort<double>("lateral_m", 0.6, "Lateral offset (positive = left), body frame"),
     };
   }
 

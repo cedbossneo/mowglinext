@@ -358,22 +358,21 @@ BT::NodeStatus DetourAroundObstacle::onStart()
   geometry_msgs::msg::TransformStamped t_map_base;
   try
   {
-    t_map_base = ctx->tf_buffer->lookupTransform(
-        "map", "base_footprint", tf2::TimePointZero,
-        tf2::durationFromSec(0.2));
+    t_map_base = ctx->tf_buffer->lookupTransform("map",
+                                                 "base_footprint",
+                                                 tf2::TimePointZero,
+                                                 tf2::durationFromSec(0.2));
   }
   catch (const tf2::TransformException& ex)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "DetourAroundObstacle: TF lookup failed: %s", ex.what());
+    RCLCPP_WARN(ctx->node->get_logger(), "DetourAroundObstacle: TF lookup failed: %s", ex.what());
     return BT::NodeStatus::FAILURE;
   }
 
   // Yaw from quaternion: standard ZYX Euler extraction. Avoids pulling
   // in tf2_geometry_msgs just for tf2::getYaw().
   const auto& q = t_map_base.transform.rotation;
-  const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+  const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
   const double cy = std::cos(yaw);
   const double sy = std::sin(yaw);
 
@@ -382,10 +381,8 @@ BT::NodeStatus DetourAroundObstacle::onStart()
   geometry_msgs::msg::PoseStamped goal;
   goal.header.frame_id = "map";
   goal.header.stamp = ctx->node->now();
-  goal.pose.position.x = t_map_base.transform.translation.x +
-                         cy * forward_m - sy * lateral_m;
-  goal.pose.position.y = t_map_base.transform.translation.y +
-                         sy * forward_m + cy * lateral_m;
+  goal.pose.position.x = t_map_base.transform.translation.x + cy * forward_m - sy * lateral_m;
+  goal.pose.position.y = t_map_base.transform.translation.y + sy * forward_m + cy * lateral_m;
   goal.pose.position.z = 0.0;
 
   // Keep the same heading. The global planner adjusts the path heading;
@@ -395,20 +392,20 @@ BT::NodeStatus DetourAroundObstacle::onStart()
   RCLCPP_INFO(ctx->node->get_logger(),
               "DetourAroundObstacle: goal=(%.2f, %.2f) "
               "from (%.2f, %.2f), forward=%.2f lateral=%.2f",
-              goal.pose.position.x, goal.pose.position.y,
+              goal.pose.position.x,
+              goal.pose.position.y,
               t_map_base.transform.translation.x,
               t_map_base.transform.translation.y,
-              forward_m, lateral_m);
+              forward_m,
+              lateral_m);
 
   if (!nav_client_)
   {
-    nav_client_ =
-        rclcpp_action::create_client<Nav2Navigate>(ctx->node, "/navigate_to_pose");
+    nav_client_ = rclcpp_action::create_client<Nav2Navigate>(ctx->node, "/navigate_to_pose");
   }
   if (!nav_client_->wait_for_action_server(std::chrono::seconds(2)))
   {
-    RCLCPP_ERROR(ctx->node->get_logger(),
-                 "DetourAroundObstacle: navigate_to_pose not available");
+    RCLCPP_ERROR(ctx->node->get_logger(), "DetourAroundObstacle: navigate_to_pose not available");
     return BT::NodeStatus::FAILURE;
   }
 
@@ -427,14 +424,12 @@ BT::NodeStatus DetourAroundObstacle::onRunning()
 
   if (!nav_handle_)
   {
-    if (nav_future_.wait_for(std::chrono::milliseconds(0)) !=
-        std::future_status::ready)
+    if (nav_future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
       return BT::NodeStatus::RUNNING;
     nav_handle_ = nav_future_.get();
     if (!nav_handle_)
     {
-      RCLCPP_WARN(ctx->node->get_logger(),
-                  "DetourAroundObstacle: goal rejected");
+      RCLCPP_WARN(ctx->node->get_logger(), "DetourAroundObstacle: goal rejected");
       return BT::NodeStatus::FAILURE;
     }
   }
@@ -442,16 +437,14 @@ BT::NodeStatus DetourAroundObstacle::onRunning()
   const auto status = nav_handle_->get_status();
   if (status == action_msgs::msg::GoalStatus::STATUS_SUCCEEDED)
   {
-    RCLCPP_INFO(ctx->node->get_logger(),
-                "DetourAroundObstacle: detour complete");
+    RCLCPP_INFO(ctx->node->get_logger(), "DetourAroundObstacle: detour complete");
     nav_handle_.reset();
     return BT::NodeStatus::SUCCESS;
   }
   if (status == action_msgs::msg::GoalStatus::STATUS_ABORTED ||
       status == action_msgs::msg::GoalStatus::STATUS_CANCELED)
   {
-    RCLCPP_WARN(ctx->node->get_logger(),
-                "DetourAroundObstacle: detour navigation failed");
+    RCLCPP_WARN(ctx->node->get_logger(), "DetourAroundObstacle: detour navigation failed");
     nav_handle_.reset();
     return BT::NodeStatus::FAILURE;
   }

@@ -862,8 +862,7 @@ TEST(StripSelector, ProducesAdjacentVisitOrder)
   {
     int picked = -1;
     mowgli_map::MapServerNode::Strip out;
-    mowgli_map::MapServerNode::select_nearest_endpoint_strip(
-        strips, eligible, rx, ry, picked, out);
+    mowgli_map::MapServerNode::select_nearest_endpoint_strip(strips, eligible, rx, ry, picked, out);
     ASSERT_GE(picked, 0);
     visit_order.push_back(picked);
 

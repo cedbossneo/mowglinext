@@ -119,10 +119,8 @@ public:
   static BT::PortsList providedPorts()
   {
     return {
-        BT::InputPort<double>("timeout_sec", 20.0,
-                              "Max seconds to wait before proceeding anyway"),
-        BT::InputPort<int>("min_fix_type", 2,
-                           "Min BtContext gps_fix_type (2=DGPS, 4=RTK Fixed)"),
+        BT::InputPort<double>("timeout_sec", 20.0, "Max seconds to wait before proceeding anyway"),
+        BT::InputPort<int>("min_fix_type", 2, "Min BtContext gps_fix_type (2=DGPS, 4=RTK Fixed)"),
     };
   }
 

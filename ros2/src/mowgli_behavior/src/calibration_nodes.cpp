@@ -28,15 +28,14 @@ namespace
 // Fill the covariance block for a yaw-plus-xy seed: tight trust on the
 // states we want to set, effectively infinite variance on the states we
 // want the filter to keep from its prior.
-void set_seed_covariance(geometry_msgs::msg::PoseWithCovarianceStamped& msg,
-                         double yaw_var)
+void set_seed_covariance(geometry_msgs::msg::PoseWithCovarianceStamped& msg, double yaw_var)
 {
   msg.pose.covariance.fill(0.0);
-  msg.pose.covariance[0]  = 0.01;      // x
-  msg.pose.covariance[7]  = 0.01;      // y
-  msg.pose.covariance[14] = 1e6;       // z (keep prior)
-  msg.pose.covariance[21] = 1e6;       // roll (keep prior)
-  msg.pose.covariance[28] = 1e6;       // pitch (keep prior)
+  msg.pose.covariance[0] = 0.01;  // x
+  msg.pose.covariance[7] = 0.01;  // y
+  msg.pose.covariance[14] = 1e6;  // z (keep prior)
+  msg.pose.covariance[21] = 1e6;  // roll (keep prior)
+  msg.pose.covariance[28] = 1e6;  // pitch (keep prior)
   msg.pose.covariance[35] = yaw_var;
 }
 
@@ -131,7 +130,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
       RCLCPP_WARN(ctx->node->get_logger(),
                   "CalibrateHeadingFromUndock: displacement %.3fm below min %.3fm "
                   "AND is_charging=true — robot stuck on dock, retrying undock.",
-                  dist, min_displacement);
+                  dist,
+                  min_displacement);
       return BT::NodeStatus::FAILURE;
     }
     // Partial undock: GPS moved less than expected (wheel slip on the dock
@@ -142,7 +142,8 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
     RCLCPP_INFO(ctx->node->get_logger(),
                 "CalibrateHeadingFromUndock: partial undock (%.3fm < %.3fm) but "
                 "charging dropped — keeping dock_yaw seed, skipping refinement.",
-                dist, min_displacement);
+                dist,
+                min_displacement);
     ctx->yaw_seeded_this_session = true;
     return BT::NodeStatus::SUCCESS;
   }
@@ -154,12 +155,11 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   if (!set_pose_pub_)
   {
     auto qos = rclcpp::QoS(1).reliable();
-    set_pose_pub_ = ctx->node->create_publisher<
-        geometry_msgs::msg::PoseWithCovarianceStamped>(
+    set_pose_pub_ = ctx->node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/ekf_map_node/set_pose", qos);
-    set_pose_odom_pub_ = ctx->node->create_publisher<
-        geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/set_pose", qos);
+    set_pose_odom_pub_ =
+        ctx->node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/set_pose",
+                                                                                   qos);
   }
 
   tf2::Quaternion q;
@@ -189,7 +189,10 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
   RCLCPP_INFO(ctx->node->get_logger(),
               "CalibrateHeadingFromUndock: dist=%.3fm yaw_seed=%.1f° "
               "pos=(%.3f, %.3f) — set_pose published.",
-              dist, yaw * 180.0 / M_PI, ctx->gps_x, ctx->gps_y);
+              dist,
+              yaw * 180.0 / M_PI,
+              ctx->gps_x,
+              ctx->gps_y);
   return BT::NodeStatus::SUCCESS;
 }
 
@@ -197,8 +200,7 @@ BT::NodeStatus CalibrateHeadingFromUndock::tick()
 // SeedYawFromMotion
 // ---------------------------------------------------------------------------
 
-void SeedYawFromMotion::publish_forward(const rclcpp::Node::SharedPtr& node,
-                                        double speed)
+void SeedYawFromMotion::publish_forward(const rclcpp::Node::SharedPtr& node, double speed)
 {
   geometry_msgs::msg::TwistStamped cmd{};
   cmd.header.stamp = node->now();
@@ -228,18 +230,16 @@ BT::NodeStatus SeedYawFromMotion::onStart()
 
   if (!cmd_pub_)
   {
-    cmd_pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>(
-        "/cmd_vel_teleop", 10);
+    cmd_pub_ = ctx->node->create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel_teleop", 10);
   }
   if (!set_pose_pub_)
   {
     auto qos = rclcpp::QoS(1).reliable();
-    set_pose_pub_ = ctx->node->create_publisher<
-        geometry_msgs::msg::PoseWithCovarianceStamped>(
+    set_pose_pub_ = ctx->node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(
         "/ekf_map_node/set_pose", qos);
-    set_pose_odom_pub_ = ctx->node->create_publisher<
-        geometry_msgs::msg::PoseWithCovarianceStamped>(
-        "/set_pose", qos);
+    set_pose_odom_pub_ =
+        ctx->node->create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>("/set_pose",
+                                                                                   qos);
   }
 
   distance_m_ = 1.0;
@@ -266,7 +266,10 @@ BT::NodeStatus SeedYawFromMotion::onStart()
 
   RCLCPP_INFO(ctx->node->get_logger(),
               "SeedYawFromMotion: start pos=(%.3f, %.3f), drive %.2fm fwd at %.2fm/s",
-              x0_, y0_, distance_m_, speed_ms_);
+              x0_,
+              y0_,
+              distance_m_,
+              speed_ms_);
   publish_forward(ctx->node, speed_ms_);
   return BT::NodeStatus::RUNNING;
 }
@@ -275,8 +278,7 @@ BT::NodeStatus SeedYawFromMotion::onRunning()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
 
-  if (ctx->latest_emergency.active_emergency ||
-      ctx->latest_emergency.latched_emergency)
+  if (ctx->latest_emergency.active_emergency || ctx->latest_emergency.latched_emergency)
   {
     publish_zero(ctx->node);
     RCLCPP_WARN(ctx->node->get_logger(),
@@ -289,7 +291,8 @@ BT::NodeStatus SeedYawFromMotion::onRunning()
   {
     publish_zero(ctx->node);
     RCLCPP_WARN(ctx->node->get_logger(),
-                "SeedYawFromMotion: timeout after %.1fs, aborting.", elapsed);
+                "SeedYawFromMotion: timeout after %.1fs, aborting.",
+                elapsed);
     return BT::NodeStatus::FAILURE;
   }
 
@@ -310,7 +313,8 @@ BT::NodeStatus SeedYawFromMotion::onRunning()
     RCLCPP_WARN(ctx->node->get_logger(),
                 "SeedYawFromMotion: displacement %.3fm below min %.3fm, "
                 "seed invalid.",
-                dist, min_displacement_m_);
+                dist,
+                min_displacement_m_);
     return BT::NodeStatus::FAILURE;
   }
 
@@ -337,7 +341,10 @@ BT::NodeStatus SeedYawFromMotion::onRunning()
   RCLCPP_INFO(ctx->node->get_logger(),
               "SeedYawFromMotion: dist=%.3fm yaw_seed=%.1f° pos=(%.3f, %.3f) — "
               "set_pose published.",
-              dist, yaw * 180.0 / M_PI, ctx->gps_x, ctx->gps_y);
+              dist,
+              yaw * 180.0 / M_PI,
+              ctx->gps_x,
+              ctx->gps_y);
   return BT::NodeStatus::SUCCESS;
 }
 

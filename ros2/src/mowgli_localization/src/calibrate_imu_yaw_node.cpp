@@ -12,8 +12,6 @@
 // Constants, motion profile, sample filters, formulas, and the YAML
 // output layout match the Python implementation.
 
-#include <yaml-cpp/yaml.h>
-
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -44,6 +42,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/magnetic_field.hpp"
+#include <yaml-cpp/yaml.h>
 
 namespace mowgli_localization
 {
@@ -60,40 +59,41 @@ constexpr int HL_STATE_RECORDING = 3;
 constexpr int HL_CMD_RECORD_AREA = 3;
 constexpr int HL_CMD_RECORD_CANCEL = 6;
 
-double stamp_to_float(const builtin_interfaces::msg::Time & s)
+double stamp_to_float(const builtin_interfaces::msg::Time& s)
 {
   return static_cast<double>(s.sec) + static_cast<double>(s.nanosec) * 1e-9;
 }
 
 double monotonic()
 {
-  return std::chrono::duration<double>(
-             std::chrono::steady_clock::now().time_since_epoch())
-      .count();
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 void sleep_for(double sec)
 {
   std::this_thread::sleep_for(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(
-          std::chrono::duration<double>(sec)));
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(sec)));
 }
 
 std::string utc_iso8601_now()
 {
   const auto now = std::chrono::system_clock::now();
   const std::time_t tt = std::chrono::system_clock::to_time_t(now);
-  const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
-                      now.time_since_epoch())
-                      .count() %
-                  1000000;
+  const auto us =
+      std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count() %
+      1000000;
   std::tm tm_utc{};
   gmtime_r(&tt, &tm_utc);
   char buf[64];
-  std::snprintf(buf, sizeof(buf),
+  std::snprintf(buf,
+                sizeof(buf),
                 "%04d-%02d-%02dT%02d:%02d:%02d.%06ld+00:00",
-                tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
-                tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec,
+                tm_utc.tm_year + 1900,
+                tm_utc.tm_mon + 1,
+                tm_utc.tm_mday,
+                tm_utc.tm_hour,
+                tm_utc.tm_min,
+                tm_utc.tm_sec,
                 static_cast<long>(us));
   return std::string(buf);
 }
@@ -125,8 +125,7 @@ public:
   static constexpr double DOCK_UNDOCK_DISTANCE_M = 2.0;
   static constexpr double DOCK_UNDOCK_TIMEOUT_SEC = 25.0;
   static constexpr double DOCK_UNDOCK_MIN_DISPLACEMENT = 0.8;
-  static constexpr const char * DOCK_CALIBRATION_PATH =
-      "/ros2_ws/maps/dock_calibration.yaml";
+  static constexpr const char* DOCK_CALIBRATION_PATH = "/ros2_ws/maps/dock_calibration.yaml";
 
   // --- Mag calibration ---
   static constexpr double MAG_FIG8_LINEAR_M_S = 0.20;
@@ -134,13 +133,11 @@ public:
   static constexpr double MAG_FIG8_LOOPS_PER_SIDE = 1.5;
   static constexpr double MAG_FIG8_PAUSE_SEC = 1.5;
   static constexpr int MAG_MIN_SAMPLES = 150;
-  static constexpr const char * MAG_CALIBRATION_PATH =
-      "/ros2_ws/maps/mag_calibration.yaml";
+  static constexpr const char* MAG_CALIBRATION_PATH = "/ros2_ws/maps/mag_calibration.yaml";
 
   CalibrateImuYawNode() : Node("calibrate_imu_yaw_node")
   {
-    cb_group_ =
-        create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    cb_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
     imu_qos_ = rclcpp::QoS(rclcpp::KeepLast(50));
     imu_qos_.best_effort();
@@ -158,40 +155,45 @@ public:
     sub_opts.callback_group = cb_group_;
 
     status_sub_ = create_subscription<mowgli_interfaces::msg::Status>(
-        "/hardware_bridge/status", state_qos,
+        "/hardware_bridge/status",
+        state_qos,
         [this](mowgli_interfaces::msg::Status::ConstSharedPtr msg)
-        { is_charging_ = msg->is_charging; },
-        sub_opts);
-    emergency_sub_ = create_subscription<mowgli_interfaces::msg::Emergency>(
-        "/hardware_bridge/emergency", state_qos,
-        [this](mowgli_interfaces::msg::Emergency::ConstSharedPtr msg)
         {
-          emergency_active_ =
-              msg->active_emergency || msg->latched_emergency;
+          is_charging_ = msg->is_charging;
         },
         sub_opts);
-    bt_status_sub_ =
-        create_subscription<mowgli_interfaces::msg::HighLevelStatus>(
-            "/behavior_tree_node/high_level_status", state_qos,
-            [this](mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg)
-            { bt_state_ = static_cast<int>(msg->state); },
-            sub_opts);
+    emergency_sub_ = create_subscription<mowgli_interfaces::msg::Emergency>(
+        "/hardware_bridge/emergency",
+        state_qos,
+        [this](mowgli_interfaces::msg::Emergency::ConstSharedPtr msg)
+        {
+          emergency_active_ = msg->active_emergency || msg->latched_emergency;
+        },
+        sub_opts);
+    bt_status_sub_ = create_subscription<mowgli_interfaces::msg::HighLevelStatus>(
+        "/behavior_tree_node/high_level_status",
+        state_qos,
+        [this](mowgli_interfaces::msg::HighLevelStatus::ConstSharedPtr msg)
+        {
+          bt_state_ = static_cast<int>(msg->state);
+        },
+        sub_opts);
 
     hlc_client_ = create_client<mowgli_interfaces::srv::HighLevelControl>(
-        "/behavior_tree_node/high_level_control",
-        rclcpp::ServicesQoS(), cb_group_);
+        "/behavior_tree_node/high_level_control", rclcpp::ServicesQoS(), cb_group_);
 
-    cmd_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
-        "/cmd_vel_teleop", state_qos);
+    cmd_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel_teleop", state_qos);
 
     srv_ = create_service<mowgli_interfaces::srv::CalibrateImuYaw>(
         "~/calibrate",
-        [this](
-            const std::shared_ptr<rmw_request_id_t>,
-            const std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Request> req,
-            std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Response> resp)
-        { calibrate_cb(req, resp); },
-        rclcpp::ServicesQoS(), cb_group_);
+        [this](const std::shared_ptr<rmw_request_id_t>,
+               const std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Request> req,
+               std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Response> resp)
+        {
+          calibrate_cb(req, resp);
+        },
+        rclcpp::ServicesQoS(),
+        cb_group_);
 
     RCLCPP_INFO(get_logger(),
                 "IMU yaw calibration node ready. Ensure robot is undocked with "
@@ -203,26 +205,29 @@ private:
   // ── Subscription callbacks ──────────────────────────────────────────
   void imu_cb(sensor_msgs::msg::Imu::ConstSharedPtr msg)
   {
-    if (!collecting_) return;
+    if (!collecting_)
+      return;
     const double t = stamp_to_float(msg->header.stamp);
     std::lock_guard<std::mutex> lk(lock_);
-    imu_samples_.emplace_back(
-        t, msg->linear_acceleration.x, msg->linear_acceleration.y,
-        msg->linear_acceleration.z);
+    imu_samples_.emplace_back(t,
+                              msg->linear_acceleration.x,
+                              msg->linear_acceleration.y,
+                              msg->linear_acceleration.z);
   }
 
   void odom_cb(nav_msgs::msg::Odometry::ConstSharedPtr msg)
   {
-    if (!collecting_) return;
+    if (!collecting_)
+      return;
     const double t = stamp_to_float(msg->header.stamp);
     std::lock_guard<std::mutex> lk(lock_);
-    odom_samples_.emplace_back(t, msg->twist.twist.linear.x,
-                               msg->twist.twist.angular.z);
+    odom_samples_.emplace_back(t, msg->twist.twist.linear.x, msg->twist.twist.angular.z);
   }
 
   void mag_cb(sensor_msgs::msg::MagneticField::ConstSharedPtr msg)
   {
-    if (!collecting_mag_) return;
+    if (!collecting_mag_)
+      return;
     std::lock_guard<std::mutex> lk(lock_);
     mag_samples_.emplace_back(msg->magnetic_field.x * 1e6,
                               msg->magnetic_field.y * 1e6,
@@ -234,34 +239,47 @@ private:
     latest_gps_x_ = msg->pose.pose.position.x;
     latest_gps_y_ = msg->pose.pose.position.y;
     gps_position_accuracy_ = msg->position_accuracy;
-    gps_rtk_fixed_ =
-        (msg->flags &
-         mowgli_interfaces::msg::AbsolutePose::FLAG_GPS_RTK_FIXED) != 0;
+    gps_rtk_fixed_ = (msg->flags & mowgli_interfaces::msg::AbsolutePose::FLAG_GPS_RTK_FIXED) != 0;
     gps_have_ = true;
   }
 
   void activate_sensor_subs()
   {
-    if (imu_sub_) return;
+    if (imu_sub_)
+      return;
     rclcpp::SubscriptionOptions sub_opts;
     sub_opts.callback_group = cb_group_;
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-        "/imu/data", imu_qos_,
-        [this](sensor_msgs::msg::Imu::ConstSharedPtr msg) { imu_cb(msg); },
+        "/imu/data",
+        imu_qos_,
+        [this](sensor_msgs::msg::Imu::ConstSharedPtr msg)
+        {
+          imu_cb(msg);
+        },
         sub_opts);
     mag_sub_ = create_subscription<sensor_msgs::msg::MagneticField>(
-        "/imu/mag_raw", imu_qos_,
+        "/imu/mag_raw",
+        imu_qos_,
         [this](sensor_msgs::msg::MagneticField::ConstSharedPtr msg)
-        { mag_cb(msg); },
+        {
+          mag_cb(msg);
+        },
         sub_opts);
     gps_sub_ = create_subscription<mowgli_interfaces::msg::AbsolutePose>(
-        "/gps/absolute_pose", imu_qos_,
+        "/gps/absolute_pose",
+        imu_qos_,
         [this](mowgli_interfaces::msg::AbsolutePose::ConstSharedPtr msg)
-        { gps_cb(msg); },
+        {
+          gps_cb(msg);
+        },
         sub_opts);
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/wheel_odom", odom_qos_,
-        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { odom_cb(msg); },
+        "/wheel_odom",
+        odom_qos_,
+        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
+        {
+          odom_cb(msg);
+        },
         sub_opts);
   }
 
@@ -330,16 +348,17 @@ private:
     }
   }
 
-  void figure_eight_profile(double linear_m_s, double radius_m,
-                            double loops_per_side, double pause_sec)
+  void figure_eight_profile(double linear_m_s,
+                            double radius_m,
+                            double loops_per_side,
+                            double pause_sec)
   {
-    if (radius_m <= 1e-3 || linear_m_s <= 1e-3) return;
+    if (radius_m <= 1e-3 || linear_m_s <= 1e-3)
+      return;
     const double wz_mag = linear_m_s / radius_m;
     const double period = 1.0 / CMD_RATE_HZ;
-    const double seconds_per_side =
-        (2.0 * M_PI * loops_per_side) / wz_mag;
-    const int steps_per_side =
-        std::max(1, static_cast<int>(seconds_per_side * CMD_RATE_HZ));
+    const double seconds_per_side = (2.0 * M_PI * loops_per_side) / wz_mag;
+    const int steps_per_side = std::max(1, static_cast<int>(seconds_per_side * CMD_RATE_HZ));
 
     for (double sign : {+1.0, -1.0})
     {
@@ -353,8 +372,7 @@ private:
         publish_arc(linear_m_s, sign * wz_mag);
         sleep_for(period);
       }
-      const int pause_steps =
-          std::max(1, static_cast<int>(pause_sec * CMD_RATE_HZ));
+      const int pause_steps = std::max(1, static_cast<int>(pause_sec * CMD_RATE_HZ));
       for (int i = 0; i < pause_steps; ++i)
       {
         if (emergency_active_)
@@ -374,7 +392,8 @@ private:
     const double deadline = monotonic() + timeout_sec;
     while (monotonic() < deadline)
     {
-      if (gps_rtk_fixed_ && gps_position_accuracy_ < 0.05) return true;
+      if (gps_rtk_fixed_ && gps_position_accuracy_ < 0.05)
+        return true;
       publish_vx(0.0);
       sleep_for(1.0 / CMD_RATE_HZ);
     }
@@ -396,14 +415,14 @@ private:
 
   std::optional<DockYawResult> run_dock_yaw_drive()
   {
-    RCLCPP_INFO(get_logger(),
-                "Dock yaw calibration: waiting for RTK-Fixed (≤ 10 s)…");
+    RCLCPP_INFO(get_logger(), "Dock yaw calibration: waiting for RTK-Fixed (≤ 10 s)…");
     if (!wait_for_rtk_fixed(10.0))
     {
       RCLCPP_ERROR(get_logger(),
                    "No RTK-Fixed within 10 s (rtk_fixed=%d, pos_acc=%.3f m). "
                    "Cannot compute dock yaw — aborting.",
-                   gps_rtk_fixed_ ? 1 : 0, gps_position_accuracy_.load());
+                   gps_rtk_fixed_ ? 1 : 0,
+                   gps_position_accuracy_.load());
       return std::nullopt;
     }
 
@@ -420,8 +439,11 @@ private:
     RCLCPP_INFO(get_logger(),
                 "RTK-Fixed acquired. Reversing at %+.2f m/s target %.1f m "
                 "(timeout %.0f s) — start pos=(%+.3f, %+.3f).",
-                DOCK_UNDOCK_SPEED, DOCK_UNDOCK_DISTANCE_M,
-                DOCK_UNDOCK_TIMEOUT_SEC, x0, y0);
+                DOCK_UNDOCK_SPEED,
+                DOCK_UNDOCK_DISTANCE_M,
+                DOCK_UNDOCK_TIMEOUT_SEC,
+                x0,
+                y0);
 
     const double period = 1.0 / CMD_RATE_HZ;
     const double t_deadline = monotonic() + DOCK_UNDOCK_TIMEOUT_SEC;
@@ -431,8 +453,7 @@ private:
       if (emergency_active_)
       {
         publish_vx(0.0);
-        RCLCPP_ERROR(get_logger(),
-                     "Emergency during dock undock — aborting.");
+        RCLCPP_ERROR(get_logger(), "Emergency during dock undock — aborting.");
         return std::nullopt;
       }
       publish_vx(-DOCK_UNDOCK_SPEED);
@@ -441,7 +462,8 @@ private:
         const double dx = latest_gps_x_ - x0;
         const double dy = latest_gps_y_ - y0;
         displacement = std::hypot(dx, dy);
-        if (displacement >= DOCK_UNDOCK_DISTANCE_M) break;
+        if (displacement >= DOCK_UNDOCK_DISTANCE_M)
+          break;
       }
       sleep_for(period);
     }
@@ -469,15 +491,14 @@ private:
                    "Only %.3f m of GPS displacement after reverse "
                    "(need ≥ %.1f m). Wheels probably slipped on the dock "
                    "ramp. Aborting.",
-                   displacement, DOCK_UNDOCK_MIN_DISPLACEMENT);
+                   displacement,
+                   DOCK_UNDOCK_MIN_DISPLACEMENT);
       return std::nullopt;
     }
 
     const double dock_yaw = std::atan2(-dy, -dx);
-    const double sigma_pos =
-        std::max(static_cast<double>(gps_position_accuracy_.load()), 0.003);
-    const double sigma_yaw_rad =
-        std::atan2(2.0 * sigma_pos, displacement);
+    const double sigma_pos = std::max(static_cast<double>(gps_position_accuracy_.load()), 0.003);
+    const double sigma_yaw_rad = std::atan2(2.0 * sigma_pos, displacement);
 
     DockYawResult result;
     result.dock_pose_x = x0;
@@ -503,12 +524,9 @@ private:
       out << YAML::Key << "dock_calibration" << YAML::Value << YAML::BeginMap;
       out << YAML::Key << "dock_pose_x" << YAML::Value << result.dock_pose_x;
       out << YAML::Key << "dock_pose_y" << YAML::Value << result.dock_pose_y;
-      out << YAML::Key << "dock_pose_yaw_rad" << YAML::Value
-          << result.dock_pose_yaw_rad;
-      out << YAML::Key << "dock_pose_yaw_deg" << YAML::Value
-          << result.dock_pose_yaw_deg;
-      out << YAML::Key << "undock_displacement_m" << YAML::Value
-          << result.undock_displacement_m;
+      out << YAML::Key << "dock_pose_yaw_rad" << YAML::Value << result.dock_pose_yaw_rad;
+      out << YAML::Key << "dock_pose_yaw_deg" << YAML::Value << result.dock_pose_yaw_deg;
+      out << YAML::Key << "undock_displacement_m" << YAML::Value << result.undock_displacement_m;
       out << YAML::Key << "yaw_sigma_rad" << YAML::Value << result.yaw_sigma_rad;
       out << YAML::Key << "yaw_sigma_deg" << YAML::Value << result.yaw_sigma_deg;
       out << YAML::Key << "calibrated_at" << YAML::Value << utc_iso8601_now();
@@ -520,11 +538,12 @@ private:
         throw std::runtime_error("cannot open dock_calibration.yaml");
       fh << out.c_str();
     }
-    catch (const std::exception & exc)
+    catch (const std::exception& exc)
     {
       RCLCPP_ERROR(get_logger(),
                    "Failed to persist dock calibration to %s: %s",
-                   DOCK_CALIBRATION_PATH, exc.what());
+                   DOCK_CALIBRATION_PATH,
+                   exc.what());
       return std::nullopt;
     }
 
@@ -532,8 +551,14 @@ private:
                 "Dock yaw calibration: start=(%+.3f, %+.3f) end=(%+.3f, "
                 "%+.3f) displacement=%.3f m dock_yaw=%+.2f° (σ=%.2f°). "
                 "Saved to %s.",
-                x0, y0, x1, y1, displacement, result.dock_pose_yaw_deg,
-                result.yaw_sigma_deg, DOCK_CALIBRATION_PATH);
+                x0,
+                y0,
+                x1,
+                y1,
+                displacement,
+                result.dock_pose_yaw_deg,
+                result.yaw_sigma_deg,
+                DOCK_CALIBRATION_PATH);
     return result;
   }
 
@@ -553,8 +578,7 @@ private:
     double raw_max[3];
   };
 
-  static MagFit fit_mag_min_max(
-      const std::vector<std::tuple<double, double, double>> & samples)
+  static MagFit fit_mag_min_max(const std::vector<std::tuple<double, double, double>>& samples)
   {
     MagFit f{};
     double mn[3] = {std::numeric_limits<double>::infinity(),
@@ -563,13 +587,15 @@ private:
     double mx[3] = {-std::numeric_limits<double>::infinity(),
                     -std::numeric_limits<double>::infinity(),
                     -std::numeric_limits<double>::infinity()};
-    for (const auto & s : samples)
+    for (const auto& s : samples)
     {
       const double v[3] = {std::get<0>(s), std::get<1>(s), std::get<2>(s)};
       for (int i = 0; i < 3; ++i)
       {
-        if (v[i] < mn[i]) mn[i] = v[i];
-        if (v[i] > mx[i]) mx[i] = v[i];
+        if (v[i] < mn[i])
+          mn[i] = v[i];
+        if (v[i] > mx[i])
+          mx[i] = v[i];
       }
     }
     double offset[3], range[3];
@@ -586,7 +612,7 @@ private:
     double mag_sum = 0.0;
     std::vector<double> mags;
     mags.reserve(samples.size());
-    for (const auto & s : samples)
+    for (const auto& s : samples)
     {
       const double cx = (std::get<0>(s) - offset[0]) * scale[0];
       const double cy = (std::get<1>(s) - offset[1]) * scale[1];
@@ -595,11 +621,12 @@ private:
       mags.push_back(m);
       mag_sum += m;
     }
-    const double mag_mean =
-        mags.empty() ? 0.0 : mag_sum / static_cast<double>(mags.size());
+    const double mag_mean = mags.empty() ? 0.0 : mag_sum / static_cast<double>(mags.size());
     double var = 0.0;
-    for (double m : mags) var += (m - mag_mean) * (m - mag_mean);
-    if (!mags.empty()) var /= static_cast<double>(mags.size());
+    for (double m : mags)
+      var += (m - mag_mean) * (m - mag_mean);
+    if (!mags.empty())
+      var /= static_cast<double>(mags.size());
 
     f.offset_x_uT = offset[0];
     f.offset_y_uT = offset[1];
@@ -618,15 +645,15 @@ private:
     return f;
   }
 
-  void fit_and_save_mag(
-      const std::vector<std::tuple<double, double, double>> & samples)
+  void fit_and_save_mag(const std::vector<std::tuple<double, double, double>>& samples)
   {
     if (static_cast<int>(samples.size()) < MAG_MIN_SAMPLES)
     {
       RCLCPP_WARN(get_logger(),
                   "Too few mag samples for calibration (%zu < %d). Verify "
                   "/imu/mag_raw is publishing.",
-                  samples.size(), MAG_MIN_SAMPLES);
+                  samples.size(),
+                  MAG_MIN_SAMPLES);
       return;
     }
     const MagFit cal = fit_mag_min_max(samples);
@@ -649,69 +676,66 @@ private:
       out << YAML::Key << "scale_y" << YAML::Value << cal.scale_y;
       out << YAML::Key << "scale_z" << YAML::Value << cal.scale_z;
       out << YAML::Key << "sample_count" << YAML::Value << cal.sample_count;
-      out << YAML::Key << "magnitude_mean_uT" << YAML::Value
-          << cal.magnitude_mean_uT;
-      out << YAML::Key << "magnitude_std_uT" << YAML::Value
-          << cal.magnitude_std_uT;
-      out << YAML::Key << "raw_min_uT" << YAML::Value << YAML::Flow
-          << YAML::BeginSeq << cal.raw_min[0] << cal.raw_min[1]
-          << cal.raw_min[2] << YAML::EndSeq;
-      out << YAML::Key << "raw_max_uT" << YAML::Value << YAML::Flow
-          << YAML::BeginSeq << cal.raw_max[0] << cal.raw_max[1]
-          << cal.raw_max[2] << YAML::EndSeq;
+      out << YAML::Key << "magnitude_mean_uT" << YAML::Value << cal.magnitude_mean_uT;
+      out << YAML::Key << "magnitude_std_uT" << YAML::Value << cal.magnitude_std_uT;
+      out << YAML::Key << "raw_min_uT" << YAML::Value << YAML::Flow << YAML::BeginSeq
+          << cal.raw_min[0] << cal.raw_min[1] << cal.raw_min[2] << YAML::EndSeq;
+      out << YAML::Key << "raw_max_uT" << YAML::Value << YAML::Flow << YAML::BeginSeq
+          << cal.raw_max[0] << cal.raw_max[1] << cal.raw_max[2] << YAML::EndSeq;
       out << YAML::Key << "calibrated_at" << YAML::Value << utc_iso8601_now();
       out << YAML::Key << "source" << YAML::Value << "figure_eight_drive";
       out << YAML::Key << "fig8_radius_m" << YAML::Value << MAG_FIG8_RADIUS_M;
-      out << YAML::Key << "fig8_linear_m_s" << YAML::Value
-          << MAG_FIG8_LINEAR_M_S;
-      out << YAML::Key << "fig8_loops_per_side" << YAML::Value
-          << MAG_FIG8_LOOPS_PER_SIDE;
+      out << YAML::Key << "fig8_linear_m_s" << YAML::Value << MAG_FIG8_LINEAR_M_S;
+      out << YAML::Key << "fig8_loops_per_side" << YAML::Value << MAG_FIG8_LOOPS_PER_SIDE;
       out << YAML::EndMap;
       out << YAML::EndMap;
       std::ofstream fh(MAG_CALIBRATION_PATH);
-      if (!fh) throw std::runtime_error("cannot open mag_calibration.yaml");
+      if (!fh)
+        throw std::runtime_error("cannot open mag_calibration.yaml");
       fh << out.c_str();
     }
-    catch (const std::exception & exc)
+    catch (const std::exception& exc)
     {
       RCLCPP_ERROR(get_logger(),
                    "Failed to write mag calibration to %s: %s",
-                   MAG_CALIBRATION_PATH, exc.what());
+                   MAG_CALIBRATION_PATH,
+                   exc.what());
       return;
     }
-    RCLCPP_INFO(
-        get_logger(),
-        "Mag calibration: samples=%d  offset=(%+7.2f, %+7.2f, %+7.2f) µT  "
-        "scale=(%.3f, %.3f, %.3f)  |B|=%.2f ± %.2f µT  (Earth range ≈ 25–"
-        "65 µT)  saved to %s",
-        cal.sample_count, cal.offset_x_uT, cal.offset_y_uT, cal.offset_z_uT,
-        cal.scale_x, cal.scale_y, cal.scale_z, cal.magnitude_mean_uT,
-        cal.magnitude_std_uT, MAG_CALIBRATION_PATH);
+    RCLCPP_INFO(get_logger(),
+                "Mag calibration: samples=%d  offset=(%+7.2f, %+7.2f, %+7.2f) µT  "
+                "scale=(%.3f, %.3f, %.3f)  |B|=%.2f ± %.2f µT  (Earth range ≈ 25–"
+                "65 µT)  saved to %s",
+                cal.sample_count,
+                cal.offset_x_uT,
+                cal.offset_y_uT,
+                cal.offset_z_uT,
+                cal.scale_x,
+                cal.scale_y,
+                cal.scale_z,
+                cal.magnitude_mean_uT,
+                cal.magnitude_std_uT,
+                MAG_CALIBRATION_PATH);
   }
 
   // ── BT-state helpers ────────────────────────────────────────────────
-  bool call_hlc(int command, const char * label)
+  bool call_hlc(int command, const char* label)
   {
     if (!hlc_client_->wait_for_service(std::chrono::seconds(3)))
     {
-      RCLCPP_WARN(get_logger(),
-                  "HighLevelControl service not available — cannot %s.",
-                  label);
+      RCLCPP_WARN(get_logger(), "HighLevelControl service not available — cannot %s.", label);
       return false;
     }
-    auto req =
-        std::make_shared<mowgli_interfaces::srv::HighLevelControl::Request>();
+    auto req = std::make_shared<mowgli_interfaces::srv::HighLevelControl::Request>();
     req->command = static_cast<uint8_t>(command);
     auto future = hlc_client_->async_send_request(req);
     const double deadline = monotonic() + 5.0;
     while (rclcpp::ok() && monotonic() < deadline)
     {
-      if (future.wait_for(std::chrono::milliseconds(50)) ==
-          std::future_status::ready)
+      if (future.wait_for(std::chrono::milliseconds(50)) == std::future_status::ready)
         break;
     }
-    if (future.wait_for(std::chrono::milliseconds(0)) !=
-        std::future_status::ready)
+    if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
     {
       RCLCPP_WARN(get_logger(), "HighLevelControl %s timed out.", label);
       return false;
@@ -730,16 +754,16 @@ private:
     const double deadline = monotonic() + timeout_sec;
     while (monotonic() < deadline)
     {
-      if (bt_state_ == target) return true;
+      if (bt_state_ == target)
+        return true;
       sleep_for(0.1);
     }
     return bt_state_ == target;
   }
 
   // ── Service handler ─────────────────────────────────────────────────
-  void calibrate_cb(
-      const std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Request> request,
-      std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Response> response)
+  void calibrate_cb(const std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Request> request,
+                    std::shared_ptr<mowgli_interfaces::srv::CalibrateImuYaw::Response> response)
   {
     const bool mag_only = request->mag_only;
     const bool do_dock_yaw_calibration = is_charging_ && !mag_only;
@@ -763,8 +787,7 @@ private:
     bool need_exit_recording = false;
     if (bt_state_ != HL_STATE_RECORDING)
     {
-      RCLCPP_INFO(get_logger(),
-                  "Entering RECORDING mode for calibration drive.");
+      RCLCPP_INFO(get_logger(), "Entering RECORDING mode for calibration drive.");
       if (!call_hlc(HL_CMD_RECORD_AREA, "enter recording"))
       {
         response->success = false;
@@ -778,10 +801,10 @@ private:
         call_hlc(HL_CMD_RECORD_CANCEL, "cancel after failed entry");
         response->success = false;
         char buf[160];
-        std::snprintf(
-            buf, sizeof(buf),
-            "BT did not transition to RECORDING within 5s (stuck at state=%d).",
-            bt_state_.load());
+        std::snprintf(buf,
+                      sizeof(buf),
+                      "BT did not transition to RECORDING within 5s (stuck at state=%d).",
+                      bt_state_.load());
         response->message = buf;
         return;
       }
@@ -818,9 +841,7 @@ private:
     int baseline_start_count = 0;
     if (!mag_only)
     {
-      RCLCPP_INFO(get_logger(),
-                  "Capturing %.1fs stationary baseline before drive.",
-                  BASELINE_SEC);
+      RCLCPP_INFO(get_logger(), "Capturing %.1fs stationary baseline before drive.", BASELINE_SEC);
       pause(BASELINE_SEC);
 
       {
@@ -828,12 +849,12 @@ private:
         baseline_start_count = static_cast<int>(imu_samples_.size());
       }
 
-      const double total_motion_sec =
-          2.0 * (RAMP_SEC + CRUISE_SEC + RAMP_SEC) + PAUSE_SEC;
+      const double total_motion_sec = 2.0 * (RAMP_SEC + CRUISE_SEC + RAMP_SEC) + PAUSE_SEC;
       RCLCPP_INFO(get_logger(),
                   "Autonomous calibration drive starting — forward %.2f m/s "
                   "then back, ~%.0fs total.",
-                  CRUISE_SPEED, total_motion_sec);
+                  CRUISE_SPEED,
+                  total_motion_sec);
     }
 
     bool drive_ok = true;
@@ -851,7 +872,7 @@ private:
         }
       }
     }
-    catch (const std::exception & exc)
+    catch (const std::exception& exc)
     {
       drive_ok = false;
       for (int i = 0; i < 5; ++i)
@@ -896,14 +917,16 @@ private:
     {
       const double wz_mag = MAG_FIG8_LINEAR_M_S / MAG_FIG8_RADIUS_M;
       const double total_sec =
-          2.0 * (2.0 * M_PI * MAG_FIG8_LOOPS_PER_SIDE) / wz_mag +
-          2.0 * MAG_FIG8_PAUSE_SEC;
+          2.0 * (2.0 * M_PI * MAG_FIG8_LOOPS_PER_SIDE) / wz_mag + 2.0 * MAG_FIG8_PAUSE_SEC;
       RCLCPP_INFO(get_logger(),
                   "Magnetometer calibration: figure-8 — v=%.2f m/s, R=%.2f "
                   "m (wz=±%.2f rad/s), %.1f loops per side, ~%.0fs total. "
                   "Need ~1.5 m clear in front and behind the robot.",
-                  MAG_FIG8_LINEAR_M_S, MAG_FIG8_RADIUS_M, wz_mag,
-                  MAG_FIG8_LOOPS_PER_SIDE, total_sec);
+                  MAG_FIG8_LINEAR_M_S,
+                  MAG_FIG8_RADIUS_M,
+                  wz_mag,
+                  MAG_FIG8_LOOPS_PER_SIDE,
+                  total_sec);
       {
         std::lock_guard<std::mutex> lk(lock_);
         mag_samples_.clear();
@@ -911,18 +934,19 @@ private:
       }
       try
       {
-        figure_eight_profile(MAG_FIG8_LINEAR_M_S, MAG_FIG8_RADIUS_M,
-                             MAG_FIG8_LOOPS_PER_SIDE, MAG_FIG8_PAUSE_SEC);
+        figure_eight_profile(MAG_FIG8_LINEAR_M_S,
+                             MAG_FIG8_RADIUS_M,
+                             MAG_FIG8_LOOPS_PER_SIDE,
+                             MAG_FIG8_PAUSE_SEC);
       }
-      catch (const std::exception & exc)
+      catch (const std::exception& exc)
       {
         for (int i = 0; i < 5; ++i)
         {
           publish_arc(0.0, 0.0);
           sleep_for(0.05);
         }
-        RCLCPP_ERROR(get_logger(), "Mag figure-8 phase errored: %s",
-                     exc.what());
+        RCLCPP_ERROR(get_logger(), "Mag figure-8 phase errored: %s", exc.what());
       }
       {
         std::lock_guard<std::mutex> lk(lock_);
@@ -948,27 +972,28 @@ private:
       mag_snap = mag_samples_;
     }
 
-    if (do_mag_calibration) fit_and_save_mag(mag_snap);
+    if (do_mag_calibration)
+      fit_and_save_mag(mag_snap);
 
     RCLCPP_INFO(get_logger(),
                 "Drive complete — %zu IMU / %zu odom samples collected.",
-                imu_snap.size(), odom_snap.size());
+                imu_snap.size(),
+                odom_snap.size());
 
     if (mag_only)
     {
       response->success = true;
       char buf[160];
-      std::snprintf(
-          buf, sizeof(buf),
-          "mag_only calibration: %zu samples collected during figure-8. "
-          "IMU yaw / pitch / roll left untouched.",
-          mag_snap.size());
+      std::snprintf(buf,
+                    sizeof(buf),
+                    "mag_only calibration: %zu samples collected during figure-8. "
+                    "IMU yaw / pitch / roll left untouched.",
+                    mag_snap.size());
       response->message = buf;
     }
     else
     {
-      ComputeResult result =
-          compute_imu_yaw(imu_snap, odom_snap, baseline_start_count);
+      ComputeResult result = compute_imu_yaw(imu_snap, odom_snap, baseline_start_count);
       response->success = result.success;
       response->message = result.message;
       response->imu_yaw_rad = result.imu_yaw_rad;
@@ -991,8 +1016,7 @@ private:
       response->dock_pose_yaw_rad = dock_yaw_result->dock_pose_yaw_rad;
       response->dock_pose_yaw_deg = dock_yaw_result->dock_pose_yaw_deg;
       response->dock_yaw_sigma_deg = dock_yaw_result->yaw_sigma_deg;
-      response->dock_undock_displacement_m =
-          dock_yaw_result->undock_displacement_m;
+      response->dock_undock_displacement_m = dock_yaw_result->undock_displacement_m;
     }
     else
     {
@@ -1004,43 +1028,51 @@ private:
       RCLCPP_INFO(get_logger(),
                   "imu_yaw = %+.4f rad (%+.2f°) from %d samples, stddev "
                   "%.2f°",
-                  response->imu_yaw_rad, response->imu_yaw_deg,
-                  response->samples_used, response->std_dev_deg);
+                  response->imu_yaw_rad,
+                  response->imu_yaw_deg,
+                  response->samples_used,
+                  response->std_dev_deg);
       if (response->stationary_samples_used >= MIN_STATIONARY_SAMPLES)
       {
-        RCLCPP_INFO(
-            get_logger(),
-            "imu_pitch = %+.4f rad (%+.2f°), imu_roll = %+.4f rad (%+.2f°) "
-            "from %d stationary samples (|g|=%.3f m/s²). Promote to "
-            "mowgli_robot.yaml if |pitch| or |roll| > 1°.",
-            response->imu_pitch_rad, response->imu_pitch_deg,
-            response->imu_roll_rad, response->imu_roll_deg,
-            response->stationary_samples_used, response->gravity_mag_mps2);
+        RCLCPP_INFO(get_logger(),
+                    "imu_pitch = %+.4f rad (%+.2f°), imu_roll = %+.4f rad (%+.2f°) "
+                    "from %d stationary samples (|g|=%.3f m/s²). Promote to "
+                    "mowgli_robot.yaml if |pitch| or |roll| > 1°.",
+                    response->imu_pitch_rad,
+                    response->imu_pitch_deg,
+                    response->imu_roll_rad,
+                    response->imu_roll_deg,
+                    response->stationary_samples_used,
+                    response->gravity_mag_mps2);
       }
       else
       {
-        RCLCPP_WARN(
-            get_logger(),
-            "Pitch/roll not computed: only %d stationary IMU samples "
-            "(need ≥ %d).",
-            response->stationary_samples_used, MIN_STATIONARY_SAMPLES);
+        RCLCPP_WARN(get_logger(),
+                    "Pitch/roll not computed: only %d stationary IMU samples "
+                    "(need ≥ %d).",
+                    response->stationary_samples_used,
+                    MIN_STATIONARY_SAMPLES);
       }
       if (response->dock_valid)
       {
-        RCLCPP_INFO(
-            get_logger(),
-            "dock_pose = (%+.3f, %+.3f) yaw=%+.2f° (σ=%.2f°, undock "
-            "displacement=%.3f m). Promote to mowgli_robot.yaml → "
-            "dock_pose_yaw = %.4f.",
-            response->dock_pose_x, response->dock_pose_y,
-            response->dock_pose_yaw_deg, response->dock_yaw_sigma_deg,
-            response->dock_undock_displacement_m, response->dock_pose_yaw_rad);
+        RCLCPP_INFO(get_logger(),
+                    "dock_pose = (%+.3f, %+.3f) yaw=%+.2f° (σ=%.2f°, undock "
+                    "displacement=%.3f m). Promote to mowgli_robot.yaml → "
+                    "dock_pose_yaw = %.4f.",
+                    response->dock_pose_x,
+                    response->dock_pose_y,
+                    response->dock_pose_yaw_deg,
+                    response->dock_yaw_sigma_deg,
+                    response->dock_undock_displacement_m,
+                    response->dock_pose_yaw_rad);
       }
     }
     else
     {
-      RCLCPP_WARN(get_logger(), "Calibration failed: %s",
-                  response->message.c_str());
+      // cppcheck-suppress invalidLifetime
+      // (false positive: response->message is std::string, c_str() points
+      //  into the string's owned storage — not into the earlier local buf)
+      RCLCPP_WARN(get_logger(), "Calibration failed: %s", response->message.c_str());
     }
 
     deactivate_sensor_subs();
@@ -1063,22 +1095,19 @@ private:
     double gravity_mag_mps2{0.0};
   };
 
-  ComputeResult compute_imu_yaw(
-      std::vector<std::tuple<double, double, double, double>> imu_samples,
-      std::vector<std::tuple<double, double, double>> odom_samples,
-      int baseline_count)
+  ComputeResult compute_imu_yaw(std::vector<std::tuple<double, double, double, double>> imu_samples,
+                                std::vector<std::tuple<double, double, double>> odom_samples,
+                                int baseline_count)
   {
     ComputeResult empty;
 
     std::vector<std::tuple<double, double, double, double>> baseline_samples;
     double baseline_ax = 0.0, baseline_ay = 0.0;
-    if (baseline_count > 0 &&
-        static_cast<int>(imu_samples.size()) > baseline_count)
+    if (baseline_count > 0 && static_cast<int>(imu_samples.size()) > baseline_count)
     {
-      baseline_samples.assign(imu_samples.begin(),
-                              imu_samples.begin() + baseline_count);
+      baseline_samples.assign(imu_samples.begin(), imu_samples.begin() + baseline_count);
       double sum_ax = 0.0, sum_ay = 0.0;
-      for (const auto & s : baseline_samples)
+      for (const auto& s : baseline_samples)
       {
         sum_ax += std::get<1>(s);
         sum_ay += std::get<2>(s);
@@ -1086,8 +1115,7 @@ private:
       const double n = static_cast<double>(baseline_count);
       baseline_ax = sum_ax / n;
       baseline_ay = sum_ay / n;
-      imu_samples.erase(imu_samples.begin(),
-                        imu_samples.begin() + baseline_count);
+      imu_samples.erase(imu_samples.begin(), imu_samples.begin() + baseline_count);
     }
     else if (baseline_count > 0)
     {
@@ -1097,7 +1125,8 @@ private:
     if (odom_samples.size() < 3)
     {
       char buf[160];
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "Not enough wheel_odom samples (%zu). Is /wheel_odom "
                     "being published?",
                     odom_samples.size());
@@ -1107,19 +1136,26 @@ private:
     if (static_cast<int>(imu_samples.size()) < MIN_SAMPLES)
     {
       char buf[160];
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "Not enough /imu/data samples (%zu). Is the IMU running?",
                     imu_samples.size());
       empty.message = buf;
       return empty;
     }
 
-    std::sort(odom_samples.begin(), odom_samples.end(),
-              [](const auto & a, const auto & b)
-              { return std::get<0>(a) < std::get<0>(b); });
-    std::sort(imu_samples.begin(), imu_samples.end(),
-              [](const auto & a, const auto & b)
-              { return std::get<0>(a) < std::get<0>(b); });
+    std::sort(odom_samples.begin(),
+              odom_samples.end(),
+              [](const auto& a, const auto& b)
+              {
+                return std::get<0>(a) < std::get<0>(b);
+              });
+    std::sort(imu_samples.begin(),
+              imu_samples.end(),
+              [](const auto& a, const auto& b)
+              {
+                return std::get<0>(a) < std::get<0>(b);
+              });
 
     const std::size_t no = odom_samples.size();
     std::vector<double> odom_t(no), odom_vx(no), odom_wz(no);
@@ -1152,14 +1188,18 @@ private:
       const double t = std::get<0>(imu_samples[i]);
       auto it = std::lower_bound(odom_t.begin(), odom_t.end(), t);
       std::size_t idx = static_cast<std::size_t>(it - odom_t.begin());
-      if (idx < 1) idx = 1;
-      if (idx > no - 1) idx = no - 1;
+      if (idx < 1)
+        idx = 1;
+      if (idx > no - 1)
+        idx = no - 1;
       const std::size_t left = idx - 1;
       const std::size_t right = idx;
       const double dt = std::max(odom_t[right] - odom_t[left], 1e-9);
       double frac = (t - odom_t[left]) / dt;
-      if (frac < 0.0) frac = 0.0;
-      if (frac > 1.0) frac = 1.0;
+      if (frac < 0.0)
+        frac = 0.0;
+      if (frac > 1.0)
+        frac = 1.0;
       wz_interp[i] = odom_wz[left] + (odom_wz[right] - odom_wz[left]) * frac;
       a_interp[i] = a_body[left] + (a_body[right] - a_body[left]) * frac;
       vx_interp[i] = odom_vx[left] + (odom_vx[right] - odom_vx[left]) * frac;
@@ -1180,10 +1220,12 @@ private:
     {
       empty.samples_used = valid_count;
       char buf[200];
-      std::snprintf(buf, sizeof(buf),
+      std::snprintf(buf,
+                    sizeof(buf),
                     "Only %d valid samples (need ≥ %d). Is the robot stuck, "
                     "colliding, or on uneven ground?",
-                    valid_count, MIN_SAMPLES);
+                    valid_count,
+                    MIN_SAMPLES);
       empty.message = buf;
       return empty;
     }
@@ -1204,11 +1246,11 @@ private:
       per_sample_yaw.push_back(std::atan2(-ay_s, ax_s));
     }
     const double imu_yaw_rad = std::atan2(-sum_ay, sum_ax);
-    double r_bar = (sum_abs > 1e-9)
-                       ? std::hypot(sum_ax, sum_ay) / sum_abs
-                       : 0.0;
-    if (r_bar < 1e-9) r_bar = 1e-9;
-    if (r_bar > 1.0) r_bar = 1.0;
+    double r_bar = (sum_abs > 1e-9) ? std::hypot(sum_ax, sum_ay) / sum_abs : 0.0;
+    if (r_bar < 1e-9)
+      r_bar = 1e-9;
+    if (r_bar > 1.0)
+      r_bar = 1.0;
     const double std_rad = std::sqrt(-2.0 * std::log(r_bar));
 
     double per_cos = 0.0, per_sin = 0.0;
@@ -1223,7 +1265,7 @@ private:
 
     // Pitch/roll from stationary samples.
     std::vector<double> all_ax, all_ay, all_az;
-    for (const auto & s : baseline_samples)
+    for (const auto& s : baseline_samples)
     {
       all_ax.push_back(std::get<1>(s));
       all_ay.push_back(std::get<2>(s));
@@ -1258,18 +1300,25 @@ private:
     }
 
     char msg[400];
-    int written = std::snprintf(
-        msg, sizeof(msg),
-        "imu_yaw=%+.2f° from %d samples (vector R=%.2f, per-sample R=%.2f).",
-        imu_yaw_rad * 180.0 / M_PI, valid_count, r_bar, per_sample_r);
+    int written =
+        std::snprintf(msg,
+                      sizeof(msg),
+                      "imu_yaw=%+.2f° from %d samples (vector R=%.2f, per-sample R=%.2f).",
+                      imu_yaw_rad * 180.0 / M_PI,
+                      valid_count,
+                      r_bar,
+                      per_sample_r);
     if (stationary_count >= MIN_STATIONARY_SAMPLES && written > 0 &&
         written < static_cast<int>(sizeof(msg)))
     {
-      std::snprintf(msg + written, sizeof(msg) - written,
+      std::snprintf(msg + written,
+                    sizeof(msg) - written,
                     " pitch=%+.2f° roll=%+.2f° from %d stationary samples "
                     "(|g|=%.3f m/s²).",
-                    pitch_rad * 180.0 / M_PI, roll_rad * 180.0 / M_PI,
-                    stationary_count, gravity_mag);
+                    pitch_rad * 180.0 / M_PI,
+                    roll_rad * 180.0 / M_PI,
+                    stationary_count,
+                    gravity_mag);
     }
 
     ComputeResult out;
@@ -1310,24 +1359,20 @@ private:
   std::atomic<int> bt_state_{HL_STATE_NULL};
 
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr status_sub_;
-  rclcpp::Subscription<mowgli_interfaces::msg::Emergency>::SharedPtr
-      emergency_sub_;
-  rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr
-      bt_status_sub_;
+  rclcpp::Subscription<mowgli_interfaces::msg::Emergency>::SharedPtr emergency_sub_;
+  rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr bt_status_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   rclcpp::Subscription<sensor_msgs::msg::MagneticField>::SharedPtr mag_sub_;
-  rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr
-      gps_sub_;
+  rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr gps_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Client<mowgli_interfaces::srv::HighLevelControl>::SharedPtr
-      hlc_client_;
+  rclcpp::Client<mowgli_interfaces::srv::HighLevelControl>::SharedPtr hlc_client_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_pub_;
   rclcpp::Service<mowgli_interfaces::srv::CalibrateImuYaw>::SharedPtr srv_;
 };
 
 }  // namespace mowgli_localization
 
-int main(int argc, char ** argv)
+int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<mowgli_localization::CalibrateImuYawNode>();

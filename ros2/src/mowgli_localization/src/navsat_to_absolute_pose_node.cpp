@@ -378,10 +378,10 @@ void NavSatToAbsolutePoseNode::on_navsat_fix(sensor_msgs::msg::NavSatFix::ConstS
     cov_xy = Jx * Jy * yaw_var;
   }
 
-  twin.pose.covariance[0] = var_x;       // xx
-  twin.pose.covariance[1] = cov_xy;      // xy
-  twin.pose.covariance[6] = cov_xy;      // yx (symmetric)
-  twin.pose.covariance[7] = var_y;       // yy
+  twin.pose.covariance[0] = var_x;  // xx
+  twin.pose.covariance[1] = cov_xy;  // xy
+  twin.pose.covariance[6] = cov_xy;  // yx (symmetric)
+  twin.pose.covariance[7] = var_y;  // yy
   twin.pose.covariance[14] = var_x * 4.0;  // z — looser, two_d_mode ignores
   twin.pose.covariance[21] = 1.0e3;  // roll — "unknown"
   twin.pose.covariance[28] = 1.0e3;  // pitch — "unknown"

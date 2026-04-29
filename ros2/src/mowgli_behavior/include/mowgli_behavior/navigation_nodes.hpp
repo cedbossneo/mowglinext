@@ -26,9 +26,9 @@
 #include "mowgli_interfaces/srv/get_recovery_point.hpp"
 #include "nav2_msgs/action/back_up.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "nav2_msgs/srv/clear_entire_costmap.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "nav2_msgs/srv/clear_entire_costmap.hpp"
 #include "std_srvs/srv/empty.hpp"
 
 namespace mowgli_behavior
@@ -58,8 +58,7 @@ public:
 
   static BT::PortsList providedPorts()
   {
-    return {BT::InputPort<double>(
-        "duration_sec", 0.5, "Seconds to stream zero-velocity cmds (s)")};
+    return {BT::InputPort<double>("duration_sec", 0.5, "Seconds to stream zero-velocity cmds (s)")};
   }
 
   BT::NodeStatus onStart() override;

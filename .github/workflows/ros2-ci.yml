@@ -161,19 +161,26 @@ jobs:
             echo "No C++ files found — skipping."
             exit 0
           fi
-          echo "$FILES" | xargs cppcheck \
-            --enable=warning,performance,portability \
-            --suppress=missingInclude \
-            --suppress=unmatchedSuppression \
-            --error-exitcode=1 \
-            --xml \
-            2>cppcheck-report.xml
-          echo "$FILES" | xargs cppcheck \
-            --enable=warning,performance,portability \
-            --suppress=missingInclude \
-            --suppress=unmatchedSuppression \
-            --error-exitcode=1 \
-            --quiet
+          # Common cppcheck flags. --inline-suppr lets us silence narrow false
+          # positives at the call-site with `// cppcheck-suppress <id>` comments
+          # rather than maintaining a global suppress list.
+          # Global suppressions for known false positives that aren't worth
+          # an inline annotation:
+          #   - useInitializationList: ROS2 nodes commonly assign members
+          #     (callback groups, QoS, paths read from declare_parameter) in
+          #     the body because those calls require the rclcpp::Node
+          #     constructor to have run first.
+          CPPCHECK_FLAGS=(
+            --enable=warning,performance,portability
+            --inline-suppr
+            --suppress=missingInclude
+            --suppress=unmatchedSuppression
+            --suppress=useInitializationList
+            --suppress=normalCheckLevelMaxBranches
+            --error-exitcode=1
+          )
+          echo "$FILES" | xargs cppcheck "${CPPCHECK_FLAGS[@]}" --xml 2>cppcheck-report.xml
+          echo "$FILES" | xargs cppcheck "${CPPCHECK_FLAGS[@]}" --quiet
 
       - name: Upload cppcheck report
         if: always()

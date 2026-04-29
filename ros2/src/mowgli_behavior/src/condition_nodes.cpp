@@ -182,8 +182,7 @@ BT::NodeStatus IsBoundaryViolation::tick()
 BT::NodeStatus IsLethalBoundaryViolation::tick()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-  return ctx->lethal_boundary_violation ? BT::NodeStatus::SUCCESS
-                                        : BT::NodeStatus::FAILURE;
+  return ctx->lethal_boundary_violation ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,17 +335,17 @@ BT::NodeStatus PreFlightCheck::tick()
     const char* names[] = {"no-fix", "auto", "DGPS", "?", "RTK-fix", "RTK-float"};
     const char* current = (fix_type < 6) ? names[fix_type] : "?";
     char buf[80];
-    snprintf(buf, sizeof(buf), "gps_fix=%s (%u, need >=%d)",
-             current, fix_type, min_gps_fix_type);
+    snprintf(buf, sizeof(buf), "gps_fix=%s (%u, need >=%d)", current, fix_type, min_gps_fix_type);
     failures.emplace_back(buf);
   }
 
   // ── 4. TF chain: map → base_footprint resolvable ─────────────────────────
   try
   {
-    ctx->tf_buffer->lookupTransform(
-        "map", "base_footprint", tf2::TimePointZero,
-        tf2::durationFromSec(tf_timeout));
+    ctx->tf_buffer->lookupTransform("map",
+                                    "base_footprint",
+                                    tf2::TimePointZero,
+                                    tf2::durationFromSec(tf_timeout));
   }
   catch (const tf2::TransformException& ex)
   {
@@ -356,9 +355,8 @@ BT::NodeStatus PreFlightCheck::tick()
   // ── 5. Mowing area defined ───────────────────────────────────────────────
   if (!coverage_client_)
   {
-    coverage_client_ =
-        ctx->helper_node->create_client<mowgli_interfaces::srv::GetCoverageStatus>(
-            "/map_server_node/get_coverage_status");
+    coverage_client_ = ctx->helper_node->create_client<mowgli_interfaces::srv::GetCoverageStatus>(
+        "/map_server_node/get_coverage_status");
   }
   if (!coverage_client_->service_is_ready())
   {
@@ -398,18 +396,23 @@ BT::NodeStatus PreFlightCheck::tick()
   {
     RCLCPP_INFO(ctx->node->get_logger(),
                 "PreFlightCheck PASS: battery=%.1f%% fix=%u area-ok tf-ok",
-                battery, fix_type);
+                battery,
+                fix_type);
     return BT::NodeStatus::SUCCESS;
   }
 
   std::string all;
   for (size_t i = 0; i < failures.size(); ++i)
   {
-    if (i) all += ", ";
+    if (i)
+      all += ", ";
     all += failures[i];
   }
-  RCLCPP_WARN_THROTTLE(ctx->node->get_logger(), *ctx->node->get_clock(), 3000,
-                       "PreFlightCheck FAIL: %s", all.c_str());
+  RCLCPP_WARN_THROTTLE(ctx->node->get_logger(),
+                       *ctx->node->get_clock(),
+                       3000,
+                       "PreFlightCheck FAIL: %s",
+                       all.c_str());
   return BT::NodeStatus::FAILURE;
 }
 
@@ -438,16 +441,15 @@ BT::NodeStatus Nav2Active::tick()
   // responsible for waiting, not us.
   if (!client_->service_is_ready())
   {
-    RCLCPP_DEBUG(ctx->node->get_logger(),
-                 "Nav2Active: is_active service not available yet");
+    RCLCPP_DEBUG(ctx->node->get_logger(), "Nav2Active: is_active service not available yet");
     return BT::NodeStatus::FAILURE;
   }
 
   auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
   auto future = client_->async_send_request(req);
 
-  const auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::duration<double>(timeout_sec);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_sec);
   while (std::chrono::steady_clock::now() < deadline)
   {
     if (future.wait_for(std::chrono::milliseconds(20)) == std::future_status::ready)
@@ -457,7 +459,9 @@ BT::NodeStatus Nav2Active::tick()
       {
         return BT::NodeStatus::SUCCESS;
       }
-      RCLCPP_WARN_THROTTLE(ctx->node->get_logger(), *ctx->node->get_clock(), 3000,
+      RCLCPP_WARN_THROTTLE(ctx->node->get_logger(),
+                           *ctx->node->get_clock(),
+                           3000,
                            "Nav2Active: lifecycle_manager reports not-active "
                            "(msg=%s)",
                            resp ? resp->message.c_str() : "(null)");
@@ -465,7 +469,9 @@ BT::NodeStatus Nav2Active::tick()
     }
   }
 
-  RCLCPP_WARN_THROTTLE(ctx->node->get_logger(), *ctx->node->get_clock(), 3000,
+  RCLCPP_WARN_THROTTLE(ctx->node->get_logger(),
+                       *ctx->node->get_clock(),
+                       3000,
                        "Nav2Active: is_active call timed out after %.2fs",
                        timeout_sec);
   return BT::NodeStatus::FAILURE;

@@ -27,6 +27,7 @@
 // must use the canonical GUID GTSAM uses internally so .graph files
 // produced here can also be read by stock GTSAM tools.
 #include <boost/serialization/export.hpp>
+// cppcheck-suppress unknownMacro
 BOOST_CLASS_EXPORT_GUID(gtsam::GenericValue<gtsam::Pose2>, "gtsam_GenericValue_Pose2")
 
 #include "fusion_graph/factors.hpp"
