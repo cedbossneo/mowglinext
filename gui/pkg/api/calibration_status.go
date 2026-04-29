@@ -2,6 +2,7 @@ package api
 
 import (
 	"bufio"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,29 +14,29 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Paths to the three runtime calibration artefacts. Kept as package
-// variables so tests can point them at temp files if needed.
+// Paths to the runtime calibration artefacts and the robot config that
+// owns the dock pose. Kept as package constants so tests can shadow
+// them via locals if needed.
 const (
-	imuCalibrationPath = "/ros2_ws/maps/imu_calibration.txt"
-	magCalibrationPath = "/ros2_ws/maps/mag_calibration.yaml"
-	// dockCalibrationPath is declared in diagnostics.go; reuse it.
+	imuCalibrationPath  = "/ros2_ws/maps/imu_calibration.txt"
+	magCalibrationPath  = "/ros2_ws/maps/mag_calibration.yaml"
+	mowgliRobotYamlPath = "/ros2_ws/config/mowgli_robot.yaml"
 )
 
 // ---------------------------------------------------------------------------
 // Response types
 // ---------------------------------------------------------------------------
 
-// DockCalibrationStatus mirrors the relevant subset of dock_calibration.yaml.
+// DockCalibrationStatus reports the dock pose currently persisted in
+// mowgli_robot.yaml. Present is false when the file is missing or all
+// three pose values are zero (an uninitialised configuration).
 type DockCalibrationStatus struct {
-	Present               bool    `json:"present"`
-	DockPoseX             float64 `json:"dock_pose_x,omitempty"`
-	DockPoseY             float64 `json:"dock_pose_y,omitempty"`
-	DockPoseYawRad        float64 `json:"dock_pose_yaw_rad,omitempty"`
-	DockPoseYawDeg        float64 `json:"dock_pose_yaw_deg,omitempty"`
-	YawSigmaDeg           float64 `json:"yaw_sigma_deg,omitempty"`
-	UndockDisplacementM   float64 `json:"undock_displacement_m,omitempty"`
-	CalibratedAt          string  `json:"calibrated_at,omitempty"`
-	Error                 string  `json:"error,omitempty"`
+	Present        bool    `json:"present"`
+	DockPoseX      float64 `json:"dock_pose_x,omitempty"`
+	DockPoseY      float64 `json:"dock_pose_y,omitempty"`
+	DockPoseYawRad float64 `json:"dock_pose_yaw_rad,omitempty"`
+	DockPoseYawDeg float64 `json:"dock_pose_yaw_deg,omitempty"`
+	Error          string  `json:"error,omitempty"`
 }
 
 // ImuCalibrationStatus mirrors the plaintext imu_calibration.txt format
@@ -96,32 +97,36 @@ func getCalibrationStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// readDockCalibrationStatus loads /ros2_ws/maps/dock_calibration.yaml.
-// Returns {Present: false} when the file is missing. Parse errors
-// become {Present: true, Error: ...} so the GUI can surface them.
+// readDockCalibrationStatus reads dock_pose_x/y/yaw from
+// mowgli_robot.yaml — the single source of truth, written by
+// calibrate_imu_yaw_node and /map_server_node/set_docking_point.
+// Reports {Present: false} when the file is missing or the dock pose
+// is still all-zero (uninitialised configuration).
 func readDockCalibrationStatus() DockCalibrationStatus {
-	data, err := os.ReadFile(dockCalibrationPath)
+	data, err := os.ReadFile(mowgliRobotYamlPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return DockCalibrationStatus{Present: false}
 		}
-		logrus.Warnf("calibration_status: cannot read %s: %v", dockCalibrationPath, err)
+		logrus.Warnf("calibration_status: cannot read %s: %v", mowgliRobotYamlPath, err)
 		return DockCalibrationStatus{Present: true, Error: err.Error()}
 	}
-	var parsed dockCalibrationFile
-	if err := yaml.Unmarshal(data, &parsed); err != nil {
+	var yamlData map[string]interface{}
+	if err := yaml.Unmarshal(data, &yamlData); err != nil {
 		return DockCalibrationStatus{Present: true, Error: "parse: " + err.Error()}
 	}
-	cal := parsed.DockCalibration
+	x := extractYAMLFloat(yamlData, "dock_pose_x")
+	y := extractYAMLFloat(yamlData, "dock_pose_y")
+	yawRad := extractYAMLFloat(yamlData, "dock_pose_yaw")
+	if x == 0 && y == 0 && yawRad == 0 {
+		return DockCalibrationStatus{Present: false}
+	}
 	return DockCalibrationStatus{
-		Present:             true,
-		DockPoseX:           cal.DockPoseX,
-		DockPoseY:           cal.DockPoseY,
-		DockPoseYawRad:      cal.DockPoseYawRad,
-		DockPoseYawDeg:      cal.DockPoseYawDeg,
-		YawSigmaDeg:         cal.YawSigmaDeg,
-		UndockDisplacementM: cal.UndockDisplacementM,
-		CalibratedAt:        cal.CalibratedAt,
+		Present:        true,
+		DockPoseX:      x,
+		DockPoseY:      y,
+		DockPoseYawRad: yawRad,
+		DockPoseYawDeg: yawRad * 180.0 / math.Pi,
 	}
 }
 

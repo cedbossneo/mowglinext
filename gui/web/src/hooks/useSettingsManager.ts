@@ -57,12 +57,10 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
             "imu_x", "imu_y", "imu_z", "imu_yaw", "imu_pitch", "imu_roll",
             "gps_x", "gps_y", "gps_z",
             "use_lidar",
-            // dock_pose_yaw removed 2026-04-24: the runtime value now lives in
-            // /ros2_ws/maps/dock_calibration.yaml (written by the IMU calibration
-            // service) and overrides the robot_yaml at startup. Leaving an
-            // editable form field caused user edits to silently lose effect.
-            // mowgli_robot.yaml still holds a fallback default for fresh
-            // installs but is not surfaced in the UI anymore.
+            // dock_pose_x/y/yaw not editable here. They are persisted in
+            // mowgli_robot.yaml but written by the IMU calibration service
+            // and the "set dock pose" action on the map view, not by
+            // free-form numeric input.
         ],
     },
     {
@@ -247,11 +245,12 @@ export const useSettingsManager = () => {
     }, [savedValues]);
 
     // Get keys that don't belong to any defined section.
-    // dock_pose_x/y/yaw are excluded because they are runtime-calibrated
-    // (dock_calibration.yaml) and the legacy mowgli_robot.yaml entry is only
-    // a cold-boot fallback. slam_mode is excluded because slam_toolbox was
-    // removed in the FusionCore→iSAM2 migration; it survives in old YAMLs as
-    // dead config that would silently mislead anyone who edits it.
+    // dock_pose_x/y/yaw are excluded because they are written by the
+    // calibration service and the "set dock pose" GUI action, not by
+    // free-form numeric input — even though they live in mowgli_robot.yaml.
+    // slam_mode is excluded because slam_toolbox was removed in the
+    // FusionCore→iSAM2 migration; it survives in old YAMLs as dead config
+    // that would silently mislead anyone who edits it.
     // removed when fusion_graph took over LiDAR-aware localization; it
     // survives in old YAMLs as dead config that would silently mislead
     // anyone who edits it.

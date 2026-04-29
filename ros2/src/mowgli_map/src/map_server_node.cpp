@@ -18,7 +18,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <map>
 #include <optional>
@@ -40,52 +42,96 @@
 namespace mowgli_map
 {
 
-// Simple parser for /ros2_ws/maps/dock_calibration.yaml — see the twin
-// helper in hardware_bridge_node.cpp. Duplicated locally to avoid
-// introducing a shared header for a few dozen lines.
-struct DockCalibrationFile
-{
-  double x{0.0};
-  double y{0.0};
-  double yaw_rad{0.0};
-};
+// Path to the runtime mowgli_robot.yaml — bind-mounted into the container
+// so writes survive across redeploys. mowgli_robot.yaml is the single
+// source of truth for dock_pose_x/y/yaw; this helper rewrites the three
+// scalar values in place via per-line substring splicing so comments
+// and surrounding structure are preserved (yaml-cpp would round-trip
+// and strip them).
+constexpr const char* kRuntimeRobotYaml = "/ros2_ws/config/mowgli_robot.yaml";
 
-inline std::optional<double> parse_yaml_double(const std::string& content, const std::string& key)
+// Splice a new numeric value into a "<indent><key>:<spaces><number><rest>"
+// line, anchored on the indent so a key whose name happens to contain ours
+// (e.g. dock_pose_x_offset) is not matched.
+inline void splice_yaml_scalar(std::string& content,
+                               const std::string& key,
+                               const std::string& new_value)
 {
-  const std::string needle = key + ":";
-  auto pos = content.find(needle);
-  if (pos == std::string::npos)
-    return std::nullopt;
-  pos += needle.size();
-  while (pos < content.size() && (content[pos] == ' ' || content[pos] == '\t'))
-    ++pos;
-  auto end = pos;
-  while (end < content.size() && content[end] != '\n' && content[end] != '\r')
-    ++end;
-  try
+  size_t scan = 0;
+  while (scan < content.size())
   {
-    return std::stod(content.substr(pos, end - pos));
-  }
-  catch (...)
-  {
-    return std::nullopt;
+    const size_t line_start = scan;
+    size_t cursor = line_start;
+    while (cursor < content.size() &&
+           (content[cursor] == ' ' || content[cursor] == '\t'))
+      ++cursor;
+    const size_t indent_end = cursor;
+    if (indent_end > line_start &&
+        cursor + key.size() < content.size() &&
+        content.compare(cursor, key.size(), key) == 0 &&
+        content[cursor + key.size()] == ':')
+    {
+      cursor += key.size() + 1;
+      while (cursor < content.size() &&
+             (content[cursor] == ' ' || content[cursor] == '\t'))
+        ++cursor;
+      const size_t val_start = cursor;
+      while (cursor < content.size())
+      {
+        const char c = content[cursor];
+        const bool is_num = (c >= '0' && c <= '9') || c == '.' || c == '-' ||
+                            c == '+' || c == 'e' || c == 'E';
+        if (!is_num)
+          break;
+        ++cursor;
+      }
+      if (cursor > val_start)
+      {
+        content.replace(val_start, cursor - val_start, new_value);
+        return;
+      }
+    }
+    const size_t nl = content.find('\n', line_start);
+    if (nl == std::string::npos)
+      break;
+    scan = nl + 1;
   }
 }
 
-inline std::optional<DockCalibrationFile> load_dock_calibration_file(const std::string& path)
+inline bool update_dock_pose_in_robot_yaml(const std::string& path,
+                                           double x,
+                                           double y,
+                                           double yaw_rad)
 {
-  std::ifstream f(path);
-  if (!f.good())
-    return std::nullopt;
-  std::stringstream ss;
-  ss << f.rdbuf();
-  const std::string content = ss.str();
-  auto x = parse_yaml_double(content, "dock_pose_x");
-  auto y = parse_yaml_double(content, "dock_pose_y");
-  auto yaw = parse_yaml_double(content, "dock_pose_yaw_rad");
-  if (!x || !y || !yaw)
-    return std::nullopt;
-  return DockCalibrationFile{*x, *y, *yaw};
+  std::ifstream in(path);
+  if (!in.good())
+    return false;
+  std::stringstream buf;
+  buf << in.rdbuf();
+  std::string content = buf.str();
+  in.close();
+
+  auto fmt = [](double v) {
+    std::ostringstream s;
+    s << std::fixed << std::setprecision(6) << v;
+    return s.str();
+  };
+  splice_yaml_scalar(content, "dock_pose_x", fmt(x));
+  splice_yaml_scalar(content, "dock_pose_y", fmt(y));
+  splice_yaml_scalar(content, "dock_pose_yaw", fmt(yaw_rad));
+
+  const std::string tmp_path = path + ".tmp";
+  {
+    std::ofstream out(tmp_path, std::ios::trunc);
+    if (!out.good())
+      return false;
+    out << content;
+    if (!out.good())
+      return false;
+  }
+  std::error_code ec;
+  std::filesystem::rename(tmp_path, path, ec);
+  return !ec;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -336,22 +382,13 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   // Resize map to fit loaded areas (if any).
   resize_map_to_areas();
 
-  // Dock pose: single source of truth is /ros2_ws/maps/dock_calibration.yaml.
-  // Falls back to dock_pose_x/y/yaw parameters from mowgli_robot.yaml if the
-  // file is missing or unparseable (first boot, before any calibration or
-  // manual placement via the GUI).
+  // Dock pose: single source of truth is mowgli_robot.yaml. Calibration
+  // (calibrate_imu_yaw_node) and manual GUI placement (~/set_docking_point
+  // below) write back to that file, so the parameters declared here are
+  // always the latest persisted values.
   double dock_x = declare_parameter<double>("dock_pose_x", 0.0);
   double dock_y = declare_parameter<double>("dock_pose_y", 0.0);
   double dock_yaw = declare_parameter<double>("dock_pose_yaw", 0.0);
-  const char* dock_source = "parameters";
-
-  if (auto file_cal = load_dock_calibration_file("/ros2_ws/maps/dock_calibration.yaml"))
-  {
-    dock_x = file_cal->x;
-    dock_y = file_cal->y;
-    dock_yaw = file_cal->yaw_rad;
-    dock_source = "dock_calibration.yaml";
-  }
 
   if (dock_x != 0.0 || dock_y != 0.0 || dock_yaw != 0.0)
   {
@@ -364,8 +401,7 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
     docking_pose_.orientation.y = 0.0;
     docking_pose_set_ = true;
     RCLCPP_INFO(get_logger(),
-                "Dock pose from %s: (%.3f, %.3f) yaw=%.3f",
-                dock_source,
+                "Dock pose from mowgli_robot.yaml: (%.3f, %.3f) yaw=%.3f",
                 dock_x,
                 dock_y,
                 dock_yaw);
@@ -1975,32 +2011,38 @@ void MapServerNode::on_set_docking_point(
               docking_pose_.orientation.z,
               docking_pose_.orientation.w);
 
-  // Persist to dock_calibration.yaml — single source of truth for dock pose.
-  // Manual placements via the GUI land here; calibrate_imu_yaw and
-  // dock_yaw_to_set_pose write the same file from their own paths.
+  // Persist to mowgli_robot.yaml — single source of truth for dock pose.
+  // Manual placements via the GUI land here; calibrate_imu_yaw_node writes
+  // the same file when its dock pre-phase finishes. A line-regex update
+  // preserves the surrounding comments / structure.
   try
   {
     const double yaw_rad =
         2.0 * std::atan2(docking_pose_.orientation.z, docking_pose_.orientation.w);
-    std::ofstream out("/ros2_ws/maps/dock_calibration.yaml");
-    if (out.is_open())
+    if (!update_dock_pose_in_robot_yaml(kRuntimeRobotYaml,
+                                        docking_pose_.position.x,
+                                        docking_pose_.position.y,
+                                        yaw_rad))
     {
-      out << "dock_calibration:\n";
-      out << "  dock_pose_x: " << docking_pose_.position.x << "\n";
-      out << "  dock_pose_y: " << docking_pose_.position.y << "\n";
-      out << "  dock_pose_yaw_rad: " << yaw_rad << "\n";
-      out << "  dock_pose_yaw_deg: " << (yaw_rad * 180.0 / M_PI) << "\n";
-      out << "  source: manual_set_docking_point\n";
-      out.close();
+      RCLCPP_WARN(get_logger(),
+                  "Could not persist dock pose to %s — file missing or "
+                  "not writable. Pose still applied in-memory.",
+                  kRuntimeRobotYaml);
     }
     else
     {
-      RCLCPP_WARN(get_logger(), "Could not open dock_calibration.yaml for writing");
+      RCLCPP_INFO(get_logger(),
+                  "Persisted dock pose to %s: (%.3f, %.3f) yaw=%.3f rad",
+                  kRuntimeRobotYaml,
+                  docking_pose_.position.x,
+                  docking_pose_.position.y,
+                  yaw_rad);
     }
   }
   catch (const std::exception& ex)
   {
-    RCLCPP_WARN(get_logger(), "Failed to persist dock_calibration.yaml: %s", ex.what());
+    RCLCPP_WARN(get_logger(), "Failed to persist dock pose to %s: %s",
+                kRuntimeRobotYaml, ex.what());
   }
 
   res->success = true;
@@ -2110,9 +2152,9 @@ void MapServerNode::save_areas_to_file(const std::string& path)
   }
 
   // Dock pose intentionally NOT serialized here. The single source of truth
-  // is /ros2_ws/maps/dock_calibration.yaml — written by dock_yaw_to_set_pose,
-  // calibrate_imu_yaw, or on_set_docking_point. Storing it in areas.dat too
-  // led to a stale all-zero pose taking precedence over the calibrated value.
+  // is mowgli_robot.yaml — written by calibrate_imu_yaw_node and
+  // on_set_docking_point. Storing it in areas.dat too led to a stale
+  // all-zero pose taking precedence over the calibrated value.
 
   out.close();
 }
@@ -2210,7 +2252,7 @@ void MapServerNode::load_areas_from_file(const std::string& path)
     }
   }
 
-  // Dock pose is loaded from dock_calibration.yaml at construction, never
+  // Dock pose is loaded from mowgli_robot.yaml at construction, never
   // from areas.dat. Old areas.dat files may still contain dock_x/dock_qw
   // keys — they are ignored on purpose.
 

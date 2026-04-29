@@ -44,8 +44,8 @@ The IMU's heading relative to forward is not auto-detected — it has to be solv
 
 ## 5. Dock pose
 
-- Dock position and yaw are **auto-captured on first successful dock**. `dock_yaw_to_set_pose` records the map-frame pose while the robot sits on the dock and writes it to `dock_calibration.yaml`. `hardware_bridge` and `map_server_node` read this file at startup.
-- If you want to pre-seed (e.g. to bootstrap the first undock), set `dock_pose_x`, `dock_pose_y`, `dock_pose_yaw` in `mowgli_robot.yaml`; these are used as a fallback when `dock_calibration.yaml` does not exist yet. The GPS datum is a fixed lat/lon in `mowgli_robot.yaml` consumed by `navsat_transform_node`, so the map origin is the same across restarts.
+- Dock position and yaw live in `mowgli_robot.yaml` (`dock_pose_x`, `dock_pose_y`, `dock_pose_yaw`) — single source of truth. The IMU/dock auto-calibration service and the "set dock pose" action in the GUI both write the measured values back to that file via in-place line edits that preserve comments. `hardware_bridge`, `map_server_node`, and `dock_yaw_to_set_pose` read the values as ROS parameters at startup.
+- The GPS datum is a fixed lat/lon in `mowgli_robot.yaml` consumed by `navsat_transform_node`, so the map origin is the same across restarts.
 
 ## 6. Record a mowing area
 

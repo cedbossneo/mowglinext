@@ -7,9 +7,6 @@ export interface DockCalibrationStatus {
     dock_pose_y?: number;
     dock_pose_yaw_rad?: number;
     dock_pose_yaw_deg?: number;
-    yaw_sigma_deg?: number;
-    undock_displacement_m?: number;
-    calibrated_at?: string;
     error?: string;
 }
 
@@ -44,9 +41,10 @@ export interface CalibrationStatus {
 
 /**
  * Polls /api/calibration/status every 5 seconds. The backend reads
- * three on-disk artefacts (dock_calibration.yaml, imu_calibration.txt,
- * mag_calibration.yaml) and returns {present: false} for any that are
- * missing. Safe to call even when the robot has never been calibrated.
+ * dock pose from mowgli_robot.yaml plus on-disk artefacts
+ * (imu_calibration.txt, mag_calibration.yaml) and returns
+ * {present: false} for any that are missing. Safe to call even when
+ * the robot has never been calibrated.
  */
 export const useCalibrationStatus = () => {
     const guiApi = useApi();

@@ -938,21 +938,18 @@ export const DiagnosticsPage = () => {
                 >
                     {dockCal?.present && !dockCal?.error ? (
                         <Descriptions size="small" column={1}>
+                            <Descriptions.Item label="Position">
+                                ({dockCal.dock_pose_x?.toFixed(3)}, {dockCal.dock_pose_y?.toFixed(3)}) m
+                            </Descriptions.Item>
                             <Descriptions.Item label="Yaw">
-                                {dockCal.dock_pose_yaw_deg?.toFixed(2)}° ± {dockCal.yaw_sigma_deg?.toFixed(2)}°
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Undock">
-                                {dockCal.undock_displacement_m?.toFixed(2)} m
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Calibrated at">
-                                {formatTs(dockCal.calibrated_at)}
+                                {dockCal.dock_pose_yaw_deg?.toFixed(2)}°
                             </Descriptions.Item>
                         </Descriptions>
                     ) : dockCal?.error ? (
                         <Alert type="error" showIcon message={dockCal.error}/>
                     ) : (
                         <Typography.Text type="secondary" style={{fontSize: 12}}>
-                            No dock_calibration.yaml on disk. Run the calibration while the robot is docked to capture it.
+                            Dock pose not yet set in mowgli_robot.yaml. Run the calibration while the robot is docked, or place the dock manually from the map view.
                         </Typography.Text>
                     )}
                 </Card>

@@ -30,9 +30,9 @@ float64 gravity_mag_mps2        # |accel| during stationary; expect ~9.81
 # Dock pose fields, populated only when the service was invoked while
 # charging (dock pre-phase active): the robot reverses ~2 m at 0.15 m/s
 # under RTK-Fixed and computes dock_pose_yaw from the GPS track. The
-# value is also persisted to /ros2_ws/maps/dock_calibration.yaml so
-# dock_yaw_to_set_pose can pick it up on the next charging rising edge
-# without requiring a reboot. dock_valid is false when the pre-phase
+# value is also persisted to /ros2_ws/config/mowgli_robot.yaml (single
+# source of truth for dock pose) so the next launch reads the calibrated
+# value without requiring a reboot. dock_valid is false when the pre-phase
 # was skipped (off-dock start) or aborted (no RTK / insufficient
 # displacement) — in that case dock_pose_* remain 0.0 and callers
 # should keep the existing config value.

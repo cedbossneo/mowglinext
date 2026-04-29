@@ -20,9 +20,11 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -75,6 +77,85 @@ void sleep_for(double sec)
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(sec)));
 }
 
+// Splice a new numeric value into a "<indent><key>:<spaces><number><rest>"
+// line, anchored on the indent so a key whose name happens to contain
+// ours (e.g. dock_pose_x_offset) is not matched.
+void splice_yaml_scalar(std::string& content, const std::string& key, const std::string& new_value)
+{
+  size_t scan = 0;
+  while (scan < content.size())
+  {
+    const size_t line_start = scan;
+    size_t cursor = line_start;
+    while (cursor < content.size() && (content[cursor] == ' ' || content[cursor] == '\t'))
+      ++cursor;
+    const size_t indent_end = cursor;
+    if (indent_end > line_start && cursor + key.size() < content.size() &&
+        content.compare(cursor, key.size(), key) == 0 && content[cursor + key.size()] == ':')
+    {
+      cursor += key.size() + 1;
+      while (cursor < content.size() && (content[cursor] == ' ' || content[cursor] == '\t'))
+        ++cursor;
+      const size_t val_start = cursor;
+      while (cursor < content.size())
+      {
+        const char c = content[cursor];
+        const bool is_num = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' ||
+                            c == 'e' || c == 'E';
+        if (!is_num)
+          break;
+        ++cursor;
+      }
+      if (cursor > val_start)
+      {
+        content.replace(val_start, cursor - val_start, new_value);
+        return;
+      }
+    }
+    const size_t nl = content.find('\n', line_start);
+    if (nl == std::string::npos)
+      break;
+    scan = nl + 1;
+  }
+}
+
+// Update dock_pose_x/y/yaw values in mowgli_robot.yaml in place via
+// per-line substring splicing — preserves comments and surrounding
+// structure (yaml-cpp would round-trip and strip them). Atomic via
+// tmp+rename. Returns false if the file can't be read or written.
+bool update_dock_pose_in_robot_yaml(const std::string& path, double x, double y, double yaw_rad)
+{
+  std::ifstream in(path);
+  if (!in.good())
+    return false;
+  std::stringstream buf;
+  buf << in.rdbuf();
+  std::string content = buf.str();
+  in.close();
+
+  auto fmt = [](double v) {
+    std::ostringstream s;
+    s << std::fixed << std::setprecision(6) << v;
+    return s.str();
+  };
+  splice_yaml_scalar(content, "dock_pose_x", fmt(x));
+  splice_yaml_scalar(content, "dock_pose_y", fmt(y));
+  splice_yaml_scalar(content, "dock_pose_yaw", fmt(yaw_rad));
+
+  const std::string tmp_path = path + ".tmp";
+  {
+    std::ofstream out(tmp_path, std::ios::trunc);
+    if (!out.good())
+      return false;
+    out << content;
+    if (!out.good())
+      return false;
+  }
+  std::error_code ec;
+  std::filesystem::rename(tmp_path, path, ec);
+  return !ec;
+}
+
 std::string utc_iso8601_now()
 {
   const auto now = std::chrono::system_clock::now();
@@ -125,7 +206,10 @@ public:
   static constexpr double DOCK_UNDOCK_DISTANCE_M = 2.0;
   static constexpr double DOCK_UNDOCK_TIMEOUT_SEC = 25.0;
   static constexpr double DOCK_UNDOCK_MIN_DISPLACEMENT = 0.8;
-  static constexpr const char* DOCK_CALIBRATION_PATH = "/ros2_ws/maps/dock_calibration.yaml";
+  // Runtime mowgli_robot.yaml — bind-mounted, persists across redeploys.
+  // Calibration writes the dock pose back here so the same file the launch
+  // system reads at startup also carries the latest measured values.
+  static constexpr const char* MOWGLI_ROBOT_YAML_PATH = "/ros2_ws/config/mowgli_robot.yaml";
 
   // --- Mag calibration ---
   static constexpr double MAG_FIG8_LINEAR_M_S = 0.20;
@@ -510,40 +594,15 @@ private:
     result.yaw_sigma_deg = sigma_yaw_rad * 180.0 / M_PI;
     result.speed_ms = DOCK_UNDOCK_SPEED;
 
-    try
-    {
-      namespace fs = std::filesystem;
-      fs::path target(DOCK_CALIBRATION_PATH);
-      if (target.has_parent_path())
-      {
-        std::error_code ec;
-        fs::create_directories(target.parent_path(), ec);
-      }
-      YAML::Emitter out;
-      out << YAML::BeginMap;
-      out << YAML::Key << "dock_calibration" << YAML::Value << YAML::BeginMap;
-      out << YAML::Key << "dock_pose_x" << YAML::Value << result.dock_pose_x;
-      out << YAML::Key << "dock_pose_y" << YAML::Value << result.dock_pose_y;
-      out << YAML::Key << "dock_pose_yaw_rad" << YAML::Value << result.dock_pose_yaw_rad;
-      out << YAML::Key << "dock_pose_yaw_deg" << YAML::Value << result.dock_pose_yaw_deg;
-      out << YAML::Key << "undock_displacement_m" << YAML::Value << result.undock_displacement_m;
-      out << YAML::Key << "yaw_sigma_rad" << YAML::Value << result.yaw_sigma_rad;
-      out << YAML::Key << "yaw_sigma_deg" << YAML::Value << result.yaw_sigma_deg;
-      out << YAML::Key << "calibrated_at" << YAML::Value << utc_iso8601_now();
-      out << YAML::Key << "speed_ms" << YAML::Value << result.speed_ms;
-      out << YAML::EndMap;
-      out << YAML::EndMap;
-      std::ofstream fh(DOCK_CALIBRATION_PATH);
-      if (!fh)
-        throw std::runtime_error("cannot open dock_calibration.yaml");
-      fh << out.c_str();
-    }
-    catch (const std::exception& exc)
+    if (!update_dock_pose_in_robot_yaml(MOWGLI_ROBOT_YAML_PATH,
+                                        result.dock_pose_x,
+                                        result.dock_pose_y,
+                                        result.dock_pose_yaw_rad))
     {
       RCLCPP_ERROR(get_logger(),
-                   "Failed to persist dock calibration to %s: %s",
-                   DOCK_CALIBRATION_PATH,
-                   exc.what());
+                   "Failed to persist dock pose to %s — file missing or "
+                   "not writable.",
+                   MOWGLI_ROBOT_YAML_PATH);
       return std::nullopt;
     }
 
@@ -558,7 +617,7 @@ private:
                 displacement,
                 result.dock_pose_yaw_deg,
                 result.yaw_sigma_deg,
-                DOCK_CALIBRATION_PATH);
+                MOWGLI_ROBOT_YAML_PATH);
     return result;
   }
 

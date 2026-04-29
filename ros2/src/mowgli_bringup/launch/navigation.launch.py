@@ -506,7 +506,8 @@ def generate_launch_description() -> LaunchDescription:
         name="dock_yaw_to_set_pose",
         output="screen",
         parameters=[
-            {"use_sim_time": use_sim_time},
+            {"use_sim_time": use_sim_time,
+             "dock_pose_yaw": dock_pose_yaw},
         ],
     )
 

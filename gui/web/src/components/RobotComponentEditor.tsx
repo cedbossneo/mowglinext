@@ -129,15 +129,15 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
     const [rotating, setRotating] = useState<SensorId | null>(null);
     const [hoveredSensor, setHoveredSensor] = useState<SensorId | null>(null);
     const { status: calibrationStatus } = useCalibrationStatus();
-    // Prefer the auto-captured calibration value (dock_calibration.yaml,
-    // written by dock_yaw_to_set_pose on first charge) over the legacy
-    // mowgli_robot.yaml seed. The user can no longer edit either — the
-    // robot recalibrates on every dock arrival.
+    // Dock yaw lives in mowgli_robot.yaml — written by the IMU
+    // auto-calibration service and the "set dock pose" GUI action.
+    // The user can no longer free-form edit it here; the calibration
+    // backend is the only writer.
     const dockCal = calibrationStatus?.dock;
     const dockYawRad = dockCal?.present && dockCal.dock_pose_yaw_rad != null
         ? dockCal.dock_pose_yaw_rad
         : values.dock_pose_yaw ?? 0;
-    const dockYawSource = dockCal?.present ? "dock_calibration.yaml" : "mowgli_robot.yaml (seed)";
+    const dockYawSource = "mowgli_robot.yaml";
 
     // IMU yaw auto-calibration modal state
     const [calibOpen, setCalibOpen] = useState(false);
@@ -225,18 +225,17 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
             );
         }
 
-        // Dock pose yaw: the service's dock pre-phase already persisted
-        // the calibrated value to /ros2_ws/maps/dock_calibration.yaml —
-        // hardware_bridge_node, map_server_node and dock_yaw_to_set_pose
-        // all load that file at startup and it takes precedence over the
-        // mowgli_robot.yaml values. There is nothing for the form to save;
-        // we just surface the result so the operator can verify.
+        // Dock pose: the service's dock pre-phase already persisted the
+        // calibrated x/y/yaw back into mowgli_robot.yaml — that file is
+        // the single source of truth and is reread by every node on
+        // restart. There is nothing for the form to save; we just
+        // surface the result so the operator can verify.
         if (calibResult.dock_valid && Number.isFinite(calibResult.dock_pose_yaw_rad)) {
             appliedBits.push(
                 `dock_pose_yaw = ${calibResult.dock_pose_yaw_deg!.toFixed(2)}° `
                 + `(σ${calibResult.dock_yaw_sigma_deg!.toFixed(2)}°, `
                 + `displacement ${calibResult.dock_undock_displacement_m?.toFixed(2) ?? "?"} m, `
-                + "persisted to dock_calibration.yaml)",
+                + "persisted to mowgli_robot.yaml)",
             );
         }
 

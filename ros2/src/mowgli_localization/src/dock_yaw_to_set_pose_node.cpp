@@ -9,14 +9,13 @@
 // is_charging is true) into a set_pose on /ekf_map_node/set_pose and
 // /set_pose for the robot_localization backend.
 //
-// Behaviour (rising edge / continuous-while-charging, 1 Hz throttle,
-// dock_calibration.yaml file preference) matches the Python implementation.
+// Behaviour: rising edge / continuous-while-charging, 1 Hz throttle.
+// Dock yaw and its sigma are read as ROS parameters (declared in
+// mowgli_robot.yaml — single source of truth for dock pose).
 
 #include <chrono>
 #include <cmath>
-#include <filesystem>
 #include <memory>
-#include <optional>
 #include <string>
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -26,12 +25,9 @@
 #include "rclcpp/qos.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
-#include <yaml-cpp/yaml.h>
 
 namespace mowgli_localization
 {
-
-constexpr const char* kDockCalibrationPath = "/ros2_ws/maps/dock_calibration.yaml";
 
 class DockYawToSetPoseNode : public rclcpp::Node
 {
@@ -81,57 +77,25 @@ public:
 
     yaw_var_ = declare_parameter<double>("seed_yaw_variance", 0.1);
 
-    load_dock_calibration();
-
+    // Dock yaw + sigma come from mowgli_robot.yaml via the launch wrapper.
+    // Calibration (calibrate_imu_yaw_node) and manual GUI overrides
+    // (map_server_node /set_docking_point) write back to that file, so
+    // the param value is always the latest persisted dock yaw.
+    const double dock_yaw_rad = declare_parameter<double>("dock_pose_yaw", 0.0);
+    const double dock_yaw_sigma_rad =
+        declare_parameter<double>("dock_pose_yaw_sigma_rad", 0.035);
+    cfg_yaw_rad_ = dock_yaw_rad;
+    // Floor at variance 0.03 (~10°) so a tiny configured sigma does not
+    // pin the EKF too hard on the first seed.
+    cfg_yaw_var_ = std::max(dock_yaw_sigma_rad * dock_yaw_sigma_rad, 0.03);
     RCLCPP_INFO(get_logger(),
-                "dock_yaw_to_set_pose started — waits for rising edge of "
-                "is_charging");
+                "dock_yaw_to_set_pose started — yaw=%.2f° (σ=%.2f°) from "
+                "mowgli_robot.yaml. Waits for rising edge of is_charging.",
+                dock_yaw_rad * 180.0 / M_PI,
+                dock_yaw_sigma_rad * 180.0 / M_PI);
   }
 
 private:
-  void load_dock_calibration()
-  {
-    namespace fs = std::filesystem;
-    if (!fs::exists(kDockCalibrationPath))
-    {
-      RCLCPP_INFO(get_logger(),
-                  "No %s — will fall back to /gnss/heading "
-                  "(phone-compass dock yaw).",
-                  kDockCalibrationPath);
-      return;
-    }
-    double yaw_rad;
-    double sigma_rad;
-    try
-    {
-      YAML::Node root = YAML::LoadFile(kDockCalibrationPath);
-      auto cal = root["dock_calibration"];
-      if (!cal)
-      {
-        RCLCPP_ERROR(get_logger(), "%s: missing dock_calibration key", kDockCalibrationPath);
-        return;
-      }
-      yaw_rad = cal["dock_pose_yaw_rad"].as<double>();
-      sigma_rad = cal["yaw_sigma_rad"].as<double>(0.035);
-    }
-    catch (const std::exception& exc)
-    {
-      RCLCPP_ERROR(get_logger(),
-                   "Failed to parse %s: %s. Falling back to /gnss/heading.",
-                   kDockCalibrationPath,
-                   exc.what());
-      return;
-    }
-    file_yaw_rad_ = yaw_rad;
-    // Floor at variance 0.03 (~10°).
-    file_yaw_var_ = std::max(sigma_rad * sigma_rad, 0.03);
-    RCLCPP_INFO(get_logger(),
-                "Loaded dock calibration: yaw=%.2f° (σ=%.2f°) from %s",
-                yaw_rad * 180.0 / M_PI,
-                sigma_rad * 180.0 / M_PI,
-                kDockCalibrationPath);
-  }
-
   void on_heading(sensor_msgs::msg::Imu::ConstSharedPtr msg)
   {
     latest_heading_ = msg;
@@ -187,8 +151,6 @@ private:
   {
     if (!latest_gps_)
       return;
-    if (!file_yaw_rad_.has_value() && !latest_heading_)
-      return;
 
     const auto now_mono = std::chrono::steady_clock::now();
     const double now_s = std::chrono::duration<double>(now_mono.time_since_epoch()).count();
@@ -197,18 +159,9 @@ private:
     last_publish_time_ = now_s;
 
     geometry_msgs::msg::Quaternion yaw_quat;
-    double yaw_var;
-    if (file_yaw_rad_.has_value())
-    {
-      yaw_quat.w = std::cos(*file_yaw_rad_ / 2.0);
-      yaw_quat.z = std::sin(*file_yaw_rad_ / 2.0);
-      yaw_var = *file_yaw_var_;
-    }
-    else
-    {
-      yaw_quat = latest_heading_->orientation;
-      yaw_var = yaw_var_;
-    }
+    yaw_quat.w = std::cos(cfg_yaw_rad_ / 2.0);
+    yaw_quat.z = std::sin(cfg_yaw_rad_ / 2.0);
+    const double yaw_var = cfg_yaw_var_;
 
     std::array<double, 36> cov{};
     cov[0] = 0.01;
@@ -241,11 +194,9 @@ private:
 
     const double yaw =
         std::atan2(2.0 * yaw_quat.w * yaw_quat.z, 1.0 - 2.0 * yaw_quat.z * yaw_quat.z);
-    const char* source = file_yaw_rad_.has_value() ? "file" : "/gnss/heading";
     RCLCPP_INFO(get_logger(),
-                "published dock set_pose (%s): map=(%.3f, %.3f) yaw=%.1f°, "
+                "published dock set_pose: map=(%.3f, %.3f) yaw=%.1f°, "
                 "odom=(0, 0) yaw=%.1f°",
-                source,
                 map_seed.pose.pose.position.x,
                 map_seed.pose.pose.position.y,
                 yaw * 180.0 / M_PI,
@@ -268,8 +219,8 @@ private:
   double min_publish_period_{1.0};
   double yaw_var_{0.1};
 
-  std::optional<double> file_yaw_rad_;
-  std::optional<double> file_yaw_var_;
+  double cfg_yaw_rad_{0.0};
+  double cfg_yaw_var_{0.03};
 };
 
 }  // namespace mowgli_localization

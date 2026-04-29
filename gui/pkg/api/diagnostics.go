@@ -18,26 +18,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// dockCalibrationPath is the authoritative runtime dock pose file written
-// by calibrate_imu_yaw_node. When present it takes precedence over the
-// static mowgli_robot.yaml values (which may be stale from first-boot).
-const dockCalibrationPath = "/ros2_ws/maps/dock_calibration.yaml"
-
-// dockCalibrationFile mirrors the YAML written by calibrate_imu_yaw_node.
-type dockCalibrationFile struct {
-	DockCalibration struct {
-		DockPoseX             float64 `yaml:"dock_pose_x"`
-		DockPoseY             float64 `yaml:"dock_pose_y"`
-		DockPoseYawRad        float64 `yaml:"dock_pose_yaw_rad"`
-		DockPoseYawDeg        float64 `yaml:"dock_pose_yaw_deg"`
-		YawSigmaRad           float64 `yaml:"yaw_sigma_rad"`
-		YawSigmaDeg           float64 `yaml:"yaw_sigma_deg"`
-		UndockDisplacementM   float64 `yaml:"undock_displacement_m"`
-		CalibratedAt          string  `yaml:"calibrated_at"`
-		SpeedMs               float64 `yaml:"speed_ms"`
-	} `yaml:"dock_calibration"`
-}
-
 // ---------------------------------------------------------------------------
 // Response types
 // ---------------------------------------------------------------------------
@@ -90,8 +70,8 @@ type DockPoseCheck struct {
 	DatumLon      float64 `json:"datum_lon"`
 	HasConfig     bool    `json:"has_config"`
 	// Source describes where the dock_pose_* values were loaded from:
-	// "dock_calibration.yaml" (authoritative runtime file), "mowgli_robot.yaml"
-	// (static fallback), or "" when neither could be read.
+	// "mowgli_robot.yaml" (single source of truth), or "" when the file
+	// could not be read.
 	Source        string  `json:"source,omitempty"`
 }
 
@@ -208,10 +188,9 @@ func getDiagnosticsSnapshot(dockerProvider types.IDockerProvider, rosProvider ty
 
 // buildCrossChecks reads the robot config and computes diagnostic checks.
 //
-// Dock pose is sourced from /ros2_ws/maps/dock_calibration.yaml when present
-// (the authoritative runtime file written by calibrate_imu_yaw_node), falling
-// back to mowgli_robot.yaml's static values otherwise. Datum lat/lon always
-// come from mowgli_robot.yaml — they are only set at first-boot.
+// Dock pose and datum lat/lon are read from mowgli_robot.yaml — the single
+// source of truth for both, written by calibrate_imu_yaw_node and
+// /map_server_node/set_docking_point.
 func buildCrossChecks(dbProvider types.IDBProvider) CrossChecks {
 	checks := CrossChecks{
 		Warnings:      []string{},
@@ -245,8 +224,10 @@ func buildCrossChecks(dbProvider types.IDBProvider) CrossChecks {
 	datumLat := extractYAMLFloat(yamlData, "datum_lat")
 	datumLon := extractYAMLFloat(yamlData, "datum_lon")
 
-	// Try dock_calibration.yaml first (runtime authoritative value).
-	dockX, dockY, dockYaw, source := readDockPose(yamlData)
+	dockX := extractYAMLFloat(yamlData, "dock_pose_x")
+	dockY := extractYAMLFloat(yamlData, "dock_pose_y")
+	dockYaw := extractYAMLFloat(yamlData, "dock_pose_yaw")
+	source := "mowgli_robot.yaml"
 	logrus.Infof("buildCrossChecks: dock pose source=%s x=%.3f y=%.3f yaw_rad=%.4f",
 		source, dockX, dockY, dockYaw)
 
@@ -271,35 +252,6 @@ func buildCrossChecks(dbProvider types.IDBProvider) CrossChecks {
 	}
 
 	return checks
-}
-
-// readDockPose returns dock_pose_x / dock_pose_y / dock_pose_yaw (rad), along
-// with a tag describing the source of the values. Preference order:
-//   1. /ros2_ws/maps/dock_calibration.yaml — runtime-authoritative, written by
-//      calibrate_imu_yaw_node after a successful dock-undock measurement.
-//   2. mowgli_robot.yaml — static first-boot values, kept for fallback only.
-// An empty source string means neither file yielded usable dock pose values.
-func readDockPose(yamlData map[string]interface{}) (x, y, yaw float64, source string) {
-	if data, err := os.ReadFile(dockCalibrationPath); err == nil {
-		var parsed dockCalibrationFile
-		if err := yaml.Unmarshal(data, &parsed); err == nil {
-			cal := parsed.DockCalibration
-			// calibrated_at is mandatory in the real file — use it as a
-			// presence marker so we don't accept a zero-initialised struct.
-			if cal.CalibratedAt != "" {
-				return cal.DockPoseX, cal.DockPoseY, cal.DockPoseYawRad, "dock_calibration.yaml"
-			}
-			logrus.Warnf("readDockPose: %s parsed but missing calibrated_at — falling back",
-				dockCalibrationPath)
-		} else {
-			logrus.Warnf("readDockPose: cannot parse %s: %v — falling back to mowgli_robot.yaml",
-				dockCalibrationPath, err)
-		}
-	}
-	return extractYAMLFloat(yamlData, "dock_pose_x"),
-		extractYAMLFloat(yamlData, "dock_pose_y"),
-		extractYAMLFloat(yamlData, "dock_pose_yaw"),
-		"mowgli_robot.yaml"
 }
 
 // extractYAMLFloat searches recursively for a key in nested YAML.
