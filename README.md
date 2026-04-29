@@ -86,4 +86,9 @@ We welcome contributions! See the [Contributing Guide](CONTRIBUTING.md) and [AI-
 
 ## License
 
-[GPLv3](LICENSE) — same as OpenMower, because open source is how we all win.
+MowgliNext is published under a **dual license**:
+
+- **GPLv3** for open source, personal, educational, non-profit, and community use.
+- For any **commercial use** (selling products, integrating into a sold product, offering SaaS based on it, etc.), a separate commercial license is required. Please contact contact@mowgli.garden to discuss.
+
+See the [LICENSE](LICENSE) file for details.
