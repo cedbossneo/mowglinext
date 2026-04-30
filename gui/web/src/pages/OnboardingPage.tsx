@@ -15,7 +15,9 @@ import { useSettingsSchema } from "../hooks/useSettingsSchema.ts";
 import { useApi } from "../hooks/useApi.ts";
 import { useGPS } from "../hooks/useGPS.ts";
 import { useCalibrationStatus } from "../hooks/useCalibrationStatus.ts";
+import { useImuYawCalibration } from "../hooks/useImuYawCalibration.ts";
 import { AbsolutePoseConstants as GpsFlags } from "../types/ros.ts";
+import { CompassOutlined } from "@ant-design/icons";
 import { RobotComponentEditor } from "../components/RobotComponentEditor.tsx";
 import { FlashBoardComponent } from "../components/FlashBoardComponent.tsx";
 import { MOWER_MODELS } from "../constants/mowerModels.ts";
@@ -431,7 +433,168 @@ const SensorStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
     );
 };
 
-// ── Step 4: Firmware ────────────────────────────────────────────────────
+// ── Step 4: IMU Yaw Calibration ─────────────────────────────────────────
+
+// A wizard step that walks the operator through the IMU mounting yaw
+// auto-calibration — previously buried as a tooltip-only compass icon
+// inside the Sensors step's RobotComponentEditor. Without this step, a
+// brand-new robot can finish onboarding with imu_yaw=0 and silently
+// drift in odom.
+//
+// The step also captures dock_pose_x/y/yaw as a side effect when the
+// robot starts the calibration on the dock (the ROS service's dock
+// pre-phase writes it directly into mowgli_robot.yaml — see
+// CalibrateImuYaw.srv response fields).
+
+const ImuYawStep: React.FC<RobotModelStepProps> = ({values, onChange}) => {
+    const {colors} = useThemeMode();
+    const {status: calibrationStatus, refresh: refreshCalibrationStatus} = useCalibrationStatus();
+    const {
+        calibRunning,
+        calibResult,
+        resetCalibration,
+        startCalibration,
+        applyCalibration,
+    } = useImuYawCalibration({
+        onApplyValue: (key, value) => {
+            onChange(key, value);
+            // Dock pose is persisted server-side into mowgli_robot.yaml; refresh
+            // the status panel so the operator sees the updated dock pose card.
+            refreshCalibrationStatus();
+        },
+        currentImuYawRad: values.imu_yaw,
+    });
+
+    const dockPresent = !!calibrationStatus?.dock?.present;
+    const imuPresent = !!calibrationStatus?.imu?.present;
+    const currentImuYawDeg = (values.imu_yaw ?? 0) * 180 / Math.PI;
+
+    return (
+        <div style={{maxWidth: 700, margin: "0 auto"}}>
+            <Title level={4}>
+                <CompassOutlined/> IMU Mounting Calibration
+            </Title>
+            <Paragraph type="secondary" style={{marginBottom: 16}}>
+                The IMU is mounted at an angle relative to the robot chassis. The robot needs to know that
+                angle to integrate gyro yaw correctly — without it, the robot drifts in odom and can dock
+                at an angle. This step drives the robot ~0.6 m forward then back to estimate the mounting
+                yaw from the accelerometer.
+            </Paragraph>
+
+            <Card size="small" style={{marginBottom: 16}}>
+                <Paragraph strong style={{marginBottom: 8}}>Pre-flight checklist</Paragraph>
+                <ul style={{paddingLeft: 20, marginBottom: 0, color: colors.textSecondary, fontSize: 13}}>
+                    <li>Robot is undocked (the service refuses to run while charging — but if you start it on the dock, the dock pre-phase computes <Text code>dock_pose_yaw</Text> as a bonus).</li>
+                    <li>At least 1 m of clear space in front and behind the robot.</li>
+                    <li>No active emergency.</li>
+                    <li>Collision monitor stays armed — obstacles will stop the motion.</li>
+                </ul>
+            </Card>
+
+            <Card size="small" style={{marginBottom: 16}}>
+                <Row gutter={[16, 8]}>
+                    <Col xs={12}>
+                        <Text type="secondary" style={{fontSize: 11}}>Current imu_yaw</Text>
+                        <div style={{fontSize: 18, fontWeight: 500}}>{currentImuYawDeg.toFixed(2)}°</div>
+                    </Col>
+                    <Col xs={12}>
+                        <Text type="secondary" style={{fontSize: 11}}>Dock pose</Text>
+                        <div style={{fontSize: 18, fontWeight: 500}}>
+                            {dockPresent ? <Tag color="success">Present</Tag> : <Tag color="warning">Missing</Tag>}
+                        </div>
+                    </Col>
+                    <Col xs={12}>
+                        <Text type="secondary" style={{fontSize: 11}}>IMU bias</Text>
+                        <div style={{fontSize: 18, fontWeight: 500}}>
+                            {imuPresent ? <Tag color="success">Present</Tag> : <Tag color="warning">Missing</Tag>}
+                        </div>
+                    </Col>
+                </Row>
+            </Card>
+
+            <div style={{textAlign: "center", marginBottom: 16}}>
+                <Button
+                    type="primary"
+                    size="large"
+                    icon={<CompassOutlined/>}
+                    onClick={startCalibration}
+                    loading={calibRunning}
+                    disabled={calibRunning}
+                >
+                    {calibResult ? "Re-run calibration" : "Start IMU yaw calibration"}
+                </Button>
+            </div>
+
+            {calibRunning && (
+                <Alert
+                    type="info"
+                    showIcon
+                    message="Calibration running — robot is driving itself"
+                    description="Forward leg, pause, backward leg. Stand clear. Motion stops automatically. May take up to 2 minutes (longer when the dock pre-phase runs)."
+                    style={{marginBottom: 16}}
+                />
+            )}
+
+            {calibResult && calibResult.success && (
+                <Alert
+                    type="success"
+                    showIcon
+                    message={`imu_yaw = ${calibResult.imu_yaw_deg.toFixed(2)}° (σ ±${calibResult.std_dev_deg.toFixed(2)}°)`}
+                    description={
+                        <>
+                            <div>From {calibResult.samples_used} valid motion samples.</div>
+                            {calibResult.dock_valid && (
+                                <div>
+                                    Dock pose updated: yaw={calibResult.dock_pose_yaw_deg?.toFixed(2)}°
+                                    (σ {calibResult.dock_yaw_sigma_deg?.toFixed(2)}°,
+                                    displacement {calibResult.dock_undock_displacement_m?.toFixed(2) ?? "?"} m).
+                                </div>
+                            )}
+                            <div style={{marginTop: 12}}>
+                                <Space>
+                                    <Button type="primary" onClick={applyCalibration}>Apply to settings</Button>
+                                    <Button onClick={resetCalibration}>Discard</Button>
+                                </Space>
+                            </div>
+                        </>
+                    }
+                    style={{marginBottom: 16}}
+                />
+            )}
+
+            {calibResult && !calibResult.success && (
+                <Alert
+                    type="error"
+                    showIcon
+                    message="Calibration failed"
+                    description={
+                        <>
+                            <div>{calibResult.message}</div>
+                            <div style={{marginTop: 8, color: colors.textSecondary}}>
+                                Hint: drive faster or longer so the accelerometer sees a clear forward and
+                                backward impulse along the body X axis.
+                            </div>
+                            <div style={{marginTop: 12}}>
+                                <Button onClick={resetCalibration}>Reset</Button>
+                            </div>
+                        </>
+                    }
+                    style={{marginBottom: 16}}
+                />
+            )}
+
+            <Alert
+                type="info"
+                showIcon
+                message="You can skip this step"
+                description="If you have already calibrated this robot from the Diagnostics page (or know your imu_yaw value), use the Next button. The Complete step will warn you if calibration is still missing."
+                style={{maxWidth: 500, margin: "0 auto"}}
+            />
+        </div>
+    );
+};
+
+// ── Step 5: Firmware ────────────────────────────────────────────────────
 
 const FirmwareStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
     const { colors } = useThemeMode();
@@ -605,6 +768,7 @@ const STEP_ICONS = [
     <SettingOutlined />,
     <GlobalOutlined />,
     <AimOutlined />,
+    <CompassOutlined />,
     <ThunderboltOutlined />,
     <CheckCircleOutlined />,
 ];
@@ -614,6 +778,7 @@ const STEP_TITLES = [
     "Robot Model",
     "GPS",
     "Sensors",
+    "IMU Yaw",
     "Firmware",
     "Complete",
 ];
@@ -637,8 +802,10 @@ const OnboardingWizard: React.FC = () => {
     }, []);
 
     const handleNext = useCallback(async () => {
-        // Save settings when leaving config steps (1, 2, 3)
-        if (currentStep >= 1 && currentStep <= 3) {
+        // Save settings when leaving config steps (Robot Model, GPS, Sensors,
+        // IMU Yaw — i.e. 1, 2, 3, 4). Apply-from-calibration writes through
+        // onChange but doesn't auto-save; this is the one batch save point.
+        if (currentStep >= 1 && currentStep <= 4) {
             setSaving(true);
             await saveValues(localValues);
             setSaving(false);
@@ -652,7 +819,7 @@ const OnboardingWizard: React.FC = () => {
 
     const isFirstStep = currentStep === 0;
     const isLastStep = currentStep === STEP_TITLES.length - 1;
-    const isFirmwareStep = currentStep === 4;
+    const isFirmwareStep = currentStep === 5;
 
     return (
         <Row gutter={[0, isMobile ? 12 : 20]}>
@@ -683,8 +850,9 @@ const OnboardingWizard: React.FC = () => {
                 {currentStep === 1 && <RobotModelStep values={localValues} onChange={handleChange} />}
                 {currentStep === 2 && <GpsStep values={localValues} onChange={handleChange} />}
                 {currentStep === 3 && <SensorStep values={localValues} onChange={handleChange} />}
-                {currentStep === 4 && <FirmwareStep onNext={handleNext} />}
-                {currentStep === 5 && <CompleteStep />}
+                {currentStep === 4 && <ImuYawStep values={localValues} onChange={handleChange} />}
+                {currentStep === 5 && <FirmwareStep onNext={handleNext} />}
+                {currentStep === 6 && <CompleteStep />}
             </Col>
 
             {/* Navigation bar (hidden on welcome, complete, and firmware steps) */}
@@ -708,11 +876,11 @@ const OnboardingWizard: React.FC = () => {
                         </Button>
                         <Button
                             type="primary"
-                            icon={currentStep < 3 ? <ArrowRightOutlined /> : <SaveOutlined />}
+                            icon={currentStep < 4 ? <ArrowRightOutlined /> : <SaveOutlined />}
                             onClick={handleNext}
                             loading={saving || loading}
                         >
-                            {currentStep < 3 ? "Next" : "Save & Continue"}
+                            {currentStep < 4 ? "Next" : "Save & Continue"}
                         </Button>
                     </Space>
                 </Col>
