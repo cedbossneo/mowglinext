@@ -547,7 +547,18 @@
              trajectory is simplified with Douglas-Peucker and saved
              as a mowing area. "Cancel" (command 6) discards it.
              ============================================================ -->
-        <Sequence name="RecordingSequence">
+        <!-- SequenceWithMemory (not Sequence): in BT.CPP v4 a plain <Sequence>
+             re-evaluates IsCommand(3) on every tick. The user's "Finish" button
+             sends COMMAND_RECORD_FINISH=5, which immediately fails IsCommand(3)
+             on the next tick — the sequence then halts RecordArea via
+             onHalted(), which clears the trajectory before save_area() is
+             called. Result: a finished recording silently drops every point
+             and never persists the polygon. SequenceWithMemory locks the
+             sequence past IsCommand(3) once it has succeeded; RecordArea then
+             sees command=5 in onRunning() (recording_nodes.cpp:73) and saves
+             the area. Commands 6 (cancel) and 2 (home) are also handled
+             internally by RecordArea, so reactivity isn't lost. -->
+        <SequenceWithMemory name="RecordingSequence">
           <IsCommand command="3"/>
           <PublishHighLevelStatus state="3" state_name="RECORDING"/>
           <RecordArea
@@ -558,7 +569,7 @@
             is_exclusion_zone="false"/>
           <PublishHighLevelStatus state="1" state_name="RECORDING_COMPLETE"/>
           <ClearCommand/>
-        </Sequence>
+        </SequenceWithMemory>
 
         <!-- ============================================================
              e. Manual Mowing (COMMAND_MANUAL_MOW = 7)

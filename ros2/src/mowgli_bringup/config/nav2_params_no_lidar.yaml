@@ -312,7 +312,8 @@ docking_server:
       plugin: "opennav_docking::SimpleChargingDock"
       charging_threshold: 0.1
       docking_threshold: 0.05
-      staging_x_offset: -1.0
+      # 1.5 m straight-line approach — see nav2_params.yaml for rationale.
+      staging_x_offset: -1.5
       use_external_detection_pose: false
       use_battery_status: true
       battery_topic: "/battery_state"

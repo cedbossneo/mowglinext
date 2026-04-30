@@ -607,7 +607,14 @@ docking_server:
       # RTK-Fixed gives σ ~3 mm, so 0.05 m is a comfortable envelope
       # covering antenna-lever-arm effects and short GPS glitches.
       docking_threshold: 0.05
-      staging_x_offset: -1.0
+      # 1.5 m straight-line approach: matches dock_approach_corridor_length_m
+      # in map_server_node (no-mow zone in front of dock). With only 1.0 m,
+      # if RPP arrived at staging with the cap still slightly off (allowed
+      # by dock_prestaging_tolerance: 0.5 m), opennav_docking did not have
+      # enough straight-line length to redress and the robot hit the dock
+      # at an angle ("en biais"). 1.5 m gives the graceful approach
+      # controller room to converge before contact.
+      staging_x_offset: -1.5
       use_external_detection_pose: false
       use_battery_status: true
       battery_topic: "/battery_state"
