@@ -53,6 +53,7 @@ type CalibrateImuYawResponse struct {
 func CalibrationRoutes(r *gin.RouterGroup, rosProvider types.IRosProvider) {
 	group := r.Group("/calibration")
 	group.POST("/imu-yaw", postCalibrateImuYaw(rosProvider))
+	group.POST("/magnetometer", postCalibrateMagnetometer(rosProvider))
 	registerCalibrationStatusRoute(group)
 }
 
@@ -118,6 +119,57 @@ func postCalibrateImuYaw(rosProvider types.IRosProvider) gin.HandlerFunc {
 			DockPoseYawDeg:          res.DockPoseYawDeg,
 			DockYawSigmaDeg:         res.DockYawSigmaDeg,
 			DockUndockDisplacementM: res.DockUndockDisplacementM,
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// POST /calibration/magnetometer
+// ---------------------------------------------------------------------------
+
+// CalibrateMagnetometerResponse is a slim mirror of the CalibrateImuYaw
+// service response, scoped to the fields a magnetometer-only calibration
+// can populate. samples_used here is the magnetometer figure-8 sample
+// count (collected in calibrate_imu_yaw_node's mag phase) rather than the
+// IMU-yaw motion sample count.
+type CalibrateMagnetometerResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// postCalibrateMagnetometer triggers the figure-8 magnetometer
+// calibration on `/calibrate_imu_yaw_node/calibrate` with `mag_only=true`.
+// The node skips the IMU-yaw forward/back drives and runs only the
+// figure-8 rotation phase, fitting hard/soft-iron parameters and writing
+// /ros2_ws/maps/mag_calibration.yaml. Operators must keep ~1.5 m clear in
+// front and behind the robot — collision_monitor stays armed.
+//
+// Same 150 s budget as imu-yaw: the figure-8 alone is ~30 s, but the
+// service also runs the dock pre-phase if the robot starts on the dock.
+func postCalibrateMagnetometer(rosProvider types.IRosProvider) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		timeout := 150 * time.Second
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
+
+		req := mowgli.CalibrateImuYawReq{MagOnly: true}
+		var res mowgli.CalibrateImuYawRes
+		if err := rosProvider.CallService(
+			ctx,
+			"/calibrate_imu_yaw_node/calibrate",
+			&req,
+			&res,
+			"mowgli_interfaces/srv/CalibrateImuYaw",
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: "Failed to call magnetometer calibration service: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, CalibrateMagnetometerResponse{
+			Success: res.Success,
+			Message: res.Message,
 		})
 	}
 }

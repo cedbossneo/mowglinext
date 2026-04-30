@@ -893,12 +893,34 @@ export const DiagnosticsPage = () => {
         }
     };
 
-    const runMagCalibration = () => {
-        notification.info({
-            message: "Magnetometer calibration",
-            description: "Enable the do_mag_calibration parameter on calibrate_imu_yaw_node to include the magnetometer rotation phase, then run IMU calibration again.",
-            duration: 8,
-        });
+    const runMagCalibration = async () => {
+        try {
+            notification.info({
+                message: "Magnetometer calibration started",
+                description: "Robot will run a figure-8 (~30 s). Make sure there's at least 1.5 m clear in front and behind.",
+                duration: 6,
+            });
+            const res = await fetch("/api/calibration/magnetometer", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({}),
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            }
+            const data = await res.json();
+            if (data.success) {
+                notification.success({message: "Magnetometer calibration complete", description: data.message || "Refreshing status..."});
+            } else {
+                notification.error({message: "Magnetometer calibration failed", description: data.message || "Unknown error"});
+            }
+            refreshCalibration();
+        } catch (e) {
+            notification.error({
+                message: "Magnetometer calibration failed",
+                description: e instanceof Error ? e.message : String(e),
+            });
+        }
     };
 
     const formatTs = (ts?: string): string => {
