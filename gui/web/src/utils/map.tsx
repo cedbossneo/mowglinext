@@ -53,40 +53,41 @@ export function drawRobotFootprint(
 
 /**
  * Convert local map coordinates (x=east, y=north in metres relative to datum)
- * to [longitude, latitude].
+ * to [longitude, latitude], with an optional metric display offset.
  *
- * Uses the same equirectangular projection as navsat_to_absolute_pose_node:
+ * `offsetX` / `offsetY` are added to the metric ROS-frame coordinates before
+ * the equirectangular projection — this is the user-tunable "Map Offset"
+ * panel on the map page, used to nudge the displayed map relative to the
+ * satellite/tile basemap when the published datum is slightly off. The
+ * offset is purely visual and does not feed back into ROS.
+ *
  *   east  = (lon - datum_lon) * cos(datum_lat) * METERS_PER_DEG
  *   north = (lat - datum_lat) * METERS_PER_DEG
+ *
+ * datum is passed as [datum_lat, datum_lon, _].
  */
-export const transpose = (_offsetX: number, _offsetY: number, datum: [number, number, number], y: number, x: number): [number, number] => {
-    // datum[0] = datum_easting (unused in equirectangular), datum[1] = datum_lat, datum[2] = datum_lon
-    // However the GUI passes datum as [easting, northing, zone] from UTM.
-    // We need datum_lat and datum_lon directly.  The datum is also stored as
-    // settings["datum_lat"] / settings["datum_lon"] and passed as
-    // datum = [datum_lon, datum_lat, 0] in useMapStreams — check the caller.
-    //
-    // After refactoring, datum = [datum_lat, datum_lon, 0]
+export const transpose = (offsetX: number, offsetY: number, datum: [number, number, number], y: number, x: number): [number, number] => {
     const datum_lat = datum[0];
     const datum_lon = datum[1];
     const cos_lat = Math.cos(datum_lat * Math.PI / 180.0);
 
-    const lon = datum_lon + x / (cos_lat * METERS_PER_DEG);
-    const lat = datum_lat + y / METERS_PER_DEG;
+    const lon = datum_lon + (x + offsetX) / (cos_lat * METERS_PER_DEG);
+    const lat = datum_lat + (y + offsetY) / METERS_PER_DEG;
     return [lon, lat];
 };
 
 /**
  * Convert [longitude, latitude] to local map coordinates (x=east, y=north).
- * Inverse of transpose.
+ * Inverse of transpose — strips the same metric display offset before
+ * returning the underlying ROS-frame coordinate.
  */
-export const itranspose = (_offsetX: number, _offsetY: number, datum: [number, number, number], lat: number, lon: number): [number, number] => {
+export const itranspose = (offsetX: number, offsetY: number, datum: [number, number, number], lat: number, lon: number): [number, number] => {
     const datum_lat = datum[0];
     const datum_lon = datum[1];
     const cos_lat = Math.cos(datum_lat * Math.PI / 180.0);
 
-    const x = (lon - datum_lon) * cos_lat * METERS_PER_DEG;
-    const y = (lat - datum_lat) * METERS_PER_DEG;
+    const x = (lon - datum_lon) * cos_lat * METERS_PER_DEG - offsetX;
+    const y = (lat - datum_lat) * METERS_PER_DEG - offsetY;
     return [x, y];
 };
 
