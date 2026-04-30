@@ -11,6 +11,16 @@ type Props = {
 };
 
 export const SensorsSection: React.FC<Props> = ({ values, onChange }) => {
+    // LiDAR drives use_fusion_graph: factor-graph scan-matching is the only
+    // reason to keep fusion_graph on, and ekf_map_node is the right default
+    // when no LiDAR is mounted. Operators can still override use_fusion_graph
+    // independently from the Localization tab (e.g. to use the graph without
+    // scan factors), but the defaults stay sensible.
+    const handleLidarToggle = (enabled: boolean) => {
+        onChange("use_lidar", enabled);
+        onChange("use_fusion_graph", enabled);
+    };
+
     return (
         <div>
             {/* LiDAR toggle */}
@@ -22,12 +32,15 @@ export const SensorsSection: React.FC<Props> = ({ values, onChange }) => {
                             LiDAR Sensor
                         </Text>
                         <Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
-                            Enable if your robot has a LiDAR. Activates fusion_graph scan-matching (when use_fusion_graph is on) and collision detection.
+                            Enable if your robot has a LiDAR. Also flips
+                            {" "}<Text code>use_fusion_graph</Text> so scan-matching factors and
+                            loop-closure are active. Override that default in the Localization tab
+                            if you want a graph without LiDAR (rare).
                         </Paragraph>
                     </div>
                     <Switch
                         checked={values.use_lidar ?? false}
-                        onChange={(v) => onChange("use_lidar", v)}
+                        onChange={handleLidarToggle}
                     />
                 </div>
             </Card>
