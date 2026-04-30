@@ -13,6 +13,9 @@ import { useThemeMode } from "../theme/ThemeContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useSettingsSchema } from "../hooks/useSettingsSchema.ts";
 import { useApi } from "../hooks/useApi.ts";
+import { useGPS } from "../hooks/useGPS.ts";
+import { useCalibrationStatus } from "../hooks/useCalibrationStatus.ts";
+import { AbsolutePoseConstants as GpsFlags } from "../types/ros.ts";
 import { RobotComponentEditor } from "../components/RobotComponentEditor.tsx";
 import { FlashBoardComponent } from "../components/FlashBoardComponent.tsx";
 import { MOWER_MODELS } from "../constants/mowerModels.ts";
@@ -210,6 +213,18 @@ const GpsStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
     const guiApi = useApi();
     const [datumLoading, setDatumLoading] = useState(false);
 
+    // Live GPS state — used to gate "Use current GPS position" on RTK-Fixed.
+    // SBAS or 3D fix gives σ ~50 cm to ~5 m, which is enough to put the
+    // datum metres off and silently break every later mow. RTK-Float drifts
+    // when the receiver loses corrections briefly. Only RTK-Fixed (σ ~3 mm)
+    // is safe to anchor the map frame to.
+    const gps = useGPS();
+    const gpsFlags = gps.flags ?? 0;
+    const isRtkFixed = (gpsFlags & GpsFlags.FLAG_GPS_RTK_FIXED) !== 0;
+    const isRtkFloat = (gpsFlags & GpsFlags.FLAG_GPS_RTK_FLOAT) !== 0;
+    const isPlainFix = (gpsFlags & GpsFlags.FLAG_GPS_RTK) !== 0;
+    const fixLabel = isRtkFixed ? "RTK FIX" : isRtkFloat ? "RTK FLOAT" : isPlainFix ? "GPS FIX" : "no fix";
+
     const setDatumFromGps = async () => {
         setDatumLoading(true);
         try {
@@ -271,10 +286,24 @@ const GpsStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
                         icon={<AimOutlined />}
                         loading={datumLoading}
                         onClick={setDatumFromGps}
+                        disabled={!isRtkFixed}
                         style={{ marginTop: -8 }}
                     >
-                        Use current GPS position (requires RTK fix)
+                        Use current GPS position {isRtkFixed ? "" : "(waiting for RTK Fix)"}
                     </Button>
+                    {!isRtkFixed && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            message={`Current GPS quality: ${fixLabel}`}
+                            description={
+                                isRtkFloat
+                                    ? "RTK Float gives ~10–20 cm accuracy and drifts when corrections lapse. Wait for RTK Fix (σ ~3 mm) before anchoring the datum."
+                                    : "Without RTK Fix the datum can be metres off, which silently breaks every later mow. Make sure NTRIP corrections are flowing and the antenna has clear sky."
+                            }
+                            style={{ marginTop: 12 }}
+                        />
+                    )}
                 </Form>
             </Card>
 
@@ -460,6 +489,21 @@ const CompleteStep: React.FC = () => {
     const [restarting, setRestarting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Calibration completeness check — see docs/ONBOARDING_IMPROVEMENTS.md
+    // gap analysis. The wizard never gates on these, so a brand-new robot
+    // can finish "configured" with no dock pose, no IMU mounting calibration
+    // and no magnetometer. Here we surface what is actually missing and
+    // deep-link the operator to the Diagnostics page where they can run
+    // each calibration without restarting the wizard.
+    const { status: calibrationStatus } = useCalibrationStatus();
+    const missingCalibrations: string[] = [];
+    if (calibrationStatus) {
+        if (!calibrationStatus.dock?.present) missingCalibrations.push("dock pose");
+        if (!calibrationStatus.imu?.present) missingCalibrations.push("IMU bias + mounting");
+        // Magnetometer is optional — only warn when use_magnetometer is on
+        // (no good signal client-side yet, so we just don't flag mag here).
+    }
+
     useEffect(() => {
         // Mark onboarding as completed and restart ROS2 + GUI containers
         (async () => {
@@ -515,6 +559,32 @@ const CompleteStep: React.FC = () => {
                 </Button>,
             ]}
         >
+            {missingCalibrations.length > 0 && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    message="Calibration steps still pending"
+                    description={
+                        <>
+                            <Text>
+                                Your robot is configured, but{" "}
+                                <Text strong>{missingCalibrations.join(" and ")}</Text>{" "}
+                                {missingCalibrations.length === 1 ? "is" : "are"} not calibrated yet.
+                                Without these the robot will drift in odom and may dock at an angle.
+                            </Text>
+                            <br />
+                            <Button
+                                type="link"
+                                style={{ paddingLeft: 0 }}
+                                onClick={() => { window.location.href = "/#/diagnostics"; }}
+                            >
+                                Open Diagnostics → run calibrations →
+                            </Button>
+                        </>
+                    }
+                    style={{ maxWidth: 540, margin: "0 auto 12px", textAlign: "left" }}
+                />
+            )}
             {error && (
                 <Alert
                     type="warning"
