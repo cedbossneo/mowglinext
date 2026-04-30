@@ -19,6 +19,7 @@ import {Spinner} from "../components/Spinner.tsx";
 import {MowingFeature, MowingAreaFeature, DockFeatureBase, MowingFeatureBase, NavigationFeature, ObstacleFeature, ActivePathFeature, PathFeature} from "../types/map.ts";
 import {useMapEditHistory} from "./map/hooks/useMapEditHistory.ts";
 import {useMapOffset} from "./map/hooks/useMapOffset.ts";
+import {useMapBearing} from "./map/hooks/useMapBearing.ts";
 import {useManualMode} from "./map/hooks/useManualMode.ts";
 import {useMapEditing} from "./map/hooks/useMapEditing.ts";
 import {useMapStreams} from "./map/hooks/useMapStreams.ts";
@@ -46,7 +47,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
         type: "FeatureCollection",
         features: []
     })
-    const {config, setConfig} = useConfig(["gui.map.offset.x", "gui.map.offset.y"])
+    const {config, setConfig} = useConfig(["gui.map.offset.x", "gui.map.offset.y", "gui.map.display.bearing"])
     const envs = useEnv()
     const guiApi = useApi()
     const [tileUri, setTileUri] = useState<string | undefined>()
@@ -69,6 +70,19 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
 
     // Extracted hooks
     const {offsetX, offsetY, handleOffsetX, handleOffsetY} = useMapOffset({config, setConfig, notification});
+    const {bearing, handleBearing} = useMapBearing({config, setConfig, notification});
+
+    // Apply bearing imperatively when the user edits it from the rotation
+    // panel (slider/input/reset button). Mapbox-GL's `setBearing` rotates
+    // the camera without remounting the Map; using initialViewState alone
+    // would freeze the rotation at first paint and ignore later changes.
+    useEffect(() => {
+        const m = mapInstanceRef.current;
+        if (!m) return;
+        if (Math.abs(m.getBearing() - bearing) > 0.5) {
+            m.easeTo({bearing, duration: 200});
+        }
+    }, [bearing]);
 
     const _datumLon = parseFloat(settings["datum_lon"] ?? 0)
     const _datumLat = parseFloat(settings["datum_lat"] ?? 0)
@@ -426,6 +440,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                                          mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN || "pk.eyJ1IjoiY2VkYm9zc25lbyIsImEiOiJjbGxldjB4aDEwOW5vM3BxamkxeWRwb2VoIn0.WOccbQZZyO1qfAgNxnHAnA"}
                                                          initialViewState={{
                                                              bounds: [{lng: map_sw[0], lat: map_sw[1]}, {lng: map_ne[0], lat: map_ne[1]}],
+                                                             bearing,
                                                          }}
                                                          style={{width: '100%', height: '100%'}}
                                                          mapStyle={useSatellite ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/dark-v11"}
@@ -578,10 +593,19 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                                                          mapboxAccessToken={import.meta.env.VITE_MAPBOX_TOKEN || "pk.eyJ1IjoiY2VkYm9zc25lbyIsImEiOiJjbGxldjB4aDEwOW5vM3BxamkxeWRwb2VoIn0.WOccbQZZyO1qfAgNxnHAnA"}
                                                          initialViewState={{
                                                              bounds: [{lng: map_sw[0], lat: map_sw[1]}, {lng: map_ne[0], lat: map_ne[1]}],
+                                                             bearing,
                                                          }}
                                                          style={{width: '100%', height: '100%'}}
                                                          mapStyle={useSatellite ? "mapbox://styles/mapbox/satellite-streets-v12" : "mapbox://styles/mapbox/dark-v11"}
-                                                         onLoad={(e) => { mapInstanceRef.current = e.target as unknown as MapboxMap }}
+                                                         onLoad={(e) => {
+                                                             const m = e.target as unknown as MapboxMap;
+                                                             mapInstanceRef.current = m;
+                                                             // Capture user-driven rotation (right-click drag on
+                                                             // desktop, two-finger rotate on touch — both enabled
+                                                             // by default in mapbox-gl) and persist via the same
+                                                             // debounced handler the slider uses.
+                                                             m.on('rotateend', () => handleBearing(m.getBearing()));
+                                                         }}
                                                          onClick={handleMapClick}
                                                          cursor={dockPlacementMode ? 'crosshair' : undefined}
                 >
@@ -828,8 +852,10 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             <MapOffsetPanel
                                 offsetX={offsetX}
                                 offsetY={offsetY}
+                                bearing={bearing}
                                 onChangeX={handleOffsetX}
                                 onChangeY={handleOffsetY}
+                                onChangeBearing={handleBearing}
                             />
                         </div>
                     </div>
