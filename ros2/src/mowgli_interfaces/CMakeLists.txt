@@ -44,6 +44,7 @@ set(srv_files
   "srv/AreaRecording.srv"
   "srv/CalibrateImuYaw.srv"
   "srv/GetRecoveryPoint.srv"
+  "srv/StartInArea.srv"
 )
 
 # Declare action files

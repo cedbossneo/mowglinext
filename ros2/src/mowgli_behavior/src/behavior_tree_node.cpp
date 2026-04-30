@@ -32,6 +32,7 @@
 #include "mowgli_interfaces/msg/power.hpp"
 #include "mowgli_interfaces/msg/status.hpp"
 #include "mowgli_interfaces/srv/high_level_control.hpp"
+#include "mowgli_interfaces/srv/start_in_area.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/action/undock_robot.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -228,6 +229,26 @@ private:
         });
 
     RCLCPP_DEBUG(get_logger(), "~/high_level_control service server created");
+
+    // ~/start_in_area: GUI hook for "mow this specific area only".
+    // Pre-loads target_area_index for the next GetNextUnmowedArea call,
+    // then issues COMMAND_START so MowingSequence picks it up. The BT
+    // exits after that single area is done (no roll-over to other areas).
+    using StartInArea = mowgli_interfaces::srv::StartInArea;
+    start_in_area_srv_ = create_service<StartInArea>(
+        "~/start_in_area",
+        [this](const StartInArea::Request::SharedPtr req, StartInArea::Response::SharedPtr resp)
+        {
+          RCLCPP_INFO(get_logger(), "StartInArea: received area=%u", req->area);
+          {
+            std::lock_guard<std::mutex> lock(context_->context_mutex);
+            context_->target_area_index = static_cast<int>(req->area);
+            context_->current_command = 1;  // COMMAND_START
+          }
+          resp->success = true;
+        });
+
+    RCLCPP_DEBUG(get_logger(), "~/start_in_area service server created");
   }
 
   // Non-blocking check for Nav2 action servers.  The BT tick loop starts
@@ -405,6 +426,7 @@ private:
 
   // Service server
   rclcpp::Service<mowgli_interfaces::srv::HighLevelControl>::SharedPtr high_level_control_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::StartInArea>::SharedPtr start_in_area_srv_;
 
   // BehaviorTree.CPP
   BT::BehaviorTreeFactory factory_;

@@ -488,6 +488,28 @@ BT::NodeStatus GetNextUnmowedArea::onStart()
   areas_queried_ = 0;
   areas_complete_ = 0;
 
+  // Honor a one-shot user-selected target area (set by ~/start_in_area).
+  // We start the iteration from the requested index AND clip max_areas_ to
+  // (target + 1) so the BT mows just that area and exits MowingSequence,
+  // instead of rolling over to the next area. The optional is consumed
+  // here so subsequent COMMAND_START runs use the normal ordering.
+  {
+    std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    if (ctx->target_area_index.has_value())
+    {
+      const int target = *ctx->target_area_index;
+      if (target >= 0)
+      {
+        current_area_idx_ = static_cast<uint32_t>(target);
+        max_areas_ = current_area_idx_ + 1;
+        RCLCPP_INFO(ctx->node->get_logger(),
+                    "GetNextUnmowedArea: targeted run — mowing only area %u (single-area mode)",
+                    current_area_idx_);
+      }
+      ctx->target_area_index.reset();
+    }
+  }
+
   // Fire off the first async request
   auto request = std::make_shared<mowgli_interfaces::srv::GetCoverageStatus::Request>();
   request->area_index = current_area_idx_;

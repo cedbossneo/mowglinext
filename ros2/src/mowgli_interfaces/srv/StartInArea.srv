@@ -1,0 +1,13 @@
+# Start mowing in a specific area, ahead of the normal area-iteration order.
+#
+# `area` is the 0-based index into the working_areas list published by
+# map_server_node. The behavior_tree_node sets it as the next target for
+# GetNextUnmowedArea (which then mows that single area and stops, instead
+# of iterating through all areas), and starts the mowing sequence by
+# raising COMMAND_START internally.
+#
+# Returns success=true if the request was accepted; the actual mowing
+# outcome is reported via /behavior_tree_node/high_level_status.
+uint8 area
+---
+bool success

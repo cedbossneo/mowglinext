@@ -76,6 +76,13 @@ struct BTContext
   /// COMMAND_RESET_EMERGENCY=254, …).
   uint8_t current_command{0};
 
+  /// Set by ~/start_in_area service to request mowing a single, specific
+  /// area instead of iterating all areas. Consumed (and reset) by
+  /// GetNextUnmowedArea on its first call within a mowing run; once the
+  /// requested area is complete, the BT exits MowingSequence and docks
+  /// rather than rolling over to other areas.
+  std::optional<int> target_area_index;
+
   // -----------------------------------------------------------------------
   // Derived / convenience fields (computed from latest_* messages)
   // -----------------------------------------------------------------------

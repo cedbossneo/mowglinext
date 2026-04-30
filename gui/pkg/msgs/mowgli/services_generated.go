@@ -34,6 +34,7 @@ type AreaRecordingRes struct {
 // CalibrateImuYawReq for mowgli_interfaces/srv/CalibrateImuYaw request.
 type CalibrateImuYawReq struct {
 	DurationSec               float64                        `json:"duration_sec"`
+	MagOnly                   bool                           `json:"mag_only"`
 }
 
 // CalibrateImuYawRes for mowgli_interfaces/srv/CalibrateImuYaw response.
@@ -172,6 +173,16 @@ type SetDockingPointReq struct {
 
 // SetDockingPointRes for mowgli_interfaces/srv/SetDockingPoint response.
 type SetDockingPointRes struct {
+	Success                   bool                           `json:"success"`
+}
+
+// StartInAreaReq for mowgli_interfaces/srv/StartInArea request.
+type StartInAreaReq struct {
+	Area                      uint8                          `json:"area"`
+}
+
+// StartInAreaRes for mowgli_interfaces/srv/StartInArea response.
+type StartInAreaRes struct {
 	Success                   bool                           `json:"success"`
 }
 
