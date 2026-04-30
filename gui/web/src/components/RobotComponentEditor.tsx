@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Card, InputNumber, Modal, Space, Typography, Row, Col, Tooltip, Button, Tag, notification, Statistic } from "antd";
+import { Alert, Card, InputNumber, Modal, Space, Typography, Row, Col, Tooltip, Button, Tag, Statistic } from "antd";
 import { AimOutlined, CompassOutlined, UndoOutlined } from "@ant-design/icons";
 import { useThemeMode } from "../theme/ThemeContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile.ts";
 import { useRobotDescription } from "../hooks/useRobotDescription.ts";
 import { useCalibrationStatus } from "../hooks/useCalibrationStatus.ts";
+import { useImuYawCalibration } from "../hooks/useImuYawCalibration.ts";
 
 const { Text } = Typography;
 
@@ -96,31 +97,6 @@ type Props = {
     onChange: (name: string, value: any) => void;
 };
 
-type ImuYawCalibrationResult = {
-    success: boolean;
-    message: string;
-    imu_yaw_rad: number;
-    imu_yaw_deg: number;
-    samples_used: number;
-    std_dev_deg: number;
-    imu_pitch_rad?: number;
-    imu_pitch_deg?: number;
-    imu_roll_rad?: number;
-    imu_roll_deg?: number;
-    stationary_samples_used?: number;
-    gravity_mag_mps2?: number;
-    // Dock-yaw fields, present only if the calibration was started
-    // while the robot was on the dock (charging). When dock_valid is
-    // false the remaining dock_* fields are 0 and should be ignored.
-    dock_valid?: boolean;
-    dock_pose_x?: number;
-    dock_pose_y?: number;
-    dock_pose_yaw_rad?: number;
-    dock_pose_yaw_deg?: number;
-    dock_yaw_sigma_deg?: number;
-    dock_undock_displacement_m?: number;
-};
-
 export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
     const { colors, mode } = useThemeMode();
     const isMobile = useIsMobile();
@@ -139,116 +115,23 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
         : values.dock_pose_yaw ?? 0;
     const dockYawSource = "mowgli_robot.yaml";
 
-    // IMU yaw auto-calibration modal state
-    const [calibOpen, setCalibOpen] = useState(false);
-    const [calibRunning, setCalibRunning] = useState(false);
-    const [calibResult, setCalibResult] = useState<ImuYawCalibrationResult | null>(null);
-    const CALIB_DURATION_SEC = 30;
-    // The service now runs dock-yaw pre-phase (up to ~25 s) +
-    // forward/back drives (~20 s) + optional mag rotation. Backend
-    // budget is 150 s; give the fetch a matching AbortController.
-    const CALIB_CLIENT_TIMEOUT_MS = 155_000;
-
-    const resetCalibration = useCallback(() => {
-        setCalibRunning(false);
-        setCalibResult(null);
-    }, []);
-
-    const closeCalibration = useCallback(() => {
-        if (calibRunning) return;
-        setCalibOpen(false);
-        resetCalibration();
-    }, [calibRunning, resetCalibration]);
-
-    const startCalibration = useCallback(async () => {
-        setCalibRunning(true);
-        setCalibResult(null);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(
-            () => controller.abort(),
-            CALIB_CLIENT_TIMEOUT_MS,
-        );
-        try {
-            const res = await fetch("/api/calibration/imu-yaw", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ duration_sec: CALIB_DURATION_SEC }),
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                const errBody = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errBody}`);
-            }
-            const data = (await res.json()) as ImuYawCalibrationResult;
-            setCalibResult(data);
-        } catch (e: any) {
-            const msg = e?.name === "AbortError"
-                ? "Timed out after 155 s. The service may still be running — check the robot and retry."
-                : (e?.message || String(e));
-            notification.error({
-                message: "IMU yaw calibration failed",
-                description: msg,
-            });
-        } finally {
-            clearTimeout(timeoutId);
-            setCalibRunning(false);
-        }
-    }, []);
-
-    const applyCalibration = useCallback(() => {
-        if (!calibResult || !calibResult.success) return;
-
-        const appliedBits: string[] = [];
-
-        // imu_yaw is useful only when the std_dev was reasonably small;
-        // we keep the old behaviour of always writing it since the old
-        // workflow did. Users can still decide not to Save.
-        onChange("imu_yaw", roundTo(calibResult.imu_yaw_rad, 4));
-        appliedBits.push(
-            `imu_yaw = ${calibResult.imu_yaw_deg.toFixed(2)}°`
-        );
-
-        // Pitch/roll are now also returned by the service. Promote them
-        // when the stationary baseline was long enough for a meaningful
-        // estimate (node threshold 150 samples) — otherwise the fields
-        // come back as 0 and writing them would zero a good prior.
-        const stationaryOk =
-            (calibResult.stationary_samples_used ?? 0) >= 150
-            && Number.isFinite(calibResult.imu_pitch_rad)
-            && Number.isFinite(calibResult.imu_roll_rad);
-        if (stationaryOk) {
-            onChange("imu_pitch", roundTo(calibResult.imu_pitch_rad!, 4));
-            onChange("imu_roll", roundTo(calibResult.imu_roll_rad!, 4));
-            appliedBits.push(
-                `imu_pitch = ${calibResult.imu_pitch_deg!.toFixed(2)}°`,
-                `imu_roll = ${calibResult.imu_roll_deg!.toFixed(2)}°`,
-            );
-        }
-
-        // Dock pose: the service's dock pre-phase already persisted the
-        // calibrated x/y/yaw back into mowgli_robot.yaml — that file is
-        // the single source of truth and is reread by every node on
-        // restart. There is nothing for the form to save; we just
-        // surface the result so the operator can verify.
-        if (calibResult.dock_valid && Number.isFinite(calibResult.dock_pose_yaw_rad)) {
-            appliedBits.push(
-                `dock_pose_yaw = ${calibResult.dock_pose_yaw_deg!.toFixed(2)}° `
-                + `(σ${calibResult.dock_yaw_sigma_deg!.toFixed(2)}°, `
-                + `displacement ${calibResult.dock_undock_displacement_m?.toFixed(2) ?? "?"} m, `
-                + "persisted to mowgli_robot.yaml)",
-            );
-        }
-
-        notification.success({
-            message: "Calibration applied",
-            description:
-                appliedBits.join(" · ")
-                + ". Remember to save the configuration.",
-            duration: 6,
-        });
-        setCalibOpen(false);
-        resetCalibration();
-    }, [calibResult, onChange, resetCalibration]);
+    // Shared IMU yaw + dock pose calibration logic. The same hook backs
+    // the OnboardingPage's ImuYawStep, so the two surfaces cannot drift
+    // (same fetch URL, same 155 s timeout, same 150-sample threshold for
+    // promoting pitch/roll, same notifications).
+    const {
+        calibOpen,
+        calibRunning,
+        calibResult,
+        openCalibration,
+        closeCalibration,
+        resetCalibration,
+        startCalibration,
+        applyCalibration,
+    } = useImuYawCalibration({
+        onApplyValue: onChange,
+        currentImuYawRad: values.imu_yaw,
+    });
 
     // Robot geometry from /robot_description URDF topic (falls back to defaults)
     const robot = useRobotDescription();
@@ -746,7 +629,7 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                                                         <Button
                                                             size="small"
                                                             icon={<CompassOutlined />}
-                                                            onClick={() => { resetCalibration(); setCalibOpen(true); }}
+                                                            onClick={openCalibration}
                                                         />
                                                     </Tooltip>
                                                 </Space.Compact>
