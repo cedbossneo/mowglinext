@@ -14,10 +14,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(robotId) {
-      return isAuthenticated()
-        && get(/databases/$(database)/documents/robots/$(robotId)).data.ownerUid == request.auth.uid;
-    }
+    // isOwner(robotId) was previously defined here but no rule branch
+    // currently calls it — every owner-only mutation goes through Cloud
+    // Functions, which run as the Admin SDK and bypass these rules.
+    // Re-add when a direct client-side write needs an owner gate.
 
     function isAllowed(robotId) {
       return isAuthenticated()
