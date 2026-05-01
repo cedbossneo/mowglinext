@@ -150,15 +150,19 @@ void GraphManager::QueueScanBetween(const gtsam::Pose2& delta, double sigma_xy, 
   queue_.scan_between = UnaryQueue::ScanBetween{delta, sigma_xy, sigma_theta};
 }
 
-void GraphManager::Initialize(const gtsam::Pose2& X0, double timestamp)
+void GraphManager::Initialize(const gtsam::Pose2& X0,
+                              double timestamp,
+                              std::optional<double> sigma_xy_override)
 {
   std::lock_guard<std::mutex> lock(mu_);
   if (initialized_)
     return;
 
+  const double sigma_xy = sigma_xy_override.value_or(params_.prior_sigma_xy);
+
   auto prior_noise = MakeDiagonal({
-      params_.prior_sigma_xy,
-      params_.prior_sigma_xy,
+      sigma_xy,
+      sigma_xy,
       params_.prior_sigma_theta,
   });
 
@@ -177,7 +181,7 @@ void GraphManager::Initialize(const gtsam::Pose2& X0, double timestamp)
 
   TickOutput out;
   out.pose = X0;
-  out.covariance = Eigen::Matrix3d::Identity() * (params_.prior_sigma_xy * params_.prior_sigma_xy);
+  out.covariance = Eigen::Matrix3d::Identity() * (sigma_xy * sigma_xy);
   out.covariance(2, 2) = params_.prior_sigma_theta * params_.prior_sigma_theta;
   out.node_index = 0;
   out.timestamp = timestamp;

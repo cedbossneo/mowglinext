@@ -284,6 +284,12 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
              std::shared_ptr<std_srvs::srv::Trigger::Response> resp)
       {
         graph_->Reset();
+        // Drop the latched seed too, otherwise a stale GPS / yaw seed
+        // from before the clear would re-initialize the graph at the
+        // old position the operator was trying to escape.
+        seed_xy_.reset();
+        seed_yaw_.reset();
+        seed_xy_rtk_fixed_ = false;
         resp->success = true;
         resp->message = "graph cleared (waiting for re-initialization)";
         RCLCPP_WARN(get_logger(), "fusion_graph: %s", resp->message.c_str());
@@ -533,9 +539,16 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
   // multi-decimetre multipath outliers that the reported covariance
   // doesn't capture. Robustify with Huber in that case so the optimizer
   // downweights aberrant samples instead of pulling the trajectory.
-  const bool robust = msg->status.status < sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX;
+  const bool rtk_fixed = msg->status.status == sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX;
+  const bool robust = !rtk_fixed;
   graph_->QueueGnss(mx, my, sigma, robust);
   seed_xy_ = gtsam::Vector2(mx, my);
+  // Latch whether the most recent seed came from RTK-Fixed so the next
+  // graph initialization can use a tight prior matching that quality.
+  // Stale once seeded but TrySeedInitialPose only fires once per
+  // (re)initialization, so the freshness window is the same as the
+  // seed itself.
+  seed_xy_rtk_fixed_ = rtk_fixed;
 
   TrySeedInitialPose();
 }
@@ -874,12 +887,25 @@ bool FusionGraphNode::TrySeedInitialPose()
     return true;
   if (!seed_xy_ || !seed_yaw_)
     return false;
-  graph_->Initialize(gtsam::Pose2(seed_xy_->x(), seed_xy_->y(), *seed_yaw_), this->now().seconds());
+  // When the seed came from an RTK-Fixed fix, override the prior to
+  // match the measurement quality. 5 mm is conservative w.r.t the
+  // F9P's typical RTK-Fixed σ ~3 mm; tight enough that the wheel
+  // between-factors can't pull the first few nodes off the GPS
+  // anchor, but loose enough to absorb a few mm of antenna lever-arm
+  // residual.
+  std::optional<double> prior_override;
+  if (seed_xy_rtk_fixed_)
+    prior_override = 0.005;
+  graph_->Initialize(
+      gtsam::Pose2(seed_xy_->x(), seed_xy_->y(), *seed_yaw_),
+      this->now().seconds(),
+      prior_override);
   RCLCPP_INFO(get_logger(),
-              "fusion_graph: initialized at (%.3f, %.3f, %.3f rad)",
+              "fusion_graph: initialized at (%.3f, %.3f, %.3f rad)%s",
               seed_xy_->x(),
               seed_xy_->y(),
-              *seed_yaw_);
+              *seed_yaw_,
+              seed_xy_rtk_fixed_ ? " [RTK-Fixed seed, σ=5mm prior]" : " [non-Fixed seed]");
   return true;
 }
 

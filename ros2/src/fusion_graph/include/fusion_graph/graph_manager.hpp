@@ -149,8 +149,16 @@ public:
   void QueueScanBetween(const gtsam::Pose2& delta, double sigma_xy, double sigma_theta);
 
   // Initial-pose seed. Required before the first tick if no GPS has
-  // arrived yet — sets the prior on X_0. Must be called exactly once.
-  void Initialize(const gtsam::Pose2& X0, double timestamp);
+  // arrived yet — sets the prior on X_0. Must be called exactly once
+  // (after Reset() it can be called again).
+  // sigma_xy_override: when set, replaces the configured prior_sigma_xy
+  // for this single Initialize call. Use it to seed with a tight prior
+  // (~3 mm) when the seed comes from an RTK-Fixed GPS measurement so
+  // the wheel between-factors can't drag the first few nodes off the
+  // GPS-anchored origin.
+  void Initialize(const gtsam::Pose2& X0,
+                  double timestamp,
+                  std::optional<double> sigma_xy_override = std::nullopt);
 
   // True once Initialize() has been called.
   bool IsInitialized() const

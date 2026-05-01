@@ -100,6 +100,13 @@ private:
   // Latched seeds for initialization.
   std::optional<gtsam::Vector2> seed_xy_;  // from latest GPS
   std::optional<double> seed_yaw_;  // from latest COG/mag
+  // True when seed_xy_ was set from an RTK-Fixed fix (carr_soln=2).
+  // Drives the prior sigma at Initialize: tight (sub-cm) when set,
+  // configured default (cm-decimetre) otherwise. Without this the
+  // 50 mm default prior dominates the first ~10 nodes after a clear
+  // even when GPS sigma is 3 mm, and the wheel non-holo σ_y=5 mm
+  // pins the trajectory away from the true GPS position.
+  bool seed_xy_rtk_fixed_ = false;
 
   // Scan matching state.
   std::mutex scan_mu_;
