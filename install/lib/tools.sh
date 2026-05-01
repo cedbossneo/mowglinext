@@ -140,7 +140,7 @@ install_mowgli_helpers() {
     return
   fi
 
-  local project_dir="${INSTALL_DIR}"
+  local project_dir="${DOCKER_DIR:-$REPO_DIR/docker}"
   local dc="docker compose --env-file \"$project_dir/.env\""
 
   create_helper_script "/usr/local/bin/mowgli-up" "#!/usr/bin/env bash
@@ -168,7 +168,7 @@ cd \"$project_dir\" || exit 1
 exec $dc pull"
 
   create_helper_script "/usr/local/bin/mowgli-check" "#!/usr/bin/env bash
-cd \"$project_dir\" || exit 1
+cd \"$INSTALL_DIR\" || exit 1
 exec bash ./mowglinext.sh --check"
 
   create_helper_script "/usr/local/bin/mowgli-gps-logs" "#!/usr/bin/env bash
