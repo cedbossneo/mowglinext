@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # GPS health aggregator — subscribes to ublox_dgnss UBX topics and to the
 # NTRIP RTCM stream, publishes a 1 Hz diagnostic_msgs/DiagnosticArray on
-# /gps/diagnostics that the GUI's Diagnostics page can render directly.
+# the ROS2-standard /diagnostics topic so the GUI's Diagnostics page
+# (which already aggregates by-name from /diagnostics) renders these
+# entries alongside everything else.
 #
 # Three diagnostic groups:
 #   * GPS Fix           : carr_soln (none/float/fixed), gps_fix_ok,
@@ -71,7 +73,7 @@ class GpsHealthAggregator(Node):
         self.create_subscription(UBXNavCov, "/ubx_nav_cov", self._on_cov, qos)
         self.create_subscription(UBXRxmRTCM, "/ubx_rxm_rtcm", self._on_rtcm, qos)
 
-        self._pub = self.create_publisher(DiagnosticArray, "/gps/diagnostics", 10)
+        self._pub = self.create_publisher(DiagnosticArray, "/diagnostics", 10)
         self.create_timer(1.0, self._publish)
 
         self.get_logger().info("gps_health_aggregator running")
