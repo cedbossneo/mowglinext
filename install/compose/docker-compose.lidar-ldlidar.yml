@@ -22,16 +22,9 @@ services:
     privileged: true
     environment:
       <<: *ros2-env
-    command: >
-      ros2 run ldlidar_stl_ros2 ldlidar_stl_ros2_node
-      --ros-args
-      -p product_name:=LDLiDAR_LD19
-      -p topic_name:=scan
-      -p frame_id:=lidar_link
-      -p port_name:=${LIDAR_PORT:-/dev/lidar}
-      -p port_baudrate:=${LIDAR_BAUD:-230400}
-      -p laser_scan_dir:=true
-      -p enable_angle_crop_func:=false
+    # No command override — image CMD (/start_lidar.sh) launches Myzhar's
+    # ldrobot-lidar-ros2 lifecycle component via /ldlidar_scan.launch.py
+    # with fixed scan length from /ldlidar.yaml (hardcoded /dev/lidar @ 230400).
     volumes:
       - /dev:/dev
       - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
