@@ -60,6 +60,9 @@ main() {
       source "$REPO_DIR/docker/.env"
       set +a
       info "Loaded previous configuration from docker/.env"
+      # Image refs are tied to the install script version — never inherit
+      # stale paths from older installs (e.g. mowgli-docker, openmower-gui).
+      unset MOWGLI_ROS2_IMAGE GPS_IMAGE LIDAR_IMAGE MAVROS_IMAGE GUI_IMAGE
   fi
 
     load_preset

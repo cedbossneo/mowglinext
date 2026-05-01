@@ -333,4 +333,12 @@ else
 fi
 echo ""
 
-exec bash "$INSTALLER"
+# Reattach stdin to the controlling terminal — when invoked as
+# `curl ... | bash`, stdin is the pipe and `read` prompts in the
+# interactive installer would otherwise return immediately.
+if [ -e /dev/tty ]; then
+  exec bash "$INSTALLER" </dev/tty
+else
+  warn "No /dev/tty available — interactive prompts may not work."
+  exec bash "$INSTALLER"
+fi
