@@ -1,0 +1,199 @@
+# Build the Capacitor mobile app for iOS in CI.
+#
+# Outputs an unsigned .xcarchive (and a signed .ipa when secrets are set)
+# as workflow artifacts. The native ios/ folder is generated fresh in CI
+# from app/mobile/capacitor.config.ts and is NOT committed to the repo.
+#
+# Three modes, gated on which secrets are present:
+#   * Default (no secrets)            → unsigned archive (smoke build only)
+#   * Ad-hoc (signing certs only)     → signed .ipa as artifact
+#   * TestFlight (certs + Apple ID)   → upload to App Store Connect
+#
+# macos-14 runners are free for public repositories.
+
+name: Mobile · iOS
+
+on:
+  push:
+    branches: [main, dev, "feat/**"]
+    paths:
+      - "app/mobile/**"
+      - ".github/workflows/mobile-ios.yml"
+  pull_request:
+    paths:
+      - "app/mobile/**"
+      - ".github/workflows/mobile-ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build .xcarchive + IPA
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: app/mobile
+
+    env:
+      XCODE_DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s "$XCODE_DEVELOPER_DIR"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/mobile/package-lock.json
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Synthesise .env.local for the build
+        run: |
+          cat > .env.local <<EOF
+          VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY || 'AIzaCI_PLACEHOLDER' }}
+          VITE_FIREBASE_AUTH_DOMAIN=${{ secrets.VITE_FIREBASE_AUTH_DOMAIN || 'ci-placeholder.firebaseapp.com' }}
+          VITE_FIREBASE_PROJECT_ID=${{ secrets.VITE_FIREBASE_PROJECT_ID || 'ci-placeholder' }}
+          VITE_FIREBASE_STORAGE_BUCKET=${{ secrets.VITE_FIREBASE_STORAGE_BUCKET || 'ci-placeholder.appspot.com' }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID || '0' }}
+          VITE_FIREBASE_APP_ID=${{ secrets.VITE_FIREBASE_APP_ID || '1:0:ios:ci' }}
+          VITE_FCM_VAPID_KEY=${{ secrets.VITE_FCM_VAPID_KEY || 'CI_PLACEHOLDER' }}
+          VITE_TUNNEL_DOMAIN=${{ secrets.VITE_TUNNEL_DOMAIN || 'tunnel.mowgli.garden' }}
+          EOF
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Sync Capacitor → iOS
+        run: npx cap sync ios
+
+      - name: CocoaPods install
+        working-directory: app/mobile/ios/App
+        run: pod install --repo-update
+
+      # ── Code-signing setup (skipped without certs) ──────────────────────
+      - name: Import signing certificate
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DISTRIBUTION_CERT_PASSWORD }}
+
+      - name: Download provisioning profiles
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' && secrets.APPLE_API_KEY_BASE64 != '' }}
+        uses: apple-actions/download-provisioning-profiles@v3
+        with:
+          bundle-id: garden.mowgli.app
+          issuer-id: ${{ secrets.APPLE_API_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPLE_API_KEY_BASE64 }}
+
+      # ── Build ──────────────────────────────────────────────────────────
+      - name: Build unsigned .xcarchive
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 == '' }}
+        working-directory: app/mobile/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Mowgli.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive
+
+      - name: Build signed .xcarchive
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' }}
+        working-directory: app/mobile/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Mowgli.xcarchive" \
+            -allowProvisioningUpdates \
+            archive
+
+      - name: Generate ExportOptions.plist
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export signed IPA
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' }}
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Mowgli.xcarchive" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates
+
+      # ── Artifacts ───────────────────────────────────────────────────────
+      - name: Upload unsigned archive
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mowgli-ios-unsigned
+          path: ${{ runner.temp }}/Mowgli.xcarchive
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload signed IPA
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mowgli-ios-signed
+          path: |
+            ${{ runner.temp }}/ipa/*.ipa
+            ${{ runner.temp }}/Mowgli.xcarchive
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── TestFlight (only when full Apple Connect creds are present) ──────
+      - name: Upload to TestFlight
+        if: ${{ secrets.APPLE_DISTRIBUTION_CERT_BASE64 != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ runner.temp }}/ipa/App.ipa
+          apple-id: ${{ secrets.APPLE_ID }}
+          app-specific-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
