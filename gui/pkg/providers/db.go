@@ -28,6 +28,17 @@ var EnvFallbacks = map[string]string{
 	"system.ros.nodeHost":      "ROS_NODE_HOST",
 	"system.ros.foxgloveUrl":   "FOXGLOVE_URL",
 	"system.homekit.pincode":  "HOMEKIT_PINCODE",
+	// Mobile companion app (opt-in via GUI). When system.mobile.enabled
+	// is "true", main.go starts the Noise IK terminator + pairing API +
+	// Firestore allow-list watcher. Env vars below are kept as
+	// deployment-time overrides for headless/CI use.
+	"system.mobile.enabled":           "MOWGLI_MOBILE_TUNNEL",
+	"system.mobile.tunnelDomain":      "MOWGLI_TUNNEL_DOMAIN",
+	"system.mobile.firebaseProjectId": "MOWGLI_FIREBASE_PROJECT_ID",
+	"system.mobile.firebaseAdminJson": "MOWGLI_FIREBASE_ADMIN_JSON",
+	"system.mobile.stateDir":          "MOWGLI_STATE_DIR",
+	"system.mobile.lanAddr":           "MOWGLI_LAN_ADDR",
+	"system.mobile.localApiUrl":       "MOWGLI_LOCAL_API_URL",
 }
 var Defaults = map[string]string{
 	"system.api.addr":         ":4006",
@@ -45,6 +56,16 @@ var Defaults = map[string]string{
 	"system.ros.masterUri":    "http://localhost:11311",
 	"system.ros.nodeName":     "mowglinext",
 	"system.ros.nodeHost":     "localhost",
+	// Mobile companion defaults — disabled out of the box. The user opts
+	// in from the GUI's Pair-Mobile-App wizard step, which POSTs
+	// /api/config/system.mobile.enabled = "true" and prompts for restart.
+	"system.mobile.enabled":           "false",
+	"system.mobile.tunnelDomain":      "tunnel.mowgli.garden",
+	"system.mobile.firebaseProjectId": "",
+	"system.mobile.firebaseAdminJson": "/var/lib/mowgli/firebase-admin.json",
+	"system.mobile.stateDir":          "/var/lib/mowgli",
+	"system.mobile.lanAddr":           "",
+	"system.mobile.localApiUrl":       "http://127.0.0.1:4006",
 }
 
 func (d *DBProvider) Set(key string, value []byte) error {

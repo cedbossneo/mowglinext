@@ -648,11 +648,145 @@ const FirmwareStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
 
 // ── Step 6: Pair Mobile App ─────────────────────────────────────────────
 
+// useMobileEnabled is the GUI-side opt-in toggle for the mobile tunnel.
+// Reads / writes system.mobile.enabled in the bitcask-backed config store
+// via /api/config/keys/{get,set}. The Go server reads the same key at
+// startup and decides whether to mount the noise_shim + pairing routes;
+// flipping it requires a service restart for the change to take effect.
+function useMobileEnabled() {
+    const [enabled, setEnabled] = useState<boolean | null>(null); // null = loading
+    const [error, setError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+
+    const fetchOnce = useCallback(async () => {
+        try {
+            const res = await fetch("/api/config/keys/get", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ "system.mobile.enabled": "" }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            setEnabled(data["system.mobile.enabled"] === "true");
+            setError(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        }
+    }, []);
+
+    useEffect(() => { void fetchOnce(); }, [fetchOnce]);
+
+    const setValue = useCallback(async (next: boolean) => {
+        setSaving(true);
+        try {
+            const res = await fetch("/api/config/keys/set", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ "system.mobile.enabled": next ? "true" : "false" }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setEnabled(next);
+            setError(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setSaving(false);
+        }
+    }, []);
+
+    return { enabled, error, saving, refresh: fetchOnce, setValue };
+}
+
+// EnableMobileGate is shown when system.mobile.enabled is false. It
+// explains the feature and lets the user opt in; on enable, the gui
+// container is restarted so the new endpoints get mounted.
+const EnableMobileGate: React.FC<{ onSkip: () => void }> = ({ onSkip }) => {
+    const { colors } = useThemeMode();
+    const guiApi = useApi();
+    const [enabling, setEnabling] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const { setValue } = useMobileEnabled();
+
+    const handleEnable = useCallback(async () => {
+        setEnabling(true);
+        setError(null);
+        try {
+            await setValue(true);
+            // Restart so main.go re-evaluates the toggle and mounts the
+            // mobile tunnel routes. After the restart the parent
+            // PairMobileAppStep re-fetches and the QR view takes over.
+            await restartGui(guiApi);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setEnabling(false);
+        }
+    }, [setValue, guiApi]);
+
+    return (
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 0" }}>
+            <Title level={4} style={{ textAlign: "center" }}>
+                <MobileOutlined /> Enable the Mobile Companion App
+            </Title>
+            <Paragraph type="secondary" style={{ textAlign: "center" }}>
+                The mobile companion lets you control your mower from anywhere via an
+                end-to-end-encrypted tunnel. It is opt-in — turn it on here when you
+                are ready to pair a phone.
+            </Paragraph>
+            <Card style={{ marginBottom: 16 }}>
+                <Paragraph style={{ marginBottom: 12 }}>Enabling this will:</Paragraph>
+                <ul style={{ marginLeft: 20, marginBottom: 12, color: colors.text }}>
+                    <li>Generate a Curve25519 keypair stored at <code>/var/lib/mowgli/noise.key</code></li>
+                    <li>Mount the LAN-only pairing API at <code>/api/pair/*</code></li>
+                    <li>Connect to Firebase to sync the allow-list and publish events</li>
+                    <li>Restart the GUI service so the new endpoints come online</li>
+                </ul>
+                <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+                    Firebase project ID and service-account JSON path default to sensible
+                    paths — set them in Settings if your deployment differs.
+                </Paragraph>
+            </Card>
+            {error && (
+                <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+            )}
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                <Button
+                    type="primary"
+                    size="large"
+                    block
+                    icon={<MobileOutlined />}
+                    loading={enabling}
+                    onClick={handleEnable}
+                >
+                    Enable mobile companion
+                </Button>
+                <Button block onClick={onSkip}>
+                    Skip — I'll enable this later
+                </Button>
+            </Space>
+        </div>
+    );
+};
+
 const PairMobileAppStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
     const { colors } = useThemeMode();
     const isMobile = useIsMobile();
+    const { enabled, error: gateError } = useMobileEnabled();
     const { status, qr, error, refresh, confirm, reset } = usePairingStatus(1500);
     const qrSize = isMobile ? 220 : 280;
+
+    // Gate: when mobile is disabled at the config layer, the /api/pair/*
+    // endpoints aren't even mounted — show the opt-in card instead.
+    if (enabled === null && !gateError) {
+        return (
+            <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: "24px 0" }}>
+                <Text type="secondary">Loading mobile-companion settings…</Text>
+            </div>
+        );
+    }
+    if (enabled === false) {
+        return <EnableMobileGate onSkip={onNext} />;
+    }
 
     // Auto-advance to the next step two seconds after a successful pairing
     useEffect(() => {

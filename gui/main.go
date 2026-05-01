@@ -16,6 +16,7 @@ import (
 	"github.com/cedbossneo/mowglinext/pkg/api"
 	"github.com/cedbossneo/mowglinext/pkg/mobile"
 	"github.com/cedbossneo/mowglinext/pkg/providers"
+	"github.com/cedbossneo/mowglinext/pkg/types"
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
@@ -43,20 +44,24 @@ func main() {
 	}
 	providers.NewSchedulerProvider(rosProvider, dbProvider)
 
-	// Mobile companion tunnel — opt-in. When MOWGLI_MOBILE_TUNNEL=1 is set,
-	// noise_shim + pairing + cloud_sync are wired into the same Gin engine
-	// the existing GUI uses. Default deployments are unaffected.
-	if os.Getenv("MOWGLI_MOBILE_TUNNEL") == "1" {
+	// Mobile companion tunnel — opt-in. The toggle lives in
+	// system.mobile.enabled (set via the GUI's Pair-Mobile-App wizard step
+	// or POST /api/config/system.mobile.enabled). When enabled, noise_shim
+	// + pairing + cloud_sync are wired into the same Gin engine the
+	// existing GUI uses. Env vars are honoured as deployment-time
+	// overrides via DBProvider.EnvFallbacks (handy for CI / headless).
+	mobileEnabledRaw, _ := dbProvider.Get("system.mobile.enabled")
+	if string(mobileEnabledRaw) == "true" {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 
 		res, err := mobile.Setup(ctx, mobile.Config{
-			StateDir:          os.Getenv("MOWGLI_STATE_DIR"),
-			LocalAPIURL:       os.Getenv("MOWGLI_LOCAL_API_URL"),
-			LANAddr:           os.Getenv("MOWGLI_LAN_ADDR"),
-			TunnelDomain:      envOr("MOWGLI_TUNNEL_DOMAIN", "tunnel.mowgli.garden"),
-			FirebaseProjectID: os.Getenv("MOWGLI_FIREBASE_PROJECT_ID"),
-			FirebaseAdminJSON: os.Getenv("MOWGLI_FIREBASE_ADMIN_JSON"),
+			StateDir:          dbStr(dbProvider, "system.mobile.stateDir"),
+			LocalAPIURL:       dbStr(dbProvider, "system.mobile.localApiUrl"),
+			LANAddr:           dbStr(dbProvider, "system.mobile.lanAddr"),
+			TunnelDomain:      dbStr(dbProvider, "system.mobile.tunnelDomain"),
+			FirebaseProjectID: dbStr(dbProvider, "system.mobile.firebaseProjectId"),
+			FirebaseAdminJSON: dbStr(dbProvider, "system.mobile.firebaseAdminJson"),
 		})
 		if err != nil {
 			logrus.WithError(err).Fatal("mobile tunnel setup failed")
@@ -69,9 +74,11 @@ func main() {
 	api.NewAPI(dbProvider, dockerProvider, rosProvider, firmwareProvider)
 }
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+// dbStr is a small helper that swallows lookup errors and returns the
+// (string-coerced) value. Used only for configuration reads where missing
+// values are equivalent to the empty string and downstream code applies
+// its own defaults.
+func dbStr(db types.IDBProvider, key string) string {
+	v, _ := db.Get(key)
+	return string(v)
 }
