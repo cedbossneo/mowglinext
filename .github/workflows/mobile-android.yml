@@ -1,0 +1,108 @@
+# Build the Capacitor mobile app for Android in CI.
+#
+# Always produces an unsigned debug APK. The signed-release path used to
+# live in this file but was removed for clarity — add it back via a
+# separate workflow when you actually have signing keys to deploy.
+
+name: mobile-android
+
+on:
+  push:
+    branches: [main, dev, "feat/**"]
+    paths:
+      - "app/mobile/**"
+      - ".github/workflows/mobile-android.yml"
+  pull_request:
+    paths:
+      - "app/mobile/**"
+      - ".github/workflows/mobile-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: app/mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: app/mobile/package-lock.json
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Synthesise .env.local for the build
+        env:
+          API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VAPID_KEY: ${{ secrets.VITE_FCM_VAPID_KEY }}
+          TUNNEL_DOMAIN: ${{ secrets.VITE_TUNNEL_DOMAIN }}
+        run: |
+          cat > .env.local <<EOF
+          VITE_FIREBASE_API_KEY=${API_KEY:-AIzaCI_PLACEHOLDER}
+          VITE_FIREBASE_AUTH_DOMAIN=${AUTH_DOMAIN:-ci-placeholder.firebaseapp.com}
+          VITE_FIREBASE_PROJECT_ID=${PROJECT_ID:-ci-placeholder}
+          VITE_FIREBASE_STORAGE_BUCKET=${STORAGE_BUCKET:-ci-placeholder.appspot.com}
+          VITE_FIREBASE_MESSAGING_SENDER_ID=${SENDER_ID:-0}
+          VITE_FIREBASE_APP_ID=${APP_ID:-1:0:android:ci}
+          VITE_FCM_VAPID_KEY=${VAPID_KEY:-CI_PLACEHOLDER}
+          VITE_TUNNEL_DOMAIN=${TUNNEL_DOMAIN:-tunnel.mowgli.garden}
+          EOF
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync Capacitor → Android
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: app/mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mowgli-android-debug
+          path: app/mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

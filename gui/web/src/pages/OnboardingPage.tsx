@@ -7,7 +7,7 @@ import {
     RocketOutlined, SettingOutlined, GlobalOutlined,
     AimOutlined, ThunderboltOutlined, CheckCircleOutlined,
     ArrowLeftOutlined, ArrowRightOutlined, SaveOutlined,
-    EnvironmentOutlined, WifiOutlined,
+    EnvironmentOutlined, WifiOutlined, MobileOutlined,
 } from "@ant-design/icons";
 import { useThemeMode } from "../theme/ThemeContext.tsx";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -20,6 +20,8 @@ import { AbsolutePoseConstants as GpsFlags } from "../types/ros.ts";
 import { CompassOutlined } from "@ant-design/icons";
 import { RobotComponentEditor } from "../components/RobotComponentEditor.tsx";
 import { FlashBoardComponent } from "../components/FlashBoardComponent.tsx";
+import PairingQR from "../components/PairingQR.tsx";
+import { usePairingStatus } from "../hooks/usePairingStatus.ts";
 import { MOWER_MODELS } from "../constants/mowerModels.ts";
 import { restartRos2, restartGui } from "../utils/containers.ts";
 
@@ -644,7 +646,331 @@ const FirmwareStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
     );
 };
 
-// ── Step 5: Complete ────────────────────────────────────────────────────
+// ── Step 6: Pair Mobile App ─────────────────────────────────────────────
+
+// useMobileEnabled is the GUI-side opt-in toggle for the mobile tunnel.
+// Reads / writes system.mobile.enabled in the bitcask-backed config store
+// via /api/config/keys/{get,set}. The Go server reads the same key at
+// startup and decides whether to mount the noise_shim + pairing routes;
+// flipping it requires a service restart for the change to take effect.
+function useMobileEnabled() {
+    const [enabled, setEnabled] = useState<boolean | null>(null); // null = loading
+    const [error, setError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+
+    const fetchOnce = useCallback(async () => {
+        try {
+            const res = await fetch("/api/config/keys/get", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ "system.mobile.enabled": "" }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            setEnabled(data["system.mobile.enabled"] === "true");
+            setError(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        }
+    }, []);
+
+    useEffect(() => { void fetchOnce(); }, [fetchOnce]);
+
+    const setValue = useCallback(async (next: boolean) => {
+        setSaving(true);
+        try {
+            const res = await fetch("/api/config/keys/set", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ "system.mobile.enabled": next ? "true" : "false" }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            setEnabled(next);
+            setError(null);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setSaving(false);
+        }
+    }, []);
+
+    return { enabled, error, saving, refresh: fetchOnce, setValue };
+}
+
+// EnableMobileGate is shown when system.mobile.enabled is false. It
+// explains the feature and lets the user opt in; on enable, the gui
+// container is restarted so the new endpoints get mounted.
+const EnableMobileGate: React.FC<{ onSkip: () => void }> = ({ onSkip }) => {
+    const { colors } = useThemeMode();
+    const guiApi = useApi();
+    const [enabling, setEnabling] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const { setValue } = useMobileEnabled();
+
+    const handleEnable = useCallback(async () => {
+        setEnabling(true);
+        setError(null);
+        try {
+            await setValue(true);
+            // Restart so main.go re-evaluates the toggle and mounts the
+            // mobile tunnel routes. After the restart the parent
+            // PairMobileAppStep re-fetches and the QR view takes over.
+            await restartGui(guiApi);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setEnabling(false);
+        }
+    }, [setValue, guiApi]);
+
+    return (
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 0" }}>
+            <Title level={4} style={{ textAlign: "center" }}>
+                <MobileOutlined /> Enable the Mobile Companion App
+            </Title>
+            <Paragraph type="secondary" style={{ textAlign: "center" }}>
+                The mobile companion lets you control your mower from anywhere via an
+                end-to-end-encrypted tunnel. It is opt-in — turn it on here when you
+                are ready to pair a phone.
+            </Paragraph>
+            <Card style={{ marginBottom: 16 }}>
+                <Paragraph style={{ marginBottom: 12 }}>Enabling this will:</Paragraph>
+                <ul style={{ marginLeft: 20, marginBottom: 12, color: colors.text }}>
+                    <li>Generate a Curve25519 keypair stored at <code>/var/lib/mowgli/noise.key</code></li>
+                    <li>Mount the LAN-only pairing API at <code>/api/pair/*</code></li>
+                    <li>Connect to Firebase to sync the allow-list and publish events</li>
+                    <li>Restart the GUI service so the new endpoints come online</li>
+                </ul>
+                <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+                    Firebase project ID and service-account JSON path default to sensible
+                    paths — set them in Settings if your deployment differs.
+                </Paragraph>
+            </Card>
+            {error && (
+                <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+            )}
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                <Button
+                    type="primary"
+                    size="large"
+                    block
+                    icon={<MobileOutlined />}
+                    loading={enabling}
+                    onClick={handleEnable}
+                >
+                    Enable mobile companion
+                </Button>
+                <Button block onClick={onSkip}>
+                    Skip — I'll enable this later
+                </Button>
+            </Space>
+        </div>
+    );
+};
+
+const PairMobileAppStep: React.FC<{ onNext: () => void }> = ({ onNext }) => {
+    const { colors } = useThemeMode();
+    const isMobile = useIsMobile();
+    const { enabled, error: gateError } = useMobileEnabled();
+    const { status, qr, error, refresh, confirm, reset } = usePairingStatus(1500);
+    const qrSize = isMobile ? 220 : 280;
+
+    // Gate: when mobile is disabled at the config layer, the /api/pair/*
+    // endpoints aren't even mounted — show the opt-in card instead.
+    if (enabled === null && !gateError) {
+        return (
+            <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: "24px 0" }}>
+                <Text type="secondary">Loading mobile-companion settings…</Text>
+            </div>
+        );
+    }
+    if (enabled === false) {
+        return <EnableMobileGate onSkip={onNext} />;
+    }
+
+    // Auto-advance to the next step two seconds after a successful pairing
+    useEffect(() => {
+        if (status?.state === "paired") {
+            const timer = setTimeout(onNext, 2000);
+            return () => clearTimeout(timer);
+        }
+    }, [status?.state, onNext]);
+
+    if (error && !qr) {
+        return (
+            <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: "24px 0" }}>
+                <Result
+                    status="error"
+                    title="Could not load pairing QR"
+                    subTitle={error}
+                    extra={[
+                        <Button key="retry" type="primary" onClick={refresh}>
+                            Retry
+                        </Button>,
+                        <Button key="skip" onClick={onNext}>
+                            Skip — I'll pair later
+                        </Button>,
+                    ]}
+                />
+            </div>
+        );
+    }
+
+    if (status?.state === "paired") {
+        return (
+            <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: "24px 0" }}>
+                <Result
+                    status="success"
+                    title="Mobile app paired!"
+                    subTitle={
+                        status.ownerName
+                            ? `${status.ownerName}'s app is now connected to this robot.`
+                            : "The mobile app is now connected to this robot."
+                    }
+                    extra={
+                        <Text type="secondary">Continuing in a moment…</Text>
+                    }
+                />
+            </div>
+        );
+    }
+
+    if (status?.state === "pending") {
+        return (
+            <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 0" }}>
+                <Title level={4} style={{ textAlign: "center" }}>
+                    <MobileOutlined /> Confirm Pairing
+                </Title>
+                <Paragraph type="secondary" style={{ textAlign: "center", marginBottom: 24 }}>
+                    {status.ownerName ? `${status.ownerName} is pairing this robot.` : "Someone is pairing this robot."}
+                    {" "}Confirm the 4-digit code matches what you see in the app.
+                </Paragraph>
+
+                <Card style={{ textAlign: "center", marginBottom: 16 }}>
+                    <Text type="secondary" style={{ fontSize: 13 }}>Robot ID</Text>
+                    <div style={{ fontFamily: "monospace", fontSize: 18, fontWeight: 600, marginBottom: 16 }}>
+                        {status.robotID}
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 13 }}>Confirmation code</Text>
+                    <div style={{
+                        fontFamily: "monospace",
+                        fontSize: 48,
+                        fontWeight: 700,
+                        letterSpacing: "0.25em",
+                        color: colors.primary,
+                        margin: "8px 0 20px",
+                    }}>
+                        {status.confirmCode ?? "----"}
+                    </div>
+
+                    <Space direction={isMobile ? "vertical" : "horizontal"} style={{ width: isMobile ? "100%" : undefined }}>
+                        <Button
+                            type="primary"
+                            size="large"
+                            style={{ width: isMobile ? "100%" : undefined }}
+                            onClick={confirm}
+                        >
+                            Confirm on robot
+                        </Button>
+                        <Button
+                            size="large"
+                            style={{ width: isMobile ? "100%" : undefined }}
+                            onClick={reset}
+                        >
+                            Cancel
+                        </Button>
+                    </Space>
+                </Card>
+
+                {error && (
+                    <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+                )}
+
+                <div style={{ textAlign: "center" }}>
+                    <Button type="link" onClick={onNext}>Skip — I'll pair later</Button>
+                </div>
+            </div>
+        );
+    }
+
+    if (status?.state === "failed") {
+        return (
+            <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: "24px 0" }}>
+                <Result
+                    status="error"
+                    title="Pairing failed"
+                    subTitle="Something went wrong during pairing. You can retry or skip and pair later from the Settings page."
+                    extra={[
+                        <Button key="retry" type="primary" onClick={refresh}>
+                            Retry
+                        </Button>,
+                        <Button key="skip" onClick={onNext}>
+                            Skip — I'll pair later
+                        </Button>,
+                    ]}
+                />
+            </div>
+        );
+    }
+
+    // Default view: show the QR code (states: unstarted, null/loading)
+    return (
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 0" }}>
+            <Title level={4} style={{ textAlign: "center" }}>
+                <MobileOutlined /> Pair the Mobile App
+            </Title>
+            <Paragraph type="secondary" style={{ textAlign: "center", marginBottom: 24 }}>
+                Scan this QR code with the MowgliNext mobile app to pair it with this robot.
+                The app and robot must be on the same Wi-Fi for the first connection.
+            </Paragraph>
+
+            <Card style={{ textAlign: "center", marginBottom: 16 }}>
+                {qr ? (
+                    <>
+                        <div style={{ display: "inline-block", padding: 12, background: "#fff", borderRadius: 8, marginBottom: 16 }}>
+                            <PairingQR value={qr.payload} size={qrSize} />
+                        </div>
+                        <div style={{ marginBottom: 8 }}>
+                            <Text type="secondary" style={{ fontSize: 13 }}>Robot ID</Text>
+                            <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 600 }}>
+                                {qr.robotID}
+                            </div>
+                        </div>
+                        <Paragraph type="secondary" style={{ fontSize: 11, maxWidth: 380, margin: "12px auto 16px", textAlign: "left" }}>
+                            The QR code encodes this robot's encryption public key, a one-time setup token,
+                            its local IP address, and its future remote hostname — everything the app needs
+                            to establish a secure, end-to-end encrypted channel.
+                        </Paragraph>
+                    </>
+                ) : (
+                    <div style={{ height: qrSize + 32, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Text type="secondary">Loading QR code…</Text>
+                    </div>
+                )}
+
+                {error && (
+                    <Alert type="warning" showIcon message={error} style={{ marginBottom: 12, textAlign: "left" }} />
+                )}
+
+                <Space direction={isMobile ? "vertical" : "horizontal"} style={{ width: isMobile ? "100%" : undefined }}>
+                    <Button
+                        type="link"
+                        style={{ width: isMobile ? "100%" : undefined }}
+                        onClick={onNext}
+                    >
+                        Skip — I'll pair later
+                    </Button>
+                </Space>
+            </Card>
+
+            <Paragraph type="secondary" style={{ fontSize: 12, textAlign: "center" }}>
+                Waiting for the app to scan…
+            </Paragraph>
+        </div>
+    );
+};
+
+// ── Step 7: Complete ────────────────────────────────────────────────────
 
 const CompleteStep: React.FC = () => {
     const { colors } = useThemeMode();
@@ -770,6 +1096,7 @@ const STEP_ICONS = [
     <AimOutlined />,
     <CompassOutlined />,
     <ThunderboltOutlined />,
+    <MobileOutlined />,
     <CheckCircleOutlined />,
 ];
 
@@ -780,6 +1107,7 @@ const STEP_TITLES = [
     "Sensors",
     "IMU Yaw",
     "Firmware",
+    "Pair App",
     "Complete",
 ];
 
@@ -820,6 +1148,7 @@ const OnboardingWizard: React.FC = () => {
     const isFirstStep = currentStep === 0;
     const isLastStep = currentStep === STEP_TITLES.length - 1;
     const isFirmwareStep = currentStep === 5;
+    const isPairStep = currentStep === 6;
 
     return (
         <Row gutter={[0, isMobile ? 12 : 20]}>
@@ -843,7 +1172,7 @@ const OnboardingWizard: React.FC = () => {
                 style={{
                     height: isMobile ? "auto" : "calc(100vh - 220px)",
                     overflowY: isMobile ? undefined : "auto",
-                    paddingBottom: isLastStep || isFirmwareStep ? 16 : 80,
+                    paddingBottom: isLastStep || isFirmwareStep || isPairStep ? 16 : 80,
                 }}
             >
                 {currentStep === 0 && <WelcomeStep onNext={handleNext} />}
@@ -852,11 +1181,12 @@ const OnboardingWizard: React.FC = () => {
                 {currentStep === 3 && <SensorStep values={localValues} onChange={handleChange} />}
                 {currentStep === 4 && <ImuYawStep values={localValues} onChange={handleChange} />}
                 {currentStep === 5 && <FirmwareStep onNext={handleNext} />}
-                {currentStep === 6 && <CompleteStep />}
+                {currentStep === 6 && <PairMobileAppStep onNext={handleNext} />}
+                {currentStep === 7 && <CompleteStep />}
             </Col>
 
-            {/* Navigation bar (hidden on welcome, complete, and firmware steps) */}
-            {!isFirstStep && !isLastStep && !isFirmwareStep && (
+            {/* Navigation bar (hidden on welcome, complete, firmware, and pair steps) */}
+            {!isFirstStep && !isLastStep && !isFirmwareStep && !isPairStep && (
                 <Col
                     span={24}
                     style={{

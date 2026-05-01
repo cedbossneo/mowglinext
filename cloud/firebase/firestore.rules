@@ -1,0 +1,74 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // isOwner(robotId) was previously defined here but no rule branch
+    // currently calls it — every owner-only mutation goes through Cloud
+    // Functions, which run as the Admin SDK and bypass these rules.
+    // Re-add when a direct client-side write needs an owner gate.
+
+    function isAllowed(robotId) {
+      return isAuthenticated()
+        && request.auth.uid in get(/databases/$(database)/documents/robots/$(robotId)).data.allowedUids;
+    }
+
+    // ── users/{uid} ──────────────────────────────────────────────────────────
+    // Only the owning uid may read their own profile doc.
+    // Writes are admin-SDK only (Functions bypass rules).
+
+    match /users/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if false;
+
+      // users/{uid}/robots/{robotId} — index for fast "list my robots"
+      // Only the uid may read; writes are admin-SDK only.
+      match /robots/{robotId} {
+        allow read: if isAuthenticated() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // ── robots/{robotId} ────────────────────────────────────────────────────
+    // Readable to any uid listed in allowedUids (so mobile can poll status).
+    // All writes go through Functions (admin SDK), never direct client writes.
+
+    match /robots/{robotId} {
+      allow read: if isAllowed(robotId);
+      allow write: if false;
+
+      // robots/{robotId}/devices/{tokenHash} — FCM device tokens
+      // • Create / delete: admin-SDK only (registerFcmToken Function enforces allowedUids check).
+      // • Read + update: the device owner (uid stored in doc) may refresh their own token
+      //   without a full Function round-trip, e.g. when FCM rotates the token.
+      match /devices/{tokenHash} {
+        allow read: if isAuthenticated()
+          && resource.data.uid == request.auth.uid
+          && isAllowed(robotId);
+        allow update: if isAuthenticated()
+          && resource.data.uid == request.auth.uid
+          && isAllowed(robotId)
+          && request.resource.data.uid == request.auth.uid; // uid field immutable
+        allow create, delete: if false;
+      }
+
+      // robots/{robotId}/events/{eventId} — audit log
+      // Readable to any allowed uid. Writes are admin-SDK only.
+      match /events/{eventId} {
+        allow read: if isAllowed(robotId);
+        allow write: if false;
+      }
+    }
+  }
+}

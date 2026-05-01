@@ -1,0 +1,52 @@
+{
+  "name": "mowgli-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cap:sync": "cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.3.7",
+    "@capacitor-mlkit/barcode-scanning": "^6.0.0",
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/app": "^6.0.1",
+    "@capacitor/camera": "^6.0.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/haptics": "^6.0.1",
+    "@capacitor/ios": "^6.2.1",
+    "@capacitor/preferences": "^6.0.2",
+    "@capacitor/push-notifications": "^6.0.2",
+    "@stablelib/blake2s": "^1.0.1",
+    "@stablelib/chacha20poly1305": "^1.0.1",
+    "@stablelib/random": "^1.0.2",
+    "@stablelib/x25519": "^1.0.3",
+    "antd": "^5.29.0",
+    "cbor-x": "^1.5.9",
+    "firebase": "^11.7.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^6.28.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@testing-library/jest-dom": "^6.4.6",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^24.1.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.4",
+    "vitest": "^3.0.0"
+  }
+}

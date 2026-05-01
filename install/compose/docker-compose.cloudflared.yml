@@ -1,0 +1,73 @@
+# Cloudflare Tunnel for the MowgliNext mobile companion app.
+#
+# This is an additive compose fragment under install/compose/ — same
+# shape as docker-compose.gps.yml etc. The installer's
+# build_compose_stack() in install/lib/compose.sh appends it to the final
+# stack when MOBILE_ENABLED=true (mirroring the GUI toggle the user
+# flips in the Pair-Mobile-App wizard step).
+#
+# Manual usage (without the installer) when iterating locally:
+#   docker compose \
+#     -f install/compose/docker-compose.base.yml \
+#     -f install/compose/docker-compose.gui.yml \
+#     -f install/compose/docker-compose.cloudflared.yml \
+#     up -d
+#
+# Activate it only after pairing has written
+# ${MOWGLI_STATE_DIR}/cloudflared/{credentials.json,config.yml}. Before
+# pairing, this service fails its health check looking for those files —
+# expected and harmless.
+#
+# State layout the pairing flow produces (after pairRobot Cloud Function
+# returns the per-robot tunnel credentials):
+#   ${MOWGLI_STATE_DIR}/cloudflared/credentials.json   (from CF API)
+#   ${MOWGLI_STATE_DIR}/cloudflared/config.yml         (locally generated)
+#   ${MOWGLI_STATE_DIR}/noise.key                      (Curve25519 priv, mode 0600)
+#
+# Generated config.yml schema:
+#
+#   tunnel: <tunnel-uuid>
+#   credentials-file: /etc/cloudflared/credentials.json
+#   ingress:
+#     - hostname: r-<rid>.tunnel.mowgli.garden
+#       path: /tunnel
+#       service: http://host.docker.internal:4006
+#     - service: http_status:404
+#
+# The /tunnel path is served by gui/pkg/noise_shim — that's the only
+# externally-reachable endpoint. Everything else under r-<rid> returns 404.
+
+services:
+
+  cloudflared:
+    container_name: mowgli-cloudflared
+    image: cloudflare/cloudflared:2025.1.0
+    restart: unless-stopped
+
+    # cloudflared makes outbound connections only — no exposed ports.
+    network_mode: host
+
+    command:
+      - tunnel
+      - --config
+      - /etc/cloudflared/config.yml
+      - --no-autoupdate
+      - run
+
+    volumes:
+      - ${MOWGLI_STATE_DIR:-./state}/cloudflared:/etc/cloudflared:ro
+
+    # If credentials are missing (operator hasn't paired a robot yet), the
+    # health check fails until pairing writes the file.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /etc/cloudflared/credentials.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m

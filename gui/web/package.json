@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "generate:api": "swagger-typescript-api generate -p ../docs/swagger.json -o src/api"
+    "generate:api": "swagger-typescript-api generate -p ../docs/swagger.json -o src/api",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@formily/antd-v5": "^1.2.4",
@@ -28,6 +31,7 @@
     "match-sorter": "^8.2.0",
     "moment": "^2.30.1",
     "prop-types": "^15.8.1",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-is": "^19.2.5",
@@ -40,6 +44,7 @@
     "usng.js": "^0.4.5"
   },
   "devDependencies": {
+    "@playwright/test": "latest",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

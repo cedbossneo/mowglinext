@@ -1,0 +1,3 @@
+# Cloud Functions build output — emitted by `tsc` / `firebase deploy`
+# predeploy. Never commit; CI rebuilds.
+functions/lib/
