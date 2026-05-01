@@ -113,6 +113,20 @@ ublox_dgnss:
     CFG_MSGOUT_UBX_NAV_SIG_USB: 7        # per-signal CN0/quality, ~1 Hz — multipath diagnostics
     CFG_MSGOUT_UBX_NAV_SAT_USB: 7        # per-satellite info, ~1 Hz — sky-view diagnostics
 
+    # Silence UBX-MON messages on USB — the driver doesn't have parsers
+    # for them and logs "ubx class: 0x0a id: 0xNN unknown ... doing
+    # nothing" once per emission. Some F9P units ship with MON-HW
+    # enabled in the persistent config, which is what produces the 1 Hz
+    # warning spam (UBX-MON-HW = class 0x0a id 0x09).
+    CFG_MSGOUT_UBX_MON_HW_USB: 0
+    CFG_MSGOUT_UBX_MON_HW2_USB: 0
+    CFG_MSGOUT_UBX_MON_HW3_USB: 0
+    CFG_MSGOUT_UBX_MON_RF_USB: 0
+    CFG_MSGOUT_UBX_MON_IO_USB: 0
+    CFG_MSGOUT_UBX_MON_TXBUF_USB: 0
+    CFG_MSGOUT_UBX_MON_RXBUF_USB: 0
+    CFG_MSGOUT_UBX_MON_COMMS_USB: 0
+
     # NMEA GGA on USB — fed back to the NTRIP client for VRS casters that
     # need a client position to generate local corrections. VRS only needs
     # ~1 Hz updates; outputting every 7 epochs (= ~1 Hz at 7 Hz nav)
