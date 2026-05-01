@@ -40,6 +40,8 @@ set(srv_files
   "srv/SetDockingPoint.srv"
   "srv/TriggerReplan.srv"
   "srv/GetNextStrip.srv"
+  "srv/GetNextSegment.srv"
+  "srv/MarkSegmentBlocked.srv"
   "srv/GetCoverageStatus.srv"
   "srv/AreaRecording.srv"
   "srv/CalibrateImuYaw.srv"

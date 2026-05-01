@@ -189,11 +189,33 @@ struct BTContext
   // Cell-based strip coverage state
   // -----------------------------------------------------------------------
 
-  /// Current strip path to mow (set by GetNextStrip, consumed by FollowStrip).
+  /// Current strip / segment path to mow. Populated by GetNextStrip
+  /// (legacy) or GetNextSegment (Path C cell-based coverage), consumed
+  /// by FollowStrip and MarkSegmentBlocked.
   nav_msgs::msg::Path current_strip_path;
 
-  /// Transit goal to reach strip start (set by GetNextStrip, consumed by TransitToStrip).
+  /// Transit goal to reach strip / segment start (populated by
+  /// GetNextStrip or GetNextSegment, consumed by TransitToStrip).
   geometry_msgs::msg::PoseStamped current_transit_goal;
+
+  /// Path C: true when the current segment requires transit
+  /// (>~0.5 m gap or large turn) so the BT must disengage the blade
+  /// before the move and re-engage at the start of the next FollowStrip.
+  /// false → blade stays on for a continuous mowing flow between
+  /// adjacent segments. Updated by GetNextSegment; read by the
+  /// IsShortSegment condition node in the BT XML.
+  bool current_segment_is_long_transit{false};
+
+  /// Path C: free-form tag set by GetNextSegment for diagnostics
+  /// ("interior" / "transit" / "complete").
+  std::string current_segment_phase{};
+
+  /// Path C: termination reason returned by the segment selector for
+  /// the current segment ("boundary" / "obstacle" / "dead_zone" /
+  /// "max_length" / "row_end"). Used by MarkSegmentBlocked decisions —
+  /// e.g. don't bump fail_count when the segment ended at a known
+  /// "obstacle" because that's not a robot failure.
+  std::string current_segment_termination_reason{};
 
   /// Latest coverage percentage.
   float coverage_percent{0.0f};

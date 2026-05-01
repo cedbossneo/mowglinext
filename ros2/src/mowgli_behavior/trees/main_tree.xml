@@ -407,59 +407,60 @@
                 </Sequence>
               </Fallback>
 
-              <!-- Multi-area coverage loop.
+              <!-- Multi-area coverage loop (Path C — cell-based segments).
                    Outer loop: iterate through all mowing areas.
-                   Inner loop: mow all strips in the current area.
-                   GetNextUnmowedArea returns FAILURE when all areas are done.
-                   GetNextStrip returns FAILURE when current area is done → next area. -->
+                   Inner loop: pick the next short segment, decide whether
+                   to do a transit (blade off) or stay-on, follow it, and
+                   on failure mark the failed cells so the next iteration
+                   skips them.
+                   GetNextUnmowedArea returns FAILURE when all areas are
+                   done. GetNextSegment returns FAILURE when an area's
+                   coverage is complete → next area. -->
               <Repeat num_cycles="100" name="AreaLoop">
                 <Sequence name="MowOneArea">
                   <GetNextUnmowedArea area_index="{current_area_index}"/>
-                  <Repeat num_cycles="500" name="StripLoop">
-                    <Sequence name="GetAndMowStrip">
-                      <GetNextStrip area_index="{current_area_index}"/>
-                      <Fallback name="MowOrDetourOrSkip">
-                        <!-- Try up to 3 times to reach and mow this strip -->
-                        <RetryUntilSuccessful num_attempts="3" name="StripRetry">
-                          <Sequence name="MowOneStrip">
-                            <PublishHighLevelStatus state="2" state_name="TRANSIT"/>
-                            <TransitToStrip/>
-                            <PublishHighLevelStatus state="2" state_name="MOWING"/>
-                            <FollowStrip/>
-                          </Sequence>
+                  <Repeat num_cycles="2000" name="SegmentLoop">
+                    <Sequence name="GetAndMowSegment">
+                      <GetNextSegment
+                          area_index="{current_area_index}"
+                          boustrophedon="true"
+                          max_segment_length_m="3.0"/>
+                      <Fallback name="MowOrSkip">
+                        <RetryUntilSuccessful num_attempts="2" name="SegmentRetry">
+                          <Fallback name="ShortOrTransit">
+                            <!-- Short segment: skip transit, blade stays on so
+                                 the robot can flow continuously between
+                                 adjacent cells without spin-up gaps. -->
+                            <Sequence name="ShortPath">
+                              <IsShortSegment/>
+                              <PublishHighLevelStatus state="2" state_name="MOWING"/>
+                              <FollowStrip/>
+                            </Sequence>
+                            <!-- Long transit: blade off, drive to segment
+                                 entry via NavigateToPose, then re-engage. -->
+                            <Sequence name="LongTransit">
+                              <PublishHighLevelStatus state="2" state_name="TRANSIT"/>
+                              <SetMowerEnabled enabled="false"/>
+                              <TransitToStrip/>
+                              <PublishHighLevelStatus state="2" state_name="MOWING"/>
+                              <FollowStrip/>
+                            </Sequence>
+                          </Fallback>
                         </RetryUntilSuccessful>
-                        <!-- 3 attempts failed because something keeps blocking the
-                             strip (commonly: a person standing in the path, FTC
-                             aborts on lookahead-collision). Drop the blade, drive
-                             a short side-step via the global planner so the
-                             obstacle layer can route around the obstruction,
-                             then fail this branch so SkipStrip moves on. The
-                             next GetNextStrip will hand us a fresh strip; the
-                             mow_progress layer prevents re-cutting. -->
-                        <Sequence name="DetourThenSkip">
-                          <PublishHighLevelStatus state="2" state_name="DETOURING"/>
-                          <SetMowerEnabled enabled="false"/>
-                          <ClearCostmap/>
-                          <DetourAroundObstacle forward_m="0.8" lateral_m="0.6"/>
-                          <AlwaysFailure/>
-                        </Sequence>
-                        <!-- Detour failed (or refused) — fall through to skip. -->
-                        <Sequence name="SkipStrip">
-                          <PublishHighLevelStatus state="2" state_name="SKIP_STRIP"/>
+                        <!-- Both retry attempts failed. Bump fail_count for
+                             the cells along the failed segment (DEAD-promote
+                             after 3 consecutive failures), increment skipped
+                             swath counter for the GUI, and let the loop
+                             continue — the next GetNextSegment will pick a
+                             new segment that avoids the blocked cells. -->
+                        <Sequence name="MarkBlockedAndSkip">
+                          <PublishHighLevelStatus state="2" state_name="SKIP_SEGMENT"/>
                           <SetMowerEnabled enabled="false"/>
                           <StopMoving/>
-                          <!-- Previously did a blind 0.3 m BackUp to 'unstick'
-                               the robot. But the backup direction is always
-                               body-x-negative, with no awareness of the
-                               mowing polygon — if the robot is near the
-                               boundary facing inward, the 30 cm reverse
-                               pushes it straight out of the area, straight
-                               into a boundary violation. ClearCostmap below
-                               is enough to let the next TransitToStrip
-                               replan from the current pose. -->
                           <ClearCostmap/>
+                          <MarkSegmentBlocked area_index="{current_area_index}"/>
                           <IncrementSkippedSwaths/>
-                          <WaitForDuration duration_sec="2.0"/>
+                          <WaitForDuration duration_sec="1.0"/>
                           <PublishHighLevelStatus state="2" state_name="MOWING"/>
                         </Sequence>
                       </Fallback>
