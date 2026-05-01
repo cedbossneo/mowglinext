@@ -87,7 +87,7 @@
 | **noise_shim** | `gui/pkg/noise_shim/` | Go | Noise IK responder, token validation, reverse proxy to localhost:4006 |
 | **pairing** | `gui/pkg/pairing/` | Go | HTTP API (LAN-only), setup token, 4-digit confirm code, state machine |
 | **cloud_sync** | `gui/pkg/cloud_sync/` | Go | Firestore listener (allow-list), FCM push (event detector), heartbeat |
-| **cloudflared overlay** | `docker/docker-compose.cloudflared.yaml` | YAML | Outbound Cloudflare tunnel (TLS L1), ingress /tunnel → localhost:4006 |
+| **cloudflared overlay** | `install/compose/docker-compose.cloudflared.yml` | YAML | Outbound Cloudflare tunnel (TLS L1), ingress /tunnel → localhost:4006 |
 | **Mobile App** | `app/mobile/src/` | TypeScript/React Native | Firebase Auth sign-up, Noise IK initiator, HTTP+WS client, FCM device token, UI |
 | **Firebase Backend** | `cloud/firebase/` | TypeScript (v2 Functions) | pairRobot, inviteUser, revokeUser, registerFcmToken, deleteRobot |
 | **Firestore Schema** | `cloud/firebase/firestore.rules` | Firestore Security Rules | Enforce access control, validate allow-list mutations |

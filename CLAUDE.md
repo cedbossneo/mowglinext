@@ -289,7 +289,7 @@ The mobile companion architecture provides end-to-end encrypted remote access to
 - `gui/pkg/cloud_sync/` — Firestore listener (allow-list sync), FCM notifier, event detector (ROS topic → push)
 - `app/mobile/src/` — Mobile app (Capacitor/React Native)
 - `cloud/firebase/` — Cloud Functions (TypeScript, v2 with Secrets Manager), Firestore security rules
-- `docker/docker-compose.cloudflared.yaml` — Cloudflare tunnel overlay for Docker Compose
+- `install/compose/docker-compose.cloudflared.yml` — Cloudflare tunnel overlay (additive compose fragment, included by `build_compose_stack` when `MOBILE_ENABLED=true`)
 
 **Operator integration:** See `docs/MOBILE_INTEGRATION.md` (full runbook: Firebase project setup, Cloudflare token, Cloud Functions deployment, robot main.go wiring).
 

@@ -364,7 +364,10 @@ Then activate the tunnel:
 
 ```bash
 # Activate the cloudflared overlay
-docker compose -f docker-compose.yaml -f docker-compose.cloudflared.yaml up -d
+docker compose \
+  -f install/compose/docker-compose.base.yml \
+  -f install/compose/docker-compose.gui.yml \
+  -f install/compose/docker-compose.cloudflared.yml up -d
 
 # Verify the tunnel is connected
 docker logs mowgli-cloudflared | tail -20

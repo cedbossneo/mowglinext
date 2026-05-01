@@ -494,7 +494,10 @@ Once pairing has written credentials:
 
 ```bash
 # Activate the cloudflared overlay (requires pairing credentials to already exist)
-docker compose -f docker-compose.yaml -f docker-compose.cloudflared.yaml up -d
+docker compose \
+  -f install/compose/docker-compose.base.yml \
+  -f install/compose/docker-compose.gui.yml \
+  -f install/compose/docker-compose.cloudflared.yml up -d
 
 # Verify tunnel is connected
 docker logs mowgli-cloudflared | tail -20

@@ -1,17 +1,22 @@
 # Cloudflare Tunnel for the MowgliNext mobile companion app.
 #
-# This compose file is an OVERLAY — combine with docker-compose.yaml:
+# This is an additive compose fragment under install/compose/ — same
+# shape as docker-compose.gps.yml etc. The installer's
+# build_compose_stack() in install/lib/compose.sh appends it to the final
+# stack when MOBILE_ENABLED=true (mirroring the GUI toggle the user
+# flips in the Pair-Mobile-App wizard step).
 #
-#   docker compose -f docker-compose.yaml -f docker-compose.cloudflared.yaml up -d
+# Manual usage (without the installer) when iterating locally:
+#   docker compose \
+#     -f install/compose/docker-compose.base.yml \
+#     -f install/compose/docker-compose.gui.yml \
+#     -f install/compose/docker-compose.cloudflared.yml \
+#     up -d
 #
 # Activate it only after pairing has written
 # ${MOWGLI_STATE_DIR}/cloudflared/{credentials.json,config.yml}. Before
-# pairing, this service will fail health checks looking for those files —
-# that is expected and harmless.
-#
-# Why a separate file: keeps the tunnel optional. Robots that never pair to
-# a mobile app never run cloudflared, and the existing simulation /
-# headless-LAN deployments are unaffected.
+# pairing, this service fails its health check looking for those files —
+# expected and harmless.
 #
 # State layout the pairing flow produces (after pairRobot Cloud Function
 # returns the per-robot tunnel credentials):

@@ -46,3 +46,7 @@ credentials.json
 # the repo with every development test.
 docker/logs/mow_sessions/*.jsonl
 !docker/logs/mow_sessions/.gitkeep
+.playwright-mcp/
+exec
+mobile-robots-empty.png
+install/tests/
