@@ -130,6 +130,15 @@ func parseMsgBlock(body string, subTypes map[string][]schemaField) (string, []sc
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		// Strip any trailing inline comment so it can't trip the
+		// constant-detection check below (e.g. a field comment that
+		// happens to contain "=" like "float64 duration_sec  # 0 = default").
+		if hash := strings.Index(line, "#"); hash >= 0 {
+			line = strings.TrimSpace(line[:hash])
+			if line == "" {
+				continue
+			}
+		}
 		// Skip constant definitions (e.g. "uint8 FOO=1")
 		if strings.Contains(line, "=") {
 			continue

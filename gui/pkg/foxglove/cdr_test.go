@@ -174,6 +174,27 @@ float64 c`
 // 1. Round-trip tests (writer→reader, XCDR1 0x0001 header produced by SerializeCDR)
 // ---------------------------------------------------------------------------
 
+// TestParseSchemaWithCommentContainingEquals verifies that an inline comment
+// containing '=' (e.g. CalibrateImuYaw.srv has "float64 duration_sec  # 0 = default 30s")
+// does not cause the field to be skipped by the constant-definition heuristic.
+// Regression test for the imu yaw calibration "rmw_serialize: invalid data size"
+// failure where the request schema came back with mag_only only.
+func TestParseSchemaWithCommentContainingEquals(t *testing.T) {
+	schema, err := ParseSchema("float64 duration_sec  # 0 = default 30s\nbool mag_only\n")
+	if err != nil {
+		t.Fatalf("ParseSchema: %v", err)
+	}
+	if len(schema.Fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d: %+v", len(schema.Fields), schema.Fields)
+	}
+	if schema.Fields[0].Name != "duration_sec" {
+		t.Fatalf("field[0] name = %q, want duration_sec", schema.Fields[0].Name)
+	}
+	if schema.Fields[1].Name != "mag_only" {
+		t.Fatalf("field[1] name = %q, want mag_only", schema.Fields[1].Name)
+	}
+}
+
 // TestRoundTripSingleFloat64 serializes and deserializes a struct with one float64.
 func TestRoundTripSingleFloat64(t *testing.T) {
 	schema := mustParseSchema(t, schemaSingleFloat64)
