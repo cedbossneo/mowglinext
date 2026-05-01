@@ -77,10 +77,39 @@ type Service struct {
 	state       Status
 	stateErr    string
 
+	// lanAddr is the host:port the mobile app should reach during pairing,
+	// e.g. "192.168.1.42:4006" or "mowgli.local:4006". Embedded in the QR
+	// payload's `lan` field so the app knows where to POST /api/pair/start.
+	// Empty when not configured.
+	lanAddr string
+	// tunnelHostname is the predicted Cloudflare Tunnel hostname for this
+	// robot, e.g. "r-a1b2c3.tunnel.mowgli.garden". Embedded in the QR
+	// payload's `cf` field so the app can connect after pairing completes.
+	// Empty when not configured.
+	tunnelHostname string
+
 	// OnPaired is called by Confirm once the state transitions to Confirmed.
 	// The caller (main.go) wires this to cloud_sync. If it returns an error
 	// the pairing transitions to Failed.
 	OnPaired func(uid, displayName, robotID string) error
+}
+
+// SetEndpoints records the LAN host:port and predicted Cloudflare Tunnel
+// hostname for this robot. Both are embedded in the QR payload returned by
+// the GET /api/pair/qr endpoints. Either may be empty.
+func (s *Service) SetEndpoints(lanAddr, tunnelHostname string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lanAddr = lanAddr
+	s.tunnelHostname = tunnelHostname
+}
+
+// Endpoints returns the configured LAN and tunnel addresses for embedding
+// in the QR payload. Empty strings when SetEndpoints has not been called.
+func (s *Service) Endpoints() (lanAddr, tunnelHostname string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lanAddr, s.tunnelHostname
 }
 
 // NewService constructs a Service. robotID is the stable robot identifier

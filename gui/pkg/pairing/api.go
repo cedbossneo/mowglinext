@@ -168,7 +168,14 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no active setup token"})
 			return
 		}
-		payload := BuildPayload(svc.robotID, svc.pub, tok, "", "")
+		lan, cf := svc.Endpoints()
+		// Fall back to the request's Host header when the operator did not
+		// pre-configure the LAN address — handles the typical
+		// http://mowgli.local case without extra config.
+		if lan == "" {
+			lan = c.Request.Host
+		}
+		payload := BuildPayload(svc.robotID, svc.pub, tok, lan, cf)
 		png, err := RenderPNG(payload, 256)
 		if err != nil {
 			log.WithError(err).Error("pair/qr.png render failed")
@@ -187,11 +194,27 @@ func RegisterRoutes(rg *gin.RouterGroup, svc *Service) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "no active setup token"})
 			return
 		}
-		payload := BuildPayload(svc.robotID, svc.pub, tok, "", "")
+		lan, cf := svc.Endpoints()
+		if lan == "" {
+			lan = c.Request.Host
+		}
+		payload := BuildPayload(svc.robotID, svc.pub, tok, lan, cf)
 		c.JSON(http.StatusOK, gin.H{
 			"payload":    payload,
 			"robotID":    svc.robotID,
 			"setupToken": tok,
 		})
+	})
+
+	// POST /api/pair/reset
+	// Body: ignored
+	// Response: { ok: true }
+	// Cancels the in-flight pairing attempt and issues a fresh setup token.
+	// Used by both the web wizard's "Cancel" button and the mobile app when
+	// the user backs out of the pairing flow.
+	pair.POST("/reset", func(c *gin.Context) {
+		svc.Reset()
+		log.Info("pairing reset by client")
+		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 }
