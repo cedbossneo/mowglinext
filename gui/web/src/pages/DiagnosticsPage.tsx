@@ -156,6 +156,22 @@ export const DiagnosticsPage = () => {
         [diagnostics.status]
     );
 
+    // Pull the 3 entries published by sensors/gps/gps_health_aggregator.py
+    // and expose key/value lookups so the GPS card can render rich detail
+    // (sat count, mean CN0, RTCM rate, etc.) instead of just the fix tag.
+    const gpsHealth = useMemo(() => {
+        const byName: Record<string, Record<string, string>> = {};
+        for (const s of diagnostics.status ?? []) {
+            if (!s.name?.startsWith("GPS: ")) continue;
+            const kv: Record<string, string> = {};
+            for (const v of s.values ?? []) {
+                kv[v.key] = v.value;
+            }
+            byName[s.name] = { ...kv, _level: String(s.level), _message: s.message ?? "" };
+        }
+        return byName;
+    }, [diagnostics.status]);
+
     // ── Health Summary Bar ───────────────────────────────────────────────────
 
     const healthBar = (
@@ -400,9 +416,126 @@ export const DiagnosticsPage = () => {
                                         ? {color: colors.warning}
                                         : undefined
                                 }
-                               
+
                             />
                         </Col>
+
+                        {/*
+                          * Detail rows backed by sensors/gps/gps_health_aggregator.py.
+                          * The aggregator pulls UBX-NAV-SAT / NAV-COV / RXM-RTCM and
+                          * republishes structured key/values on /diagnostics, so we
+                          * can show satellite counts, signal quality, and RTCM
+                          * health without learning the raw UBX schemas in the GUI.
+                          */}
+                        {(() => {
+                            const sat = gpsHealth["GPS: satellites"];
+                            const rtcm = gpsHealth["GPS: NTRIP/RTCM"];
+                            const fix = gpsHealth["GPS: fix"];
+                            if (!sat && !rtcm && !fix) {
+                                return (
+                                    <Col span={24}>
+                                        <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                            Waiting for /diagnostics from gps_health_aggregator…
+                                        </Typography.Text>
+                                    </Col>
+                                );
+                            }
+                            const cnoMean = sat?.mean_cno_db_hz ? parseFloat(sat.mean_cno_db_hz) : null;
+                            const cnoOk = cnoMean !== null && cnoMean >= 40;
+                            const cnoWarn = cnoMean !== null && cnoMean >= 35 && cnoMean < 40;
+                            const ageS = rtcm?.age_of_last_corr_s ? parseFloat(rtcm.age_of_last_corr_s) : null;
+                            const sigmaMm = fix?.sigma_xy_mm && fix.sigma_xy_mm !== "n/a"
+                                ? parseFloat(fix.sigma_xy_mm) : null;
+                            return (
+                                <>
+                                    <Col span={12}>
+                                        <Statistic
+                                            title="Satellites (used / visible)"
+                                            value={sat ? `${sat.used} / ${sat.visible}` : "—"}
+                                        />
+                                    </Col>
+                                    <Col span={12}>
+                                        <Statistic
+                                            title="Mean CN0 (dB-Hz)"
+                                            value={cnoMean ?? "—"}
+                                            precision={1}
+                                            valueStyle={
+                                                cnoOk ? {color: colors.success}
+                                                : cnoWarn ? {color: colors.warning}
+                                                : cnoMean !== null ? {color: colors.danger}
+                                                : undefined
+                                            }
+                                            suffix={sat?.cno_ge_40_count ? `(${sat.cno_ge_40_count} ≥40)` : undefined}
+                                        />
+                                    </Col>
+                                    {sat?.constellations_used && (
+                                        <Col span={24}>
+                                            <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                                Constellations:{" "}
+                                            </Typography.Text>
+                                            <Typography.Text code style={{fontSize: 11}}>
+                                                {sat.constellations_used}
+                                            </Typography.Text>
+                                        </Col>
+                                    )}
+                                    <Col span={12}>
+                                        <Statistic
+                                            title="RTCM (msg/s)"
+                                            value={rtcm?.msgs_per_sec ?? "—"}
+                                            suffix={rtcm?.msgs_used_pct ? `(${rtcm.msgs_used_pct}% used)` : undefined}
+                                            valueStyle={
+                                                rtcm && parseFloat(rtcm.msgs_per_sec) >= 1 ? {color: colors.success}
+                                                : rtcm ? {color: colors.danger}
+                                                : undefined
+                                            }
+                                        />
+                                    </Col>
+                                    <Col span={12}>
+                                        <Statistic
+                                            title="Last correction (s)"
+                                            value={ageS ?? "—"}
+                                            precision={1}
+                                            valueStyle={
+                                                ageS !== null && ageS > 5 ? {color: colors.danger}
+                                                : ageS !== null && ageS > 2 ? {color: colors.warning}
+                                                : ageS !== null ? {color: colors.success}
+                                                : undefined
+                                            }
+                                        />
+                                    </Col>
+                                    {sigmaMm !== null && (
+                                        <Col span={24}>
+                                            <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                                σ<sub>xy</sub>:{" "}
+                                            </Typography.Text>
+                                            <Typography.Text code style={{fontSize: 11}}>
+                                                {sigmaMm.toFixed(1)} mm
+                                            </Typography.Text>
+                                            {fix?.ttff_s && (
+                                                <>
+                                                    <Typography.Text type="secondary" style={{fontSize: 11, marginLeft: 12}}>
+                                                        TTFF:{" "}
+                                                    </Typography.Text>
+                                                    <Typography.Text code style={{fontSize: 11}}>
+                                                        {fix.ttff_s}s
+                                                    </Typography.Text>
+                                                </>
+                                            )}
+                                        </Col>
+                                    )}
+                                    {rtcm?.types_seen && (
+                                        <Col span={24}>
+                                            <Typography.Text type="secondary" style={{fontSize: 11}}>
+                                                RTCM types:{" "}
+                                            </Typography.Text>
+                                            <Typography.Text code style={{fontSize: 11}}>
+                                                {rtcm.types_seen}
+                                            </Typography.Text>
+                                        </Col>
+                                    )}
+                                </>
+                            );
+                        })()}
                     </Row>
                 </Card>
             </Col>
