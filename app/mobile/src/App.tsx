@@ -19,7 +19,7 @@ import { MapScreen } from '@/screens/MapScreen';
 import { ScheduleScreen } from '@/screens/ScheduleScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 
-// ── Auth guard ────────────────────────────────────────────────────────────────
+// ── Auth guards ───────────────────────────────────────────────────────────────
 
 function RequireAuth() {
   const { user, loading } = useAuth();
@@ -34,6 +34,23 @@ function RequireAuth() {
   if (loading) return null;
   if (!user) return null;
   return <Outlet />;
+}
+
+// RedirectIfAuthed is the counterpart guard for /auth: once Firebase
+// completes sign-in (or restores a cached session), this navigates to the
+// robots list so the user does not stay stuck on the auth screen.
+function RedirectIfAuthed() {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && user) {
+      void navigate('/robots', { replace: true });
+    }
+  }, [loading, user, navigate]);
+
+  if (loading) return null;
+  return <AuthScreen />;
 }
 
 // ── Root layout — ConfigProvider + AntApp ─────────────────────────────────────
@@ -93,7 +110,7 @@ const router = createBrowserRouter([
     children: [
       {
         path: '/auth',
-        element: <AuthScreen />,
+        element: <RedirectIfAuthed />,
       },
       {
         element: <RequireAuth />,
