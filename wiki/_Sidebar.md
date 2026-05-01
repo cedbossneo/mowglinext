@@ -4,6 +4,7 @@
 
 **Getting Started**
 - [Getting Started](Getting-Started)
+- [User Guide](User-Guide)
 - [Hardware Requirements](Getting-Started#hardware)
 - [DevContainer / Codespaces](Getting-Started#development-with-github-codespaces--devcontainer)
 - [Deployment](Deployment)
