@@ -46,11 +46,13 @@ set -u
 GPS_PID=""
 HP_PID=""
 NTRIP_PID=""
+HEALTH_PID=""
 
 cleanup() {
   [ -n "$GPS_PID" ] && kill "$GPS_PID" 2>/dev/null || true
   [ -n "$HP_PID" ] && kill "$HP_PID" 2>/dev/null || true
   [ -n "$NTRIP_PID" ] && kill "$NTRIP_PID" 2>/dev/null || true
+  [ -n "$HEALTH_PID" ] && kill "$HEALTH_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -109,6 +111,12 @@ else
     --params-file /ublox_dgnss.yaml \
     -r /fix:=/gps/fix &
   HP_PID=$!
+fi
+
+# Health aggregator — only useful in UBX mode (consumes /ubx_* topics).
+if [ "$GPS_PROTOCOL" != "NMEA" ]; then
+  python3 /gps_health_aggregator.py &
+  HEALTH_PID=$!
 fi
 
 if [ "$NTRIP_ENABLED" = "true" ]; then

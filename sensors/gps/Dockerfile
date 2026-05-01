@@ -95,7 +95,8 @@ COPY --from=builder /ws/install /opt/ublox_dgnss
 COPY ros2_entrypoint.sh /ros2_entrypoint.sh
 COPY start_gps.sh /start_gps.sh
 COPY ublox_dgnss.yaml /ublox_dgnss.yaml
-RUN chmod +x /ros2_entrypoint.sh /start_gps.sh
+COPY gps_health_aggregator.py /gps_health_aggregator.py
+RUN chmod +x /ros2_entrypoint.sh /start_gps.sh /gps_health_aggregator.py
 
 ENTRYPOINT ["/ros2_entrypoint.sh"]
 CMD ["/start_gps.sh"]
