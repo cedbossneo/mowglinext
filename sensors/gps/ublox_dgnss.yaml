@@ -33,7 +33,9 @@ ublox_dgnss:
     # between F9P measurement (iTOW) and host-side header.stamp — measured
     # directly via /dev/ttyACM1 raw probe, latency dropped to ~140 ms.
     TRANSPORT: serial
-    DEVICE_PATH: /dev/ttyACM1
+    # /dev/gps is the udev symlink installed by the installer
+    # (50-mowgli.rules) — points at the F9P's CDC ACM data interface.
+    DEVICE_PATH: /dev/gps
 
     # USB: accept UBX + NMEA + RTCM3 in (NTRIP injects RTCM3 via USB),
     # publish UBX + NMEA out. RTCM3 out is off (we're a rover, not a base).

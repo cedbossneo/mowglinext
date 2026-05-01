@@ -82,8 +82,7 @@ public:
     // (map_server_node /set_docking_point) write back to that file, so
     // the param value is always the latest persisted dock yaw.
     const double dock_yaw_rad = declare_parameter<double>("dock_pose_yaw", 0.0);
-    const double dock_yaw_sigma_rad =
-        declare_parameter<double>("dock_pose_yaw_sigma_rad", 0.035);
+    const double dock_yaw_sigma_rad = declare_parameter<double>("dock_pose_yaw_sigma_rad", 0.035);
     cfg_yaw_rad_ = dock_yaw_rad;
     // Floor at variance 0.03 (~10°) so a tiny configured sigma does not
     // pin the EKF too hard on the first seed.

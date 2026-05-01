@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1.7
 # =============================================================================
-# u-blox ZED-F9P driver (aussierobots/ublox_dgnss) + NTRIP client
+# u-blox ZED-F9P driver (cedbossneo/ublox_dgnss feat/serial-transport)
+# + NTRIP client
 #
-# Built from source — ublox_dgnss is not in the kilted apt index. Uses
-# libusb directly (no serial / ttyACM), supports full UBX topic tree, and
-# bundles its own NTRIP client so RTCM gets injected over USB correctly.
+# Built from source — ublox_dgnss is not in the kilted apt index.
+# Default transport is "serial" (kernel CDC ACM at /dev/ttyACM1); the
+# upstream libusb path introduced ~3.5 s pipeline lag and was replaced
+# 2026-04-26 (see sensors/gps/ublox_dgnss.yaml). Bundles its own NTRIP
+# client so RTCM gets injected over the same channel correctly.
 #
 # Publishes:
 #   /fix                    sensor_msgs/NavSatFix (high-precision)

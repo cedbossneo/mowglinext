@@ -668,11 +668,6 @@ export const RobotComponentEditor: React.FC<Props> = ({ values, onChange }) => {
                                     precision={1}
                                     valueStyle={{ fontSize: 18 }}
                                 />
-                                {dockCal?.present && dockCal.yaw_sigma_deg != null && (
-                                    <Tag color="success" style={{ fontSize: 10, marginTop: 4 }}>
-                                        ±{dockCal.yaw_sigma_deg.toFixed(2)}°
-                                    </Tag>
-                                )}
                             </Col>
                             <Col span={12}>
                                 {/* Mini compass */}

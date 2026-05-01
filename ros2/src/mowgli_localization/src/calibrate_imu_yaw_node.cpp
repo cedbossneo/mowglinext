@@ -100,8 +100,8 @@ void splice_yaml_scalar(std::string& content, const std::string& key, const std:
       while (cursor < content.size())
       {
         const char c = content[cursor];
-        const bool is_num = (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' ||
-                            c == 'e' || c == 'E';
+        const bool is_num =
+            (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E';
         if (!is_num)
           break;
         ++cursor;
@@ -133,7 +133,8 @@ bool update_dock_pose_in_robot_yaml(const std::string& path, double x, double y,
   std::string content = buf.str();
   in.close();
 
-  auto fmt = [](double v) {
+  auto fmt = [](double v)
+  {
     std::ostringstream s;
     s << std::fixed << std::setprecision(6) << v;
     return s.str();

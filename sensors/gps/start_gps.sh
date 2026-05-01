@@ -76,7 +76,7 @@ else
 
   if [ "$TRANSPORT" = "serial" ]; then
     DEVICE_PATH=$(parse_driver_yaml DEVICE_PATH)
-    DEVICE_PATH="${DEVICE_PATH:-/dev/ttyACM1}"
+    DEVICE_PATH="${DEVICE_PATH:-/dev/gps}"
     echo "[start_gps.sh] Transport=serial, device=$DEVICE_PATH"
 
     # Ensure the kernel CDC ACM driver is bound to the F9P USB interfaces.

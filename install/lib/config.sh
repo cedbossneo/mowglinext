@@ -327,47 +327,117 @@ interactive_config() {
   CONFIG_DOCK_YAW="0.0"
 }
 
+# Patch a single mowgli/ros__parameters key in-place. Preserves
+# indentation, comments, and every other key. If the key is missing
+# (only happens when the seeded template is older than the installer)
+# we append it under the ros__parameters block.
+_yaml_patch_key() {
+  local file="$1" key="$2" value="$3"
+  if grep -qE "^[[:space:]]+${key}:" "$file"; then
+    # Replace value, preserving leading whitespace and any trailing
+    # comment on the same line.
+    python3 - "$file" "$key" "$value" <<'PY'
+import re, sys
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+pat = re.compile(r'^(\s+' + re.escape(key) + r':\s*)([^#\n]*)(\s*#.*)?$')
+with open(path) as f:
+    lines = f.readlines()
+for i, line in enumerate(lines):
+    m = pat.match(line)
+    if m:
+        comment = m.group(3) or ''
+        lines[i] = f"{m.group(1)}{value}{comment}\n"
+        break
+with open(path, 'w') as f:
+    f.writelines(lines)
+PY
+  else
+    # Append under the first ros__parameters: line in the mowgli block.
+    python3 - "$file" "$key" "$value" <<'PY'
+import sys
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    lines = f.readlines()
+out = []
+inserted = False
+for line in lines:
+    out.append(line)
+    if not inserted and line.strip() == 'ros__parameters:':
+        indent = ' ' * (len(line) - len(line.lstrip()) + 4)
+        out.append(f"{indent}{key}: {value}\n")
+        inserted = True
+with open(path, 'w') as f:
+    f.writelines(out)
+PY
+  fi
+}
+
 write_config() {
   local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
+  local template="$INSTALL_DIR/config/mowgli/mowgli_robot.yaml"
 
   : "${GPS_PROTOCOL:=UBX}"
   : "${GPS_PORT:=/dev/gps}"
   : "${GPS_BAUD:=460800}"
 
-  cat > "$yaml_file" <<EOF
-# Mowgli ROS2 — Site-specific configuration
-# Full reference: docker exec mowgli-ros2 cat /ros2_ws/install/mowgli_bringup/share/mowgli_bringup/config/mowgli_robot.yaml
-
+  # Seed from the comprehensive template if the runtime yaml doesn't
+  # exist yet. We never overwrite an existing file — that would wipe
+  # GUI-managed values like chassis dims, IMU calibration, fusion
+  # graph flags, etc.
+  if [ ! -f "$yaml_file" ]; then
+    if [ -f "$template" ]; then
+      cp "$template" "$yaml_file"
+      info "Seeded $yaml_file from install template"
+    else
+      warn "Install template missing at $template — writing minimal yaml"
+      cat > "$yaml_file" <<EOF
 mowgli:
   ros__parameters:
-    datum_lat: $CONFIG_DATUM_LAT
-    datum_lon: $CONFIG_DATUM_LON
-
-    gps_port: "$GPS_PORT"
-    gps_baudrate: $GPS_BAUD
-
-    ntrip_enabled: $CONFIG_NTRIP_ENABLED
-    ntrip_host: "$CONFIG_NTRIP_HOST"
-    ntrip_port: $CONFIG_NTRIP_PORT
-    ntrip_user: "$CONFIG_NTRIP_USER"
-    ntrip_password: "$CONFIG_NTRIP_PASSWORD"
-    ntrip_mountpoint: "$CONFIG_NTRIP_MOUNTPOINT"
-
-    # LiDAR mounting (relative to base_link, metres)
-    lidar_x: $CONFIG_LIDAR_X
-    lidar_y: $CONFIG_LIDAR_Y
-    lidar_z: $CONFIG_LIDAR_Z
-    lidar_yaw: $CONFIG_LIDAR_YAW
-
-    dock_pose_x: $CONFIG_DOCK_X
-    dock_pose_y: $CONFIG_DOCK_Y
-    dock_pose_yaw: $CONFIG_DOCK_YAW
-
-navsat_to_absolute_pose:
-  ros__parameters:
-    datum_lat: $CONFIG_DATUM_LAT
-    datum_lon: $CONFIG_DATUM_LON
+    ntrip_enabled: false
 EOF
+    fi
+  else
+    info "Patching existing $yaml_file in place"
+  fi
+
+  # Patch in only the keys the installer is responsible for.
+  _yaml_patch_key "$yaml_file" datum_lat       "$CONFIG_DATUM_LAT"
+  _yaml_patch_key "$yaml_file" datum_lon       "$CONFIG_DATUM_LON"
+  _yaml_patch_key "$yaml_file" gps_port        "\"$GPS_PORT\""
+  _yaml_patch_key "$yaml_file" gps_baudrate    "$GPS_BAUD"
+  _yaml_patch_key "$yaml_file" gps_protocol    "$GPS_PROTOCOL"
+  _yaml_patch_key "$yaml_file" ntrip_enabled   "$CONFIG_NTRIP_ENABLED"
+  _yaml_patch_key "$yaml_file" ntrip_host      "\"$CONFIG_NTRIP_HOST\""
+  _yaml_patch_key "$yaml_file" ntrip_port      "$CONFIG_NTRIP_PORT"
+  _yaml_patch_key "$yaml_file" ntrip_user      "\"$CONFIG_NTRIP_USER\""
+  _yaml_patch_key "$yaml_file" ntrip_password  "\"$CONFIG_NTRIP_PASSWORD\""
+  _yaml_patch_key "$yaml_file" ntrip_mountpoint "\"$CONFIG_NTRIP_MOUNTPOINT\""
+
+  # LiDAR enable + the LiDAR-aware localizer flags. When the operator
+  # picked a LiDAR in the previous step we also want the GTSAM
+  # factor-graph backend on with scan-matching + loop closure, so
+  # the GUI doesn't show LiDAR plugged in but ignored.
+  local lidar_on="false"
+  if [[ "${LIDAR_ENABLED:-false}" == "true" ]]; then
+    lidar_on="true"
+  fi
+  _yaml_patch_key "$yaml_file" lidar_enabled     "$lidar_on"
+  _yaml_patch_key "$yaml_file" use_fusion_graph  "$lidar_on"
+  _yaml_patch_key "$yaml_file" use_scan_matching "$lidar_on"
+  _yaml_patch_key "$yaml_file" use_loop_closure  "$lidar_on"
+
+  # Lidar mounting only patched when explicitly set (auto-detect step
+  # leaves them alone so the GUI / template defaults survive).
+  if [[ -n "${CONFIG_LIDAR_X:-}" ]]; then
+    _yaml_patch_key "$yaml_file" lidar_x   "$CONFIG_LIDAR_X"
+    _yaml_patch_key "$yaml_file" lidar_y   "$CONFIG_LIDAR_Y"
+    _yaml_patch_key "$yaml_file" lidar_z   "$CONFIG_LIDAR_Z"
+    _yaml_patch_key "$yaml_file" lidar_yaw "$CONFIG_LIDAR_YAW"
+  fi
+
+  _yaml_patch_key "$yaml_file" dock_pose_x   "$CONFIG_DOCK_X"
+  _yaml_patch_key "$yaml_file" dock_pose_y   "$CONFIG_DOCK_Y"
+  _yaml_patch_key "$yaml_file" dock_pose_yaw "$CONFIG_DOCK_YAW"
 
   info "Wrote $yaml_file"
 

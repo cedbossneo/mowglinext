@@ -1,101 +1,144 @@
-# Mowgli Robot Configuration — managed by mowglinext-gui
-# This file is the single source of truth for robot parameters.
-# Changes made here are picked up on container restart.
+# Mowgli Robot Configuration — seeded by the installer, then managed
+# by mowglinext-gui (Settings page). This file is the single source
+# of truth for robot parameters; changes are picked up on container
+# restart.
+#
+# Site-specific keys (datum, dock_pose, ntrip_*, imu calibration,
+# magnetometer calibration) are filled in by the installer and the
+# GUI's onboarding wizard. Mounting positions and chassis dims are
+# YardForce500 defaults — adjust on the GUI's Settings page if you
+# run a different chassis.
 
 mowgli:
     ros__parameters:
+        # ── Operational mode ────────────────────────────────────────
         automatic_mode: 0
+        mowing_enabled: true
+        lidar_enabled: true
+
+        # Localizer backend — when LiDAR is present we want the
+        # GTSAM factor-graph localizer with scan-matching + loop
+        # closure so we ride through RTK-Float windows.
+        use_fusion_graph: true
+        use_scan_matching: true
+        use_loop_closure: true
+        use_magnetometer: false
+
+        # ── Battery (YardForce500 28 V pack) ────────────────────────
         battery_critical_percent: 10
         battery_critical_voltage: 23
         battery_empty_voltage: 24
         battery_full_percent: 95
         battery_full_voltage: 28.5
         battery_low_percent: 20
+
+        # ── Chassis (YardForce500 measured) ─────────────────────────
         blade_radius: 0.09
         caster_radius: 0.03
         caster_track: 0.36
         chassis_center_x: 0.18
         chassis_height: 0.19
-        chassis_length: 0.60
+        chassis_length: 0.54
         chassis_mass_kg: 8.76
         chassis_width: 0.4
-        coverage_xy_tolerance: 0.5
-        datum_alt: 70
-        datum_lat: 48.87964988
-        datum_lon: 2.17281321
-        dock_approach_distance: 1
-        dock_max_retries: 3
-        dock_pose_x: 0
-        dock_pose_y: 0
-        dock_pose_yaw: 4.163
-        dock_use_charger_detection: true
-        emergency_stop_on_lift: false
-        emergency_stop_on_tilt: false
-        gps_antenna_x: 0.3
-        gps_antenna_y: 0
+        tool_width: 0.18
+        wheel_radius: 0.04475
+        wheel_track: 0.325
+        wheel_width: 0.04
+        wheel_x_offset: 0
+        # ticks_per_metre — consumed by hardware_bridge_node to convert
+        # raw encoder tick deltas to metres. MUST match the firmware
+        # constant TICKS_PER_M in firmware/stm32/ros_usbnode/include/board.h.
+        ticks_per_metre: 300.0
+        ticks_per_revolution: 84
+
+        # ── Sensor mounting (relative to base_link / wheel axis) ────
+        # Defaults are physically measured on a YardForce500 with the
+        # standard mowgli antenna/IMU/LiDAR mount. Override on the
+        # Settings page if your robot differs.
+        gps_x: 0.173
+        gps_y: -0.004
+        gps_z: 0.2
+        imu_x: 0.187
+        imu_y: -0.195
+        imu_z: 0
+        # imu_pitch / imu_roll / imu_yaw are calibrated per robot —
+        # use the GUI's Auto-calibrate button (Diagnostics → IMU yaw
+        # calibration). Default 0 means uncalibrated.
+        imu_pitch: 0
+        imu_roll: 0
+        imu_yaw: 0
+        lidar_x: 0
+        lidar_y: 0.025
+        lidar_z: 0.1
+        lidar_yaw: -3.1416
+
+        # ── GPS / RTK ───────────────────────────────────────────────
         gps_baudrate: 460800
         gps_port: /dev/gps
         gps_protocol: UBX
         gps_timeout_sec: 5
         gps_wait_after_undock_sec: 10
-        gps_x: 0.3
-        gps_y: 0
-        gps_z: 0.2
+        # Datum — map origin in WGS84 lat/lon. Set per-site by the
+        # installer or by the GUI's "Auto-detect from GPS" button.
+        datum_alt: 0
+        datum_lat: 0
+        datum_lon: 0
+        # NTRIP — RTK correction stream. Filled in by the installer
+        # interactive prompt. Leave blank to disable.
+        ntrip_enabled: false
+        ntrip_host: ""
+        ntrip_mountpoint: ""
+        ntrip_password: ""
+        ntrip_port: 2101
+        ntrip_user: ""
+
+        # ── Docking ─────────────────────────────────────────────────
+        # dock_pose is captured by the GUI's IMU yaw calibration
+        # (which docks first) or the manual "Set dock to current pose"
+        # action — both write back here via line-splice updates.
+        dock_approach_distance: 1
+        dock_max_retries: 3
+        dock_pose_x: 0
+        dock_pose_y: 0
+        dock_pose_yaw: 0
+        dock_use_charger_detection: true
+        undock_distance: 1.5
+        undock_speed: 0.15
+
+        # ── Mowing pattern ──────────────────────────────────────────
+        coverage_xy_tolerance: 0.5
         headland_width: 0.18
-        imu_pitch: -0.002857317037019718
-        imu_roll: 0.010526236043029748
-        imu_x: 0.285
-        imu_y: -0.17
-        imu_yaw: 2.8410264041692064
-        imu_z: 0.095
-        lidar_enabled: true
-        lidar_x: 0
-        lidar_y: 0.024
-        lidar_yaw: 3.1408
-        lidar_z: 0.22
-        lift_blade_resume_delay_sec: 1
-        lift_recovery_mode: false
-        map_save_on_dock: true
-        map_save_path: /ros2_ws/maps/garden_map
-        max_obstacle_avoidance_distance: 2
         min_turning_radius: 0.3
-        motor_temp_high_c: 80
-        motor_temp_low_c: 40
         mow_angle_increment_deg: 0
         mow_angle_offset_deg: -1
         mower_model: YardForce500
-        mowing_enabled: true
-        mowing_speed: 0.20
-        ntrip_enabled: true
-        ntrip_host: ""          # e.g., caster.centipede.fr
-        ntrip_mountpoint: ""    # Your nearest RTK mountpoint
-        ntrip_password: ""      # Your NTRIP credentials
-        ntrip_port: 2101
-        ntrip_user: ""          # Your NTRIP credentials
+        mowing_speed: 0.2
         outline_offset: 0.05
         outline_overlap: 0
         outline_passes: 1
         path_spacing: 0.13
         progress_timeout_sec: 60
+        transit_speed: 0.25
+        xy_goal_tolerance: 0.75
+        yaw_goal_tolerance: 1
+
+        # ── Persistence ─────────────────────────────────────────────
+        map_save_on_dock: true
+        map_save_path: /ros2_ws/maps/garden_map
+        max_obstacle_avoidance_distance: 2
+
+        # ── Safety ──────────────────────────────────────────────────
+        # Lift/tilt emergency is the firmware's job — these flags only
+        # control whether ROS2 should react when the firmware reports
+        # it. Leave false unless you specifically want the BT to do
+        # extra recovery on top of firmware emergency.
+        emergency_stop_on_lift: false
+        emergency_stop_on_tilt: false
+        lift_blade_resume_delay_sec: 1
+        lift_recovery_mode: false
+        motor_temp_high_c: 80
+        motor_temp_low_c: 40
         rain_debounce_sec: 10
         rain_delay_minutes: 30
         rain_mode: 2
-        # ticks_per_metre is read by hardware_bridge_node to convert raw
-        # encoder tick deltas (from the STM32 firmware odom packet) into
-        # metres. MUST match the firmware constant TICKS_PER_M in
-        # firmware/stm32/ros_usbnode/include/board.h.
-        ticks_per_metre: 300.0
-        # Informational cross-check: with wheel_radius=0.04475
-        # (circumference 0.281 m), 300 ticks/m ≈ 84 ticks per revolution.
-        ticks_per_revolution: 84
-        tool_width: 0.18
-        transit_speed: 0.25
-        undock_distance: 1.5
-        undock_speed: 0.15
-        use_lidar: true
-        wheel_radius: 0.04475
-        wheel_track: 0.325
-        wheel_width: 0.04
-        wheel_x_offset: 0
-        xy_goal_tolerance: 0.75
-        yaw_goal_tolerance: 1

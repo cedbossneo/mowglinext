@@ -62,25 +62,21 @@ inline void splice_yaml_scalar(std::string& content,
   {
     const size_t line_start = scan;
     size_t cursor = line_start;
-    while (cursor < content.size() &&
-           (content[cursor] == ' ' || content[cursor] == '\t'))
+    while (cursor < content.size() && (content[cursor] == ' ' || content[cursor] == '\t'))
       ++cursor;
     const size_t indent_end = cursor;
-    if (indent_end > line_start &&
-        cursor + key.size() < content.size() &&
-        content.compare(cursor, key.size(), key) == 0 &&
-        content[cursor + key.size()] == ':')
+    if (indent_end > line_start && cursor + key.size() < content.size() &&
+        content.compare(cursor, key.size(), key) == 0 && content[cursor + key.size()] == ':')
     {
       cursor += key.size() + 1;
-      while (cursor < content.size() &&
-             (content[cursor] == ' ' || content[cursor] == '\t'))
+      while (cursor < content.size() && (content[cursor] == ' ' || content[cursor] == '\t'))
         ++cursor;
       const size_t val_start = cursor;
       while (cursor < content.size())
       {
         const char c = content[cursor];
-        const bool is_num = (c >= '0' && c <= '9') || c == '.' || c == '-' ||
-                            c == '+' || c == 'e' || c == 'E';
+        const bool is_num =
+            (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+' || c == 'e' || c == 'E';
         if (!is_num)
           break;
         ++cursor;
@@ -111,7 +107,8 @@ inline bool update_dock_pose_in_robot_yaml(const std::string& path,
   std::string content = buf.str();
   in.close();
 
-  auto fmt = [](double v) {
+  auto fmt = [](double v)
+  {
     std::ostringstream s;
     s << std::fixed << std::setprecision(6) << v;
     return s.str();
@@ -2019,10 +2016,8 @@ void MapServerNode::on_set_docking_point(
   {
     const double yaw_rad =
         2.0 * std::atan2(docking_pose_.orientation.z, docking_pose_.orientation.w);
-    if (!update_dock_pose_in_robot_yaml(kRuntimeRobotYaml,
-                                        docking_pose_.position.x,
-                                        docking_pose_.position.y,
-                                        yaw_rad))
+    if (!update_dock_pose_in_robot_yaml(
+            kRuntimeRobotYaml, docking_pose_.position.x, docking_pose_.position.y, yaw_rad))
     {
       RCLCPP_WARN(get_logger(),
                   "Could not persist dock pose to %s — file missing or "
@@ -2041,8 +2036,10 @@ void MapServerNode::on_set_docking_point(
   }
   catch (const std::exception& ex)
   {
-    RCLCPP_WARN(get_logger(), "Failed to persist dock pose to %s: %s",
-                kRuntimeRobotYaml, ex.what());
+    RCLCPP_WARN(get_logger(),
+                "Failed to persist dock pose to %s: %s",
+                kRuntimeRobotYaml,
+                ex.what());
   }
 
   res->success = true;
