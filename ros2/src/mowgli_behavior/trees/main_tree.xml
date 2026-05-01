@@ -547,19 +547,35 @@
              trajectory is simplified with Douglas-Peucker and saved
              as a mowing area. "Cancel" (command 6) discards it.
              ============================================================ -->
-        <!-- SequenceWithMemory (not Sequence): in BT.CPP v4 a plain <Sequence>
-             re-evaluates IsCommand(3) on every tick. The user's "Finish" button
-             sends COMMAND_RECORD_FINISH=5, which immediately fails IsCommand(3)
-             on the next tick — the sequence then halts RecordArea via
-             onHalted(), which clears the trajectory before save_area() is
-             called. Result: a finished recording silently drops every point
-             and never persists the polygon. SequenceWithMemory locks the
-             sequence past IsCommand(3) once it has succeeded; RecordArea then
-             sees command=5 in onRunning() (recording_nodes.cpp:73) and saves
-             the area. Commands 6 (cancel) and 2 (home) are also handled
-             internally by RecordArea, so reactivity isn't lost. -->
-        <SequenceWithMemory name="RecordingSequence">
-          <IsCommand command="3"/>
+        <!-- ReactiveSequence with a Fallback guard accepting commands 3/5/6.
+             History: a plain <Sequence> here re-evaluated IsCommand(3) every
+             tick, so the moment the user pressed "Finish" (command 5) the
+             guard failed and the sequence halted RecordArea via onHalted(),
+             which cleared trajectory_ before save_area() ever ran — every
+             finished recording silently dropped its points. We previously
+             switched to <SequenceWithMemory>, but combined with the
+             non-reactive parent <Fallback name="MainLogic"> that introduced
+             a worse regression: after RecordArea returned FAILURE on cancel,
+             the memorised guard plus the parent's tick-from-running-child
+             behaviour caused the sequence to silently re-enter RecordArea
+             without a new command — and after a few cycles the BT itself
+             went silent (mutex contention with the HLC service handler that
+             also writes ctx->current_command).
+             The right shape is reactive WITH a widened guard: re-evaluate
+             every tick, but accept any of 3 (start), 5 (finish), 6 (cancel)
+             so RecordArea stays RUNNING long enough for its onRunning()
+             handler in recording_nodes.cpp:73 to see the finish/cancel
+             command, save (or discard) the polygon, clear current_command,
+             and return SUCCESS/FAILURE cleanly. Command 2 (HOME) is
+             deliberately NOT in the guard — that triggers a halt and
+             fallthrough to HomeSequence, which is the desired
+             "abort recording and dock" behaviour. -->
+        <ReactiveSequence name="RecordingSequence">
+          <Fallback name="RecordingCommandGuard">
+            <IsCommand command="3"/>
+            <IsCommand command="5"/>
+            <IsCommand command="6"/>
+          </Fallback>
           <PublishHighLevelStatus state="3" state_name="RECORDING"/>
           <RecordArea
             simplification_tolerance="0.2"
@@ -569,7 +585,7 @@
             is_exclusion_zone="false"/>
           <PublishHighLevelStatus state="1" state_name="RECORDING_COMPLETE"/>
           <ClearCommand/>
-        </SequenceWithMemory>
+        </ReactiveSequence>
 
         <!-- ============================================================
              e. Manual Mowing (COMMAND_MANUAL_MOW = 7)
