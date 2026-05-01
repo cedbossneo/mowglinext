@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0F1210" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Mowgli</title>
+    <link rel="icon" type="image/svg+xml" href="/mowgli.svg" />
+    <style>
+      :root {
+        color-scheme: dark light;
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html, body, #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      body {
+        background: #0F1210;
+        font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
