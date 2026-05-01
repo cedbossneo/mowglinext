@@ -856,14 +856,23 @@ private:
             "behavior_tree_node is alive.";
         return;
       }
-      if (!wait_for_bt_state(HL_STATE_RECORDING, 5.0))
+      // 15 s budget: when the BT is starting from IDLE_DOCKED the outer
+      // Fallback may be partway through a 0.5 s WaitForDuration in
+      // IdleSequence, then has to evaluate every branch (Emergency,
+      // BoundaryRecovery, CriticalBattery, PreFlightCheck) before
+      // reaching RecordingSequence. 5 s was tight enough to fail
+      // routinely once the fallback chain grew. Anything larger than
+      // observed worst-case (~7 s) buys us margin without making real
+      // BT failures hang the operator.
+      if (!wait_for_bt_state(HL_STATE_RECORDING, 15.0))
       {
         call_hlc(HL_CMD_RECORD_CANCEL, "cancel after failed entry");
         response->success = false;
         char buf[160];
         std::snprintf(buf,
                       sizeof(buf),
-                      "BT did not transition to RECORDING within 5s (stuck at state=%d).",
+                      "BT did not transition to RECORDING within 15s "
+                      "(stuck at state=%d).",
                       bt_state_.load());
         response->message = buf;
         return;
