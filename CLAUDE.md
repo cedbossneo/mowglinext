@@ -267,3 +267,38 @@ When using Claude Code on this project:
 - Do NOT use RPP for coverage paths — use FTCController for <10mm lateral accuracy on swaths
 - Do NOT use `base_link` as robot_base_frame in Nav2/robot_localization — use `base_footprint` (REP-105)
 - Do NOT use opennav_docking UndockRobot — use Nav2 BackUp behavior (isDocked() unreliable with GPS drift)
+
+## Mobile Companion + Cloud Sync (feat/mobile)
+
+**Status:** Opt-in feature, enabled via `MOWGLI_MOBILE_TUNNEL=1` environment variable.
+
+The mobile companion architecture provides end-to-end encrypted remote access to the robot via a mobile app. Users pair a robot using a QR code and 4-digit confirmation code, then control and monitor the robot from their phone over a Cloudflare Tunnel. All traffic is encrypted with Noise IK; Cloudflare and Firebase see only metadata (IP, DNS, timing).
+
+**Components:**
+- **Pairing**: LAN-only HTTP API (`/api/pair/start`, `/api/pair/confirm`, `/api/pair/status`) — setup tokens, confirm codes, state machine
+- **Noise IK Shim**: Runs on the robot, terminates Noise IK handshakes, reverses-proxies to the local HTTP API, validates Firebase ID tokens offline against cached Google JWK
+- **Allow-list Sync**: Firestore listener watches `robots/{robotId}.allowedUids` and updates an in-memory set, synced within ~100ms
+- **FCM Push**: Event detector subscribes to ROS topics (power, highLevelStatus, emergency), detects state transitions, sends Firebase Cloud Messaging notifications to registered mobile devices (with per-channel cooldown)
+- **Cloudflare Tunnel**: Outbound-only tunnel from robot to Cloudflare, ingress routes `/tunnel` path to the Noise shim (TLS Layer 1, Noise IK Layer 3)
+- **Cloud Functions**: Firebase v2 Functions (`pairRobot`, `inviteUser`, `revokeUser`, `registerFcmToken`, `deleteRobot`) manage Cloudflare tunnels, allow-lists, and user access
+- **Mobile App**: TypeScript/React Native, Firebase Auth (email/Google/Apple), Noise IK client, HTTP+WS client, FCM device token registration, UI for monitoring and control
+
+**Key files:**
+- `gui/pkg/noise_shim/` — Noise IK responder, Firebase JWT verifier, reverse proxy
+- `gui/pkg/pairing/` — Pairing state machine, LAN-only HTTP API, QR code generation
+- `gui/pkg/cloud_sync/` — Firestore listener (allow-list sync), FCM notifier, event detector (ROS topic → push)
+- `app/mobile/src/` — Mobile app (Capacitor/React Native)
+- `cloud/firebase/` — Cloud Functions (TypeScript, v2 with Secrets Manager), Firestore security rules
+- `docker/docker-compose.cloudflared.yaml` — Cloudflare tunnel overlay for Docker Compose
+
+**Operator integration:** See `docs/MOBILE_INTEGRATION.md` (full runbook: Firebase project setup, Cloudflare token, Cloud Functions deployment, robot main.go wiring).
+
+**Pairing protocol:** See `docs/MOBILE_PAIRING.md` (8-step user flow, wire protocol, QR payload, 4-digit confirm, LAN enforcement, recovery flows).
+
+**Security analysis:** See `docs/MOBILE_SECURITY.md` (threat model, cryptographic primitives, design justification, limitations, threat scenarios).
+
+**Architecture deep-dive:** See `docs/MOBILE_ARCHITECTURE.md` (system topology, component matrix, data flow diagrams for pairing/HTTP/WS/FCM, failure modes, design trade-offs).
+
+**Cryptography:** Noise_IK_25519_ChaChaPoly_BLAKE2s (forward secrecy, zero handshake RTTs, replay defense). Firebase JWTs validated offline against cached Google JWK (6h refresh, on-disk cache fallback).
+
+**Multi-user access:** Owner pairs robot; can invite other users via email. Revoke access revokes within ~1s (Firestore listener update). Owner is sole writer of allow-list; Cloud Functions enforce access control.
