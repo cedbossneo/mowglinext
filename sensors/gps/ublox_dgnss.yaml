@@ -68,6 +68,31 @@ ublox_dgnss:
     CFG_RATE_MEAS: 143
     CFG_RATE_NAV: 1
 
+    # Enable all four GNSS constellations on both bands the F9P
+    # supports. We don't trust the persisted flash config — observed
+    # in the wild: receivers shipping with GLO/GAL/BDS off (only
+    # ~10 GPS sats tracked, RTK never validates Fixed despite RTCM
+    # MSM7 1077/1087/1097/1127 being present). Forcing every
+    # ENA key avoids that. SBAS is left off because it adds nothing
+    # for centimetre-level RTK on a rover and steals one tracking
+    # channel.
+    CFG_SIGNAL_GPS_ENA: true
+    CFG_SIGNAL_GPS_L1CA_ENA: true
+    CFG_SIGNAL_GPS_L2C_ENA: true
+    CFG_SIGNAL_GAL_ENA: true
+    CFG_SIGNAL_GAL_E1_ENA: true
+    CFG_SIGNAL_GAL_E5B_ENA: true
+    CFG_SIGNAL_GLO_ENA: true
+    CFG_SIGNAL_GLO_L1_ENA: true
+    CFG_SIGNAL_GLO_L2_ENA: true
+    CFG_SIGNAL_BDS_ENA: true
+    CFG_SIGNAL_BDS_B1_ENA: true
+    CFG_SIGNAL_BDS_B2_ENA: true
+    CFG_SIGNAL_QZSS_ENA: true
+    CFG_SIGNAL_QZSS_L1CA_ENA: true
+    CFG_SIGNAL_QZSS_L2C_ENA: true
+    CFG_SIGNAL_SBAS_ENA: false
+
     # Dynamic model: 0 = Portable (default, no aggressive motion priors).
     # 2026-04-25: switched from 10 ("Mower"/Bike per HPG 1.32+) because the
     # internal Kalman of the slow-ground-robot models over-smooths during
