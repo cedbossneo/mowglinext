@@ -2431,6 +2431,16 @@ void MapServerNode::ensure_strip_layout(size_t area_index)
   if (poly.points.size() < 3)
     return;
 
+  // Navigation-only areas: never generate strips. The planner uses the
+  // polygon for transit costmap/keepout but the BT must not pick this
+  // area as a mowing target.
+  if (area.is_navigation_area)
+  {
+    layout.valid = true;
+    layout.strips.clear();
+    return;
+  }
+
   // ── 1. Determine mow angle ────────────────────────────────────────────────
   // Auto-compute from polygon MBR or use manual override.
   double mow_angle;
@@ -2602,8 +2612,16 @@ bool MapServerNode::is_strip_mowed(const Strip& strip, double threshold_pct) con
       continue;
 
     auto cell_type = static_cast<CellType>(static_cast<int>(class_layer(idx(0), idx(1))));
-    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY)
-      continue;  // Skip obstacle cells
+    // Skip cells the robot must never mow: tracked obstacles AND
+    // operator/dock-defined exclusion zones. Without the NO_GO_ZONE
+    // skip, strips passing over the dock exclusion polygon (or any
+    // exclusion drawn inside a mowing area) count as "not mowed"
+    // forever — the robot keeps replanning the same strip and never
+    // marks the surrounding cells complete.
+    if (cell_type == CellType::OBSTACLE_PERMANENT ||
+        cell_type == CellType::OBSTACLE_TEMPORARY ||
+        cell_type == CellType::NO_GO_ZONE)
+      continue;
 
     // Check if inside the mowing area polygon
     geometry_msgs::msg::Point32 pt32;
@@ -2907,6 +2925,22 @@ void MapServerNode::on_get_coverage_status(
   if (req->area_index >= areas_.size())
   {
     res->success = false;
+    return;
+  }
+
+  // Navigation-only areas are transit corridors, not lawn — they
+  // exist so the planner has a passage between mowing zones, not so
+  // the robot tonds them. Report 0 strips remaining and 100% coverage
+  // so GetNextUnmowedArea moves on without ever generating a strip
+  // through them.
+  if (areas_[req->area_index].is_navigation_area)
+  {
+    res->success = true;
+    res->total_cells = 0;
+    res->mowed_cells = 0;
+    res->obstacle_cells = 0;
+    res->coverage_percent = 100.0f;
+    res->strips_remaining = 0;
     return;
   }
 
