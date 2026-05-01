@@ -896,10 +896,9 @@ bool FusionGraphNode::TrySeedInitialPose()
   std::optional<double> prior_override;
   if (seed_xy_rtk_fixed_)
     prior_override = 0.005;
-  graph_->Initialize(
-      gtsam::Pose2(seed_xy_->x(), seed_xy_->y(), *seed_yaw_),
-      this->now().seconds(),
-      prior_override);
+  graph_->Initialize(gtsam::Pose2(seed_xy_->x(), seed_xy_->y(), *seed_yaw_),
+                     this->now().seconds(),
+                     prior_override);
   RCLCPP_INFO(get_logger(),
               "fusion_graph: initialized at (%.3f, %.3f, %.3f rad)%s",
               seed_xy_->x(),
