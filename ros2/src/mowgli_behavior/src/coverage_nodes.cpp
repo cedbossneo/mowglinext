@@ -610,4 +610,228 @@ void GetNextUnmowedArea::onHalted()
   // State will be reset in onStart() on next invocation.
 }
 
+// ===========================================================================
+// GetNextSegment (Path C — cell-based coverage)
+// ===========================================================================
+
+BT::NodeStatus GetNextSegment::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  auto helper = ctx->helper_node;
+
+  if (!client_)
+  {
+    client_ = helper->create_client<mowgli_interfaces::srv::GetNextSegment>(
+        "/map_server_node/get_next_segment");
+  }
+  if (!client_->wait_for_service(std::chrono::seconds(2)))
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "GetNextSegment: service not available");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  auto request = std::make_shared<mowgli_interfaces::srv::GetNextSegment::Request>();
+  uint32_t area_idx = 0;
+  getInput<uint32_t>("area_index", area_idx);
+  request->area_index = area_idx;
+
+  // Robot pose from TF.
+  double yaw = 0.0;
+  try
+  {
+    auto tf = ctx->tf_buffer->lookupTransform("map", "base_footprint", tf2::TimePointZero);
+    request->robot_x = tf.transform.translation.x;
+    request->robot_y = tf.transform.translation.y;
+    const auto& q = tf.transform.rotation;
+    yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+  }
+  catch (const tf2::TransformException&)
+  {
+    request->robot_x = 0.0;
+    request->robot_y = 0.0;
+  }
+  request->robot_yaw_rad = yaw;
+
+  // prefer_dir: NaN → use the robot's current heading as a hint so the
+  // server's auto-MBR direction kicks in. The server's
+  // compute_optimal_mow_angle is internal to ensure_strip_layout —
+  // for now we pass the robot heading so the first segment doesn't
+  // require a 180° rotation. A future iteration can extract the
+  // per-area auto angle into a service parameter.
+  double prefer_dir = std::numeric_limits<double>::quiet_NaN();
+  getInput<double>("prefer_dir_yaw_rad", prefer_dir);
+  if (!std::isfinite(prefer_dir))
+    prefer_dir = yaw;
+  request->prefer_dir_yaw_rad = prefer_dir;
+
+  bool boust = true;
+  getInput<bool>("boustrophedon", boust);
+  request->boustrophedon = boust;
+
+  double max_len = 0.0;
+  getInput<double>("max_segment_length_m", max_len);
+  request->max_segment_length_m = max_len;
+
+  auto future = client_->async_send_request(request);
+  {
+    auto timeout = std::chrono::seconds(5);
+    auto start = std::chrono::steady_clock::now();
+    bool completed = false;
+    while (rclcpp::ok())
+    {
+      if (future.wait_for(std::chrono::milliseconds(10)) == std::future_status::ready)
+      {
+        completed = true;
+        break;
+      }
+      if (std::chrono::steady_clock::now() - start > timeout)
+        break;
+    }
+    if (!completed)
+    {
+      RCLCPP_ERROR(ctx->node->get_logger(), "GetNextSegment: service call timed out");
+      return BT::NodeStatus::FAILURE;
+    }
+  }
+
+  auto response = future.get();
+  if (!response->success)
+  {
+    RCLCPP_ERROR(ctx->node->get_logger(), "GetNextSegment: service returned failure");
+    return BT::NodeStatus::FAILURE;
+  }
+  if (response->coverage_complete)
+  {
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "GetNextSegment: area %u coverage complete (%.1f%%)",
+                area_idx,
+                response->coverage_percent);
+    return BT::NodeStatus::FAILURE;  // FAILURE → outer loop picks next area.
+  }
+  if (response->segment_path.poses.empty())
+  {
+    RCLCPP_WARN(ctx->node->get_logger(), "GetNextSegment: empty segment path");
+    return BT::NodeStatus::FAILURE;
+  }
+
+  ctx->current_strip_path = response->segment_path;
+  ctx->current_transit_goal = response->target_cell_pose;
+  ctx->coverage_percent = response->coverage_percent;
+  ctx->current_segment_is_long_transit = response->is_long_transit;
+  ctx->current_segment_phase = response->phase;
+  ctx->current_segment_termination_reason = response->termination_reason;
+
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "GetNextSegment: area %u, %zu poses, %.1f%% coverage, "
+              "transit=%s, end=%s, dead_cells=%u",
+              area_idx,
+              response->segment_path.poses.size(),
+              response->coverage_percent,
+              response->is_long_transit ? "yes" : "no",
+              response->termination_reason.c_str(),
+              response->dead_cells_count);
+
+  return BT::NodeStatus::SUCCESS;
+}
+
+BT::NodeStatus GetNextSegment::onRunning()
+{
+  return BT::NodeStatus::SUCCESS;
+}
+
+void GetNextSegment::onHalted()
+{
+}
+
+// ===========================================================================
+// IsShortSegment (condition)
+// ===========================================================================
+
+BT::NodeStatus IsShortSegment::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  return ctx->current_segment_is_long_transit ? BT::NodeStatus::FAILURE : BT::NodeStatus::SUCCESS;
+}
+
+// ===========================================================================
+// MarkSegmentBlocked
+// ===========================================================================
+
+BT::NodeStatus MarkSegmentBlocked::onStart()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  auto helper = ctx->helper_node;
+
+  // Don't bump fail_count when the previous GetNextSegment ended at a
+  // known obstacle / dead cell — the failure is already accounted for.
+  if (ctx->current_segment_termination_reason == "obstacle" ||
+      ctx->current_segment_termination_reason == "dead_zone" ||
+      ctx->current_segment_termination_reason == "boundary")
+  {
+    RCLCPP_DEBUG(ctx->node->get_logger(),
+                 "MarkSegmentBlocked: skipping bump — segment ended at "
+                 "known '%s'",
+                 ctx->current_segment_termination_reason.c_str());
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  if (ctx->current_strip_path.poses.empty())
+  {
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  if (!client_)
+  {
+    client_ = helper->create_client<mowgli_interfaces::srv::MarkSegmentBlocked>(
+        "/map_server_node/mark_segment_blocked");
+  }
+  if (!client_->wait_for_service(std::chrono::seconds(2)))
+  {
+    RCLCPP_WARN(ctx->node->get_logger(), "MarkSegmentBlocked: service unavailable, skipping");
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  uint32_t area_idx = 0;
+  getInput<uint32_t>("area_index", area_idx);
+
+  auto request = std::make_shared<mowgli_interfaces::srv::MarkSegmentBlocked::Request>();
+  request->area_index = area_idx;
+  request->failed_path = ctx->current_strip_path;
+
+  future_ = client_->async_send_request(request).future.share();
+  return BT::NodeStatus::RUNNING;
+}
+
+BT::NodeStatus MarkSegmentBlocked::onRunning()
+{
+  if (future_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+    return BT::NodeStatus::RUNNING;
+
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  auto resp = future_.get();
+  if (resp && resp->success)
+  {
+    if (resp->cells_promoted_dead > 0)
+    {
+      RCLCPP_WARN(ctx->node->get_logger(),
+                  "MarkSegmentBlocked: %u cells bumped, %u promoted DEAD",
+                  resp->cells_marked_blocked,
+                  resp->cells_promoted_dead);
+    }
+    else
+    {
+      RCLCPP_INFO(ctx->node->get_logger(),
+                  "MarkSegmentBlocked: %u cells bumped",
+                  resp->cells_marked_blocked);
+    }
+  }
+  // Always SUCCESS — this is bookkeeping. The outer Fallback handles
+  // the actual control-flow recovery (next segment / next area).
+  return BT::NodeStatus::SUCCESS;
+}
+
+void MarkSegmentBlocked::onHalted()
+{
+}
+
 }  // namespace mowgli_behavior

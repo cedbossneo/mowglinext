@@ -47,8 +47,10 @@
 #include <mowgli_interfaces/srv/add_mowing_area.hpp>
 #include <mowgli_interfaces/srv/get_coverage_status.hpp>
 #include <mowgli_interfaces/srv/get_mowing_area.hpp>
+#include <mowgli_interfaces/srv/get_next_segment.hpp>
 #include <mowgli_interfaces/srv/get_next_strip.hpp>
 #include <mowgli_interfaces/srv/get_recovery_point.hpp>
+#include <mowgli_interfaces/srv/mark_segment_blocked.hpp>
 #include <mowgli_interfaces/srv/set_docking_point.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
@@ -134,6 +136,25 @@ public:
   /// Compute or retrieve cached strip layout for an area (test-only).
   void ensure_strip_layout(size_t area_index);
 
+  /// Path C — public test handle for the cell-based segment selector.
+  /// Caller must hold map_mutex_ for thread safety. See the private
+  /// declaration below for parameter semantics.
+  bool find_next_segment_public(size_t area_index,
+                                double robot_x,
+                                double robot_y,
+                                double robot_yaw,
+                                double prefer_dir_yaw,
+                                bool boustrophedon,
+                                double max_segment_length_m,
+                                double& out_start_x,
+                                double& out_start_y,
+                                double& out_end_x,
+                                double& out_end_y,
+                                int& out_cell_count,
+                                std::string& out_termination_reason,
+                                bool& out_is_long_transit,
+                                bool& out_coverage_complete) const;
+
 private:
   // ── ROS callbacks ────────────────────────────────────────────────────────
 
@@ -185,6 +206,27 @@ private:
 
   void on_get_next_strip(const mowgli_interfaces::srv::GetNextStrip::Request::SharedPtr req,
                          mowgli_interfaces::srv::GetNextStrip::Response::SharedPtr res);
+
+  /// Path C — cell-based coverage. Returns the next short segment to mow
+  /// from the robot's current pose, ending at the first obstacle / dead
+  /// cell / boundary or at max_segment_length, whichever comes first.
+  /// See GetNextSegment.srv for the full contract.
+  void on_get_next_segment(const mowgli_interfaces::srv::GetNextSegment::Request::SharedPtr req,
+                           mowgli_interfaces::srv::GetNextSegment::Response::SharedPtr res);
+
+  /// Path C — fail-count + DEAD promotion. Increments fail_count for
+  /// each cell along a failed segment path; cells exceeding
+  /// dead_promote_threshold are reclassified as LAWN_DEAD. See
+  /// MarkSegmentBlocked.srv.
+  void on_mark_segment_blocked(
+      const mowgli_interfaces::srv::MarkSegmentBlocked::Request::SharedPtr req,
+      mowgli_interfaces::srv::MarkSegmentBlocked::Response::SharedPtr res);
+
+  /// Path C — manual reset. Reverts every LAWN_DEAD cell back to LAWN
+  /// and zeros fail_count. Useful at session start or when the
+  /// operator removes the obstacle that caused the DEAD promotion.
+  void on_clear_dead_cells(const std_srvs::srv::Trigger::Request::SharedPtr req,
+                           std_srvs::srv::Trigger::Response::SharedPtr res);
 
   void on_get_coverage_status(
       const mowgli_interfaces::srv::GetCoverageStatus::Request::SharedPtr req,
@@ -314,6 +356,48 @@ private:
                               uint32_t& mowed,
                               uint32_t& obstacle_cells) const;
 
+  // ── Path C cell-based coverage ────────────────────────────────────────────
+
+  /// Result of a single segment selection.
+  struct SegmentResult
+  {
+    /// Start position of the segment in map frame. Equals the robot
+    /// position for in-place segments, or a row entry point when the
+    /// next unmowed cell is on a different row.
+    double start_x{0.0};
+    double start_y{0.0};
+    /// Final cell of the segment (last cell that will be mowed by
+    /// FollowSegment). Together with start, defines the path.
+    double end_x{0.0};
+    double end_y{0.0};
+    /// Number of cells traversed by this segment (along path_spacing
+    /// granularity). For diagnostics, used as segments_remaining
+    /// estimate scaling.
+    int cell_count{0};
+    /// Why the segment ended at end_*. Mirrors srv termination_reason.
+    std::string termination_reason{};
+    /// True when the segment requires a transit (>~0.5 m gap or large
+    /// turn) — the BT must disengage the blade for the move.
+    bool is_long_transit{false};
+    /// True when the area is fully covered (no unmowed reachable cell
+    /// remains). The other fields are unset in this case.
+    bool coverage_complete{false};
+  };
+
+  /// Cell-based segment selector. Searches `mow_progress` for the
+  /// nearest unmowed reachable LAWN cell to the robot, then walks
+  /// along prefer_dir_yaw (or its inverse for boustrophedon alternate
+  /// rows) until the row ends, an obstacle/dead cell appears, or
+  /// max_segment_length is reached. Caller must hold map_mutex_.
+  bool find_next_segment(size_t area_index,
+                         double robot_x,
+                         double robot_y,
+                         double robot_yaw,
+                         double prefer_dir_yaw,
+                         bool boustrophedon,
+                         double max_segment_length_m,
+                         SegmentResult& out_segment) const;
+
   // ── Area entry ────────────────────────────────────────────────────────────
 
   /// A named area (mowing or navigation) with optional interior obstacles.
@@ -332,6 +416,18 @@ private:
   std::string map_frame_;
   double decay_rate_per_hour_;
   double mower_width_;
+  // Path C — fail-count + DEAD promotion tuning. Defaults are
+  // declared in the constructor.
+  /// Number of consecutive segment failures before a cell is
+  /// promoted to LAWN_DEAD.
+  double dead_promote_threshold_{3.0};
+  /// fail_count decay rate. Cells unblock when fail_count drops
+  /// below dead_unblock_threshold_. Default 0.5 / hour means a cell
+  /// at 3 failures auto-recovers in ~6h, at 2 failures in ~4h. Set
+  /// to 0 to disable decay entirely (DEAD is forever).
+  double dead_decay_rate_per_hour_{0.5};
+  /// fail_count threshold below which LAWN_DEAD reverts to LAWN.
+  double dead_unblock_threshold_{1.0};
   std::string map_file_path_;
   std::string areas_file_path_;
   double publish_rate_;
@@ -465,6 +561,9 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_areas_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr load_areas_srv_;
   rclcpp::Service<mowgli_interfaces::srv::GetNextStrip>::SharedPtr get_next_strip_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::GetNextSegment>::SharedPtr get_next_segment_srv_;
+  rclcpp::Service<mowgli_interfaces::srv::MarkSegmentBlocked>::SharedPtr mark_segment_blocked_srv_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr clear_dead_cells_srv_;
   rclcpp::Service<mowgli_interfaces::srv::GetCoverageStatus>::SharedPtr get_coverage_status_srv_;
   rclcpp::Service<mowgli_interfaces::srv::GetRecoveryPoint>::SharedPtr get_recovery_point_srv_;
 

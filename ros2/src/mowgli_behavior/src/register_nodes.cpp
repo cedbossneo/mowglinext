@@ -76,6 +76,10 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<FollowStrip>("FollowStrip");
   factory.registerNodeType<TransitToStrip>("TransitToStrip");
   factory.registerNodeType<DetourAroundObstacle>("DetourAroundObstacle");
+  // Path C — cell-based coverage (segment-by-segment dynamic coverage).
+  factory.registerNodeType<GetNextSegment>("GetNextSegment");
+  factory.registerNodeType<IsShortSegment>("IsShortSegment");
+  factory.registerNodeType<MarkSegmentBlocked>("MarkSegmentBlocked");
 
   // Area recording node
   factory.registerNodeType<RecordArea>("RecordArea");
