@@ -643,37 +643,56 @@ collision_monitor:
     base_shift_correction: true
     stop_pub_timeout: 2.0
     # Two-layer protection:
-    # 1. Slow zone (chassis +15cm): reduces speed, gives Nav2 time to replan
-    # 2. Hard stop (exact chassis): last-resort emergency stop
-    # PolygonStop removed — conflicts with Nav2 path following.
-    # Costmap planner handles obstacle avoidance. PolygonSlow gives
-    # the planner time to reroute without hard-stopping the robot.
-    polygons: ["PolygonSlow"]
+    # 1. Slow zone (chassis +15 cm): reduces to 30% so Nav2 has time to
+    #    replan and the operator has a visible cue that the robot saw
+    #    something. Larger min_points hysteresis to avoid flapping when
+    #    the dock structure clips the zone while charging.
+    # 2. Stop zone (chassis +5 cm): hard stop. Tighter than the slow
+    #    zone so it only fires for genuinely-imminent contact, which
+    #    is what we want during coverage mowing where Nav2's path
+    #    following would otherwise be fought by a wider hard-stop.
+    polygons: ["PolygonStop", "PolygonSlow"]
+    PolygonStop:
+      type: "polygon"
+      # Chassis + 5 cm — true emergency stop. Coords are
+      # [forward_left, forward_right, rear_right, rear_left] in
+      # base_footprint frame.
+      points: "[[0.55, 0.25], [0.55, -0.25], [-0.15, -0.25], [-0.15, 0.25]]"
+      action_type: "stop"
+      # 8 points: tight enough that a single stray return doesn't trip
+      # a stop, loose enough that a real obstacle (legs, dock) reliably
+      # does. Tuned vs the LD19's 7 Hz × ~455-bin sweep.
+      min_points: 8
+      visualize: true
+      polygon_pub_topic: "polygon_stop"
+      enabled: true
     PolygonSlow:
       type: "polygon"
-      # Chassis + 15cm — slow to 30% when obstacle is close
+      # Chassis + 15 cm — slow to 30% when obstacle is close
       points: "[[0.65, 0.35], [0.65, -0.35], [-0.25, -0.35], [-0.25, 0.35]]"
       action_type: "slowdown"
       slowdown_ratio: 0.3
-      # 12 points (was 6) — the dock structure sits near the polygon
-      # boundary when charging, causing rapid slow/normal flapping at
-      # 10 Hz. Higher min_points adds hysteresis against that edge noise.
+      # 12 points: the dock structure sits near the polygon boundary
+      # when charging, causing rapid slow/normal flapping at 10 Hz.
+      # Higher min_points adds hysteresis against that edge noise.
       min_points: 12
       visualize: true
       polygon_pub_topic: "polygon_slow"
       enabled: true
-    # PolygonStop config removed — was defined but not listed in polygons[].
-    # See commit cc2a4c4 for why PolygonStop was disabled (conflicts with
-    # Nav2 path following). Only PolygonSlow is active.
     observation_sources: ["scan"]
     scan:
       type: "scan"
       topic: /scan
-      # Garden-tuned: 0.20m min_height filters grass and ground clutter.
-      # The LD19 LiDAR is mounted at 0.22m height, so returns below 0.20m
-      # are almost certainly ground or grass, not real obstacles.
-      min_height: 0.20
-      max_height: 2.0
+      # Disable the height filter (-1.0 / 5.0). The previous setting
+      # (min_height: 0.20) was a no-op for a 2D LiDAR — every scan
+      # point lands at exactly lidar_z in base frame, so the filter
+      # is tout-ou-rien depending on whether lidar_z exceeds
+      # min_height. With lidar_z=0.10 on this robot, min_height=0.20
+      # rejected every point and collision_monitor saw nothing during
+      # mowing. The polygon zones already do the spatial filtering;
+      # the lidar plane itself is the relevant z, not a filter band.
+      min_height: -1.0
+      max_height: 5.0
       enabled: true
 
 # ---------------------------------------------------------------------------
