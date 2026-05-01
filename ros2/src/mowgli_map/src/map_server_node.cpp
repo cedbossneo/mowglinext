@@ -2618,8 +2618,7 @@ bool MapServerNode::is_strip_mowed(const Strip& strip, double threshold_pct) con
     // exclusion drawn inside a mowing area) count as "not mowed"
     // forever — the robot keeps replanning the same strip and never
     // marks the surrounding cells complete.
-    if (cell_type == CellType::OBSTACLE_PERMANENT ||
-        cell_type == CellType::OBSTACLE_TEMPORARY ||
+    if (cell_type == CellType::OBSTACLE_PERMANENT || cell_type == CellType::OBSTACLE_TEMPORARY ||
         cell_type == CellType::NO_GO_ZONE)
       continue;
 
