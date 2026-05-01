@@ -95,6 +95,12 @@ def generate_launch_description() -> LaunchDescription:
         description="Enable LiDAR-dependent nodes (fusion_graph scan-matching, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
     )
 
+    use_obstacle_tracker_arg = DeclareLaunchArgument(
+        "use_obstacle_tracker",
+        default_value="true",
+        description="Enable persistent obstacle tracking from /scan into the mow_progress map. Promotes static clusters to OBSTACLE_PERMANENT after 60 s, triggers replanning around them. Set to false if the tracker is misbehaving on grass-heavy terrain.",
+    )
+
     # use_fusion_graph and use_magnetometer are NOT declared here —
     # navigation.launch.py reads them from mowgli_robot.yaml directly
     # so the operator flips them via the runtime config (and a
@@ -311,11 +317,26 @@ def generate_launch_description() -> LaunchDescription:
         map_dir, "config", "obstacle_tracker.yaml"
     )
 
-    # Obstacle tracker disabled by default — creates large persistent obstacles
-    # from lidar that block the planner. Collision_monitor handles real-time
-    # obstacle avoidance instead.
+    # Obstacle tracker — DBSCAN-clusters LiDAR obstacle returns from the
+    # global costmap, promotes clusters to PERSISTENT after
+    # persistence_threshold (60 s) of stable observation, and publishes
+    # them on /obstacle_tracker/obstacles. map_server_node consumes
+    # those, marks the impacted cells OBSTACLE_PERMANENT in the
+    # classification layer, republishes the keepout mask so the global
+    # costmap routes around them, and triggers a replan so the BT
+    # picks up new strips that avoid the obstacle. Transient obstacles
+    # (a person walking by) expire after transient_timeout (5 s) and
+    # don't permanently shape the map.
+    #
+    # Was disabled in launch in an earlier iteration because the
+    # tracker promoted too aggressively and produced large persistent
+    # obstacles from grass/ground returns. Re-enabled now that the
+    # yaml has been retuned: min_cluster_points 5, min_obstacle_radius
+    # 8 cm, persistence_threshold 60 s, inflation_radius 10 cm. Toggle
+    # off via the use_obstacle_tracker launch arg if it misbehaves
+    # again on real grass.
     obstacle_tracker_node = Node(
-        condition=IfCondition("false"),
+        condition=IfCondition(LaunchConfiguration("use_obstacle_tracker")),
         package="mowgli_map",
         executable="obstacle_tracker_node",
         name="obstacle_tracker",
@@ -338,6 +359,7 @@ def generate_launch_description() -> LaunchDescription:
             enable_foxglove_arg,
             foxglove_port_arg,
             use_lidar_arg,
+            use_obstacle_tracker_arg,
             # Subsystem includes
             mowgli_launch,
             navigation_launch,
