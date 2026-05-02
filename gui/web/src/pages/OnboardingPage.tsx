@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
     Button, Card, Col, Row, Steps, Typography, Select, Space, Alert,
     Input, InputNumber, Switch, Form, Divider, Tag, Result,
@@ -21,7 +21,13 @@ import { CompassOutlined } from "@ant-design/icons";
 import { RobotComponentEditor } from "../components/RobotComponentEditor.tsx";
 import { FlashBoardComponent } from "../components/FlashBoardComponent.tsx";
 import { MOWER_MODELS } from "../constants/mowerModels.ts";
-import { restartRos2, restartGui } from "../utils/containers.ts";
+import {
+    restartRos2,
+    restartGui,
+    restartGps,
+    GPS_RESTART_KEYS,
+} from "../utils/containers.ts";
+import { useContainerRestart } from "../hooks/useContainerRestart.ts";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -210,7 +216,9 @@ const RobotModelStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => 
 
 // ── Step 2: GPS Configuration ───────────────────────────────────────────
 
-const GpsStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
+type GpsStepProps = RobotModelStepProps & { gpsRestarting?: boolean };
+
+const GpsStep: React.FC<GpsStepProps> = ({ values, onChange, gpsRestarting }) => {
     const ntripEnabled = values.ntrip_enabled ?? true;
     const guiApi = useApi();
     const [datumLoading, setDatumLoading] = useState(false);
@@ -286,13 +294,24 @@ const GpsStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
                     </Row>
                     <Button
                         icon={<AimOutlined />}
-                        loading={datumLoading}
+                        loading={datumLoading || gpsRestarting}
                         onClick={setDatumFromGps}
-                        disabled={!isRtkFixed}
+                        disabled={!isRtkFixed || gpsRestarting}
                         style={{ marginTop: -8 }}
                     >
-                        Use current GPS position {isRtkFixed ? "" : "(waiting for RTK Fix)"}
+                        {gpsRestarting
+                            ? "GPS restarting…"
+                            : `Use current GPS position ${isRtkFixed ? "" : "(waiting for RTK Fix)"}`}
                     </Button>
+                    {gpsRestarting && (
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="GPS container is restarting to apply your NTRIP / serial settings"
+                            description="Wait ~10–30 s for RTK Fix to come back before setting the datum."
+                            style={{ marginTop: 12 }}
+                        />
+                    )}
                     {!isRtkFixed && (
                         <Alert
                             type="warning"
@@ -787,15 +806,37 @@ const OnboardingWizard: React.FC = () => {
     const { colors } = useThemeMode();
     const isMobile = useIsMobile();
     const { values: savedValues, saveValues, loading } = useSettingsSchema();
+    const guiApi = useApi();
     const [currentStep, setCurrentStep] = useState(0);
     const [localValues, setLocalValues] = useState<Record<string, any>>({});
     const [saving, setSaving] = useState(false);
+    const gpsRestart = useContainerRestart({
+        pendingLabel: "Redémarrage GPS…",
+        successMessage: "GPS redémarré — patientez pour le RTK Fix",
+        errorMessage: "Échec du redémarrage GPS",
+        skipReadinessProbe: true,
+    });
+    const gpsRestarting = gpsRestart.pending;
+    // Snapshot of saved GPS-related values at the time the user enters
+    // step 2 — used to detect whether the GPS container needs an auto-
+    // restart when leaving the step.
+    const gpsSnapshotRef = useRef<Record<string, any> | null>(null);
 
     useEffect(() => {
         if (savedValues) {
             setLocalValues(savedValues);
         }
     }, [savedValues]);
+
+    // Snapshot GPS-affecting fields whenever the user enters the GPS step,
+    // so we can compare on Next and decide whether to auto-restart mowgli-gps.
+    useEffect(() => {
+        if (currentStep === 2) {
+            const snap: Record<string, any> = {};
+            for (const k of GPS_RESTART_KEYS) snap[k] = localValues[k];
+            gpsSnapshotRef.current = snap;
+        }
+    }, [currentStep]);
 
     const handleChange = useCallback((key: string, value: any) => {
         setLocalValues((prev) => ({ ...prev, [key]: value }));
@@ -810,8 +851,25 @@ const OnboardingWizard: React.FC = () => {
             await saveValues(localValues);
             setSaving(false);
         }
+        // Leaving the GPS step: if any GPS/NTRIP/serial field actually
+        // changed vs the snapshot taken on entry, bounce the GPS container
+        // so the new config is applied. Without this the user has to know
+        // to click "Restart GPS" before "Set Datum" can ever see RTK Fix.
+        if (currentStep === 2 && gpsSnapshotRef.current) {
+            const snap = gpsSnapshotRef.current;
+            let changed = false;
+            for (const k of GPS_RESTART_KEYS) {
+                if (JSON.stringify(snap[k]) !== JSON.stringify(localValues[k])) {
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) {
+                await gpsRestart.run(() => restartGps(guiApi));
+            }
+        }
         setCurrentStep((s) => Math.min(s + 1, STEP_TITLES.length - 1));
-    }, [currentStep, localValues, saveValues]);
+    }, [currentStep, localValues, saveValues, guiApi, gpsRestart]);
 
     const handlePrev = useCallback(() => {
         setCurrentStep((s) => Math.max(s - 1, 0));
@@ -848,7 +906,7 @@ const OnboardingWizard: React.FC = () => {
             >
                 {currentStep === 0 && <WelcomeStep onNext={handleNext} />}
                 {currentStep === 1 && <RobotModelStep values={localValues} onChange={handleChange} />}
-                {currentStep === 2 && <GpsStep values={localValues} onChange={handleChange} />}
+                {currentStep === 2 && <GpsStep values={localValues} onChange={handleChange} gpsRestarting={gpsRestarting} />}
                 {currentStep === 3 && <SensorStep values={localValues} onChange={handleChange} />}
                 {currentStep === 4 && <ImuYawStep values={localValues} onChange={handleChange} />}
                 {currentStep === 5 && <FirmwareStep onNext={handleNext} />}
@@ -878,9 +936,11 @@ const OnboardingWizard: React.FC = () => {
                             type="primary"
                             icon={currentStep < 4 ? <ArrowRightOutlined /> : <SaveOutlined />}
                             onClick={handleNext}
-                            loading={saving || loading}
+                            loading={saving || loading || gpsRestarting}
                         >
-                            {currentStep < 4 ? "Next" : "Save & Continue"}
+                            {gpsRestarting
+                                ? "Restarting GPS…"
+                                : currentStep < 4 ? "Next" : "Save & Continue"}
                         </Button>
                     </Space>
                 </Col>

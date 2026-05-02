@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "./useApi.ts";
 import { App } from "antd";
+import { dirtyKeysRequireGpsRestart, restartGps } from "../utils/containers.ts";
+import { useContainerRestart } from "./useContainerRestart.ts";
 
 export type SettingsSection =
     | "hardware"
@@ -149,6 +151,13 @@ export const useSettingsManager = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [restartRequired, setRestartRequired] = useState(false);
+    // GPS restart skips the rosbridge readiness probe (ROS2 is unaffected).
+    const gpsRestart = useContainerRestart({
+        pendingLabel: "Redémarrage GPS…",
+        successMessage: "GPS redémarré — patientez ~10–30 s pour le RTK Fix",
+        errorMessage: "Échec du redémarrage GPS",
+        skipReadinessProbe: true,
+    });
     const [searchQuery, setSearchQuery] = useState("");
     const initialLoadDone = useRef(false);
 
@@ -222,14 +231,27 @@ export const useSettingsManager = () => {
     const save = useCallback(async () => {
         try {
             setSaving(true);
+            // Capture which keys were dirty BEFORE we mark them saved, so we
+            // can decide whether GPS needs an auto-restart.
+            const gpsDirty = dirtyKeysRequireGpsRestart(dirtyKeys);
             const res = await guiApi.settings.yamlCreate(localValues);
             if (res.error) throw new Error((res.error as any).error);
             setSavedValues({ ...localValues });
             setRestartRequired(true);
             notification.success({
                 message: "Settings saved",
-                description: "Restart ROS2 to apply changes.",
+                description: gpsDirty
+                    ? "Restarting GPS to apply NTRIP/serial changes. Restart ROS2 to apply other changes."
+                    : "Restart ROS2 to apply changes.",
             });
+            // Auto-restart the GPS container when GPS/NTRIP fields changed —
+            // ROS2 keeps running, the user just sees RTCM stop briefly. This
+            // unblocks the "Set Datum from current GPS" path in onboarding,
+            // which silently fails when the old (un-credentialled) GPS
+            // container is still running.
+            if (gpsDirty) {
+                await gpsRestart.run(() => restartGps(guiApi));
+            }
         } catch (e: any) {
             notification.error({
                 message: "Failed to save settings",
@@ -238,7 +260,7 @@ export const useSettingsManager = () => {
         } finally {
             setSaving(false);
         }
-    }, [localValues, guiApi, notification]);
+    }, [localValues, dirtyKeys, guiApi, notification, gpsRestart]);
 
     const revert = useCallback(() => {
         setLocalValues({ ...savedValues });
@@ -288,6 +310,7 @@ export const useSettingsManager = () => {
         savedValues,
         loading,
         saving,
+        gpsRestarting: gpsRestart.pending,
         isDirty,
         dirtyKeys,
         restartRequired,
