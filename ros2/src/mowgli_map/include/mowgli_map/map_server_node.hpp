@@ -155,6 +155,18 @@ public:
                                 bool& out_is_long_transit,
                                 bool& out_coverage_complete) const;
 
+  /// Test-only: directly invoke the add_area service handler.
+  void add_area_for_test(const mowgli_interfaces::srv::AddMowingArea::Request::SharedPtr req,
+                         mowgli_interfaces::srv::AddMowingArea::Response::SharedPtr res);
+
+  /// Test-only: directly invoke get_mowing_area service handler.
+  void get_mowing_area_for_test(const mowgli_interfaces::srv::GetMowingArea::Request::SharedPtr req,
+                                mowgli_interfaces::srv::GetMowingArea::Response::SharedPtr res);
+
+  /// Test-only: round-trip persistence through save/load_areas_to_file.
+  void save_areas_for_test(const std::string& path);
+  void load_areas_for_test(const std::string& path);
+
 private:
   // ── ROS callbacks ────────────────────────────────────────────────────────
 

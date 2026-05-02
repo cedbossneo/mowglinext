@@ -41,6 +41,10 @@ find_package(visualization_msgs REQUIRED)
 
 add_library(mowgli_map_lib STATIC
   src/map_server_node.cpp
+  src/area_manager.cpp
+  src/coverage_planner.cpp
+  src/costmap_filters.cpp
+  src/progress_tracker.cpp
 )
 
 target_include_directories(mowgli_map_lib PUBLIC

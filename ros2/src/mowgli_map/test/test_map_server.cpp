@@ -29,6 +29,8 @@
 #include "mowgli_map/map_server_node.hpp"
 #include "mowgli_map/map_types.hpp"
 #include <gtest/gtest.h>
+#include <mowgli_interfaces/srv/add_mowing_area.hpp>
+#include <mowgli_interfaces/srv/get_mowing_area.hpp>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test fixture — creates a MapServerNode with a small 10×10 m map
@@ -1365,6 +1367,145 @@ TEST_F(CoverageCellScenarioTest, CoverageCompleteIgnoresDeadCells)
   auto o = select(-1.0, -1.0);
   EXPECT_TRUE(o.ok);
   EXPECT_TRUE(o.coverage_complete);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Area type classification tests — regression for "navigation zone saved as
+// mowing zone". The bug: the GUI sends the right type/message but the area
+// landed in the mowing list. These tests pin the AddMowingArea contract end-to-
+// end: outer `is_navigation_area` flag is preserved into the AreaEntry, exposed
+// via GetMowingArea, AND survives a save/load round trip through areas.dat.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class AreaTypeTest : public ::testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    rclcpp::NodeOptions opts;
+    opts.append_parameter_override("resolution", 0.1);
+    opts.append_parameter_override("map_size_x", 10.0);
+    opts.append_parameter_override("map_size_y", 10.0);
+    opts.append_parameter_override("map_frame", "map");
+    opts.append_parameter_override("decay_rate_per_hour", 0.0);
+    opts.append_parameter_override("mower_width", 0.2);
+    opts.append_parameter_override("map_file_path", "");
+    opts.append_parameter_override("areas_file_path", "");
+    opts.append_parameter_override("publish_rate", 1.0);
+    node_ = std::make_shared<mowgli_map::MapServerNode>(opts);
+  }
+
+  void TearDown() override
+  {
+    node_.reset();
+  }
+
+  static geometry_msgs::msg::Polygon make_rect(double x0, double y0, double x1, double y1)
+  {
+    geometry_msgs::msg::Polygon p;
+    auto add = [&](double x, double y)
+    {
+      geometry_msgs::msg::Point32 pt;
+      pt.x = static_cast<float>(x);
+      pt.y = static_cast<float>(y);
+      pt.z = 0.0F;
+      p.points.push_back(pt);
+    };
+    add(x0, y0);
+    add(x1, y0);
+    add(x1, y1);
+    add(x0, y1);
+    return p;
+  }
+
+  bool add_area(const std::string& name,
+                const geometry_msgs::msg::Polygon& poly,
+                bool is_navigation)
+  {
+    auto req = std::make_shared<mowgli_interfaces::srv::AddMowingArea::Request>();
+    req->area.name = name;
+    req->area.area = poly;
+    req->is_navigation_area = is_navigation;
+    auto res = std::make_shared<mowgli_interfaces::srv::AddMowingArea::Response>();
+    node_->add_area_for_test(req, res);
+    return res->success;
+  }
+
+  std::shared_ptr<mowgli_map::MapServerNode> node_;
+};
+
+TEST_F(AreaTypeTest, NavigationAreaIsNotStoredAsMowing)
+{
+  ASSERT_TRUE(add_area("nav_corridor", make_rect(-2, -2, 2, 2), /*is_navigation=*/true));
+
+  auto req = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+  req->index = 0;
+  auto res = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Response>();
+  node_->get_mowing_area_for_test(req, res);
+
+  ASSERT_TRUE(res->success);
+  EXPECT_EQ(res->area.name, "nav_corridor");
+  EXPECT_TRUE(res->area.is_navigation_area) << "navigation area was misclassified as a mowing area";
+}
+
+TEST_F(AreaTypeTest, MowingAndNavigationAreasArePreservedSideBySide)
+{
+  ASSERT_TRUE(add_area("mow_lawn", make_rect(-3, -3, 0, 0), /*is_navigation=*/false));
+  ASSERT_TRUE(add_area("nav_corridor", make_rect(0, 0, 3, 3), /*is_navigation=*/true));
+
+  // Index 0 — mowing
+  {
+    auto req = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+    req->index = 0;
+    auto res = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Response>();
+    node_->get_mowing_area_for_test(req, res);
+    ASSERT_TRUE(res->success);
+    EXPECT_EQ(res->area.name, "mow_lawn");
+    EXPECT_FALSE(res->area.is_navigation_area);
+  }
+  // Index 1 — navigation
+  {
+    auto req = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+    req->index = 1;
+    auto res = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Response>();
+    node_->get_mowing_area_for_test(req, res);
+    ASSERT_TRUE(res->success);
+    EXPECT_EQ(res->area.name, "nav_corridor");
+    EXPECT_TRUE(res->area.is_navigation_area);
+  }
+}
+
+TEST_F(AreaTypeTest, NavigationAreaSurvivesSaveLoadRoundTrip)
+{
+  ASSERT_TRUE(add_area("mow_lawn", make_rect(-3, -3, 0, 0), /*is_navigation=*/false));
+  ASSERT_TRUE(add_area("nav_corridor", make_rect(0, 0, 3, 3), /*is_navigation=*/true));
+
+  // Persist to a temp file, then reload from disk into a fresh node.
+  const std::string tmp_path =
+      std::string(std::getenv("TEST_TMPDIR") ? std::getenv("TEST_TMPDIR") : "/tmp") +
+      "/mowgli_areas_roundtrip.dat";
+  node_->save_areas_for_test(tmp_path);
+
+  // Reload into the same node — clears in-memory areas first.
+  node_->load_areas_for_test(tmp_path);
+
+  auto req0 = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+  req0->index = 0;
+  auto res0 = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Response>();
+  node_->get_mowing_area_for_test(req0, res0);
+  ASSERT_TRUE(res0->success);
+  EXPECT_EQ(res0->area.name, "mow_lawn");
+  EXPECT_FALSE(res0->area.is_navigation_area);
+
+  auto req1 = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Request>();
+  req1->index = 1;
+  auto res1 = std::make_shared<mowgli_interfaces::srv::GetMowingArea::Response>();
+  node_->get_mowing_area_for_test(req1, res1);
+  ASSERT_TRUE(res1->success);
+  EXPECT_EQ(res1->area.name, "nav_corridor");
+  EXPECT_TRUE(res1->area.is_navigation_area) << "navigation flag lost across save/load round trip";
+
+  std::remove(tmp_path.c_str());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
