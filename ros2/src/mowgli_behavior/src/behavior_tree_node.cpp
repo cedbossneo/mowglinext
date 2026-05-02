@@ -379,16 +379,14 @@ private:
     // BatterySection. Pushed onto the blackboard so the BT XML can pull
     // them with {key} substitution instead of carrying hardcoded values.
     const double battery_low_pct = declare_parameter<double>("battery_low_percent", 20.0);
-    const double battery_critical_pct =
-        declare_parameter<double>("battery_critical_percent", 10.0);
+    const double battery_critical_pct = declare_parameter<double>("battery_critical_percent", 10.0);
     const double battery_full_pct = declare_parameter<double>("battery_full_percent", 95.0);
     const double battery_critical_voltage =
         declare_parameter<double>("battery_critical_voltage", 0.0);
     blackboard_->set("battery_low_pct", static_cast<float>(battery_low_pct));
     blackboard_->set("battery_critical_pct", static_cast<float>(battery_critical_pct));
     blackboard_->set("battery_full_pct", static_cast<float>(battery_full_pct));
-    blackboard_->set("battery_critical_voltage",
-                     static_cast<float>(battery_critical_voltage));
+    blackboard_->set("battery_critical_voltage", static_cast<float>(battery_critical_voltage));
 
     tree_ = factory_.createTreeFromFile(tree_file, blackboard_);
 

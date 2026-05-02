@@ -93,7 +93,8 @@ public:
   {
     return {
         BT::InputPort<float>("threshold", 22.0f, "Low-battery percent threshold"),
-        BT::InputPort<float>("voltage_threshold", 0.0f,
+        BT::InputPort<float>("voltage_threshold",
+                             0.0f,
                              "Low-battery voltage threshold (0 = disabled)"),
     };
   }

@@ -245,10 +245,8 @@ BT::NodeStatus IsNewRain::tick()
   {
     return BT::NodeStatus::SUCCESS;
   }
-  const double elapsed =
-      std::chrono::duration<double>(now - ctx->rain_first_detected_time).count();
-  return (elapsed >= rain_debounce_sec) ? BT::NodeStatus::SUCCESS
-                                        : BT::NodeStatus::FAILURE;
+  const double elapsed = std::chrono::duration<double>(now - ctx->rain_first_detected_time).count();
+  return (elapsed >= rain_debounce_sec) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
 
 // ---------------------------------------------------------------------------
