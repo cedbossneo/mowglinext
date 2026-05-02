@@ -792,6 +792,11 @@ bool MapServerNode::find_next_segment(size_t area_index,
     if (t == CellType::OBSTACLE_PERMANENT || t == CellType::OBSTACLE_TEMPORARY ||
         t == CellType::NO_GO_ZONE || t == CellType::LAWN_DEAD)
       return false;
+    // Live Nav2 costmap — catches obstacles that haven't been promoted to
+    // a CellType::OBSTACLE_* yet (e.g. anything obstacle_tracker hasn't
+    // persisted). Reads /scan markings directly via the global costmap.
+    if (is_costmap_blocked(x, y))
+      return false;
     return prog(idx(0), idx(1)) < 0.3f;
   };
 
@@ -830,6 +835,14 @@ bool MapServerNode::find_next_segment(size_t area_index,
     if (t == CellType::LAWN_DEAD)
     {
       reason = "dead_zone";
+      return true;
+    }
+    // Live Nav2 costmap obstacle (LiDAR /scan), independent of the
+    // obstacle_tracker promotion path which is reserved for user-validated
+    // persistent obstacles.
+    if (is_costmap_blocked(x, y))
+    {
+      reason = "costmap";
       return true;
     }
     return false;

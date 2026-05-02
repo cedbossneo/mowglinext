@@ -161,6 +161,20 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
                                                      on_odom(std::move(msg));
                                                    });
 
+  // Live obstacle source for the cell-segment walker. The global costmap
+  // already merges /scan markings via Nav2's obstacle_layer + inflation,
+  // and shares the map frame, so we can sample it directly without TF.
+  // obstacle_tracker remains the path for user-validated persistent
+  // obstacles (separate concern: review/approve + survive restarts).
+  const auto costmap_topic =
+      declare_parameter<std::string>("costmap_topic", "/global_costmap/costmap");
+  costmap_obstacle_threshold_ = declare_parameter<int>("costmap_obstacle_threshold", 80);
+  costmap_max_age_s_ = declare_parameter<double>("costmap_max_age_s", 2.0);
+  costmap_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+      costmap_topic,
+      rclcpp::QoS(1).reliable(),
+      [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg) { on_costmap(std::move(msg)); });
+
   // ── Services ─────────────────────────────────────────────────────────────
   save_map_srv_ = create_service<std_srvs::srv::Trigger>(
       "~/save_map",
@@ -502,6 +516,51 @@ void MapServerNode::on_obstacles(mowgli_interfaces::msg::ObstacleArray::ConstSha
 {
   std::lock_guard<std::mutex> lock(map_mutex_);
   diff_and_update_obstacles(msg->obstacles);
+}
+
+void MapServerNode::on_costmap(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(costmap_mutex_);
+  latest_costmap_ = std::move(msg);
+}
+
+bool MapServerNode::is_costmap_blocked(double x, double y) const
+{
+  nav_msgs::msg::OccupancyGrid::ConstSharedPtr cm;
+  {
+    std::lock_guard<std::mutex> lock(costmap_mutex_);
+    cm = latest_costmap_;
+  }
+  if (!cm)
+    return false;  // no costmap yet — fall back to classification only
+
+  // Reject stale costmaps so we don't act on data from a dead producer.
+  const auto now_t = now();
+  const rclcpp::Time stamp(cm->header.stamp);
+  if (now_t.nanoseconds() > 0 && stamp.nanoseconds() > 0)
+  {
+    const double age_s = (now_t - stamp).seconds();
+    if (age_s > costmap_max_age_s_)
+      return false;
+  }
+
+  const auto& info = cm->info;
+  if (info.resolution <= 0.0F || info.width == 0U || info.height == 0U)
+    return false;
+
+  const double dx = x - info.origin.position.x;
+  const double dy = y - info.origin.position.y;
+  if (dx < 0.0 || dy < 0.0)
+    return false;
+  const auto col = static_cast<uint32_t>(dx / info.resolution);
+  const auto row = static_cast<uint32_t>(dy / info.resolution);
+  if (col >= info.width || row >= info.height)
+    return false;
+
+  const int8_t v = cm->data[static_cast<std::size_t>(row) * info.width + col];
+  if (v < 0)
+    return false;  // unknown
+  return static_cast<int>(v) >= costmap_obstacle_threshold_;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

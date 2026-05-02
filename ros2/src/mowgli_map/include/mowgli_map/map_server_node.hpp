@@ -173,6 +173,17 @@ private:
   /// Convert incoming nav_msgs/OccupancyGrid to the occupancy layer.
   void on_occupancy_grid(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg);
 
+  /// Cache the latest Nav2 costmap (used by the cell-segment walker as a
+  /// live obstacle source — independent of the slower obstacle_tracker
+  /// pipeline, which is reserved for user-validated persistent obstacles).
+  void on_costmap(nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg);
+
+  /// True when the cached Nav2 costmap reports the world point (x, y) as
+  /// occupied (cell value ≥ costmap_obstacle_threshold_, or inflated
+  /// LETHAL after Nav2 conversion). Returns false if no costmap has been
+  /// received yet, so callers fall back to the classification layer alone.
+  bool is_costmap_blocked(double x, double y) const;
+
   /// Update mow blade state from mower status.
   void on_mower_status(mowgli_interfaces::msg::Status::ConstSharedPtr msg);
 
@@ -562,6 +573,24 @@ private:
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr status_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::ObstacleArray>::SharedPtr obstacle_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_sub_;
+
+  /// Latest Nav2 costmap (global by default — same frame as map_), guarded
+  /// by `costmap_mutex_`. Read on every cell-walker step via
+  /// `is_costmap_blocked`. Independent from `map_` so the costmap callback
+  /// doesn't contend with the publish timer / segment service.
+  mutable std::mutex costmap_mutex_;
+  nav_msgs::msg::OccupancyGrid::ConstSharedPtr latest_costmap_;
+
+  /// OccupancyGrid value (0–100) at which a costmap cell is considered an
+  /// obstacle by the cell walker. 80 maps to Nav2 inflated/lethal cost
+  /// (raw cost ≥ 200 after the standard OccupancyGrid conversion).
+  int costmap_obstacle_threshold_{80};
+
+  /// Maximum age of the cached costmap before `is_costmap_blocked` falls
+  /// back to "unknown" (returns false). Guards against acting on a stale
+  /// costmap if the producer dies.
+  double costmap_max_age_s_{2.0};
 
   // ── Services ──────────────────────────────────────────────────────────────
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr save_map_srv_;
