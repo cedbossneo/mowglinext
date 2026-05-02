@@ -177,6 +177,10 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             behavior_params,
             {"use_sim_time": use_sim_time},
+            # Operator-tunable BT knobs sourced from mowgli_robot.yaml
+            # so they appear on the GUI Settings page.
+            {"tick_rate": float(robot_params.get("tick_rate", 10.0))},
+            {"bt_debug_logging": bool(robot_params.get("bt_debug_logging", False))},
         ],
     )
 

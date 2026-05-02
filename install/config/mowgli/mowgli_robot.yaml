@@ -142,3 +142,42 @@ mowgli:
         rain_debounce_sec: 10
         rain_delay_minutes: 30
         rain_mode: 2
+
+        # ── Behavior Tree tuning ────────────────────────────────────
+        # tick_rate: BT tick frequency (Hz). 10 Hz is the default.
+        # bt_debug_logging: emit verbose BT node-tick traces.
+        tick_rate: 10.0
+        bt_debug_logging: false
+
+        # ── IMU calibration (hardware_bridge_node) ──────────────────
+        # Calibration is auto-triggered on dock arrival. These knobs
+        # tune how it samples and persists across container restarts.
+        # imu_cal_samples: number of stationary IMU samples to average
+        # imu_cal_persist_path: where the calibration is stored
+        # imu_cal_auto_rest_sec: stationary detection window before cal
+        # imu_cal_periodic_recal_sec: refresh cal every N s while docked
+        imu_cal_samples: 200
+        imu_cal_persist_path: /ros2_ws/maps/imu_calibration.txt
+        imu_cal_auto_rest_sec: 15.0
+        imu_cal_periodic_recal_sec: 600.0
+
+        # ── Magnetometer fusion (cog_to_imu + mag_yaw_publisher) ────
+        # Default OFF on stock chassis: motor field induces heading-
+        # dependent bias static cal cannot remove. Enable only on a
+        # motor-isolated mag mount.
+        # enable_mag_cal: collect mag samples while RTK-Fixed
+        # mag_calibration_path: persisted hard-iron / soft-iron file
+        # declination_deg: local magnetic declination (France ≈ 1.5°)
+        # min_horizontal_uT: minimum horizontal field for valid yaw
+        # mag_yaw_variance: published yaw covariance (rad²)
+        enable_mag_cal: false
+        mag_calibration_path: /ros2_ws/maps/mag_calibration.yaml
+        declination_deg: 1.5
+        min_horizontal_uT: 5.0
+        mag_yaw_variance: 0.0027
+
+        # ── Dock seeding (dock_yaw_to_set_pose) ─────────────────────
+        # dock_pose_yaw_sigma_rad: noise on the yaw observation when
+        # the EKF is seeded with the dock heading on charge rising
+        # edge. Lower = trust the dock heading more strongly.
+        dock_pose_yaw_sigma_rad: 0.035

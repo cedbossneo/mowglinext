@@ -257,6 +257,15 @@ def generate_launch_description() -> LaunchDescription:
     yaw_goal_tolerance = 0.5
     coverage_xy_tolerance = 0.5
     progress_timeout_sec = 300.0
+    # Phantom-tuning knobs surfaced through mowgli_robot.yaml so the GUI
+    # can edit them without an SSH session. Defaults match the C++ node
+    # defaults; override on the Settings page.
+    dock_pose_yaw_sigma_rad = 0.035
+    enable_mag_cal = False
+    mag_cal_path = "/ros2_ws/maps/mag_calibration.yaml"
+    declination_deg = 1.5
+    min_horizontal_uT = 5.0
+    mag_yaw_variance = 0.0027
     runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
     if os.path.isfile(runtime_robot_config):
         with open(runtime_robot_config, "r") as f:
@@ -277,6 +286,13 @@ def generate_launch_description() -> LaunchDescription:
             rt_rp.get("coverage_xy_tolerance", coverage_xy_tolerance))
         progress_timeout_sec = float(
             rt_rp.get("progress_timeout_sec", progress_timeout_sec))
+        dock_pose_yaw_sigma_rad = float(rt_rp.get(
+            "dock_pose_yaw_sigma_rad", dock_pose_yaw_sigma_rad))
+        enable_mag_cal = bool(rt_rp.get("enable_mag_cal", enable_mag_cal))
+        mag_cal_path = str(rt_rp.get("mag_calibration_path", mag_cal_path))
+        declination_deg = float(rt_rp.get("declination_deg", declination_deg))
+        min_horizontal_uT = float(rt_rp.get("min_horizontal_uT", min_horizontal_uT))
+        mag_yaw_variance = float(rt_rp.get("mag_yaw_variance", mag_yaw_variance))
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -542,7 +558,8 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             {"use_sim_time": use_sim_time,
-             "dock_pose_yaw": dock_pose_yaw},
+             "dock_pose_yaw": dock_pose_yaw,
+             "dock_pose_yaw_sigma_rad": dock_pose_yaw_sigma_rad},
         ],
     )
 
@@ -559,7 +576,9 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {"use_sim_time": use_sim_time,
              "datum_lat": datum_lat,
-             "datum_lon": datum_lon},
+             "datum_lon": datum_lon,
+             "enable_mag_cal": enable_mag_cal,
+             "mag_calibration_path": mag_cal_path},
         ],
     )
 
@@ -581,7 +600,11 @@ def generate_launch_description() -> LaunchDescription:
         name="mag_yaw_publisher",
         output="screen",
         parameters=[
-            {"use_sim_time": use_sim_time},
+            {"use_sim_time": use_sim_time,
+             "calibration_path": mag_cal_path,
+             "declination_deg": declination_deg,
+             "min_horizontal_uT": min_horizontal_uT,
+             "yaw_variance": mag_yaw_variance},
         ],
     )
 

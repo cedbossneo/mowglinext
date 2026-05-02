@@ -42,6 +42,22 @@ mowgli:
     # firmware/stm32/ros_usbnode/include/board.h — the firmware sends
     # raw ticks, the bridge does the scaling.
     ticks_per_meter: 300.0
+    # Behavior tree tuning (consumed by behavior_tree_node)
+    tick_rate: 10.0
+    bt_debug_logging: false
+    # IMU calibration (consumed by hardware_bridge_node — auto-triggered on dock)
+    imu_cal_samples: 200
+    imu_cal_persist_path: /ros2_ws/maps/imu_calibration.txt
+    imu_cal_auto_rest_sec: 15.0
+    imu_cal_periodic_recal_sec: 600.0
+    # Magnetometer fusion (consumed by cog_to_imu_node + mag_yaw_publisher_node)
+    enable_mag_cal: false
+    mag_calibration_path: /ros2_ws/maps/mag_calibration.yaml
+    declination_deg: 1.5
+    min_horizontal_uT: 5.0
+    mag_yaw_variance: 0.0027
+    # Dock seeding (consumed by dock_yaw_to_set_pose)
+    dock_pose_yaw_sigma_rad: 0.035
     # Informational only — circumference 2π·0.04475 = 0.281 m, so
     # 300 ticks/m × 0.281 m/rev ≈ 84 ticks per revolution. Kept as a
     # cross-check for future wheel-size changes.

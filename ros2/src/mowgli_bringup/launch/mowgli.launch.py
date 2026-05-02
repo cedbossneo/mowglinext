@@ -203,6 +203,18 @@ def generate_launch_description() -> LaunchDescription:
             # YAML and the URDF (also from the firmware's TICKS_PER_M).
             {"wheel_track": float(robot_params.get("wheel_track", 0.325))},
             {"ticks_per_meter": float(robot_params.get("ticks_per_meter", 300.0))},
+            # IMU calibration tuning (operator-tunable via the GUI).
+            {"imu_cal_samples": int(robot_params.get("imu_cal_samples", 200))},
+            {"imu_cal_persist_path": str(robot_params.get(
+                "imu_cal_persist_path", "/ros2_ws/maps/imu_calibration.txt"))},
+            {"imu_cal_auto_rest_sec": float(robot_params.get(
+                "imu_cal_auto_rest_sec", 15.0))},
+            {"imu_cal_periodic_recal_sec": float(robot_params.get(
+                "imu_cal_periodic_recal_sec", 600.0))},
+            # Lift / blade safety tuning.
+            {"lift_recovery_mode": bool(robot_params.get("lift_recovery_mode", False))},
+            {"lift_blade_resume_delay_sec": float(robot_params.get(
+                "lift_blade_resume_delay_sec", 1.0))},
         ],
         # The node publishes on ~/topic (e.g. /hardware_bridge/wheel_odom).
         # behavior_tree_node subscribes to /hardware_bridge/status etc.
