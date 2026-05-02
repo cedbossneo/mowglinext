@@ -57,6 +57,35 @@ def generate_launch_description() -> LaunchDescription:
     monitoring_dir = get_package_share_directory("mowgli_monitoring")
 
     # ------------------------------------------------------------------
+    # Pre-read mowgli_robot.yaml for launch-arg defaults so operator
+    # toggles set in the runtime config (or via the GUI) take effect
+    # without having to also touch .env / compose. CLI/compose override
+    # (use_lidar:=false) still wins because DeclareLaunchArgument applies
+    # its default only when no value is passed.
+    # ------------------------------------------------------------------
+    _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
+    _early_use_lidar = "true"
+    if os.path.isfile(_runtime_cfg_path):
+        try:
+            with open(_runtime_cfg_path, "r") as _f:
+                _cfg = yaml.safe_load(_f) or {}
+            _rp = _cfg.get("mowgli", {}).get("ros__parameters", {})
+            if "use_lidar" in _rp:
+                _early_use_lidar = "true" if bool(_rp["use_lidar"]) else "false"
+            elif "lidar_enabled" in _rp:
+                _early_use_lidar = "true" if bool(_rp["lidar_enabled"]) else "false"
+        except yaml.YAMLError:
+            pass
+
+    # LIDAR_ENABLED env var overrides the yaml (back-compat with the
+    # installer's .env workflow).
+    _env_lidar = os.environ.get("LIDAR_ENABLED", "").strip().lower()
+    if _env_lidar in ("false", "0", "no"):
+        _early_use_lidar = "false"
+    elif _env_lidar in ("true", "1", "yes"):
+        _early_use_lidar = "true"
+
+    # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
     use_sim_time_arg = DeclareLaunchArgument(
@@ -91,8 +120,8 @@ def generate_launch_description() -> LaunchDescription:
 
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
-        default_value="true",
-        description="Enable LiDAR-dependent nodes (fusion_graph scan-matching, obstacle layer, collision monitor scan). Set to false for GPS-only operation without a LiDAR.",
+        default_value=_early_use_lidar,
+        description="Enable LiDAR-dependent nodes (fusion_graph scan-matching, obstacle layer, collision monitor scan). Default read from mowgli_robot.yaml.use_lidar (or .lidar_enabled); CLI/compose override wins. Set to false for GPS-only operation without a LiDAR.",
     )
 
     use_obstacle_tracker_arg = DeclareLaunchArgument(

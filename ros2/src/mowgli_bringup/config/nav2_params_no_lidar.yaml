@@ -41,6 +41,10 @@ controller_server:
     # the full rationale — needed to close the control loop faster than
     # the 300-400 ms perception-to-action latency.
     controller_frequency: 10.0
+    # Without LiDAR, costmaps tick slower (no obstacle observations driving
+    # updates) so default 1.0s timeout races with the 1-2 Hz costmap update
+    # cycle and surfaces as "Costmap timed out waiting for update" error 207.
+    costmap_update_timeout: 5.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.001
@@ -128,6 +132,10 @@ controller_server:
 planner_server:
   ros__parameters:
     use_sim_time: false
+    # See controller_server for rationale — costmap_update_timeout default
+    # (1.0s) races with the slow costmap update rate when no LiDAR is
+    # driving obstacle layer ticks, causing repeated planning failures.
+    costmap_update_timeout: 5.0
     planner_plugins: ["GridBased"]
 
     GridBased:
@@ -212,8 +220,11 @@ global_costmap:
   global_costmap:
     ros__parameters:
       use_sim_time: false
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      # 2 Hz to match the lidar config — at 1 Hz the planner_server
+      # timeout (even with the 5s override) sees stale costmaps too often
+      # and repeatedly fails to plan. Cheap with no obstacle layer.
+      update_frequency: 2.0
+      publish_frequency: 2.0
       global_frame: map
       robot_base_frame: base_footprint
       transform_tolerance: 5.0
@@ -246,7 +257,10 @@ local_costmap:
   local_costmap:
     ros__parameters:
       use_sim_time: false
-      update_frequency: 5.0
+      # 10 Hz to match the lidar config so update_frequency stays above
+      # controller_frequency (10 Hz) and the costmap is always fresh when
+      # the controller ticks.
+      update_frequency: 10.0
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_footprint

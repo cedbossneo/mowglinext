@@ -74,6 +74,7 @@ def generate_launch_description() -> LaunchDescription:
     # default only when no CLI value is set.
     # ------------------------------------------------------------------
     _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
+    _early_use_lidar = "true"
     _early_use_fusion_graph = "false"
     _early_use_magnetometer = "false"
     _early_use_scan_matching = "false"
@@ -83,6 +84,12 @@ def generate_launch_description() -> LaunchDescription:
             with open(_runtime_cfg_path, "r") as _f:
                 _cfg = yaml.safe_load(_f) or {}
             _rp = _cfg.get("mowgli", {}).get("ros__parameters", {})
+            # use_lidar accepts either key for back-compat with installs
+            # that wrote the env-style name into mowgli_robot.yaml.
+            if "use_lidar" in _rp:
+                _early_use_lidar = "true" if bool(_rp["use_lidar"]) else "false"
+            elif "lidar_enabled" in _rp:
+                _early_use_lidar = "true" if bool(_rp["lidar_enabled"]) else "false"
             _early_use_fusion_graph = "true" if bool(
                 _rp.get("use_fusion_graph", False)) else "false"
             _early_use_magnetometer = "true" if bool(
@@ -93,6 +100,16 @@ def generate_launch_description() -> LaunchDescription:
                 _rp.get("use_loop_closure", False)) else "false"
         except yaml.YAMLError:
             pass
+
+    # LIDAR_ENABLED env var overrides the yaml (back-compat with the
+    # installer's .env workflow). Recognised values for "off": false,
+    # 0, no. Anything else (including unset) keeps the yaml-derived
+    # default.
+    _env_lidar = os.environ.get("LIDAR_ENABLED", "").strip().lower()
+    if _env_lidar in ("false", "0", "no"):
+        _early_use_lidar = "false"
+    elif _env_lidar in ("true", "1", "yes"):
+        _early_use_lidar = "true"
 
     # ------------------------------------------------------------------
     # Auto-graduation rule for fusion_graph
@@ -141,8 +158,8 @@ def generate_launch_description() -> LaunchDescription:
 
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
-        default_value="true",
-        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through).",
+        default_value=_early_use_lidar,
+        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Default read from mowgli_robot.yaml.use_lidar (or .lidar_enabled); CLI/compose override wins.",
     )
 
     use_fusion_graph_arg = DeclareLaunchArgument(
