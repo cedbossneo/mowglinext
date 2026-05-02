@@ -184,7 +184,10 @@ interactive_config() {
   step "5/6  Mower configuration"
 
   local yaml_file="$DOCKER_DIR/config/mowgli/mowgli_robot.yaml"
-  local defaults="$REPO_DIR/docker/config"
+  # Defaults live in install/config/ (versioned templates). The runtime
+  # copies under docker/config/ are git-ignored so user edits survive
+  # `git pull` and the installer's `git reset --hard`.
+  local defaults="$INSTALL_DIR/config"
   mkdir -p "$DOCKER_DIR/config/mowgli"
   mkdir -p "$DOCKER_DIR/config/om"
   mkdir -p "$DOCKER_DIR/config/mqtt"

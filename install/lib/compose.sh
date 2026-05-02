@@ -12,7 +12,10 @@ FINAL_COMPOSE_FILE="${FINAL_COMPOSE_FILE:-$DOCKER_DIR/docker-compose.yaml}"
 FINAL_ENV_FILE="${FINAL_ENV_FILE:-$DOCKER_DIR/.env}"
 
 ensure_default_configs() {
-  local defaults="$REPO_DIR/docker/config"
+  # Defaults live in install/config/ (versioned templates). The runtime
+  # copies under docker/config/ are git-ignored so user edits survive
+  # `git pull` and the installer's `git reset --hard`.
+  local defaults="$INSTALL_DIR/config"
 
   if [ ! -d "$defaults" ]; then
     warn "Defaults config directory missing: $defaults"
