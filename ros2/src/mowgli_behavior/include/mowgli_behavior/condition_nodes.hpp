@@ -72,10 +72,15 @@ public:
 // IsBatteryLow
 // ---------------------------------------------------------------------------
 
-/// Returns SUCCESS when battery_percent falls below the given threshold.
+/// Returns SUCCESS when battery_percent falls below the given percent
+/// threshold OR (when voltage_threshold > 0) when the raw battery voltage
+/// falls below that voltage threshold. Either condition is sufficient —
+/// voltage trips first on a sagging pack even if percent is still nominal.
 ///
 /// Input ports:
-///   threshold (float, default "22.0") – low-battery warning level in percent.
+///   threshold (float, default "22.0") – low-battery threshold in percent.
+///   voltage_threshold (float, default "0.0") – low-battery threshold in
+///     volts. 0 disables the voltage check (percent only).
 class IsBatteryLow : public BT::ConditionNode
 {
 public:
@@ -86,7 +91,11 @@ public:
 
   static BT::PortsList providedPorts()
   {
-    return {BT::InputPort<float>("threshold", 22.0f, "Low-battery threshold in percent")};
+    return {
+        BT::InputPort<float>("threshold", 22.0f, "Low-battery percent threshold"),
+        BT::InputPort<float>("voltage_threshold", 0.0f,
+                             "Low-battery voltage threshold (0 = disabled)"),
+    };
   }
 
   BT::NodeStatus tick() override;
@@ -281,7 +290,10 @@ public:
 // ---------------------------------------------------------------------------
 
 /// Returns SUCCESS when rain is currently detected AND it was NOT raining
-/// when mowing started (i.e., rain is new since mow start).
+/// when mowing started (i.e., rain is new since mow start) AND rain has
+/// been continuous for at least rain_debounce_sec (read from blackboard,
+/// 0 disables debounce). Returns FAILURE unconditionally when rain_mode
+/// is 0 (rain handling disabled).
 class IsNewRain : public BT::ConditionNode
 {
 public:
@@ -292,6 +304,33 @@ public:
   static BT::PortsList providedPorts()
   {
     return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
+// IsRainModeAtLeast
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when the configured rain_mode (read from blackboard) is
+/// at least the requested level.
+///
+/// Modes: 0 = off, 1 = pause-in-place, 2 = dock-and-pause.
+///
+/// Input ports:
+///   mode (int) – minimum rain_mode level required for SUCCESS.
+class IsRainModeAtLeast : public BT::ConditionNode
+{
+public:
+  IsRainModeAtLeast(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {BT::InputPort<int>("mode", "Minimum rain_mode level (0/1/2)")};
   }
 
   BT::NodeStatus tick() override;

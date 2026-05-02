@@ -128,6 +128,11 @@ struct BTContext
   /// Set by WasRainingAtStart, checked by IsNewRain.
   bool raining_at_mow_start{false};
 
+  /// First time we observed continuous rain since the last dry sample.
+  /// Used by IsNewRain to debounce short rain pulses (rain_debounce_sec).
+  /// Default-constructed time_point flags "no rain currently observed".
+  std::chrono::steady_clock::time_point rain_first_detected_time{};
+
   // -----------------------------------------------------------------------
   // Session-level counters (reset at mowing session start)
   // -----------------------------------------------------------------------

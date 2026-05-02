@@ -349,9 +349,23 @@ private:
     blackboard_->set("dock_pose", dock_pose);
     blackboard_->set("undock_pose", undock_pose);
 
-    // Rain delay: parameter in minutes, blackboard in seconds
+    // Rain delay: parameter in minutes, blackboard in seconds.
     const double rain_delay_minutes = declare_parameter<double>("rain_delay_minutes", 30.0);
     blackboard_->set("rain_delay_sec", rain_delay_minutes * 60.0);
+
+    // Rain handling mode: 0 = off, 1 = pause-in-place, 2 = dock-and-pause.
+    // Read by IsNewRain (mode 0 short-circuits to FAILURE) and
+    // IsRainModeAtLeast (gates the dock branch in the BT XML so mode 1
+    // skips the round trip to the dock).
+    const int rain_mode = static_cast<int>(declare_parameter<int>("rain_mode", 2));
+    blackboard_->set("rain_mode", rain_mode);
+
+    // Rain debounce window: rain must be detected continuously for this
+    // many seconds before IsNewRain trips. Filters short pulses (a leaf
+    // brushing the sensor, a single drop) that would otherwise abort
+    // mowing. 0 disables debounce (legacy behaviour).
+    const double rain_debounce_sec = declare_parameter<double>("rain_debounce_sec", 0.0);
+    blackboard_->set("rain_debounce_sec", rain_debounce_sec);
 
     declare_parameter<double>("tick_rate", 10.0);
 
@@ -360,6 +374,21 @@ private:
         static_cast<float>(declare_parameter<double>("battery_full_voltage", 28.5));
     battery_empty_voltage_ =
         static_cast<float>(declare_parameter<double>("battery_empty_voltage", 24.0));
+
+    // Battery percent thresholds — operator-facing knobs from the GUI's
+    // BatterySection. Pushed onto the blackboard so the BT XML can pull
+    // them with {key} substitution instead of carrying hardcoded values.
+    const double battery_low_pct = declare_parameter<double>("battery_low_percent", 20.0);
+    const double battery_critical_pct =
+        declare_parameter<double>("battery_critical_percent", 10.0);
+    const double battery_full_pct = declare_parameter<double>("battery_full_percent", 95.0);
+    const double battery_critical_voltage =
+        declare_parameter<double>("battery_critical_voltage", 0.0);
+    blackboard_->set("battery_low_pct", static_cast<float>(battery_low_pct));
+    blackboard_->set("battery_critical_pct", static_cast<float>(battery_critical_pct));
+    blackboard_->set("battery_full_pct", static_cast<float>(battery_full_pct));
+    blackboard_->set("battery_critical_voltage",
+                     static_cast<float>(battery_critical_voltage));
 
     tree_ = factory_.createTreeFromFile(tree_file, blackboard_);
 

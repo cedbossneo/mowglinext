@@ -41,6 +41,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<IsBoundaryViolation>("IsBoundaryViolation");
   factory.registerNodeType<IsLethalBoundaryViolation>("IsLethalBoundaryViolation");
   factory.registerNodeType<IsNewRain>("IsNewRain");
+  factory.registerNodeType<IsRainModeAtLeast>("IsRainModeAtLeast");
   factory.registerNodeType<IsResumeUndockAllowed>("IsResumeUndockAllowed");
   factory.registerNodeType<IsChargingProgressing>("IsChargingProgressing");
   factory.registerNodeType<PreFlightCheck>("PreFlightCheck");

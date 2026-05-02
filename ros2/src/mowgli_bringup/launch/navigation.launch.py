@@ -248,6 +248,15 @@ def generate_launch_description() -> LaunchDescription:
     mowing_speed = 0.25
     datum_lat = 0.0
     datum_lon = 0.0
+    # Nav2 goal/progress tolerances exposed on the GUI's Settings →
+    # Navigation page. Same orphan-param story as the speeds: the YAML
+    # values were being shadowed by hardcoded constants in
+    # nav2_params.yaml, so editing the sliders did nothing. Inject them
+    # into the rewritten Nav2 yaml below alongside the speeds.
+    xy_goal_tolerance = 0.30
+    yaw_goal_tolerance = 0.5
+    coverage_xy_tolerance = 0.5
+    progress_timeout_sec = 300.0
     runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
     if os.path.isfile(runtime_robot_config):
         with open(runtime_robot_config, "r") as f:
@@ -260,6 +269,14 @@ def generate_launch_description() -> LaunchDescription:
         mowing_speed = float(rt_rp.get("mowing_speed", mowing_speed))
         datum_lat = float(rt_rp.get("datum_lat", 0.0))
         datum_lon = float(rt_rp.get("datum_lon", 0.0))
+        xy_goal_tolerance = float(
+            rt_rp.get("xy_goal_tolerance", xy_goal_tolerance))
+        yaw_goal_tolerance = float(
+            rt_rp.get("yaw_goal_tolerance", yaw_goal_tolerance))
+        coverage_xy_tolerance = float(
+            rt_rp.get("coverage_xy_tolerance", coverage_xy_tolerance))
+        progress_timeout_sec = float(
+            rt_rp.get("progress_timeout_sec", progress_timeout_sec))
 
     # Compute BT XML paths from installed package shares (not hardcoded).
     bt_nav_to_pose_xml = os.path.join(
@@ -314,6 +331,24 @@ def generate_launch_description() -> LaunchDescription:
                   .setdefault("ros__parameters", {})
                   .setdefault("FollowCoveragePath", {}))
         fcp["speed_fast"] = mowing_speed
+
+        # Goal-checker tolerances. Two checkers live under
+        # controller_server: stopped_goal_checker (used by FollowPath /
+        # transit) and coverage_goal_checker (used by FollowCoveragePath
+        # / mowing). The transit XY/yaw tolerances and the coverage XY
+        # tolerance are operator-facing, so route them through here.
+        cs_params = (doc.setdefault("controller_server", {})
+                        .setdefault("ros__parameters", {}))
+        sgc = cs_params.setdefault("stopped_goal_checker", {})
+        sgc["xy_goal_tolerance"] = xy_goal_tolerance
+        sgc["yaw_goal_tolerance"] = yaw_goal_tolerance
+        cgc = cs_params.setdefault("coverage_goal_checker", {})
+        cgc["xy_goal_tolerance"] = coverage_xy_tolerance
+
+        # Progress checker timeout: how long Nav2 waits for the robot to
+        # achieve required_movement_radius before declaring no-progress.
+        pc = cs_params.setdefault("progress_checker", {})
+        pc["movement_time_allowance"] = progress_timeout_sec
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", prefix="mowgli_nav2_", suffix=".yaml", delete=False)
