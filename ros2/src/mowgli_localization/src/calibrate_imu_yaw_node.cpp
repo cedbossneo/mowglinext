@@ -889,21 +889,26 @@ private:
       collecting_ = true;
     }
 
+    // Dock-yaw is a "bonus" pre-phase: when the robot starts on the dock
+    // we use the 2 m reverse to also derive dock_pose_yaw from the GPS
+    // track. If that fails (no RTK fix, insufficient displacement, YAML
+    // write error) we MUST still run the IMU calibration drives — the
+    // robot has driven off the dock at this point and is in position
+    // for the forward/back motion profile. Aborting here was the bug:
+    // operators saw the robot back off the dock then silently return
+    // to IDLE without ever calibrating the IMU.
     std::optional<DockYawResult> dock_yaw_result;
+    std::string dock_yaw_warning;
     if (do_dock_yaw_calibration)
     {
       dock_yaw_result = run_dock_yaw_drive();
       if (!dock_yaw_result)
       {
-        if (need_exit_recording)
-          call_hlc(HL_CMD_RECORD_CANCEL, "cancel after dock yaw failure");
-        response->success = false;
-        response->message =
-            "Dock yaw calibration failed: no RTK Fixed or insufficient GPS "
-            "displacement during the 2 m reverse. Check the dock area "
-            "visibility and retry.";
-        deactivate_sensor_subs();
-        return;
+        dock_yaw_warning =
+            "Dock yaw pre-phase failed (no RTK Fixed, insufficient GPS "
+            "displacement, or yaml write error) — continuing with IMU "
+            "calibration drives anyway.";
+        RCLCPP_WARN(get_logger(), "%s", dock_yaw_warning.c_str());
       }
     }
 
@@ -1090,6 +1095,14 @@ private:
     else
     {
       response->dock_valid = false;
+      if (!dock_yaw_warning.empty() && !response->message.empty())
+      {
+        response->message += " | " + dock_yaw_warning;
+      }
+      else if (!dock_yaw_warning.empty())
+      {
+        response->message = dock_yaw_warning;
+      }
     }
 
     if (response->success)

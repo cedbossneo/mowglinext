@@ -214,119 +214,21 @@ const RobotModelStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => 
     );
 };
 
-// ── Step 2: GPS Configuration ───────────────────────────────────────────
+// ── GPS Configuration step (receiver + NTRIP, no datum) ─────────────────
 
-type GpsStepProps = RobotModelStepProps & { gpsRestarting?: boolean };
-
-const GpsStep: React.FC<GpsStepProps> = ({ values, onChange, gpsRestarting }) => {
+const GpsStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
     const ntripEnabled = values.ntrip_enabled ?? true;
-    const guiApi = useApi();
-    const [datumLoading, setDatumLoading] = useState(false);
-
-    // Live GPS state — used to gate "Use current GPS position" on RTK-Fixed.
-    // SBAS or 3D fix gives σ ~50 cm to ~5 m, which is enough to put the
-    // datum metres off and silently break every later mow. RTK-Float drifts
-    // when the receiver loses corrections briefly. Only RTK-Fixed (σ ~3 mm)
-    // is safe to anchor the map frame to.
-    const gps = useGPS();
-    const gpsFlags = gps.flags ?? 0;
-    const isRtkFixed = (gpsFlags & GpsFlags.FLAG_GPS_RTK_FIXED) !== 0;
-    const isRtkFloat = (gpsFlags & GpsFlags.FLAG_GPS_RTK_FLOAT) !== 0;
-    const isPlainFix = (gpsFlags & GpsFlags.FLAG_GPS_RTK) !== 0;
-    const fixLabel = isRtkFixed ? "RTK FIX" : isRtkFloat ? "RTK FLOAT" : isPlainFix ? "GPS FIX" : "no fix";
-
-    const setDatumFromGps = async () => {
-        setDatumLoading(true);
-        try {
-            const res = await guiApi.mowglinext.callCreate("set_datum", {});
-            if (res.error) throw new Error(res.error.error);
-            const msg: string = (res.data as any)?.message ?? "";
-            const parts = msg.split(",");
-            if (parts.length === 2) {
-                onChange("datum_lat", parseFloat(parts[0]));
-                onChange("datum_lon", parseFloat(parts[1]));
-            }
-        } catch (e: any) {
-            alert(e.message || "Failed to set datum from GPS");
-        } finally {
-            setDatumLoading(false);
-        }
-    };
 
     return (
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
             <Title level={4}>
-                <GlobalOutlined /> GPS & Positioning
+                <GlobalOutlined /> GPS Configuration
             </Title>
             <Paragraph type="secondary">
-                Your robot uses RTK GPS for centimetre-level accuracy. Set the map origin (datum) near your docking station,
-                and configure NTRIP corrections if you have an RTK base station or network.
+                Configure how the robot talks to its GPS receiver and (optionally) where it pulls RTK corrections
+                from. The map origin (datum) is set later — once this step is saved and the receiver has had a
+                moment to acquire an RTK fix, the Datum step will let you anchor the map at your dock.
             </Paragraph>
-
-            <Card size="small" title={<Space><EnvironmentOutlined /> Map Origin (Datum)</Space>} style={{ marginBottom: 16 }}>
-                <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-                    Set this to a GPS coordinate near your docking station. The robot uses this as the (0, 0) origin of its local map.
-                    You can get coordinates from Google Maps by right-clicking on your dock location, or use the
-                    button below to set it from the robot's current GPS position (requires RTK fix).
-                </Paragraph>
-                <Form layout="vertical">
-                    <Row gutter={16}>
-                        <Col xs={12}>
-                            <Form.Item label="Latitude">
-                                <InputNumber
-                                    value={values.datum_lat ?? 0}
-                                    onChange={(v) => onChange("datum_lat", v)}
-                                    step={0.000001} precision={8} style={{ width: "100%" }}
-                                    placeholder="48.8796"
-                                />
-                            </Form.Item>
-                        </Col>
-                        <Col xs={12}>
-                            <Form.Item label="Longitude">
-                                <InputNumber
-                                    value={values.datum_lon ?? 0}
-                                    onChange={(v) => onChange("datum_lon", v)}
-                                    step={0.000001} precision={8} style={{ width: "100%" }}
-                                    placeholder="2.1728"
-                                />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-                    <Button
-                        icon={<AimOutlined />}
-                        loading={datumLoading || gpsRestarting}
-                        onClick={setDatumFromGps}
-                        disabled={!isRtkFixed || gpsRestarting}
-                        style={{ marginTop: -8 }}
-                    >
-                        {gpsRestarting
-                            ? "GPS restarting…"
-                            : `Use current GPS position ${isRtkFixed ? "" : "(waiting for RTK Fix)"}`}
-                    </Button>
-                    {gpsRestarting && (
-                        <Alert
-                            type="info"
-                            showIcon
-                            message="GPS container is restarting to apply your NTRIP / serial settings"
-                            description="Wait ~10–30 s for RTK Fix to come back before setting the datum."
-                            style={{ marginTop: 12 }}
-                        />
-                    )}
-                    {!isRtkFixed && (
-                        <Alert
-                            type="warning"
-                            showIcon
-                            message={`Current GPS quality: ${fixLabel}`}
-                            description={
-                                isRtkFloat
-                                    ? "RTK Float gives ~10–20 cm accuracy and drifts when corrections lapse. Wait for RTK Fix (σ ~3 mm) before anchoring the datum."
-                                    : "Without RTK Fix the datum can be metres off, which silently breaks every later mow. Make sure NTRIP corrections are flowing and the antenna has clear sky."
-                            }
-                            style={{ marginTop: 12 }}
-                        />
-                    )}
-                </Form>
-            </Card>
 
             <Card size="small" title={<Space><WifiOutlined /> GPS Receiver</Space>} style={{ marginBottom: 16 }}>
                 <Form layout="vertical">
@@ -431,6 +333,130 @@ const GpsStep: React.FC<GpsStepProps> = ({ values, onChange, gpsRestarting }) =>
                     </Paragraph>
                 )}
             </Card>
+
+            <Alert
+                type="info"
+                showIcon
+                message="Save & Continue to start the receiver"
+                description="The GPS daemon picks up these settings when the configuration is saved. Acquiring an RTK fix can take 30 s to a few minutes — by the time you reach the Datum step it should be ready."
+                style={{ marginTop: 8 }}
+            />
+        </div>
+    );
+};
+
+// ── Datum step (split out from GPS configuration) ───────────────────────
+//
+// Lives after GPS config, sensors and IMU yaw so the receiver has had
+// minutes of clear-sky time to acquire RTK Fix before the operator is
+// asked to anchor the map. SBAS / RTK-Float datums silently break every
+// later mow, so the "Use current GPS position" button is gated on
+// FLAG_GPS_RTK_FIXED.
+
+type DatumStepProps = RobotModelStepProps & { gpsRestarting?: boolean };
+
+const DatumStep: React.FC<DatumStepProps> = ({ values, onChange, gpsRestarting }) => {
+    const guiApi = useApi();
+    const [datumLoading, setDatumLoading] = useState(false);
+
+    const gps = useGPS();
+    const gpsFlags = gps.flags ?? 0;
+    const isRtkFixed = (gpsFlags & GpsFlags.FLAG_GPS_RTK_FIXED) !== 0;
+    const isRtkFloat = (gpsFlags & GpsFlags.FLAG_GPS_RTK_FLOAT) !== 0;
+    const isPlainFix = (gpsFlags & GpsFlags.FLAG_GPS_RTK) !== 0;
+    const fixLabel = isRtkFixed ? "RTK FIX" : isRtkFloat ? "RTK FLOAT" : isPlainFix ? "GPS FIX" : "no fix";
+
+    const setDatumFromGps = async () => {
+        setDatumLoading(true);
+        try {
+            const res = await guiApi.mowglinext.callCreate("set_datum", {});
+            if (res.error) throw new Error(res.error.error);
+            const msg: string = (res.data as any)?.message ?? "";
+            const parts = msg.split(",");
+            if (parts.length === 2) {
+                onChange("datum_lat", parseFloat(parts[0]));
+                onChange("datum_lon", parseFloat(parts[1]));
+            }
+        } catch (e: any) {
+            alert(e.message || "Failed to set datum from GPS");
+        } finally {
+            setDatumLoading(false);
+        }
+    };
+
+    return (
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            <Title level={4}>
+                <EnvironmentOutlined /> Map Origin (Datum)
+            </Title>
+            <Paragraph type="secondary">
+                Anchor the robot's local map to a GPS coordinate near your docking station. This becomes the
+                (0, 0) origin of every later map and mowing area. Drop it on the dock if possible.
+            </Paragraph>
+
+            <Card size="small" title={<Space><EnvironmentOutlined /> Datum coordinates</Space>} style={{ marginBottom: 16 }}>
+                <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+                    Either enter the coordinate manually (right-click your dock in Google Maps to copy lat/lon),
+                    or capture it directly from the robot once it has an RTK Fix.
+                </Paragraph>
+                <Form layout="vertical">
+                    <Row gutter={16}>
+                        <Col xs={12}>
+                            <Form.Item label="Latitude">
+                                <InputNumber
+                                    value={values.datum_lat ?? 0}
+                                    onChange={(v) => onChange("datum_lat", v)}
+                                    step={0.000001} precision={8} style={{ width: "100%" }}
+                                    placeholder="48.8796"
+                                />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={12}>
+                            <Form.Item label="Longitude">
+                                <InputNumber
+                                    value={values.datum_lon ?? 0}
+                                    onChange={(v) => onChange("datum_lon", v)}
+                                    step={0.000001} precision={8} style={{ width: "100%" }}
+                                    placeholder="2.1728"
+                                />
+                            </Form.Item>
+                        </Col>
+                    </Row>
+                    <Button
+                        icon={<AimOutlined />}
+                        loading={datumLoading || gpsRestarting}
+                        onClick={setDatumFromGps}
+                        disabled={!isRtkFixed || gpsRestarting}
+                        style={{ marginTop: -8 }}
+                    >
+                        {gpsRestarting
+                            ? "GPS restarting…"
+                            : `Use current GPS position ${isRtkFixed ? "" : "(waiting for RTK Fix)"}`}
+                    </Button>
+                    {gpsRestarting && (
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="GPS container is restarting to apply your NTRIP / serial settings"
+                            description="Wait ~10–30 s for RTK Fix to come back before setting the datum."
+                            style={{ marginTop: 12 }}
+                        />
+                    )}
+                    {!isRtkFixed && !gpsRestarting && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            message={`Current GPS quality: ${fixLabel}`}
+                            description={
+                                isRtkFloat
+                                    ? "RTK Float gives ~10–20 cm accuracy and drifts when corrections lapse. Wait for RTK Fix (σ ~3 mm) before anchoring the datum."
+                                    : "Without RTK Fix the datum can be metres off, which silently breaks every later mow. Make sure NTRIP corrections are flowing and the antenna has clear sky."
+                            }
+                            style={{ marginTop: 12 }}
+                        />
+                    )}
+                </Form>
+            </Card>
         </div>
     );
 };
@@ -491,22 +517,32 @@ const ImuYawStep: React.FC<RobotModelStepProps> = ({values, onChange}) => {
     return (
         <div style={{maxWidth: 700, margin: "0 auto"}}>
             <Title level={4}>
-                <CompassOutlined/> IMU Mounting Calibration
+                <CompassOutlined/> Sensor Calibration
             </Title>
             <Paragraph type="secondary" style={{marginBottom: 16}}>
-                The IMU is mounted at an angle relative to the robot chassis. The robot needs to know that
-                angle to integrate gyro yaw correctly — without it, the robot drifts in odom and can dock
-                at an angle. This step drives the robot ~0.6 m forward then back to estimate the mounting
-                yaw from the accelerometer.
+                The robot drives itself through a short routine to learn how its sensors are mounted.
+                Without this step the robot drifts in odom, can dock at an angle, and loses its heading
+                when GPS corrections lapse. Plan for up to 2&nbsp;minutes of autonomous motion — stand
+                clear, collision_monitor stays armed.
             </Paragraph>
+
+            <Card size="small" style={{marginBottom: 16}}>
+                <Paragraph strong style={{marginBottom: 8}}>What this calibration measures</Paragraph>
+                <ul style={{paddingLeft: 20, marginBottom: 0, color: colors.textSecondary, fontSize: 13}}>
+                    <li><Text strong>Dock pose</Text> (when started on the dock): the robot reverses ~2&nbsp;m under RTK GPS to capture the dock's lat/lon and heading, then writes them to <Text code>mowgli_robot.yaml</Text>.</li>
+                    <li><Text strong>IMU mounting yaw</Text>: 3 forward/backward cycles at 0.5&nbsp;m/s let the accelerometer's body-frame impulse be compared to the wheel-derived acceleration so the IMU's rotation around base_link is recovered.</li>
+                    <li><Text strong>Pitch / roll bias</Text>: the stationary baseline windows expose any non-level mounting (1° offsets here matter — gyro integration drifts otherwise).</li>
+                    <li><Text strong>Magnetometer hard/soft-iron</Text> (if a mag is publishing): a slow figure-8 fits the ellipsoid offsets so tilt-compensated yaw is usable as an absolute heading source.</li>
+                </ul>
+            </Card>
 
             <Card size="small" style={{marginBottom: 16}}>
                 <Paragraph strong style={{marginBottom: 8}}>Pre-flight checklist</Paragraph>
                 <ul style={{paddingLeft: 20, marginBottom: 0, color: colors.textSecondary, fontSize: 13}}>
-                    <li>Robot is undocked (the service refuses to run while charging — but if you start it on the dock, the dock pre-phase computes <Text code>dock_pose_yaw</Text> as a bonus).</li>
-                    <li>At least 1 m of clear space in front and behind the robot.</li>
-                    <li>No active emergency.</li>
-                    <li>Collision monitor stays armed — obstacles will stop the motion.</li>
+                    <li>Place the robot <Text strong>on the dock</Text> if you want the dock pose recorded too — otherwise just leave it parked with ≥&nbsp;1.5&nbsp;m of clear space ahead and behind.</li>
+                    <li>NTRIP corrections flowing and an RTK Fix nearby (otherwise the dock pre-phase is skipped, but IMU calibration still runs).</li>
+                    <li>No active emergency, blade off, lid closed.</li>
+                    <li>Don't move or touch the robot during the run — every bump shows up as accelerometer noise and widens the std-dev.</li>
                 </ul>
             </Card>
 
@@ -782,23 +818,42 @@ const CompleteStep: React.FC = () => {
 
 // ── Main Setup Wizard ───────────────────────────────────────────────────
 
+// Step order rationale:
+//   1. Welcome
+//   2. Robot Model — prefills hardware params; needs to come before firmware
+//      so the operator knows which board / variant they are flashing.
+//   3. Firmware — moved here (was last) so flashing happens before any
+//      configuration depends on a working motherboard / GPS receiver.
+//   4. GPS Configuration — receiver protocol, port, NTRIP. Saving this step
+//      restarts the GPS daemon so RTK fix can start acquiring in the
+//      background while later steps run.
+//   5. Sensors — sensor placement on the chassis.
+//   6. IMU / Sensor Calibration — drives the robot to learn IMU mounting,
+//      pitch/roll, mag, and (if on the dock) dock pose.
+//   7. Datum — split out from GPS so it runs only after the receiver has
+//      had minutes of clear-sky time to acquire RTK Fix, which is required
+//      for "Use current GPS position" to be safe.
+//   8. Complete
+
 const STEP_ICONS = [
     <RocketOutlined />,
     <SettingOutlined />,
+    <ThunderboltOutlined />,
     <GlobalOutlined />,
     <AimOutlined />,
     <CompassOutlined />,
-    <ThunderboltOutlined />,
+    <EnvironmentOutlined />,
     <CheckCircleOutlined />,
 ];
 
 const STEP_TITLES = [
     "Welcome",
     "Robot Model",
+    "Firmware",
     "GPS",
     "Sensors",
-    "IMU Yaw",
-    "Firmware",
+    "Calibration",
+    "Datum",
     "Complete",
 ];
 
@@ -828,10 +883,12 @@ const OnboardingWizard: React.FC = () => {
         }
     }, [savedValues]);
 
-    // Snapshot GPS-affecting fields whenever the user enters the GPS step,
-    // so we can compare on Next and decide whether to auto-restart mowgli-gps.
+    // Snapshot GPS-affecting fields whenever the user enters the GPS step
+    // (now step 3 in the reordered wizard: Welcome / Robot Model / Firmware
+    // / GPS), so we can compare on Next and decide whether to auto-restart
+    // mowgli-gps.
     useEffect(() => {
-        if (currentStep === 2) {
+        if (currentStep === 3) {
             const snap: Record<string, any> = {};
             for (const k of GPS_RESTART_KEYS) snap[k] = localValues[k];
             gpsSnapshotRef.current = snap;
@@ -842,20 +899,38 @@ const OnboardingWizard: React.FC = () => {
         setLocalValues((prev) => ({ ...prev, [key]: value }));
     }, []);
 
+    // Step indices after the reorder:
+    //   0 Welcome
+    //   1 Robot Model
+    //   2 Firmware            (custom navigation, no Save & Continue)
+    //   3 GPS Configuration
+    //   4 Sensors
+    //   5 IMU / Sensor Calibration
+    //   6 Datum
+    //   7 Complete
+    const STEP_FIRMWARE = 2;
+    const STEP_DATUM = 6;
+    const STEP_COMPLETE = STEP_TITLES.length - 1;
+
     const handleNext = useCallback(async () => {
-        // Save settings when leaving config steps (Robot Model, GPS, Sensors,
-        // IMU Yaw — i.e. 1, 2, 3, 4). Apply-from-calibration writes through
-        // onChange but doesn't auto-save; this is the one batch save point.
-        if (currentStep >= 1 && currentStep <= 4) {
+        // Save settings when leaving any config step that mutates settings
+        // values: Robot Model (1), GPS (3), Sensors (4), Calibration (5),
+        // Datum (6). Apply-from-calibration writes through onChange but
+        // does not auto-save; this is the one batch save point.
+        const isConfigStep =
+            currentStep === 1 ||
+            (currentStep >= 3 && currentStep <= STEP_DATUM);
+        if (isConfigStep) {
             setSaving(true);
             await saveValues(localValues);
             setSaving(false);
         }
-        // Leaving the GPS step: if any GPS/NTRIP/serial field actually
-        // changed vs the snapshot taken on entry, bounce the GPS container
-        // so the new config is applied. Without this the user has to know
-        // to click "Restart GPS" before "Set Datum" can ever see RTK Fix.
-        if (currentStep === 2 && gpsSnapshotRef.current) {
+        // Leaving the GPS step (step 3 after the reorder): if any GPS /
+        // NTRIP / serial field actually changed vs the snapshot taken on
+        // entry, bounce the GPS container so the new config is applied.
+        // Without this the user has to know to click "Restart GPS" before
+        // "Set Datum" can ever see RTK Fix.
+        if (currentStep === 3 && gpsSnapshotRef.current) {
             const snap = gpsSnapshotRef.current;
             let changed = false;
             for (const k of GPS_RESTART_KEYS) {
@@ -869,15 +944,15 @@ const OnboardingWizard: React.FC = () => {
             }
         }
         setCurrentStep((s) => Math.min(s + 1, STEP_TITLES.length - 1));
-    }, [currentStep, localValues, saveValues, guiApi, gpsRestart]);
+    }, [currentStep, localValues, saveValues, guiApi, gpsRestart, STEP_DATUM]);
 
     const handlePrev = useCallback(() => {
         setCurrentStep((s) => Math.max(s - 1, 0));
     }, []);
 
     const isFirstStep = currentStep === 0;
-    const isLastStep = currentStep === STEP_TITLES.length - 1;
-    const isFirmwareStep = currentStep === 5;
+    const isLastStep = currentStep === STEP_COMPLETE;
+    const isFirmwareStep = currentStep === STEP_FIRMWARE;
 
     return (
         <Row gutter={[0, isMobile ? 12 : 20]}>
@@ -906,11 +981,12 @@ const OnboardingWizard: React.FC = () => {
             >
                 {currentStep === 0 && <WelcomeStep onNext={handleNext} />}
                 {currentStep === 1 && <RobotModelStep values={localValues} onChange={handleChange} />}
-                {currentStep === 2 && <GpsStep values={localValues} onChange={handleChange} gpsRestarting={gpsRestarting} />}
-                {currentStep === 3 && <SensorStep values={localValues} onChange={handleChange} />}
-                {currentStep === 4 && <ImuYawStep values={localValues} onChange={handleChange} />}
-                {currentStep === 5 && <FirmwareStep onNext={handleNext} />}
-                {currentStep === 6 && <CompleteStep />}
+                {currentStep === 2 && <FirmwareStep onNext={handleNext} />}
+                {currentStep === 3 && <GpsStep values={localValues} onChange={handleChange} />}
+                {currentStep === 4 && <SensorStep values={localValues} onChange={handleChange} />}
+                {currentStep === 5 && <ImuYawStep values={localValues} onChange={handleChange} />}
+                {currentStep === 6 && <DatumStep values={localValues} onChange={handleChange} gpsRestarting={gpsRestarting} />}
+                {currentStep === 7 && <CompleteStep />}
             </Col>
 
             {/* Navigation bar (hidden on welcome, complete, and firmware steps) */}
@@ -934,13 +1010,13 @@ const OnboardingWizard: React.FC = () => {
                         </Button>
                         <Button
                             type="primary"
-                            icon={currentStep < 4 ? <ArrowRightOutlined /> : <SaveOutlined />}
+                            icon={currentStep === STEP_DATUM ? <SaveOutlined /> : <ArrowRightOutlined />}
                             onClick={handleNext}
                             loading={saving || loading || gpsRestarting}
                         >
                             {gpsRestarting
                                 ? "Restarting GPS…"
-                                : currentStep < 4 ? "Next" : "Save & Continue"}
+                                : currentStep === STEP_DATUM ? "Save & Finish" : "Next"}
                         </Button>
                     </Space>
                 </Col>
