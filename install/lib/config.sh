@@ -22,6 +22,7 @@ LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-ldlidar:${IMAGE
 LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-rplidar:${IMAGE_TAG}"
 LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-stl27l:${IMAGE_TAG}"
 MAVROS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mavros:${IMAGE_TAG}"
+NMEA_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/nmea:${IMAGE_TAG}"
 GUI_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mowglinext-gui:${IMAGE_TAG}"
 
 CHECK_ONLY=false

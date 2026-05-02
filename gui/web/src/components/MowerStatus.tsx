@@ -7,6 +7,7 @@ import {useSettings} from "../hooks/useSettings.ts";
 import {AbsolutePoseConstants} from "../types/ros.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
 import {restartMowgliNext} from "../utils/containers.ts";
+import {useContainerRestart} from "../hooks/useContainerRestart.ts";
 import {App, Badge, Dropdown, Modal, Space, Typography} from "antd";
 import {PoweroffOutlined, ReloadOutlined, DesktopOutlined, WifiOutlined} from "@ant-design/icons"
 import {stateRenderer} from "./utils.tsx";
@@ -101,14 +102,14 @@ export const MowerStatus = () => {
         ? Math.round(((highLevelStatus.current_path_index ?? 0) / (highLevelStatus.current_path ?? 1)) * 100)
         : null;
 
-    const restartMowgli = async () => {
-        try {
-            await restartMowgliNext(guiApi);
-            notification.success({message: "Mowgli restarted"});
-        } catch (e: any) {
-            notification.error({message: "Failed to restart Mowgli", description: e.message});
-        }
-    };
+    // Long-running: container restart + rosbridge reconnect. Lock the menu
+    // item until ROS2 is reachable again to prevent duplicate-click storms.
+    const mowgliRestart = useContainerRestart({
+        pendingLabel: "Redémarrage Mowgli…",
+        successMessage: "Mowgli redémarré",
+        errorMessage: "Échec du redémarrage Mowgli",
+    });
+    const restartMowgli = () => mowgliRestart.run(() => restartMowgliNext(guiApi));
 
     const rebootSystem = async () => {
         try {
@@ -143,7 +144,8 @@ export const MowerStatus = () => {
         {
             key: "restart-mowgli",
             icon: <ReloadOutlined/>,
-            label: "Restart Mowgli",
+            label: mowgliRestart.pending ? mowgliRestart.pendingLabel : "Restart Mowgli",
+            disabled: mowgliRestart.pending,
             onClick: () => confirmAction("Restart Mowgli", "This will restart the MowgliNext container.", restartMowgli),
         },
         {type: "divider"},

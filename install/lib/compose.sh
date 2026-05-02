@@ -60,8 +60,11 @@ build_compose_stack() {
       unicore)
         COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.unicore.yaml")
         ;;
+      nmea)
+        COMPOSE_FILES+=("$COMPOSE_SRC_DIR/docker-compose.nmea.yaml")
+        ;;
       *)
-        error "Unknown GNSS_BACKEND: ${GNSS_BACKEND:-unset} (expected: gps, ublox, unicore)"
+        error "Unknown GNSS_BACKEND: ${GNSS_BACKEND:-unset} (expected: gps, ublox, unicore, nmea)"
         return 1
         ;;
     esac
