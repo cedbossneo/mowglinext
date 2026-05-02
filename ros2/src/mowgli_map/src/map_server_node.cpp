@@ -2397,6 +2397,30 @@ void MapServerNode::mark_mowed(double x, double y)
   mark_cells_mowed(x, y);
 }
 
+void MapServerNode::add_area_for_test(
+    const mowgli_interfaces::srv::AddMowingArea::Request::SharedPtr req,
+    mowgli_interfaces::srv::AddMowingArea::Response::SharedPtr res)
+{
+  on_add_area(req, res);
+}
+
+void MapServerNode::get_mowing_area_for_test(
+    const mowgli_interfaces::srv::GetMowingArea::Request::SharedPtr req,
+    mowgli_interfaces::srv::GetMowingArea::Response::SharedPtr res)
+{
+  on_get_mowing_area(req, res);
+}
+
+void MapServerNode::save_areas_for_test(const std::string& path)
+{
+  save_areas_to_file(path);
+}
+
+void MapServerNode::load_areas_for_test(const std::string& path)
+{
+  load_areas_from_file(path);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Strip planner
 // ─────────────────────────────────────────────────────────────────────────────
