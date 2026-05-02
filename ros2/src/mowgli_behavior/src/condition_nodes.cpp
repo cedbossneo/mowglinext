@@ -74,8 +74,25 @@ BT::NodeStatus IsBatteryLow::tick()
   {
     threshold = res.value();
   }
+  float voltage_threshold = 0.0f;
+  if (auto res = getInput<float>("voltage_threshold"))
+  {
+    voltage_threshold = res.value();
+  }
 
-  return ctx->battery_percent < threshold ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+  if (ctx->battery_percent < threshold)
+  {
+    return BT::NodeStatus::SUCCESS;
+  }
+  // Voltage gate as a redundant trip: a sagging pack can read fine on
+  // percent (which is interpolated from full/empty endpoints) and still
+  // be below the safe operating voltage. Disabled when threshold is 0.
+  if (voltage_threshold > 0.0f && ctx->latest_power.v_battery > 0.0f &&
+      ctx->latest_power.v_battery < voltage_threshold)
+  {
+    return BT::NodeStatus::SUCCESS;
+  }
+  return BT::NodeStatus::FAILURE;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,10 +209,60 @@ BT::NodeStatus IsLethalBoundaryViolation::tick()
 BT::NodeStatus IsNewRain::tick()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
-  // Only trigger if it's raining NOW and it was NOT raining when mowing started.
-  bool raining_now = ctx->latest_status.rain_detected;
-  return (raining_now && !ctx->raining_at_mow_start) ? BT::NodeStatus::SUCCESS
-                                                     : BT::NodeStatus::FAILURE;
+  std::lock_guard<std::mutex> lock(ctx->context_mutex);
+
+  // rain_mode == 0 → operator disabled rain handling entirely.
+  int rain_mode = 2;
+  config().blackboard->get<int>("rain_mode", rain_mode);
+  if (rain_mode <= 0)
+  {
+    ctx->rain_first_detected_time = {};
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const bool raining_now = ctx->latest_status.rain_detected;
+  if (!raining_now)
+  {
+    // Reset the debounce window the moment we see a dry sample so
+    // intermittent drops don't accumulate across long dry stretches.
+    ctx->rain_first_detected_time = {};
+    return BT::NodeStatus::FAILURE;
+  }
+  if (ctx->raining_at_mow_start)
+  {
+    return BT::NodeStatus::FAILURE;
+  }
+
+  double rain_debounce_sec = 0.0;
+  config().blackboard->get<double>("rain_debounce_sec", rain_debounce_sec);
+
+  const auto now = std::chrono::steady_clock::now();
+  if (ctx->rain_first_detected_time.time_since_epoch().count() == 0)
+  {
+    ctx->rain_first_detected_time = now;
+  }
+  if (rain_debounce_sec <= 0.0)
+  {
+    return BT::NodeStatus::SUCCESS;
+  }
+  const double elapsed = std::chrono::duration<double>(now - ctx->rain_first_detected_time).count();
+  return (elapsed >= rain_debounce_sec) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
+// IsRainModeAtLeast
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsRainModeAtLeast::tick()
+{
+  int required = 0;
+  if (auto res = getInput<int>("mode"))
+  {
+    required = res.value();
+  }
+  int rain_mode = 2;
+  config().blackboard->get<int>("rain_mode", rain_mode);
+  return (rain_mode >= required) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
 
 // ---------------------------------------------------------------------------

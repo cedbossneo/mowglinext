@@ -156,7 +156,7 @@
              Navigation failure is non-fatal (stay where we are).
              ============================================================ -->
         <Sequence name="CriticalBatteryDock">
-          <IsBatteryLow threshold="10.0"/>
+          <IsBatteryLow threshold="{battery_critical_pct}" voltage_threshold="{battery_critical_voltage}"/>
           <SetMowerEnabled enabled="false"/>
           <StopMoving/>
           <PublishHighLevelStatus state="2" state_name="CRITICAL_BATTERY_DOCKING"/>
@@ -313,16 +313,27 @@
 
             <ReactiveSequence name="StripGuards">
 
-              <!-- Reactive rain check -->
+              <!-- Reactive rain check.
+                   IsNewRain returns FAILURE outright when rain_mode == 0
+                   (operator disabled rain handling); it also debounces by
+                   rain_debounce_sec before tripping. The dock round trip
+                   only runs in rain_mode >= 2 ("dock-and-pause"); mode 1
+                   ("pause-in-place") stops the blade and waits the rain
+                   out where the robot stands. -->
               <Fallback name="RainGuard">
                 <Inverter><IsNewRain/></Inverter>
-                <Sequence name="RainDockAndResume">
+                <Sequence name="RainHandle">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
-                  <PublishHighLevelStatus state="2" state_name="RAIN_DETECTED_DOCKING"/>
-                  <Fallback name="RainNavOrStay">
-                    <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
-                    <AlwaysSuccess/>
+                  <Fallback name="RainDockBranch">
+                    <Inverter><IsRainModeAtLeast mode="2"/></Inverter>
+                    <Sequence name="RainDockSequence">
+                      <PublishHighLevelStatus state="2" state_name="RAIN_DETECTED_DOCKING"/>
+                      <Fallback name="RainNavOrStay">
+                        <DockRobot dock_id="home_dock" dock_type="simple_charging_dock"/>
+                        <AlwaysSuccess/>
+                      </Fallback>
+                    </Sequence>
                   </Fallback>
                   <PublishHighLevelStatus state="1" state_name="RAIN_WAITING"/>
                   <Fallback name="RainWaitOrTimeout">
@@ -341,19 +352,27 @@
                       <AlwaysFailure/>
                     </Sequence>
                   </Fallback>
-                  <IsResumeUndockAllowed max_attempts="3"/>
-                  <PublishHighLevelStatus state="2" state_name="RESUMING_AFTER_RAIN"/>
-                  <WaitForDuration duration_sec="1.0"/>
-                  <Fallback name="RainResumeUndock">
-                    <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
-                   uses geometric distance to dock pose which fails with
-                   RTK drift near the dock canopy. BackUp reliably reverses
-                   off the dock via Nav2 behavior_server. -->
-              <BackUp backup_dist="1.5" backup_speed="0.20"/>
-                    <Sequence>
-                      <RecordResumeUndockFailure/>
-                      <ClearCommand/>
-                      <AlwaysFailure/>
+                  <!-- Resume: only undock if we actually docked above
+                       (rain_mode >= 2). Otherwise we stayed in place and
+                       can resume directly. -->
+                  <Fallback name="RainResume">
+                    <Inverter><IsRainModeAtLeast mode="2"/></Inverter>
+                    <Sequence name="RainResumeFromDock">
+                      <IsResumeUndockAllowed max_attempts="3"/>
+                      <PublishHighLevelStatus state="2" state_name="RESUMING_AFTER_RAIN"/>
+                      <WaitForDuration duration_sec="1.0"/>
+                      <Fallback name="RainResumeUndock">
+                        <!-- BackUp instead of UndockRobot: opennav_docking isDocked()
+                       uses geometric distance to dock pose which fails with
+                       RTK drift near the dock canopy. BackUp reliably reverses
+                       off the dock via Nav2 behavior_server. -->
+                        <BackUp backup_dist="1.5" backup_speed="0.20"/>
+                        <Sequence>
+                          <RecordResumeUndockFailure/>
+                          <ClearCommand/>
+                          <AlwaysFailure/>
+                        </Sequence>
+                      </Fallback>
                     </Sequence>
                   </Fallback>
                   <PublishHighLevelStatus state="2" state_name="MOWING"/>
@@ -362,7 +381,7 @@
 
               <!-- Reactive battery check -->
               <Fallback name="BatteryGuard">
-                <Inverter><NeedsDocking threshold="20.0"/></Inverter>
+                <Inverter><NeedsDocking threshold="{battery_low_pct}"/></Inverter>
                 <Sequence name="BatteryDockAndResume">
                   <SetMowerEnabled enabled="false"/>
                   <StopMoving/>
@@ -374,7 +393,7 @@
                       <Sequence>
                         <IsChargingProgressing/>
                         <Fallback>
-                          <IsBatteryAbove threshold="95.0"/>
+                          <IsBatteryAbove threshold="{battery_full_pct}"/>
                           <Sequence>
                             <WaitForDuration duration_sec="30.0"/>
                             <AlwaysFailure/>
