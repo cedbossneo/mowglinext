@@ -446,6 +446,18 @@ def generate_launch_description() -> LaunchDescription:
         )
     )
 
+    # No-lidar global_costmap needs an always-current static_layer to keep
+    # the costmap reporting current_=true under Nav2 Kilted's KeepoutFilter
+    # (otherwise every plan aborts with "Costmap timed out waiting for
+    # update"). Publishes a single empty OccupancyGrid (latched).
+    empty_static_map_pub = Node(
+        package="mowgli_bringup",
+        executable="empty_static_map_pub.py",
+        name="empty_static_map_pub",
+        output="screen",
+        condition=UnlessCondition(use_lidar),
+    )
+
     # ------------------------------------------------------------------
     # Alternative localization backend: robot_localization
     # ------------------------------------------------------------------
@@ -629,5 +641,6 @@ def generate_launch_description() -> LaunchDescription:
             mag_yaw_publisher,
             wait_for_map_odom_tf,
             nav2_after_tf,
+            empty_static_map_pub,
         ]
     )

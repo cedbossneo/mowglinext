@@ -19,7 +19,9 @@ install(
 )
 
 install(
-  PROGRAMS scripts/wait_for_tf.py
+  PROGRAMS
+    scripts/wait_for_tf.py
+    scripts/empty_static_map_pub.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

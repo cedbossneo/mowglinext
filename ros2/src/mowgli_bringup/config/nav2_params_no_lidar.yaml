@@ -235,10 +235,22 @@ global_costmap:
       width: 200
       height: 200
       # No obstacle_layer — LiDAR is not available.
+      # static_layer subscribes to an empty latched OccupancyGrid published
+      # by empty_static_map_pub.py — without an always-current layer like
+      # this, the global_costmap's current_ flag never settles to true under
+      # Nav2 Kilted's KeepoutFilter and the planner aborts every request
+      # with "Costmap timed out waiting for update".
       # keepout_filter makes the mowing polygon boundary visible to the
       # planner so transit paths never exit the area. Local costmap stays
       # filter-free so Nav2 recoveries still function near the dock.
-      plugins: ["keepout_filter", "inflation_layer"]
+      plugins: ["static_layer", "keepout_filter", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        enabled: true
+        map_topic: "/no_lidar_static_map"
+        subscribe_to_updates: false
+        transform_tolerance: 5.0
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

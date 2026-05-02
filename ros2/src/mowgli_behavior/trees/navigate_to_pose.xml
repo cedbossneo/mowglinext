@@ -13,13 +13,16 @@
         <GoalCheckerSelector selected_goal_checker="{selected_goal_checker}" default_goal_checker="stopped_goal_checker" topic_name="goal_checker_selector"/>
         <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
         <RateController hz="1.0">
-          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
-            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
-            <Sequence>
-              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
-              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
-            </Sequence>
-          </RecoveryNode>
+          <!--
+            ClearGlobalCostmap-Context recovery removed: under the no-lidar
+            config the global_costmap has only static_layer + keepout_filter
+            + inflation, and ClearEntireCostmap forces those layers to
+            re-subscribe and resets current_=false, which puts Nav2 into a
+            loop where every plan attempt times out. The bottom-level
+            RecoveryFallback below still has a costmap-clear action if real
+            recovery is needed.
+          -->
+          <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="{selected_controller}" goal_checker_id="{selected_goal_checker}" error_code_id="{follow_path_error_code}"/>
