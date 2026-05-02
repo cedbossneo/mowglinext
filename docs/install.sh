@@ -31,6 +31,7 @@ error() { echo -e "${RED}[x]${NC} $*" >&2; }
 step()  { echo -e "\n${CYAN}${BOLD}── $* ──${NC}"; }
 
 # ── Defaults ───────────────────────────────────────────────────────────────
+GNSS_FLAG=""
 GPS_FLAG=""
 LIDAR_FLAG=""
 TFLUNA_FLAG=""
@@ -42,6 +43,7 @@ INSTALL_DIR="${MOWGLI_HOME:-$HOME/mowglinext}"
 # ── Parse flags ────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --gnss=*)    GNSS_FLAG="${1#--gnss=}"; shift ;;
     --gps=*)     GPS_FLAG="${1#--gps=}"; shift ;;
     --lidar=*)   LIDAR_FLAG="${1#--lidar=}"; shift ;;
     --tfluna=*)  TFLUNA_FLAG="${1#--tfluna=}"; shift ;;
@@ -50,7 +52,9 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: curl -sSL https://mowgli.garden/install.sh | bash -s -- [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --gps=PRESET       GPS config: ubx-usb, ubx-uart, nmea-usb, nmea-uart"
+      echo "  --gnss=BACKEND     GNSS driver: gps (legacy), ublox (F9P), unicore (UM98x)"
+      echo "  --gps=PRESET       GPS protocol+wiring: ubx-usb, ubx-uart, nmea-usb, nmea-uart"
+      echo "                     (ignored by --gnss=unicore — driver picks its own protocol)"
       echo "  --lidar=PRESET     LiDAR config: none, ldlidar-usb, ldlidar-uart,"
       echo "                     rplidar-usb, rplidar-uart, stl27l-usb, stl27l-uart"
       echo "  --tfluna=PRESET    Rangefinder: none, front, edge, both"
@@ -114,7 +118,7 @@ fi
 PRESET_FILE="$INSTALL_DIR/install/.preset"
 HAS_PRESET=false
 
-if [[ -n "$GPS_FLAG" || -n "$LIDAR_FLAG" || -n "$TFLUNA_FLAG" ]]; then
+if [[ -n "$GNSS_FLAG" || -n "$GPS_FLAG" || -n "$LIDAR_FLAG" || -n "$TFLUNA_FLAG" ]]; then
   HAS_PRESET=true
   step "Writing hardware preset from composer"
 
@@ -123,6 +127,19 @@ if [[ -n "$GPS_FLAG" || -n "$LIDAR_FLAG" || -n "$TFLUNA_FLAG" ]]; then
 # These values pre-fill the interactive installer prompts.
 # The installer will skip questions for pre-configured sections.
 PRESET
+
+  # ── GNSS backend preset ────────────────────────────────────────────────
+  if [[ -n "$GNSS_FLAG" ]]; then
+    case "$GNSS_FLAG" in
+      gps|ublox|unicore)
+        echo "GNSS_BACKEND=${GNSS_FLAG}" >> "$PRESET_FILE"
+        info "GNSS backend: $GNSS_FLAG"
+        ;;
+      *)
+        warn "Unknown GNSS backend: $GNSS_FLAG (expected gps|ublox|unicore) — will ask interactively"
+        ;;
+    esac
+  fi
 
   # ── GPS preset ─────────────────────────────────────────────────────────
   if [[ -n "$GPS_FLAG" ]]; then

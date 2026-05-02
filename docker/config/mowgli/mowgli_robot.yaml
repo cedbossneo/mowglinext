@@ -53,8 +53,8 @@ mowgli:
         mowing_enabled: true
         mowing_speed: 0.3
         ntrip_enabled: true
-        ntrip_host: caster.centipede.fr
-        ntrip_mountpoint: OUIL
+        ntrip_host: crtk.net
+        ntrip_mountpoint: NEAR
         ntrip_password: centipede
         ntrip_port: 2101
         ntrip_user: centipede

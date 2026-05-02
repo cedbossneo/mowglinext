@@ -1,18 +1,27 @@
 # syntax=docker/dockerfile:1.7
 
-ARG UM982_REPO=https://github.com/mowglifrenchtouch/UM982Driver.git
-ARG UM982_REF=mowgli
+# Pinned to the cedbossneo fork while the upstream PR for
+# (b) Ntrip-GGA forwarding, (c) PVTSLNA position-type → fix_quality,
+# (d) per-constellation GSV sat counts, plus the GUI-compatible
+# 'GPS: fix/satellites/NTRIP/RTCM' diagnostics restructure is open.
+# Once merged into mowglifrenchtouch/UM982Driver@mowgli, flip back to
+# the upstream URL.
+ARG UM982_REPO=https://github.com/cedbossneo/UM982Driver.git
+ARG UM982_REF=feat/ntrip-gga-rtk-status-gsv
+# Bump UM982_SHA to bust the docker layer cache when the fork moves.
+# `git clone --branch` is cacheable per ARG value, so without a SHA
+# pin we rebuild against stale code.
+ARG UM982_SHA=e36c74eaa678dc0f861d8e63e7f52394a243a00a
 
 FROM ros:kilted-ros-base AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG UM982_REPO
 ARG UM982_REF
+ARG UM982_SHA
 
 ENV CCACHE_DIR=/root/.ccache
 ENV PATH="/usr/lib/ccache:${PATH}"
-
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
@@ -35,7 +44,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 WORKDIR /ws/src
 
-RUN git clone --depth 1 --branch "${UM982_REF}" "${UM982_REPO}" um982_driver
+# Clone the branch then checkout the pinned SHA. The SHA is part of the
+# RUN command so the layer cache invalidates whenever UM982_SHA bumps,
+# even though `git clone --branch` would otherwise be cacheable.
+RUN git clone --branch "${UM982_REF}" "${UM982_REPO}" um982_driver \
+ && cd um982_driver && git checkout "${UM982_SHA}" && cd ..
 
 WORKDIR /ws
 
@@ -57,8 +70,6 @@ FROM ros:kilted-ros-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -77,8 +88,9 @@ WORKDIR /ws
 COPY --from=builder /ws/install /ws/install
 COPY ros2_entrypoint.sh /ros2_entrypoint.sh
 COPY start_gps.sh /start_gps.sh
+COPY configure_receiver.sh /configure_receiver.sh
 
-RUN chmod +x /ros2_entrypoint.sh /start_gps.sh
+RUN chmod +x /ros2_entrypoint.sh /start_gps.sh /configure_receiver.sh
 
 ENTRYPOINT ["/ros2_entrypoint.sh"]
 CMD ["/start_gps.sh"]

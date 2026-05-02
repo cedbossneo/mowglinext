@@ -1,27 +1,52 @@
+# -------------------------------------------------------------------------
+# Unicore UM98x GNSS backend.
+#
+# Mirrors the docker-compose.gps.yml fragment so all GNSS backends share
+# the same shape:
+#   * privileged + /dev mounted so the udev /dev/gps symlink (UART or USB)
+#     is visible inside the container regardless of how the receiver is
+#     wired
+#   * /config mount points at docker/config/mowgli (NOT .../mowgli) so
+#     start_gps.sh can read /config/mowgli_robot.yaml directly
+#   * dedicated UNICORE_IMAGE — the unicore container is built from a
+#     separate Dockerfile (sensors/unicore) with the UM982 driver +
+#     ntrip_client, not the main mowgli-ros2 image
+#   * x-ros2-env anchor + cyclonedds.xml so MaxAutoParticipantIndex=500
+#     applies (same as the gps + ublox fragments)
+#
+# The container's CMD (`/start_gps.sh`) is intentionally left as-is —
+# it reads gps_port / gps_baudrate / ntrip_* from /config/mowgli_robot.yaml
+# and runs `ros2 run mowgli_unicore_gnss um982_node` + `ros2 run
+# ntrip_client_node ntrip_client_node` directly. Do NOT override `command:`
+# here with a `ros2 launch mowgli_bringup ...` invocation: there is no
+# unicore launch file in mowgli_bringup, and the Unicore packages aren't
+# in the mowgli-ros2 image anyway.
+# -------------------------------------------------------------------------
+x-ros2-env: &ros2-env
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+  ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
+  RCUTILS_COLORIZED_OUTPUT: "1"
+  RCUTILS_LOGGING_USE_STDOUT: "1"
+  CYCLONEDDS_URI: file:///cyclonedds.xml
+
 services:
   gnss_unicore:
     container_name: gnss_unicore
-    image: ${MOWGLI_ROS2_IMAGE}
-
+    image: ${UNICORE_IMAGE}
     network_mode: host
     ipc: host
-
-    devices:
-      - ${GPS_UART_DEVICE:-/dev/ttyUSB0}:${GPS_PORT:-/dev/gps}
-
-    volumes:
-      - ./docker/config/mowgli:/config/mowgli:ro
-      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
-
+    privileged: true
     environment:
-      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
-      RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
-      CYCLONEDDS_URI: file:///cyclonedds.xml
-      ROS_AUTOMATIC_DISCOVERY_RANGE: LOCALHOST
-
-    command: >
-      ros2 launch mowgli_bringup unicore_gnss.launch.py
-      unicore_serial_port:=${GPS_PORT:-/dev/gps}
-      unicore_baudrate:=${GPS_BAUD:-921600}
-
+      <<: *ros2-env
+      HARDWARE_BACKEND: ${HARDWARE_BACKEND}
+    volumes:
+      - /dev:/dev
+      - ./docker/config/mowgli:/config:ro
+      - ./docker/config/cyclonedds.xml:/cyclonedds.xml:ro
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 5m

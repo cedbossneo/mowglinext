@@ -287,10 +287,33 @@
     <!-- ─── Install Composer ──────────────────────────── -->
     <div class="composer">
 
-      <!-- GPS -->
+      <!-- GNSS backend -->
+      <div class="composer-group">
+        <h3>GNSS Backend</h3>
+        <p class="composer-hint">Driver selection — picks which sensor container is installed</p>
+        <div class="composer-options" data-group="gnss">
+          <button class="composer-option active" data-value="ublox">
+            <span class="option-icon">🛰️</span>
+            <span class="option-label">u-blox</span>
+            <span class="option-desc">ZED-F9P / F9R via ublox_dgnss + NTRIP</span>
+          </button>
+          <button class="composer-option" data-value="unicore">
+            <span class="option-icon">🛰️</span>
+            <span class="option-label">Unicore</span>
+            <span class="option-desc">UM98x dual-antenna GNSS (heading + RTK)</span>
+          </button>
+          <button class="composer-option" data-value="gps">
+            <span class="option-icon">📟</span>
+            <span class="option-label">Generic / Legacy</span>
+            <span class="option-desc">Any UBX or NMEA receiver via the legacy gps container</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- GPS protocol / connection -->
       <div class="composer-group">
         <h3>GPS Receiver</h3>
-        <p class="composer-hint">u-blox ZED-F9P recommended for RTK precision</p>
+        <p class="composer-hint">Protocol + wiring. Ignored by the Unicore backend (driver picks its own protocol).</p>
         <div class="composer-options" data-group="gps">
           <button class="composer-option active" data-value="ubx-uart">
             <span class="option-icon">📡</span>
@@ -433,11 +456,12 @@
 <!-- ─── Composer JS ─────────────────────────────────── -->
 <script>
 (function() {
-  var state = { gps: 'ubx-uart', lidar: 'ldlidar-uart', tfluna: 'none' };
+  var state = { gnss: 'ublox', gps: 'ubx-uart', lidar: 'ldlidar-uart', tfluna: 'none' };
   var baseUrl = 'https://mowgli.garden/install.sh';
 
   function updateCommand() {
     var parts = ['curl -sSL ' + baseUrl + ' | bash -s --'];
+    parts.push('--gnss=' + state.gnss);
     parts.push('--gps=' + state.gps);
     parts.push('--lidar=' + state.lidar);
     parts.push('--tfluna=' + state.tfluna);

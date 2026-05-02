@@ -126,13 +126,19 @@ write_compose_merged() {
     compose_args+=("-f" "$f")
   done
 
+  # `config --no-interpolate` keeps `${MOWGLI_ROS2_IMAGE}` and friends as
+  # literal references in the generated compose file instead of baking
+  # the values from .env at install time. Without it, editing .env later
+  # (image-tag bumps, switching `:main` ↔ `:dev`, watchtower picking up
+  # a new pin) was silently ignored — the compose file shipped with the
+  # values resolved at first install.
   (
     cd "$REPO_DIR" || exit 1
     docker compose \
       --project-directory "$REPO_DIR" \
       --env-file "$FINAL_ENV_FILE" \
       "${compose_args[@]}" \
-      config > "$FINAL_COMPOSE_FILE"
+      config --no-interpolate > "$FINAL_COMPOSE_FILE"
   )
 
   info "Generated: $FINAL_COMPOSE_FILE"

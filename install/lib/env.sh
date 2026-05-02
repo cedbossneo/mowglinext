@@ -60,6 +60,7 @@ setup_env() {
   # Images — select LiDAR image based on type
   : "${MOWGLI_ROS2_IMAGE:=${MOWGLI_ROS2_IMAGE_DEFAULT}}"
   : "${GPS_IMAGE:=${GPS_IMAGE_DEFAULT}}"
+  : "${UNICORE_IMAGE:=${UNICORE_IMAGE_DEFAULT}}"
   : "${GUI_IMAGE:=${GUI_IMAGE_DEFAULT}}"
   : "${MAVROS_IMAGE:=${MAVROS_IMAGE_DEFAULT}}"
 
@@ -131,6 +132,7 @@ setup_env() {
 
   upsert_env_key "$env_file" "MOWGLI_ROS2_IMAGE" "$MOWGLI_ROS2_IMAGE"
   upsert_env_key "$env_file" "GPS_IMAGE" "$GPS_IMAGE"
+  upsert_env_key "$env_file" "UNICORE_IMAGE" "$UNICORE_IMAGE"
   upsert_env_key "$env_file" "LIDAR_IMAGE" "$LIDAR_IMAGE"
   upsert_env_key "$env_file" "MAVROS_IMAGE" "$MAVROS_IMAGE"
   upsert_env_key "$env_file" "GUI_IMAGE" "$GUI_IMAGE"

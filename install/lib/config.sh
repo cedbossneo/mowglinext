@@ -17,6 +17,7 @@ UDEV_RULES_FILE="/etc/udev/rules.d/50-mowgli.rules"
 
 MOWGLI_ROS2_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/mowgli-ros2:${IMAGE_TAG}"
 GPS_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/gps:${IMAGE_TAG}"
+UNICORE_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/unicore:${IMAGE_TAG}"
 LIDAR_LDLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-ldlidar:${IMAGE_TAG}"
 LIDAR_RPLIDAR_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-rplidar:${IMAGE_TAG}"
 LIDAR_STL27L_IMAGE_DEFAULT="ghcr.io/cedbossneo/mowglinext/lidar-stl27l:${IMAGE_TAG}"
@@ -34,6 +35,19 @@ parse_args() {
         ;;
       --lang=*)
         MOWGLI_LANG="${1#*=}"
+        ;;
+      --gnss=*)
+        CLI_PRESET=true
+        local gnss_spec="${1#*=}"
+        case "$gnss_spec" in
+          gps|ublox|unicore)
+            GNSS_BACKEND="$gnss_spec"
+            ;;
+          *)
+            error "Unknown GNSS backend: $gnss_spec (expected gps|ublox|unicore)"
+            exit 1
+            ;;
+        esac
         ;;
       --gps=*)
         CLI_PRESET=true
@@ -273,16 +287,17 @@ interactive_config() {
   # NTRIP — use previous values as defaults
   echo ""
   echo -e "${CYAN}NTRIP RTK${NC} — correction stream for centimetre-level GPS accuracy"
-  echo -e "${DIM}Free in France: caster.centipede.fr (user: centipede / pass: centipede)${NC}"
+  echo -e "${DIM}Free in France: crtk.net (user: centipede / pass: centipede)${NC}"
+  echo -e "${DIM}Default mountpoint NEAR picks the closest base via NMEA GGA (use NEAR4 on legacy receivers).${NC}"
   echo -e "${DIM}Find your nearest base station at https://centipede.fr${NC}"
 
   local prev_ntrip="${PREV_NTRIP_ENABLED:-false}"
   local ntrip_enabled="false"
-  local ntrip_host="${PREV_NTRIP_HOST:-caster.centipede.fr}"
+  local ntrip_host="${PREV_NTRIP_HOST:-crtk.net}"
   local ntrip_port="${PREV_NTRIP_PORT:-2101}"
   local ntrip_user="${PREV_NTRIP_USER:-centipede}"
   local ntrip_password="${PREV_NTRIP_PASSWORD:-centipede}"
-  local ntrip_mountpoint="${PREV_NTRIP_MOUNTPOINT:-}"
+  local ntrip_mountpoint="${PREV_NTRIP_MOUNTPOINT:-NEAR}"
 
   if [[ "$prev_ntrip" == "true" && -n "$ntrip_mountpoint" ]]; then
     echo -e "  ${DIM}Currently: ${ntrip_host}:${ntrip_port}/${ntrip_mountpoint}${NC}"

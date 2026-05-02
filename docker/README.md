@@ -190,11 +190,11 @@ the affected containers to apply manual edits.
 | Parameter | Example | Description |
 |---|---|---|
 | `ntrip_enabled` | `true` | Enable NTRIP RTK correction stream |
-| `ntrip_host` | `caster.centipede.fr` | NTRIP caster hostname |
+| `ntrip_host` | `crtk.net` | NTRIP caster hostname (Centipede now lives at `crtk.net`) |
 | `ntrip_port` | `2101` | NTRIP caster port |
 | `ntrip_user` | `centipede` | Username (Centipede network is free, no registration needed) |
 | `ntrip_password` | `centipede` | Password |
-| `ntrip_mountpoint` | `IPGP` | Mountpoint — choose the nearest base station to your site |
+| `ntrip_mountpoint` | `NEAR` | Mountpoint — `NEAR` auto-routes to the closest base via NMEA GGA (use `NEAR4` on legacy receivers, or pick a specific base from https://centipede.fr) |
 
 **Dock and undocking**
 

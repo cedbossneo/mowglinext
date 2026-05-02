@@ -204,6 +204,17 @@ configure_gps() {
     GPS_DEBUG_UART_RULE="KERNEL==\"${gps_debug_kernel}\", SYMLINK+=\"gps_debug\", MODE=\"0666\""
   fi
 
+  # Unicore UART → 460800. The Mowgli PCB UART path (ttyAMA4) is wired
+  # for 460800 (matches the F9P UBX rate), and the operator is expected
+  # to configure the UM982 receiver to the same speed. The UBX/NMEA
+  # protocol selector above is irrelevant for the Unicore driver — it
+  # speaks Unicore-NMEA extensions natively — so we override whatever
+  # baud the protocol path chose. USB is left alone (CDC-ACM doesn't
+  # care about the configured rate).
+  if [ "${GNSS_BACKEND:-}" = "unicore" ] && [ "${GPS_CONNECTION:-}" = "uart" ]; then
+    GPS_BAUD="460800"
+  fi
+
   echo ""
   info "$MSG_GPS_MAIN : backend=$GNSS_BACKEND connection=$GPS_CONNECTION protocol=$GPS_PROTOCOL port=$GPS_PORT uart=${GPS_UART_DEVICE:-none} baud=$GPS_BAUD"
   [ -n "${GPS_BY_ID:-}" ] && info "GPS USB by-id  : $GPS_BY_ID"

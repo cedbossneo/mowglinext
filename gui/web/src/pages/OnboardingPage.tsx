@@ -363,7 +363,7 @@ const GpsStep: React.FC<RobotModelStepProps> = ({ values, onChange }) => {
                                         <Input
                                             value={values.ntrip_host ?? ""}
                                             onChange={(e) => onChange("ntrip_host", e.target.value)}
-                                            placeholder="caster.centipede.fr"
+                                            placeholder="crtk.net"
                                         />
                                     </Form.Item>
                                 </Col>
