@@ -2476,10 +2476,10 @@ martinez-polygon-clipping@^0.8.1:
     splaytree "^0.1.4"
     tinyqueue "3.0.0"
 
-match-sorter@^8.2.0:
-  version "8.2.0"
-  resolved "https://registry.yarnpkg.com/match-sorter/-/match-sorter-8.2.0.tgz#aa7ef4a6a385edb51517168bc4e853812c087d48"
-  integrity sha512-qRVB7wYMJXizAWR4TKo5UYwgW7oAVzA8V9jve0wGzRvV91ou9dcqL+/2gJtD0PZ/Pm2Fq6cVT4VHXHmDFVMGRA==
+match-sorter@^8.3.0:
+  version "8.3.0"
+  resolved "https://registry.yarnpkg.com/match-sorter/-/match-sorter-8.3.0.tgz#85cb4c3b6b25df110b44d66ed6661625efb21834"
+  integrity sha512-8Py1GbZi5zsclYSFcPAH4H5xfTbeD0bOREA7qP/t8bW4MbOSlPl8sbqHOedEV7O+Bxyvxm6xs/v6BXJGe+JDNA==
   dependencies:
     "@babel/runtime" "^7.23.8"
     remove-accents "0.5.0"
