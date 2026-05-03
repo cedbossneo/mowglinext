@@ -55,7 +55,7 @@ jobs:
       # same recipe here, cached so subsequent runs are instant.
       - name: Cache GTSAM build
         id: cache-gtsam
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /opt/gtsam
           key: gtsam-4.3a1-${{ runner.os }}-noble
@@ -101,7 +101,7 @@ jobs:
             libboost-all-dev libeigen3-dev libmetis-dev
 
       - name: Cache rosdep
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ros/rosdep
           key: rosdep-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/package.xml') }}
@@ -120,7 +120,7 @@ jobs:
             -y
 
       - name: Cache colcon workspace
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ros2/build
@@ -167,7 +167,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Cache pip clang-format
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: pip-clang-format-18.1.8
