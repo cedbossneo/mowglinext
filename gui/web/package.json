@@ -24,7 +24,7 @@
     "@turf/union": "^7.3.4",
     "antd": "^5.29.3",
     "localforage": "^1.10.0",
-    "mapbox-gl": "^3.20.0",
+    "mapbox-gl": "^3.23.0",
     "match-sorter": "^8.2.0",
     "moment": "^2.30.1",
     "prop-types": "^15.8.1",
