@@ -48,6 +48,8 @@ import {useSettings} from "../hooks/useSettings.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
 import {useApi} from "../hooks/useApi.ts";
 import {useFusionGraphDiagnostics} from "../hooks/useFusionGraphDiagnostics.ts";
+import {useMowerAction} from "../components/MowerActions.tsx";
+import {AlertOutlined} from "@ant-design/icons";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -576,6 +578,8 @@ export const DiagnosticsPage = () => {
 
     const useFusionGraph = String((settings as any)?.use_fusion_graph ?? "false") === "true";
     const guiApi = useApi();
+    const mowerAction = useMowerAction();
+    const resetEmergencyAction = mowerAction("emergency", {Emergency: 0});
     const {stats: fusionStats} = useFusionGraphDiagnostics();
     const [fusionBusy, setFusionBusy] = useState<"save" | "clear" | null>(null);
 
@@ -858,9 +862,30 @@ export const DiagnosticsPage = () => {
                                 }}
                             />
                         </Col>
+                        <Col span={8}>
+                            <Statistic
+                                title="Charge current"
+                                value={power.charge_current}
+                                precision={2}
+                                suffix="A"
+                                valueStyle={{
+                                    color: highLevelStatus.is_charging && (power.charge_current ?? 0) > 0
+                                        ? colors.primary
+                                        : undefined,
+                                }}
+                            />
+                        </Col>
+                        <Col span={8}>
+                            <Statistic
+                                title="Charger voltage"
+                                value={power.v_charge}
+                                precision={2}
+                                suffix="V"
+                            />
+                        </Col>
                     </Row>
                     <div style={{marginTop: 12}}>
-                        <Space>
+                        <Space wrap>
                             <Typography.Text type="secondary" style={{fontSize: 12}}>Emergency</Typography.Text>
                             <Tag color={emergency.active_emergency ? "error" : emergency.latched_emergency ? "warning" : "default"}>
                                 {emergency.active_emergency
@@ -869,6 +894,16 @@ export const DiagnosticsPage = () => {
                                         ? "Latched"
                                         : "Clear"}
                             </Tag>
+                            {(emergency.active_emergency || emergency.latched_emergency) && (
+                                <Button
+                                    danger
+                                    size="small"
+                                    icon={<AlertOutlined/>}
+                                    onClick={resetEmergencyAction}
+                                >
+                                    Reset emergency
+                                </Button>
+                            )}
                         </Space>
                     </div>
                     {btNodeStates.size > 0 && (
