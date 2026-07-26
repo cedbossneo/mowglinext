@@ -69,6 +69,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_robot_config_util test/test_robot_config_util.py
     TIMEOUT 30
   )
+  ament_add_pytest_test(test_urdf_xacro test/test_urdf_xacro.py
+    TIMEOUT 30
+  )
 
   # Static guard for Inv 2 (TF sole ownership) — greps sources/configs, no
   # nodes spun up.
