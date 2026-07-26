@@ -245,10 +245,10 @@ collision_monitor:
       enabled: false
     PolygonSlow:
       type: "polygon"
-      # Chassis + 15 cm — slow to 30% when obstacle is close
+      # Chassis + 15 cm — slow to 70% when obstacle is close
       points: "[[0.65, 0.35], [0.65, -0.35], [-0.25, -0.35], [-0.25, 0.35]]"
       action_type: "slowdown"
-      slowdown_ratio: 0.5
+      slowdown_ratio: 0.7
       # 12 points: the dock structure sits near the polygon boundary
       # when charging, causing rapid slow/normal flapping at 10 Hz.
       # Higher min_points adds hysteresis against that edge noise.
