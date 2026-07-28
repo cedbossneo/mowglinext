@@ -2,8 +2,10 @@ package providers
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
+	"git.mills.io/prologic/bitcask"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -126,6 +128,78 @@ func TestDBProvider_GetWithEnvFallbackMethod(t *testing.T) {
 
 	result = db.GetWithEnvFallback("nonexistent", "MY_TEST_ENV", "my-default")
 	assert.Equal(t, "db-value", result)
+}
+
+// seedStore opens a bitcask store at dir, writes the given key/values, and
+// closes it (releasing the lock and flushing to the datafile) so the caller
+// can corrupt the on-disk files.
+func seedStore(t *testing.T, dir string, kv map[string]string) {
+	t.Helper()
+	db, err := bitcask.Open(dir)
+	require.NoError(t, err)
+	for k, v := range kv {
+		require.NoError(t, db.Put([]byte(k), []byte(v)))
+	}
+	require.NoError(t, db.Close())
+}
+
+// TestDBProvider_RecoversCorruptedDatafileTail reproduces issue #288: an
+// unclean shutdown mid-write leaves the tail of the datafile corrupted, so
+// decoding it yields "key/value size is invalid". NewDBProvider must recover
+// (truncate the corrupted tail) instead of panicking, preserving intact keys.
+func TestDBProvider_RecoversCorruptedDatafileTail(t *testing.T) {
+	dir := t.TempDir()
+	seedStore(t, dir, map[string]string{"onboarding.completed": "true"})
+
+	// Append garbage to the datafile: a 0xFF header decodes to an oversized
+	// key size, which is exactly the "key/value size is invalid" corruption.
+	matches, err := filepath.Glob(filepath.Join(dir, "*.data"))
+	require.NoError(t, err)
+	require.NotEmpty(t, matches)
+	f, err := os.OpenFile(matches[0], os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF})
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	t.Setenv("DB_PATH", dir)
+
+	// Must not panic.
+	var db *DBProvider
+	require.NotPanics(t, func() { db = NewDBProvider() })
+
+	// The intact key written before the corruption is preserved.
+	val, err := db.Get("onboarding.completed")
+	require.NoError(t, err)
+	assert.Equal(t, "true", string(val))
+}
+
+// TestDBProvider_QuarantinesUnrecoverableStore covers corruption that
+// auto-recovery cannot fix (a corrupted meta.json). NewDBProvider must move the
+// broken store aside and come up on a fresh, writable store instead of panicking.
+func TestDBProvider_QuarantinesUnrecoverableStore(t *testing.T) {
+	dir := t.TempDir()
+	seedStore(t, dir, map[string]string{"onboarding.completed": "true"})
+
+	// Corrupt meta.json with invalid JSON — Open fails with ErrBadMetadata,
+	// which bitcask's auto-recovery does not handle.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte("{not json"), 0o644))
+
+	t.Setenv("DB_PATH", dir)
+
+	var db *DBProvider
+	require.NotPanics(t, func() { db = NewDBProvider() })
+
+	// A backup directory holds the quarantined store.
+	backups, err := filepath.Glob(filepath.Join(dir, quarantinePrefix+"*"))
+	require.NoError(t, err)
+	require.NotEmpty(t, backups, "expected a quarantine backup directory")
+
+	// The fresh store is writable and readable.
+	require.NoError(t, db.Set("fresh.key", []byte("ok")))
+	val, err := db.Get("fresh.key")
+	require.NoError(t, err)
+	assert.Equal(t, "ok", string(val))
 }
 
 func TestDBProvider_DefaultValues(t *testing.T) {

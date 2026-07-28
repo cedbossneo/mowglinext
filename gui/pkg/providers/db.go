@@ -2,10 +2,21 @@ package providers
 
 import (
 	"errors"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"git.mills.io/prologic/bitcask"
 	"golang.org/x/xerrors"
-	"os"
 )
+
+// quarantinePrefix names the backup directory that holds a store which was
+// too corrupted to recover. It is skipped when quarantining so repeated
+// corruptions don't nest previous backups inside each other.
+const quarantinePrefix = "corrupt-"
 
 type DBProvider struct {
 	db *bitcask.Bitcask
@@ -99,11 +110,65 @@ func (d *DBProvider) GetWithEnvFallback(key string, env string, def string) stri
 }
 
 func NewDBProvider() *DBProvider {
-	var err error
-	d := &DBProvider{}
-	d.db, err = bitcask.Open(os.Getenv("DB_PATH"))
+	db, err := openResilient(os.Getenv("DB_PATH"))
 	if err != nil {
 		panic(err)
 	}
-	return d
+	return &DBProvider{db: db}
+}
+
+// openResilient opens the bitcask store, tolerating a store left corrupted by
+// an unclean shutdown (power loss mid-write is a normal occurrence for a
+// robot). It first enables bitcask's auto-recovery, which truncates the
+// corrupted tail of the last datafile and preserves every intact key. If the
+// store is still unopenable (e.g. a corrupted meta.json/config.json that
+// auto-recovery does not cover), it moves the whole store aside and recreates
+// a fresh one — the operator's proven manual workaround — so the GUI stays
+// reachable instead of crash-looping. The bitcask store only holds GUI-side
+// state (onboarding flag, session history, schedule, map offset); robot
+// calibration and maps live elsewhere, so recreating it loses nothing critical.
+func openResilient(path string) (*bitcask.Bitcask, error) {
+	db, err := bitcask.Open(path, bitcask.WithAutoRecovery(true))
+	if err == nil {
+		return db, nil
+	}
+
+	log.Printf("DBProvider: store at %q is unrecoverable (%v); quarantining it and starting fresh", path, err)
+	if qErr := quarantineStore(path); qErr != nil {
+		return nil, xerrors.Errorf("db store corrupted (%v) and quarantine failed: %w", err, qErr)
+	}
+	return bitcask.Open(path, bitcask.WithAutoRecovery(true))
+}
+
+// quarantineStore moves the contents of the store directory into a timestamped
+// backup subdirectory, leaving the directory itself in place (it may be a bind
+// mount that cannot be renamed) so a fresh store can be created there. Previous
+// quarantine backups are left untouched rather than nested.
+func quarantineStore(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+
+	backupDir := filepath.Join(path, fmt.Sprintf("%s%d", quarantinePrefix, time.Now().Unix()))
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return err
+	}
+
+	moved := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, quarantinePrefix) {
+			continue
+		}
+		if err := os.Rename(filepath.Join(path, name), filepath.Join(backupDir, name)); err != nil {
+			return xerrors.Errorf("moving %s aside: %w", name, err)
+		}
+		moved++
+	}
+
+	if moved == 0 {
+		_ = os.Remove(backupDir)
+	}
+	return nil
 }
