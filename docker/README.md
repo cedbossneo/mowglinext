@@ -614,11 +614,20 @@ expected; Nav2 does not receive LiDAR scans.
    ```
 
 3. The `MaxAutoParticipantIndex` in `config/cyclonedds.xml` defaults to
-   `120`. If you add more nodes and discovery still fails, increase it.
+   `500`. If you add more nodes and discovery still fails, increase it.
 
-4. For the remote split deployment, confirm DDS multicast is routable
-   between the Pi and the host, or switch to a FastDDS unicast peer
-   configuration using `fastdds.xml` as a reference.
+4. Confirm DDS is still pinned to `lo` — `NetworkInterface name="lo"` plus
+   `AllowMulticast=false`. Letting Cyclone autodetermine the interface makes it
+   route DDS over WiFi/Ethernet, where a link flap turns into
+   `ddsi_udp_conn_write ... failed with retcode -1` floods and dying nodes
+   (issue #418).
+
+5. Run `ros2` CLI commands **inside** a container (`docker exec mowgli-ros2 …`).
+   A host-native `ros2` binary will not see the graph unless it uses the same
+   config: `export CYCLONEDDS_URI=file://$PWD/config/cyclonedds.xml`.
+
+The split deployment shares serial devices over ser2net, not DDS — DDS never
+crosses hosts here, so there is nothing to make routable between boards.
 
 ### Nav2 does not start or times out on ARM
 
