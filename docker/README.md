@@ -362,11 +362,24 @@ inside the running `mowgli-ros2` container.
 
 All ROS2 containers use **Cyclone DDS** (`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`).
 The shared config at `config/cyclonedds.xml` is bind-mounted to
-`/cyclonedds.xml` in every container and sets:
+`/cyclonedds.xml` in every container. Because all containers run with
+`network_mode: host`, every ROS2 participant shares the host loopback, so the
+config pins DDS to `lo` and disables multicast — keeping discovery and traffic
+off the WiFi/Ethernet NICs (letting DDS pick an external interface broke
+GPS/RTK, see issue #418):
 
 ```xml
+<General>
+  <AllowMulticast>false</AllowMulticast>
+  <Interfaces>
+    <NetworkInterface name="lo" priority="default"/>
+  </Interfaces>
+</General>
 <Discovery>
-  <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+  <MaxAutoParticipantIndex>500</MaxAutoParticipantIndex>
+  <Peers>
+    <Peer Address="localhost"/>
+  </Peers>
 </Discovery>
 ```
 
