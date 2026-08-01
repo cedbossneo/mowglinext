@@ -330,7 +330,17 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
             const feature = new ActivePathFeature("plan", coordinates);
             newFeatures[feature.id] = feature
         }
-        setFeatures(newFeatures)
+        // Preserve the live robot features — they are owned by the pose stream
+        // (useMapStreams merges mower/mower-* in) and must survive this
+        // map/path/plan-driven rebuild. Replacing the record wholesale wiped
+        // the mower on every path update, so the robot only stayed visible
+        // while the path overlays were NOT being streamed.
+        setFeatures((old) => ({
+            ...newFeatures,
+            ...Object.fromEntries(
+                Object.entries(old).filter(([k]) => k === "mower" || k.startsWith("mower-"))
+            ),
+        }))
     }, [map, path, plan, offsetX, offsetY, datum, editMap, LAYER_COLORS]);
 
     useEffect(() => {
