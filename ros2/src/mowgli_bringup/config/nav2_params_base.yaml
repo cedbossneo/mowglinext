@@ -948,7 +948,13 @@ docking_server:
     # near-dock saturation that was the whole problem. Lower ω_max also means the
     # angular dynamics are slow vs the linear closing (vx≈0.15), so the robot
     # reaches the contacts before it can over-rotate → gentler, settling seat.
-    controller.v_angular_max: 0.45
+    # 0.25 (was 0.45, 2026-08-01): 0.45 still let the 1/r curvature blow-up
+    # saturate ω in the last 30 cm — field-observed ~45° over-rotation, then a
+    # left-right limit-cycle wobble at the cradle, and on soft ground the
+    # outer wheel spun at full differential and dug in. The runway cross-track
+    # null only ever commands ω≈0.06–0.30, so 0.25 keeps the runway authority
+    # and only clips the near-dock saturation.
+    controller.v_angular_max: 0.25
     # 0.45 (was 0.25): within slowdown_radius the linear speed scales down to
     # v_linear_min (v = v_linear_max·r/slowdown_radius, clamped). A larger
     # radius means the robot reaches crawl speed ~20 cm sooner, giving the
@@ -969,8 +975,12 @@ docking_server:
     # localization / a mis-pinned dock pose (supersedes the earlier note). k_delta
     # was too strong vs k_phi (1.33:1); raised to ~4:1 so the controller actually
     # steers back onto the centerline. Back k_phi down if it weaves/oscillates.
-    controller.k_phi: 5.0
-    controller.k_delta: 2.0
+    # 3.0/1.2 (was 5.0/2.0, 2026-08-01): per the note above — it weaved. Field
+    # run showed over-rotation (~45°) on a small initial deviation and a
+    # left-right limit cycle once squared up. Same ~2.5:1 ratio (keeps the
+    # centerline-nulling fix), ~40 % less aggressive.
+    controller.k_phi: 3.0
+    controller.k_delta: 1.2
     # Named dock instances — BT uses dock_id="home_dock"
     dock_plugins: ["simple_charging_dock"]
     docks: ["home_dock"]
