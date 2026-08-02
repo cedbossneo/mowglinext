@@ -98,6 +98,12 @@ mowgli:
     # the robot out of the area before BoundaryGuard could see it.
     loc_sigma_pause_m: 0.15
     loc_sigma_resume_m: 0.08
+    # Persistence debounce: σ must stay beyond the threshold this long before
+    # the guard flips. Graph covariance spikes to ~0.9 m for a few seconds on
+    # every rejected/missed GPS fix and snaps back — without the debounce the
+    # guard flipped 32× in 15 min and shredded mowing into stutter intervals.
+    loc_sigma_pause_persist_s: 3.0
+    loc_sigma_resume_persist_s: 2.0
     bt_debug_logging: false
     # idle_nav2_suspend (default false): when true, the BT PAUSEs the Nav2
     # lifecycle stack while parked on the dock so the costmaps stop looping and

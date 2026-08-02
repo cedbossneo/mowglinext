@@ -224,6 +224,16 @@ private:
     // within one covariance update instead of at the boundary.
     loc_sigma_pause_m_ = declare_parameter<double>("loc_sigma_pause_m", 0.15);
     loc_sigma_resume_m_ = declare_parameter<double>("loc_sigma_resume_m", 0.08);
+    // Persistence debounce on TOP of the sigma hysteresis. The graph's
+    // marginal covariance spikes to ~0.8-0.9 m within seconds whenever a
+    // couple of GPS fixes are rejected/missed (wheel-only growth) and snaps
+    // back on the next accepted fix — field-measured 2026-08-02 at 32
+    // pause/resume flips in 15 min, which shredded mowing into stutter
+    // intervals (each resume restarts the strip with a pivot). Only a
+    // SUSTAINED degradation is worth pausing for; the incident this guard
+    // exists for lasted minutes.
+    loc_sigma_pause_persist_s_ = declare_parameter<double>("loc_sigma_pause_persist_s", 3.0);
+    loc_sigma_resume_persist_s_ = declare_parameter<double>("loc_sigma_resume_persist_s", 2.0);
     fused_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         "/odometry/filtered_map",
         rclcpp::QoS(5),
@@ -231,23 +241,52 @@ private:
         {
           const double sigma = std::sqrt(std::max(
               {msg->pose.covariance[0], msg->pose.covariance[7], 0.0}));
+          const double now_s = get_clock()->now().seconds();
           std::lock_guard<std::mutex> lock(context_->context_mutex);
-          if (!context_->localization_degraded && sigma > loc_sigma_pause_m_)
+          if (!context_->localization_degraded)
           {
-            context_->localization_degraded = true;
-            RCLCPP_WARN(get_logger(),
-                        "Localization degraded (σ_xy %.2f m > %.2f m) — pausing blade-on "
-                        "mowing until σ_xy < %.2f m.",
-                        sigma,
-                        loc_sigma_pause_m_,
-                        loc_sigma_resume_m_);
+            if (sigma > loc_sigma_pause_m_)
+            {
+              if (loc_deg_since_s_ < 0.0)
+                loc_deg_since_s_ = now_s;
+              if (now_s - loc_deg_since_s_ >= loc_sigma_pause_persist_s_)
+              {
+                context_->localization_degraded = true;
+                loc_rec_since_s_ = -1.0;
+                RCLCPP_WARN(get_logger(),
+                            "Localization degraded (σ_xy %.2f m > %.2f m for %.1f s) — "
+                            "pausing blade-on mowing until σ_xy < %.2f m.",
+                            sigma,
+                            loc_sigma_pause_m_,
+                            now_s - loc_deg_since_s_,
+                            loc_sigma_resume_m_);
+              }
+            }
+            else
+            {
+              loc_deg_since_s_ = -1.0;
+            }
           }
-          else if (context_->localization_degraded && sigma < loc_sigma_resume_m_)
+          else
           {
-            context_->localization_degraded = false;
-            RCLCPP_INFO(get_logger(),
-                        "Localization recovered (σ_xy %.2f m) — resuming.",
-                        sigma);
+            if (sigma < loc_sigma_resume_m_)
+            {
+              if (loc_rec_since_s_ < 0.0)
+                loc_rec_since_s_ = now_s;
+              if (now_s - loc_rec_since_s_ >= loc_sigma_resume_persist_s_)
+              {
+                context_->localization_degraded = false;
+                loc_deg_since_s_ = -1.0;
+                RCLCPP_INFO(get_logger(),
+                            "Localization recovered (σ_xy %.2f m, stable %.1f s) — resuming.",
+                            sigma,
+                            now_s - loc_rec_since_s_);
+              }
+            }
+            else
+            {
+              loc_rec_since_s_ = -1.0;
+            }
           }
         });
 
@@ -881,6 +920,10 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr fused_odom_sub_;
   double loc_sigma_pause_m_{0.15};
   double loc_sigma_resume_m_{0.08};
+  double loc_sigma_pause_persist_s_{3.0};
+  double loc_sigma_resume_persist_s_{2.0};
+  double loc_deg_since_s_{-1.0};
+  double loc_rec_since_s_{-1.0};
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr gps_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::GnssStatus>::SharedPtr gnss_status_sub_;
   rclcpp::Subscription<nav2_msgs::msg::CollisionMonitorState>::SharedPtr collision_monitor_sub_;
