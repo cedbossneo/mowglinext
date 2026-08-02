@@ -91,6 +91,13 @@ mowgli:
     yaw_gyro_sign: 1
     # Behavior tree tuning (consumed by behavior_tree_node)
     tick_rate: 10.0
+    # Localization-quality gate (LocalizationGuard): pause blade-on mowing
+    # while the fused σ_xy exceeds loc_sigma_pause_m; resume once it falls
+    # below loc_sigma_resume_m (hysteresis so RTK flapping doesn't chatter).
+    # Field incident 2026-08-02: >60 s plain-GPS fallback (σ ≈ 1.5 m) drove
+    # the robot out of the area before BoundaryGuard could see it.
+    loc_sigma_pause_m: 0.15
+    loc_sigma_resume_m: 0.08
     bt_debug_logging: false
     # idle_nav2_suspend (default false): when true, the BT PAUSEs the Nav2
     # lifecycle stack while parked on the dock so the costmaps stop looping and

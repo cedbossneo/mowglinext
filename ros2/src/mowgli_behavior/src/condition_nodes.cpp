@@ -224,6 +224,17 @@ BT::NodeStatus IsBoundaryViolation::tick()
 }
 
 // ---------------------------------------------------------------------------
+// IsLocalizationDegraded
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsLocalizationDegraded::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  std::lock_guard<std::mutex> lock(ctx->context_mutex);
+  return ctx->localization_degraded ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
 // IsLethalBoundaryViolation
 // ---------------------------------------------------------------------------
 

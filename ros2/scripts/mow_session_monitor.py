@@ -310,9 +310,12 @@ class MowSessionMonitor(Node):
         sub("/wheel_odom", Odometry, self._wheel_odom_cb, QOS_RELIABLE)
         sub("/imu/data", Imu, self._imu_cb, QOS_SENSOR)
 
-        # GPS + dock heading
+        # GPS + dock heading. /gps/absolute_pose is mowgli_interfaces/
+        # AbsolutePose (NOT PoseWithCovarianceStamped — the wrong type here
+        # created a silent type conflict on the topic and left every
+        # gps_absolute_pose sample as None); subscribed in the
+        # mowgli_interfaces block below.
         sub("/gps/fix", NavSatFix, self._gps_fix_cb, QOS_SENSOR)
-        sub("/gps/absolute_pose", PoseWithCovarianceStamped, self._gps_abs_cb, QOS_RELIABLE)
         sub("/gnss/heading", Imu, self._gnss_heading_cb, QOS_RELIABLE)
 
         # Yaw-source attribution: COG (GPS travel direction), fusion_graph's
@@ -330,6 +333,7 @@ class MowSessionMonitor(Node):
         # mowgli_interfaces package when those topics are available
         try:
             from mowgli_interfaces.msg import (  # type: ignore
+                AbsolutePose,
                 Emergency,
                 HighLevelStatus,
                 Status as HwStatus,
@@ -337,6 +341,9 @@ class MowSessionMonitor(Node):
             sub("/behavior_tree_node/high_level_status", HighLevelStatus, self._bt_cb)
             sub("/hardware_bridge/status", HwStatus, self._hw_status_cb)
             sub("/hardware_bridge/emergency", Emergency, self._emergency_cb)
+            # AbsolutePose embeds a PoseWithCovariance at .pose, so the
+            # existing callback's msg.pose.pose.position access is unchanged.
+            sub("/gps/absolute_pose", AbsolutePose, self._gps_abs_cb, QOS_RELIABLE)
         except ImportError as exc:
             self.get_logger().warn(f"mowgli_interfaces not available: {exc} — BT/status fields will be missing.")
 

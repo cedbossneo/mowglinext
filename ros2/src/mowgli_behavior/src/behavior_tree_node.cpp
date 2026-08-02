@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -40,6 +41,7 @@
 #include "mowgli_interfaces/srv/start_in_area.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/action/undock_robot.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -211,6 +213,43 @@ private:
                                                        context_->context_mutex);
                                                    context_->lethal_boundary_violation = msg->data;
                                                  });
+
+    // Localization-quality gate feed. σ_xy from the fused pose covariance,
+    // latched with hysteresis into context_->localization_degraded: above
+    // loc_sigma_pause_m ⇒ degraded (LocalizationGuard pauses blade-on
+    // mowing); only below loc_sigma_resume_m ⇒ trusted again. Field incident
+    // 2026-08-02: RTK fell back to plain GPS (σ ≈ 1.5 m) for >60 s and FTC
+    // kept steering on the drifting estimate until the robot physically
+    // left the area — pausing at σ > pause threshold ends that blind drive
+    // within one covariance update instead of at the boundary.
+    loc_sigma_pause_m_ = declare_parameter<double>("loc_sigma_pause_m", 0.15);
+    loc_sigma_resume_m_ = declare_parameter<double>("loc_sigma_resume_m", 0.08);
+    fused_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        "/odometry/filtered_map",
+        rclcpp::QoS(5),
+        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
+        {
+          const double sigma = std::sqrt(std::max(
+              {msg->pose.covariance[0], msg->pose.covariance[7], 0.0}));
+          std::lock_guard<std::mutex> lock(context_->context_mutex);
+          if (!context_->localization_degraded && sigma > loc_sigma_pause_m_)
+          {
+            context_->localization_degraded = true;
+            RCLCPP_WARN(get_logger(),
+                        "Localization degraded (σ_xy %.2f m > %.2f m) — pausing blade-on "
+                        "mowing until σ_xy < %.2f m.",
+                        sigma,
+                        loc_sigma_pause_m_,
+                        loc_sigma_resume_m_);
+          }
+          else if (context_->localization_degraded && sigma < loc_sigma_resume_m_)
+          {
+            context_->localization_degraded = false;
+            RCLCPP_INFO(get_logger(),
+                        "Localization recovered (σ_xy %.2f m) — resuming.",
+                        sigma);
+          }
+        });
 
     // GPS position for heading calibration during undock. RTK/fix-state comes
     // from /gps/status so covariance fallout on /gps/fix does not masquerade
@@ -839,6 +878,9 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr replan_needed_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr boundary_violation_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr lethal_boundary_violation_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr fused_odom_sub_;
+  double loc_sigma_pause_m_{0.15};
+  double loc_sigma_resume_m_{0.08};
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr gps_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::GnssStatus>::SharedPtr gnss_status_sub_;
   rclcpp::Subscription<nav2_msgs::msg::CollisionMonitorState>::SharedPtr collision_monitor_sub_;
