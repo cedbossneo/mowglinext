@@ -843,8 +843,7 @@ TEST(CoveragePlanning, ChassisInsetOptInKeepsBladesInsideHalfWidth)
   ASSERT_NEAR(chassis_inset, 0.20, 1e-9);
 
   const auto cell = makeSquare(6.0);  // big enough to still plan after a 0.20 m inset
-  const auto plan =
-      planBoustrophedon(cell, kOpWidth, kHeadland, 0, chassis_inset, -1.0, kMinSwath);
+  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, chassis_inset, -1.0, kMinSwath);
   ASSERT_FALSE(plan.rings.empty()) << "no rings after the floored inset";
   ASSERT_FALSE(plan.swaths.empty()) << "no swaths after the floored inset";
 
@@ -1037,8 +1036,7 @@ TEST(CoverageContinuousPath, OutermostRingStaysInsideClearanceRingOnTheLine)
   const std::vector<std::pair<double, double>>& clearance = plan.connector_clearance_boundary;
 
   // The server bounds/verifies against connector_clearance_boundary — mirror that.
-  const auto subs =
-      buildContinuousSubPaths(plan, clearance, kTurnRadius, kMinTurnRadius, kStep);
+  const auto subs = buildContinuousSubPaths(plan, clearance, kTurnRadius, kMinTurnRadius, kStep);
   ASSERT_FALSE(subs.empty()) << "no continuous sub-paths built";
 
   std::size_t out_of_bounds = 0;
