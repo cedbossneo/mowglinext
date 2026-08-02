@@ -41,11 +41,11 @@
 #include "mowgli_interfaces/srv/start_in_area.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/action/undock_robot.hpp"
-#include "nav_msgs/msg/odometry.hpp"
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -239,8 +239,8 @@ private:
         rclcpp::QoS(5),
         [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
         {
-          const double sigma = std::sqrt(std::max(
-              {msg->pose.covariance[0], msg->pose.covariance[7], 0.0}));
+          const double sigma =
+              std::sqrt(std::max({msg->pose.covariance[0], msg->pose.covariance[7], 0.0}));
           const double now_s = get_clock()->now().seconds();
           std::lock_guard<std::mutex> lock(context_->context_mutex);
           if (!context_->localization_degraded)

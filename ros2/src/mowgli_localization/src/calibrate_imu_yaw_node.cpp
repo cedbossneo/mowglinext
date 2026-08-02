@@ -175,7 +175,7 @@ public:
   static constexpr double REDOCK_BACKOFF_M = 2.0;
   static constexpr double REDOCK_BACKOFF_TIMEOUT_SEC = 30.0;
   static constexpr double REDOCK_HDG_KP = 1.0;  // rad/s per rad of line-heading error
-  static constexpr double REDOCK_XT_KP = 1.0;   // weight of the cross-track term
+  static constexpr double REDOCK_XT_KP = 1.0;  // weight of the cross-track term
   static constexpr double REDOCK_XT_SHARPNESS = 4.0;  // atan(k·e): ~0.38 rad at e = 10 cm
   static constexpr double REDOCK_WZ_MAX = 0.10;  // rad/s clamp on the steer output
   // Give the firmware's charge-detection debounce a chance after an attempt.
@@ -1571,8 +1571,7 @@ private:
         double bseg_y = by;
         double bcourse = std::numeric_limits<double>::quiet_NaN();
         const double back_deadline = monotonic() + REDOCK_BACKOFF_TIMEOUT_SEC;
-        while (rclcpp::ok() && !emergency_active_ && !is_canceled() &&
-               monotonic() < back_deadline)
+        while (rclcpp::ok() && !emergency_active_ && !is_canceled() && monotonic() < back_deadline)
         {
           const double cx = latest_gps_x_.load();
           const double cy = latest_gps_y_.load();
@@ -1594,9 +1593,9 @@ private:
             const double hdg_err = wrap_angle(gate.dock_yaw_rad - heading);
             const double e_xt = ux * (cy - y0) - uy * (cx - x0);
             const double xt_term = +std::atan(REDOCK_XT_SHARPNESS * e_xt);
-            wz = std::max(-REDOCK_WZ_MAX,
-                          std::min(REDOCK_WZ_MAX,
-                                   REDOCK_HDG_KP * hdg_err + REDOCK_XT_KP * xt_term));
+            wz =
+                std::max(-REDOCK_WZ_MAX,
+                         std::min(REDOCK_WZ_MAX, REDOCK_HDG_KP * hdg_err + REDOCK_XT_KP * xt_term));
           }
           publish_arc(-dc_reverse_speed_ms_, wz);
           sleep_for(period);
