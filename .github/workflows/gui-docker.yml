@@ -47,6 +47,12 @@ jobs:
       packages: write
 
     steps:
+      # Registry references must be lowercase; github.repository keeps the
+      # owner's casing, which breaks the build on forks with mixed-case
+      # owner names (e.g. Chatoese). GITHUB_ENV overrides the workflow-level
+      # IMAGE_NAME for all subsequent steps in this job.
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/mowglinext-gui" >> "$GITHUB_ENV"
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -114,6 +120,12 @@ jobs:
       packages: write
 
     steps:
+      # Registry references must be lowercase; github.repository keeps the
+      # owner's casing, which breaks the build on forks with mixed-case
+      # owner names (e.g. Chatoese). GITHUB_ENV overrides the workflow-level
+      # IMAGE_NAME for all subsequent steps in this job.
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/mowglinext-gui" >> "$GITHUB_ENV"
       - name: Download digests
         uses: actions/download-artifact@v8
         with:

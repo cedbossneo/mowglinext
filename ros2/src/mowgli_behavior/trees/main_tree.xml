@@ -227,6 +227,45 @@
       </ReactiveFallback>
 
       <!-- ================================================================
+           GUARD 2b: Localization quality (reactive)
+           Pauses autonomous motion while the fused σ_xy is too high to
+           trust (hysteresis latched in behavior_tree_node's odometry
+           callback: pause above loc_sigma_pause_m, resume below
+           loc_sigma_resume_m). Field incident 2026-08-02: RTK fell back
+           to plain GPS (σ ≈ 1.5 m) for >60 s and FTC kept steering on the
+           drifting estimate until the robot physically left the area and
+           BoundaryGuard tripped. Exemptions mirror BoundaryGuard: on the
+           charger the pose is gauge-pinned; manual/recording modes are
+           operator-supervised; HOME + the blade-off dock transit must not
+           be stranded mid-return by a GPS outage (docking itself is
+           charger-detection based).
+           ================================================================ -->
+      <ReactiveFallback name="LocalizationGuard">
+        <IsCharging/>
+        <IsCommand command="7"/>
+        <IsCommand command="3"/>
+        <IsCommand command="5"/>
+        <IsCommand command="6"/>
+        <IsCommand command="2"/>
+        <Sequence name="LocDockTransitExempt">
+          <IsCommand command="1"/>
+          <IsDocking/>
+        </Sequence>
+        <Inverter><IsLocalizationDegraded/></Inverter>
+
+        <!-- Hold in place until σ recovers: blade off, wheels stopped.
+             The ReactiveFallback re-evaluates IsLocalizationDegraded every
+             tick, so the guard releases within one tick of the hysteresis
+             clearing and the resume-cursor machinery continues the strip. -->
+        <Sequence name="LocalizationDegradedHandler">
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="2" state_name="WAITING_FOR_RTK"/>
+          <WaitForDuration duration_sec="2.0"/>
+        </Sequence>
+      </ReactiveFallback>
+
+      <!-- ================================================================
            GUARD 3: GPS quality adaptation (reactive)
            ================================================================ -->
       <Fallback name="GPSModeSelector">

@@ -286,6 +286,27 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// IsLocalizationDegraded — true while the fused σ_xy is too high to mow
+// (hysteresis latched in the /odometry/filtered_map callback).
+// ---------------------------------------------------------------------------
+
+class IsLocalizationDegraded : public BT::ConditionNode
+{
+public:
+  IsLocalizationDegraded(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
 // IsLethalBoundaryViolation
 // ---------------------------------------------------------------------------
 

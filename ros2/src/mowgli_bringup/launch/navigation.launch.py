@@ -1078,11 +1078,15 @@ def generate_launch_description() -> LaunchDescription:
     # Motion-compensates the sequential LaserScan rays so a 360° scan
     # acquired while rotating doesn't appear smeared by ω×scan_period in
     # the map frame. Output /scan_deskewed feeds the rest of the pipeline.
+    # Both scan-pipeline helpers are LiDAR-only: without a scanner they idle
+    # at ~20-30 % combined on a Pi 4 (scan_deskew keeps chewing /imu/data
+    # callbacks it will never apply to a scan), so gate them on use_lidar.
     scan_deskew = Node(
         package="mowgli_localization",
         executable="scan_deskew_node",
         name="scan_deskew",
         output="screen",
+        condition=IfCondition(use_lidar),
         parameters=[
             {"use_sim_time": use_sim_time,
              "input_topic": "/scan",
@@ -1098,6 +1102,7 @@ def generate_launch_description() -> LaunchDescription:
         executable="costmap_scan_filter_node",
         name="costmap_scan_filter",
         output="screen",
+        condition=IfCondition(use_lidar),
         parameters=[
             {"use_sim_time": use_sim_time,
              "input_topic": "/scan_deskewed",

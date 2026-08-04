@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -67,8 +68,10 @@ constexpr int HL_STATE_AUTONOMOUS = 2;
 constexpr int HL_STATE_RECORDING = 3;
 
 // HighLevelControl command codes.
+constexpr int HL_CMD_HOME = 2;
 constexpr int HL_CMD_RECORD_AREA = 3;
 constexpr int HL_CMD_RECORD_CANCEL = 6;
+constexpr int HL_CMD_STOP = 8;
 
 double stamp_to_float(const builtin_interfaces::msg::Time& s)
 {
@@ -143,6 +146,44 @@ public:
   static constexpr double DOCK_UNDOCK_SPEED_DEFAULT = 0.15;
   static constexpr double DOCK_UNDOCK_DISTANCE_DEFAULT_M = 2.0;
   static constexpr double DOCK_UNDOCK_TIMEOUT_SEC = 25.0;
+  // Re-dock leg: the return drive is DELEGATED to the production docking
+  // pipeline (HL_CMD_HOME → Nav2 staging → SimpleChargingDock with charger
+  // detection and its own retries). Three custom forward controllers were
+  // field-tested 2026-08-01 (blind dead-reckoning, point-bearing P, Stanley
+  // on the fused yaw) and each found a new failure mode, while the docking
+  // server re-docked reliably all day — so the calibration only SUPERVISES:
+  // an angle guard on the raw RTK track course aborts an askew final
+  // approach, then a steered backoff re-lines the robot for a fresh attempt.
+  static constexpr int REDOCK_MAX_ATTEMPTS = 3;
+  static constexpr double REDOCK_NAV_TIMEOUT_SEC = 180.0;  // per HOME attempt (nav + dock)
+  // Raw-track course estimate: bearing over the last ≥ this much travel. No
+  // fused-yaw dependence — a startup-transient fusion bias steered run 5
+  // consistently off target while keeping its own angle guard blind.
+  static constexpr double REDOCK_COURSE_BASELINE_M = 0.20;
+  static constexpr int REDOCK_APPROACH_TICKS_MIN = 6;  // guard arms only while closing in
+  // Dock-protect angle guard: arriving askew must not shove the dock
+  // sideways — abort the attempt (STOP → steered backoff → fresh HOME)
+  // instead of shoving in at an angle. Not applied inside the cutoff radius,
+  // where the wheel guides funnel the chassis and the heading swings by
+  // design.
+  static constexpr double REDOCK_ANGLE_GUARD_DIST_M = 0.6;
+  static constexpr double REDOCK_ANGLE_GUARD_RAD = 0.20;  // ~11.5°
+  static constexpr double REDOCK_STEER_CUTOFF_M = 0.35;
+  // Steered backoff between attempts: reverse ~2 m while converging on the
+  // ideal line (Stanley terms on the raw-track course; the cross-track term
+  // flips sign in reverse — the TAIL must move toward the line).
+  static constexpr double REDOCK_BACKOFF_M = 2.0;
+  static constexpr double REDOCK_BACKOFF_TIMEOUT_SEC = 30.0;
+  static constexpr double REDOCK_HDG_KP = 1.0;  // rad/s per rad of line-heading error
+  static constexpr double REDOCK_XT_KP = 1.0;  // weight of the cross-track term
+  static constexpr double REDOCK_XT_SHARPNESS = 4.0;  // atan(k·e): ~0.38 rad at e = 10 cm
+  static constexpr double REDOCK_WZ_MAX = 0.10;  // rad/s clamp on the steer output
+  // Give the firmware's charge-detection debounce a chance after an attempt.
+  static constexpr double REDOCK_CHARGE_SETTLE_SEC = 8.0;
+  // Persist retries: map_server's yaw-convergence gate (0.5° window-std over
+  // 5 s by default) needs the fused yaw to settle after the drive.
+  static constexpr int PERSIST_MAX_ATTEMPTS = 8;
+  static constexpr double PERSIST_RETRY_DELAY_SEC = 5.0;
   // Runtime mowgli_robot.yaml — bind-mounted, persists across redeploys.
   // Calibration writes the dock pose back here so the same file the launch
   // system reads at startup also carries the latest measured values.
@@ -233,9 +274,22 @@ public:
     dc_redock_charge_timeout_s_ =
         declare_parameter<double>("dock_calib_redock_charge_timeout_s", 30.0);
     dc_cog_min_samples_ = declare_parameter<int>("dock_calib_cog_min_samples", 8);
-    dc_cog_std_max_rad_ = declare_parameter<double>("dock_calib_cog_std_max_rad", 0.0524);
+    // Per-sample COG yaw scatter is dominated by the publisher's 0.10 m
+    // baseline: even under RTK-Fixed (σ_pos 2-3 cm) individual samples spread
+    // ~10-19° in theory and 10-27° std as field-measured across straight 2 m
+    // reverses, so a few-degree std gate can NEVER pass and even ~17° trips
+    // on ordinary condition-to-condition variation. This gate only screens
+    // gross incoherence (RTK-Float wander); heading QUALITY is enforced by
+    // the bearing-match gate below, which checks the circular MEAN against
+    // the GPS displacement bearing.
+    dc_cog_std_max_rad_ = declare_parameter<double>("dock_calib_cog_std_max_rad", 0.70);
+    // Sanity cross-check only (the persisted yaw IS the reversed RTK travel
+    // bearing, see dock_cog_gate.hpp): with ~16 COG samples of 10-19°
+    // per-sample scatter the mean carries a 3-4° standard error, so a
+    // few-degree match gate trips on pure noise. 0.35 rad (~20°) still
+    // catches a dead/stale COG feed or an RTK-Float excursion.
     dc_cog_bearing_match_max_rad_ =
-        declare_parameter<double>("dock_calib_cog_bearing_match_max_rad", 0.1047);
+        declare_parameter<double>("dock_calib_cog_bearing_match_max_rad", 0.35);
     dc_min_baseline_disp_m_ =
         declare_parameter<double>("dock_calib_min_baseline_displacement_m", 0.5);
 
@@ -1224,6 +1278,12 @@ private:
     }
 
     // ── (1) Wait for RTK-Fixed ──
+    // Subscribe BEFORE the wait: gps_rtk_fixed_ is only fed by the
+    // /gps/absolute_pose callback that activate_sensor_subs() creates (and
+    // finish() tears down after every run) — without a live subscription the
+    // wait polls a flag nothing updates and always times out.
+    activate_sensor_subs();
+    gps_rtk_fixed_ = false;  // require a fresh fix, not a stale one from a prior run
     publish_status(
         DockStatus::PHASE_WAIT_RTK, 0.05f, 0.0f, true, false, 0, "waiting for RTK-Fixed");
     if (!wait_for_rtk_fixed(dc_rtk_wait_timeout_s_))
@@ -1251,8 +1311,6 @@ private:
       }
       need_exit_recording = true;
     }
-
-    activate_sensor_subs();
 
     // ── (3) Straight reverse, collecting COG (+ IMU/odom accel if folding) ──
     const double x0 = latest_gps_x_.load();
@@ -1368,55 +1426,195 @@ private:
       have_imu = imu_result.success;
     }
 
-    // ── (4) Forward re-dock along the same line until charging ──
+    // ── (4) Re-dock via the production docking pipeline, supervised ──
     publish_status(DockStatus::PHASE_REDOCKING, 0.60f, 0.0f, true, false, 0, "re-docking");
     {
-      const double xr = latest_gps_x_.load();
-      const double yr = latest_gps_y_.load();
-      const double max_fwd = disp + dc_redock_overshoot_m_;
-      const double fwd_deadline = monotonic() + dc_redock_charge_timeout_s_;
-      while (rclcpp::ok())
+      // Line geometry shared by the guard and the steered backoff.
+      const double ux = std::cos(gate.dock_yaw_rad);
+      const double uy = std::sin(gate.dock_yaw_rad);
+
+      // HOME needs the BT idle (the reverse leg ran under RECORDING).
+      if (need_exit_recording)
       {
-        if (is_canceled())
+        call_hlc(HL_CMD_RECORD_CANCEL, "exit recording before HOME");
+        wait_for_bt_state(HL_STATE_IDLE, 5.0);
+        need_exit_recording = false;
+      }
+
+      for (int attempt = 0; attempt < REDOCK_MAX_ATTEMPTS && rclcpp::ok(); ++attempt)
+      {
+        if (!call_hlc(HL_CMD_HOME, "dock via Nav2"))
         {
           return finish(false,
                         CalibrateDock::Result::RETRY_WRONG_STATE,
-                        "Canceled during re-dock.",
-                        true,
-                        &gate,
-                        nullptr);
-        }
-        if (emergency_active_)
-        {
-          return finish(false,
-                        CalibrateDock::Result::RETRY_EMERGENCY,
-                        "Emergency during re-dock.",
+                        "Could not start the Nav2 docking (HOME rejected).",
                         false,
                         &gate,
                         nullptr);
         }
-        if (is_charging_)
+
+        // Supervise the approach: success = charging; abort = askew near the
+        // dock (angle guard on the RAW RTK track course — no fused-yaw
+        // dependence); failure = BT back to IDLE without charge, or timeout.
+        const double deadline = monotonic() + REDOCK_NAV_TIMEOUT_SEC;
+        double seg_x = latest_gps_x_.load();
+        double seg_y = latest_gps_y_.load();
+        double course = std::numeric_limits<double>::quiet_NaN();
+        double prev_to_dock = std::hypot(x0 - seg_x, y0 - seg_y);
+        int approaching_ticks = 0;
+        bool saw_autonomous = false;
+        while (rclcpp::ok() && monotonic() < deadline)
+        {
+          if (is_canceled())
+          {
+            call_hlc(HL_CMD_STOP, "stop HOME on cancel");
+            return finish(false,
+                          CalibrateDock::Result::RETRY_WRONG_STATE,
+                          "Canceled during re-dock.",
+                          true,
+                          &gate,
+                          nullptr);
+          }
+          if (emergency_active_)
+          {
+            return finish(false,
+                          CalibrateDock::Result::RETRY_EMERGENCY,
+                          "Emergency during re-dock.",
+                          false,
+                          &gate,
+                          nullptr);
+          }
+          if (is_charging_)
+            break;
+
+          const double cx = latest_gps_x_.load();
+          const double cy = latest_gps_y_.load();
+          if (std::hypot(cx - seg_x, cy - seg_y) >= REDOCK_COURSE_BASELINE_M)
+          {
+            course = std::atan2(cy - seg_y, cx - seg_x);
+            seg_x = cx;
+            seg_y = cy;
+          }
+          const double to_dock = std::hypot(x0 - cx, y0 - cy);
+          approaching_ticks = (to_dock < prev_to_dock - 1e-4) ? approaching_ticks + 1 : 0;
+          prev_to_dock = to_dock;
+          if (bt_state_ == HL_STATE_AUTONOMOUS)
+            saw_autonomous = true;
+
+          // Angle guard: only while genuinely closing in on the dock (the
+          // staging maneuver may pass nearby on an arbitrary heading).
+          if (to_dock < REDOCK_ANGLE_GUARD_DIST_M && to_dock > REDOCK_STEER_CUTOFF_M &&
+              approaching_ticks >= REDOCK_APPROACH_TICKS_MIN && std::isfinite(course) &&
+              std::abs(wrap_angle(gate.dock_yaw_rad - course)) > REDOCK_ANGLE_GUARD_RAD)
+          {
+            RCLCPP_WARN(get_logger(),
+                        "Re-dock: track course %.1f° off the dock line at %.2f m — "
+                        "stopping for a steered backoff instead of shoving in askew.",
+                        std::abs(wrap_angle(gate.dock_yaw_rad - course)) * 180.0 / M_PI,
+                        to_dock);
+            call_hlc(HL_CMD_STOP, "abort askew approach");
+            wait_for_bt_state(HL_STATE_IDLE, 5.0);
+            break;
+          }
+
+          // BT finished (back to IDLE) without a charge signal → this attempt
+          // failed on the docking server's side.
+          if (saw_autonomous && bt_state_ == HL_STATE_IDLE)
+            break;
+
+          publish_status(DockStatus::PHASE_REDOCKING,
+                         0.60f + 0.25f * static_cast<float>(std::max(
+                                             0.0, 1.0 - to_dock / DOCK_UNDOCK_DISTANCE_DEFAULT_M)),
+                         static_cast<float>(to_dock),
+                         true,
+                         false,
+                         0,
+                         "re-docking (Nav2)");
+          sleep_for(period);
+        }
+        if (monotonic() >= deadline)
+          call_hlc(HL_CMD_STOP, "stop HOME on timeout");
+
+        // Give the firmware's charge-detection debounce (~2-3 s ADC) a chance
+        // before deciding this attempt failed.
+        {
+          const double t_settle = monotonic() + REDOCK_CHARGE_SETTLE_SEC;
+          while (rclcpp::ok() && !is_charging_ && monotonic() < t_settle)
+            sleep_for(period);
+        }
+        if (is_charging_ || attempt + 1 >= REDOCK_MAX_ATTEMPTS)
           break;
-        publish_vx(+dc_reverse_speed_ms_);
-        sleep_for(period);
-        const double fdisp = std::hypot(latest_gps_x_.load() - xr, latest_gps_y_.load() - yr);
+
+        // ── Steered backoff: reverse ~2 m converging on the ideal line so
+        //    the next HOME starts from a clean, lined-up spot. Runs under
+        //    RECORDING so the BT stands down while we publish cmd_vel. ──
         publish_status(DockStatus::PHASE_REDOCKING,
-                       0.60f + 0.25f * static_cast<float>(
-                                           std::min(1.0, fdisp / std::max(max_fwd, 1e-3))),
-                       static_cast<float>(fdisp),
+                       0.60f,
+                       0.0f,
                        true,
                        false,
                        0,
-                       "re-docking (blade off)");
-        if (fdisp >= max_fwd || monotonic() > fwd_deadline)
-          break;
+                       "re-docking (steered backoff)");
+        if (!call_hlc(HL_CMD_RECORD_AREA, "enter recording for backoff") ||
+            !wait_for_bt_state(HL_STATE_RECORDING, 15.0))
+        {
+          return finish(false,
+                        CalibrateDock::Result::RETRY_WRONG_STATE,
+                        "Could not enter RECORDING for the backoff.",
+                        false,
+                        &gate,
+                        nullptr);
+        }
+        const double bx = latest_gps_x_.load();
+        const double by = latest_gps_y_.load();
+        double bseg_x = bx;
+        double bseg_y = by;
+        double bcourse = std::numeric_limits<double>::quiet_NaN();
+        const double back_deadline = monotonic() + REDOCK_BACKOFF_TIMEOUT_SEC;
+        while (rclcpp::ok() && !emergency_active_ && !is_canceled() && monotonic() < back_deadline)
+        {
+          const double cx = latest_gps_x_.load();
+          const double cy = latest_gps_y_.load();
+          if (std::hypot(cx - bx, cy - by) >= REDOCK_BACKOFF_M)
+            break;
+          if (std::hypot(cx - bseg_x, cy - bseg_y) >= REDOCK_COURSE_BASELINE_M)
+          {
+            bcourse = std::atan2(cy - bseg_y, cx - bseg_x);
+            bseg_x = cx;
+            bseg_y = cy;
+          }
+          double wz = 0.0;
+          if (std::isfinite(bcourse))
+          {
+            // Reversing: the track course points backwards, so the chassis
+            // heading is course + pi. The cross-track term flips sign vs the
+            // forward case — the TAIL must move toward the line.
+            const double heading = wrap_angle(bcourse + M_PI);
+            const double hdg_err = wrap_angle(gate.dock_yaw_rad - heading);
+            const double e_xt = ux * (cy - y0) - uy * (cx - x0);
+            const double xt_term = +std::atan(REDOCK_XT_SHARPNESS * e_xt);
+            wz =
+                std::max(-REDOCK_WZ_MAX,
+                         std::min(REDOCK_WZ_MAX, REDOCK_HDG_KP * hdg_err + REDOCK_XT_KP * xt_term));
+          }
+          publish_arc(-dc_reverse_speed_ms_, wz);
+          sleep_for(period);
+        }
+        publish_vx(0.0);
+        call_hlc(HL_CMD_RECORD_CANCEL, "exit recording after backoff");
+        wait_for_bt_state(HL_STATE_IDLE, 5.0);
       }
     }
     publish_vx(0.0);
 
-    // ── (5) Verify charging ──
+    // ── (5) Verify charging (give the charger handshake a few seconds) ──
     publish_status(
         DockStatus::PHASE_VERIFY_CHARGE, 0.85f, 0.0f, true, false, 0, "verifying charge");
+    {
+      const double t_verify = monotonic() + REDOCK_CHARGE_SETTLE_SEC;
+      while (rclcpp::ok() && !is_charging_ && monotonic() < t_verify)
+        sleep_for(period);
+    }
     if (!is_charging_)
     {
       return finish(false,
@@ -1429,9 +1627,37 @@ private:
 
     // ── Persist via the ONE canonical writer (map_server, yaw_source=MOTION),
     //    ONLY now that re-dock + charging are verified. ──
+    // map_server's yaw-convergence gate wants the fused yaw quiet over a full
+    // rolling window, and right after the drive it is still settling (observed
+    // ~6° window-std immediately after re-dock) — so retry while the robot
+    // sits still on the charger instead of failing on the first attempt.
     publish_status(DockStatus::PHASE_PERSIST, 0.95f, 0.0f, true, false, 0, "saving dock pose");
     std::string perr;
-    if (!persist_dock_via_map_server(gate.dock_yaw_rad, perr))
+    bool persisted = false;
+    for (int attempt = 0; attempt < PERSIST_MAX_ATTEMPTS && rclcpp::ok(); ++attempt)
+    {
+      if (attempt > 0)
+      {
+        publish_status(DockStatus::PHASE_PERSIST,
+                       0.95f,
+                       0.0f,
+                       true,
+                       false,
+                       0,
+                       "saving dock pose (waiting for yaw to settle)");
+        const double t_retry = monotonic() + PERSIST_RETRY_DELAY_SEC;
+        while (rclcpp::ok() && monotonic() < t_retry)
+          sleep_for(period);
+      }
+      if (is_canceled() || emergency_active_)
+        break;
+      if (persist_dock_via_map_server(gate.dock_yaw_rad, perr))
+      {
+        persisted = true;
+        break;
+      }
+    }
+    if (!persisted)
     {
       return finish(false,
                     CalibrateDock::Result::RETRY_PERSIST_FAILED,
