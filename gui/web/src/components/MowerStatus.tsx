@@ -9,7 +9,7 @@ import {deriveGpsStatus} from "../utils/gpsStatus.ts";
 import {restartMowgliNext} from "../utils/containers.ts";
 import {useContainerRestart} from "../hooks/useContainerRestart.ts";
 import {useMowerAction} from "./MowerActions.tsx";
-import {App, Badge, Button, Dropdown, Modal, Space, Tooltip, Typography} from "antd";
+import {App, Badge, Button, Dropdown, Space, Tooltip, Typography} from "antd";
 import {PoweroffOutlined, ReloadOutlined, DesktopOutlined, WifiOutlined, AlertOutlined} from "@ant-design/icons"
 import {stateRenderer} from "./utils.tsx";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
@@ -58,7 +58,7 @@ export const MowerStatus = () => {
     const gnss = useGnssStatus();
     const {settings} = useSettings();
     const guiApi = useApi();
-    const {notification} = App.useApp();
+    const {notification, modal} = App.useApp();
 
     // Derive state with fallbacks
     const isEmergency = highLevelStatus.emergency ?? emergencyData.active_emergency ?? false;
@@ -151,7 +151,13 @@ export const MowerStatus = () => {
     };
 
     const confirmAction = (title: string, content: string, onOk: () => Promise<void>) => {
-        Modal.confirm({
+        // Use the App-context modal (App.useApp().modal), NOT the static
+        // Modal.confirm: antd v5's static API renders outside the App/
+        // ConfigProvider tree, so on React 19 the confirm dialog never
+        // appears — the whole power menu (restart/reboot/shutdown) silently
+        // did nothing because onOk never fired. The App-context variant
+        // inherits the theme, z-index stack, and portal so it shows.
+        modal.confirm({
             title,
             content,
             okText: t('mowerStatus.confirm'),
