@@ -6,10 +6,10 @@ import {useGnssStatus} from "../hooks/useGnssStatus.ts";
 import {useSettings} from "../hooks/useSettings.ts";
 import {computeBatteryPercent} from "../utils/battery.ts";
 import {deriveGpsStatus} from "../utils/gpsStatus.ts";
-import {restartMowgliNext} from "../utils/containers.ts";
-import {useContainerRestart} from "../hooks/useContainerRestart.ts";
+import {restartMowgliStack} from "../utils/containers.ts";
 import {useMowerAction} from "./MowerActions.tsx";
-import {App, Badge, Button, Dropdown, Space, Tooltip, Typography} from "antd";
+import {useState} from "react";
+import {App, Badge, Button, Dropdown, Modal, Space, Spin, Tooltip, Typography} from "antd";
 import {PoweroffOutlined, ReloadOutlined, DesktopOutlined, WifiOutlined, AlertOutlined} from "@ant-design/icons"
 import {stateRenderer} from "./utils.tsx";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
@@ -112,14 +112,43 @@ export const MowerStatus = () => {
             ? Math.round((completedSwaths / totalSwaths) * 100)
             : null;
 
-    // Long-running: container restart + rosbridge reconnect. Lock the menu
-    // item until ROS2 is reachable again to prevent duplicate-click storms.
-    const mowgliRestart = useContainerRestart({
-        pendingLabel: t('mowerStatus.restartingMowgli'),
-        successMessage: t('mowerStatus.mowgliRestarted'),
-        errorMessage: t('mowerStatus.mowgliRestartFailed'),
-    });
-    const restartMowgli = () => mowgliRestart.run(() => restartMowgliNext(guiApi));
+    // "Restart Mowgli" bounces the WHOLE stack (like the `mowgli-restart` CLI),
+    // including the GUI container itself — so this backend goes down mid-way.
+    // We show a blocking overlay and poll for the GUI to come back, then
+    // hard-reload. `stackRestarting` drives both the overlay and the menu lock.
+    const [stackRestarting, setStackRestarting] = useState(false);
+
+    // After the whole-stack restart the GUI container bounces too, so poll a
+    // lightweight backend endpoint every 15 s and hard-reload once it answers
+    // again (it's usually back within an interval or two).
+    const watchForGuiAndReload = () => {
+        const poll = window.setInterval(async () => {
+            try {
+                const r = await fetch("/api/system/info", {cache: "no-store"});
+                if (r.ok) {
+                    window.clearInterval(poll);
+                    window.location.reload();
+                }
+            } catch {
+                /* GUI still restarting — keep polling */
+            }
+        }, 15_000);
+    };
+
+    const restartMowgli = async () => {
+        setStackRestarting(true);
+        try {
+            // Restarts every mowgli-* container; the GUI last (fire-and-forget).
+            await restartMowgliStack(guiApi);
+        } catch (e: any) {
+            // Non-GUI restarts failed before we took ourselves down — recover.
+            setStackRestarting(false);
+            notification.error({message: t('mowerStatus.mowgliRestartFailed'), description: e.message});
+            return;
+        }
+        // GUI is now bouncing; wait for it to return, then reload the page.
+        watchForGuiAndReload();
+    };
 
     // Latched-emergency reset: firmware is the safety authority and only
     // clears the latch when the physical trigger is no longer asserted, so
@@ -174,8 +203,8 @@ export const MowerStatus = () => {
         {
             key: "restart-mowgli",
             icon: <ReloadOutlined/>,
-            label: mowgliRestart.pending ? mowgliRestart.pendingLabel : t('mowerStatus.restartMowgli'),
-            disabled: mowgliRestart.pending,
+            label: stackRestarting ? t('mowerStatus.restartingMowgli') : t('mowerStatus.restartMowgli'),
+            disabled: stackRestarting,
             onClick: () => confirmAction(t('mowerStatus.restartMowgli'), t('mowerStatus.restartMowgliConfirm'), restartMowgli),
         },
         {type: "divider"},
@@ -213,6 +242,21 @@ export const MowerStatus = () => {
     return (
         <>
             <style>{pulseKeyframes}</style>
+            {/* Blocking overlay while the whole stack (incl. this GUI) restarts.
+                The page reconnects and reloads itself via watchForGuiAndReload. */}
+            <Modal
+                open={stackRestarting}
+                closable={false}
+                maskClosable={false}
+                keyboard={false}
+                footer={null}
+                title={t('mowerStatus.restartingStackTitle')}
+            >
+                <Space>
+                    <Spin/>
+                    <Typography.Text>{t('mowerStatus.restartingStackBody')}</Typography.Text>
+                </Space>
+            </Modal>
             <Space size="small" style={{flexShrink: 0}}>
                 <Space size={4}>
                     <Badge
