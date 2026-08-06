@@ -117,6 +117,9 @@ export const MowerStatus = () => {
     // We show a blocking overlay and poll for the GUI to come back, then
     // hard-reload. `stackRestarting` drives both the overlay and the menu lock.
     const [stackRestarting, setStackRestarting] = useState(false);
+    // Controlled so we can close the dropdown before a confirm dialog opens —
+    // otherwise the menu lingers behind the modal (antd renders it beneath).
+    const [powerMenuOpen, setPowerMenuOpen] = useState(false);
 
     // After the whole-stack restart the GUI container bounces too, so poll a
     // lightweight backend endpoint every 15 s and hard-reload once it answers
@@ -180,6 +183,8 @@ export const MowerStatus = () => {
     };
 
     const confirmAction = (title: string, content: string, onOk: () => Promise<void>) => {
+        // Close the power menu first so it doesn't linger behind the modal.
+        setPowerMenuOpen(false);
         // Use the App-context modal (App.useApp().modal), NOT the static
         // Modal.confirm: antd v5's static API renders outside the App/
         // ConfigProvider tree, so on React 19 the confirm dialog never
@@ -294,7 +299,13 @@ export const MowerStatus = () => {
                         </Button>
                     </Tooltip>
                 )}
-                <Dropdown menu={{items: powerMenuItems}} trigger={["click"]} placement="bottomRight">
+                <Dropdown
+                    menu={{items: powerMenuItems}}
+                    trigger={["click"]}
+                    placement="bottomRight"
+                    open={powerMenuOpen}
+                    onOpenChange={setPowerMenuOpen}
+                >
                     {/* Real button (not a Space div) so the power menu is
                         keyboard-focusable/activatable. type="text" keeps the
                         chromeless icon+text look. */}
