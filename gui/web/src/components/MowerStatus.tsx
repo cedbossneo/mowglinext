@@ -112,18 +112,19 @@ export const MowerStatus = () => {
             ? Math.round((completedSwaths / totalSwaths) * 100)
             : null;
 
-    // "Restart Mowgli" bounces the WHOLE stack (like the `mowgli-restart` CLI),
-    // including the GUI container itself — so this backend goes down mid-way.
-    // We show a blocking overlay and poll for the GUI to come back, then
-    // hard-reload. `stackRestarting` drives both the overlay and the menu lock.
-    const [stackRestarting, setStackRestarting] = useState(false);
+    // A power action that takes the backend/host down — whole-stack "Restart
+    // Mowgli" OR "Restart the Raspberry Pi" — shows this blocking overlay;
+    // watchForGuiAndReload then polls and hard-reloads once the GUI answers
+    // again. null = hidden. It also drives the restart-mowgli menu lock.
+    // (Shutdown deliberately does NOT use it — the Pi stays off.)
+    const [reconnect, setReconnect] = useState<{title: string; body: string} | null>(null);
     // Controlled so we can close the dropdown before a confirm dialog opens —
     // otherwise the menu lingers behind the modal (antd renders it beneath).
     const [powerMenuOpen, setPowerMenuOpen] = useState(false);
 
-    // After the whole-stack restart the GUI container bounces too, so poll a
-    // lightweight backend endpoint every 15 s and hard-reload once it answers
-    // again (it's usually back within an interval or two).
+    // After a whole-stack restart or a Pi reboot the GUI goes down too, so poll
+    // a lightweight backend endpoint every 15 s and hard-reload once it answers
+    // again (usually back within an interval or two; a full Pi reboot is longer).
     const watchForGuiAndReload = () => {
         const poll = window.setInterval(async () => {
             try {
@@ -133,19 +134,19 @@ export const MowerStatus = () => {
                     window.location.reload();
                 }
             } catch {
-                /* GUI still restarting — keep polling */
+                /* GUI still down — keep polling */
             }
         }, 15_000);
     };
 
     const restartMowgli = async () => {
-        setStackRestarting(true);
+        setReconnect({title: t('mowerStatus.restartingStackTitle'), body: t('mowerStatus.restartingStackBody')});
         try {
             // Restarts every mowgli-* container; the GUI last (fire-and-forget).
             await restartMowgliStack(guiApi);
         } catch (e: any) {
             // Non-GUI restarts failed before we took ourselves down — recover.
-            setStackRestarting(false);
+            setReconnect(null);
             notification.error({message: t('mowerStatus.mowgliRestartFailed'), description: e.message});
             return;
         }
@@ -165,12 +166,17 @@ export const MowerStatus = () => {
         emergencyData.active_emergency || emergencyData.latched_emergency || isEmergency;
 
     const rebootSystem = async () => {
+        // A Pi reboot takes the whole host (and this GUI) down, so reuse the
+        // reconnect overlay + auto-reload, same as the whole-stack restart.
+        setReconnect({title: t('mowerStatus.rebootingPiTitle'), body: t('mowerStatus.rebootingPiBody')});
         try {
             await guiApi.request({path: "/system/reboot", method: "POST"});
-            notification.success({message: t('mowerStatus.restarting')});
         } catch (e: any) {
+            setReconnect(null);
             notification.error({message: t('mowerStatus.restartFailed'), description: e.message});
+            return;
         }
+        watchForGuiAndReload();
     };
 
     const shutdownSystem = async () => {
@@ -208,8 +214,8 @@ export const MowerStatus = () => {
         {
             key: "restart-mowgli",
             icon: <ReloadOutlined/>,
-            label: stackRestarting ? t('mowerStatus.restartingMowgli') : t('mowerStatus.restartMowgli'),
-            disabled: stackRestarting,
+            label: reconnect ? t('mowerStatus.restartingMowgli') : t('mowerStatus.restartMowgli'),
+            disabled: !!reconnect,
             onClick: () => confirmAction(t('mowerStatus.restartMowgli'), t('mowerStatus.restartMowgliConfirm'), restartMowgli),
         },
         {type: "divider"},
@@ -247,19 +253,19 @@ export const MowerStatus = () => {
     return (
         <>
             <style>{pulseKeyframes}</style>
-            {/* Blocking overlay while the whole stack (incl. this GUI) restarts.
-                The page reconnects and reloads itself via watchForGuiAndReload. */}
+            {/* Blocking overlay while a whole-stack restart or Pi reboot takes the
+                GUI down. The page reconnects and reloads via watchForGuiAndReload. */}
             <Modal
-                open={stackRestarting}
+                open={!!reconnect}
                 closable={false}
                 maskClosable={false}
                 keyboard={false}
                 footer={null}
-                title={t('mowerStatus.restartingStackTitle')}
+                title={reconnect?.title}
             >
                 <Space>
                     <Spin/>
-                    <Typography.Text>{t('mowerStatus.restartingStackBody')}</Typography.Text>
+                    <Typography.Text>{reconnect?.body}</Typography.Text>
                 </Space>
             </Modal>
             <Space size="small" style={{flexShrink: 0}}>
