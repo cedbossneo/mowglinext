@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Badge, Menu, Tabs } from "antd";
 import {
     AimOutlined,
+    BgColorsOutlined,
     CloudOutlined,
     CodeOutlined,
     CompassOutlined,
@@ -22,6 +23,7 @@ import { useThemeMode } from "../../theme/ThemeContext.tsx";
 import { SettingsSection, SectionMeta } from "../../hooks/useSettingsManager.ts";
 
 const SECTION_ICONS: Record<string, React.ReactNode> = {
+    "bg-colors": <BgColorsOutlined />,
     tool: <ToolOutlined />,
     dashboard: <DashboardOutlined />,
     global: <GlobalOutlined />,
