@@ -6,6 +6,7 @@ import {useWS} from "../hooks/useWS.ts";
 import {useApi} from "../hooks/useApi.ts";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useIsMobile} from "../hooks/useIsMobile";
+import {appendCappedBatch, createLogBatcher, type LogBatcher} from "./logBatcher.ts";
 
 type Severity = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG' | 'OTHER';
 
@@ -39,6 +40,7 @@ const LEVEL_OPTIONS: { value: Severity; label: string }[] = [
 
 const DEFAULT_LEVELS: Severity[] = ['ERROR', 'WARN', 'INFO', 'OTHER'];
 const MAX_LINES = 5000;
+const LOG_BATCH_INTERVAL_MS = 100;
 
 type ContainerList = { value: string, label: string, status: "started" | "stopped", labels: Record<string, string> };
 
@@ -56,6 +58,18 @@ export const LogsPage = () => {
     const [autoScroll, setAutoScroll] = useState(true);
     const nextIdRef = useRef(0);
     const listRef = useRef<HTMLDivElement | null>(null);
+    const batcherRef = useRef<LogBatcher<ParsedLog> | null>(null);
+    if (batcherRef.current === null) {
+        batcherRef.current = createLogBatcher<ParsedLog>((batch) => {
+            setLogs(prev => appendCappedBatch(prev, batch, MAX_LINES));
+        }, LOG_BATCH_INTERVAL_MS);
+    }
+
+    const resetLogs = () => {
+        batcherRef.current?.reset();
+        nextIdRef.current = 0;
+        setLogs([]);
+    };
     // useWS.onClose fires for BOTH server-side drops and our own stop()/container
     // switches. Flag the deliberate ones so we don't surface an error toast for
     // an intentional stop or a container change.
@@ -71,16 +85,12 @@ export const LogsPage = () => {
         },
         () => { /* connected */ },
         (line, first) => {
-            setLogs(prev => {
-                const plain = line.replace(ANSI_REGEX, '');
-                const entry: ParsedLog = {
-                    id: nextIdRef.current++,
-                    plain,
-                    severity: detectSeverity(plain),
-                };
-                const base = first ? [] : prev;
-                const next = [...base, entry];
-                return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
+            if (first) resetLogs();
+            const plain = line.replace(ANSI_REGEX, '');
+            batcherRef.current?.push({
+                id: nextIdRef.current++,
+                plain,
+                severity: detectSeverity(plain),
             });
         });
 
@@ -112,12 +122,13 @@ export const LogsPage = () => {
 
     useEffect(() => {
         if (!containerId) return;
-        nextIdRef.current = 0;
-        setLogs([]);
+        resetLogs();
         stream.start(`/api/containers/${containerId}/logs`);
         // Switching containers (or unmounting) closes the socket on purpose.
         return () => { intentionalStopRef.current = true; stream?.stop(); };
     }, [containerId]);
+
+    useEffect(() => () => batcherRef.current?.reset(), []);
 
     const commandContainer = (command: "start" | "stop" | "restart") => async () => {
         const messages = {
@@ -254,7 +265,8 @@ export const LogsPage = () => {
                                     border: `1px solid ${active ? accent : colors.border}`,
                                     background: active ? `${accent}1f` : 'transparent',
                                     color: active ? accent : colors.textDim,
-                                    cursor: 'pointer', transition: 'all 0.15s',
+                                    cursor: 'pointer',
+                                    transition: 'border-color 0.15s, background-color 0.15s, color 0.15s',
                                 }}
                                 aria-pressed={active}
                             >
@@ -277,7 +289,7 @@ export const LogsPage = () => {
                         {autoScroll ? `↓ ${t('logsPage.live')}` : `↓ ${t('logsPage.paused')}`}
                     </button>
                     <button
-                        onClick={() => { setLogs([]); nextIdRef.current = 0; }}
+                        onClick={resetLogs}
                         style={{
                             padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
                             border: `1px solid ${colors.border}`, background: 'transparent',
@@ -309,6 +321,7 @@ export const LogsPage = () => {
                     return (
                         <div
                             key={line.id}
+                            data-testid="log-line"
                             style={{
                                 padding: '3px 14px 3px 12px',
                                 borderLeft: `3px solid ${line.severity === 'OTHER' ? 'transparent' : accent}`,
@@ -319,6 +332,8 @@ export const LogsPage = () => {
                                         : 'transparent',
                                 color: colors.text,
                                 whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                contentVisibility: 'auto',
+                                containIntrinsicSize: 'auto 26px',
                             }}
                         >
                             {line.severity !== 'OTHER' && (

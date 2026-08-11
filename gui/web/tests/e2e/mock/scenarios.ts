@@ -17,6 +17,9 @@ export interface Scenario {
     /** When true, the multiplex socket accepts the connection but never sends
      *  a frame — exercises the "offline / stale data" UI. */
     silentSocket?: boolean;
+    /** Base64-encoded by the mock and sent through the selected container's
+     *  dedicated log WebSocket. */
+    containerLogs?: string[];
 }
 
 // A small square work area (map-frame metres) reused across scenarios.
