@@ -100,15 +100,6 @@ export function nodeFor(state: string | undefined): string | null {
   return null;
 }
 
-const keyframes = `
-@media (prefers-reduced-motion: no-preference) {
-  @keyframes btStatePulse {
-    0%, 100% { opacity: 0.55; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.08); }
-  }
-}
-`;
-
 const NODE_W = 86;
 const NODE_H = 28;
 
@@ -153,7 +144,6 @@ export function BTStateGraph({current, detail}: BTStateGraphProps) {
       overflowX: 'auto',
       WebkitOverflowScrolling: 'touch',
     }}>
-      <style>{keyframes}</style>
       <div style={{
         display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
         marginBottom: 10,
@@ -176,7 +166,6 @@ export function BTStateGraph({current, detail}: BTStateGraphProps) {
               width: 8, height: 8, borderRadius: 4,
               background: colors.accent,
               boxShadow: `0 0 8px ${colors.accent}`,
-              animation: 'btStatePulse 1.8s ease-in-out infinite',
             }}/>
             <span style={{
               fontSize: 11, fontWeight: 700, color: colors.accent,
@@ -267,10 +256,6 @@ export function BTStateGraph({current, detail}: BTStateGraphProps) {
                     fill="none"
                     stroke={accent}
                     strokeWidth={2}
-                    style={{
-                      transformOrigin: `${NODE_W / 2 + 4}px ${NODE_H / 2 + 4}px`,
-                      animation: 'btStatePulse 1.8s ease-in-out infinite',
-                    }}
                   />
                 </>
               )}

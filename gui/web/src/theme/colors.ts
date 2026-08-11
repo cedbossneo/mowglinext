@@ -132,7 +132,7 @@ const LIGHT: ColorTokens = {
   muted: '#707070',
   border: 'rgba(0, 0, 0, 0.08)',
   borderSubtle: 'rgba(0, 0, 0, 0.05)',
-  glassBackground: 'rgba(255, 255, 255, 0.85)',
+  glassBackground: 'rgba(255, 255, 255, 0.96)',
   glassBorder: '1px solid rgba(0, 0, 0, 0.08)',
   glassShadow: '0 2px 12px rgba(0, 0, 0, 0.08)',
 
@@ -182,7 +182,7 @@ const DARK: ColorTokens = {
   muted: inkAlpha(0.50),
   border: inkAlpha(0.07),
   borderSubtle: inkAlpha(0.04),
-  glassBackground: 'rgba(11, 24, 20, 0.78)',
+  glassBackground: 'rgba(11, 24, 20, 0.94)',
   glassBorder: `1px solid ${inkAlpha(0.08)}`,
   glassShadow: '0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 4px 16px -4px rgba(0, 0, 0, 0.4)',
 

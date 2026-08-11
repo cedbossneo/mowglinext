@@ -66,8 +66,6 @@ export const JoystickOverlay = ({
                 background: colors.glassBackground,
                 border: `1px solid ${limeAlpha(0.28)}`,
                 boxShadow: `0 10px 30px -10px rgba(0,0,0,0.6), inset 0 0 24px ${limeAlpha(0.06)}`,
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
             }}>
                 <Joystick
                     size={size}

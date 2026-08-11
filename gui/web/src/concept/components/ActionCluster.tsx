@@ -64,18 +64,14 @@ export function ActionCluster({phase, onStart, onPause, onHome, onStop, onRearm}
           overflow: "hidden",
         }}
       >
-        {/* inner shine sweep -- clip to the circle by inheriting the parent's
-            border-radius (overflow:hidden on the framer-motion button is
-            unreliable because the press transform creates a new stacking
-            context). */}
+        {/* Static inner sheen keeps the primary action dimensional without a
+            continuous animation during long mowing sessions. */}
         <span aria-hidden style={{
           position: "absolute", inset: 0,
           borderRadius: "inherit",
           background: "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.45) 50%, transparent 75%)",
           mixBlendMode: "overlay",
           opacity: 0.55,
-          transform: "translateX(-100%)",
-          animation: "concept-shine 3.6s var(--ease-out) infinite",
           pointerEvents: "none",
         }}/>
         <motion.div
@@ -129,7 +125,6 @@ function SecondaryButton({children, ariaLabel, onClick, tone = "default"}: Secon
         border: `1px solid ${colors.border}`,
         color: colors.color,
         display: "flex", alignItems: "center", justifyContent: "center",
-        backdropFilter: "blur(20px)",
       }}
     >
       {children}

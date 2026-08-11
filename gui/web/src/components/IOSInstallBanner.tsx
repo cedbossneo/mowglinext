@@ -24,8 +24,6 @@ export const IOSInstallBanner = ({onDismiss}: IOSInstallBannerProps) => {
         right: 12,
         zIndex: 300,
         background: colors.glassBackground,
-        backdropFilter: 'blur(16px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
         borderRadius: 14,
         border: colors.glassBorder,
         boxShadow: colors.glassShadow,

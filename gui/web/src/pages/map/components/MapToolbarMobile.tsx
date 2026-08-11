@@ -142,8 +142,6 @@ export const MapToolbarMobile = ({
         WebkitOverflowScrolling: "touch",
         alignItems: "center",
         background: colors.glassBackground,
-        backdropFilter: "blur(22px) saturate(140%)",
-        WebkitBackdropFilter: "blur(22px) saturate(140%)",
         borderRadius: 18,
         border: colors.glassBorder,
         boxShadow: colors.glassShadow,

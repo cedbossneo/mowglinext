@@ -39,7 +39,6 @@ export function WeatherChip({condition, tempC, rainSoon}: WeatherChipProps) {
       border: `1px solid ${warn ? "rgba(243, 168, 92, 0.32)" : "var(--border-soft)"}`,
       borderRadius: "var(--radius-pill)",
       color: warn ? "var(--amber)" : "var(--ink)",
-      backdropFilter: "blur(20px)",
       fontSize: 13, fontWeight: 600,
     }}>
       <Icon size={16} strokeWidth={2}/>
