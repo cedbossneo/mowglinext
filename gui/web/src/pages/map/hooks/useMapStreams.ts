@@ -23,9 +23,8 @@ import { drawLine, drawRobotSilhouette, transpose } from "../../../utils/map.tsx
 import { rasterizeMowProgress } from "../../../utils/mowProgress.ts";
 import { useRobotDescription } from "../../../hooks/useRobotDescription.ts";
 import {useLatestThrottle} from "./useLatestThrottle.ts";
-
-const POSE_RENDER_INTERVAL_MS = 100;
-const LIDAR_RENDER_INTERVAL_MS = 200;
+import {useThemeMode} from "../../../theme/ThemeContext.tsx";
+import {MAP_RENDER_BUDGETS} from "./mapRenderBudget.ts";
 
 export type MowProgressImage = {
     url: string;
@@ -104,6 +103,8 @@ export function useMapStreams({
     const joyStopTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const highLevelStatus = useHighLevelStatus();
+    const {displayMode} = useThemeMode();
+    const renderBudget = MAP_RENDER_BUDGETS[displayMode];
 
     // Robot geometry from the /robot_description URDF — single source of truth
     // for the on-map robot shape, so it matches the sensors-page model.
@@ -142,7 +143,7 @@ export function useMapStreams({
                 ),
             };
         });
-    }, POSE_RENDER_INTERVAL_MS);
+    }, renderBudget.poseIntervalMs);
 
     const poseStream = useWS<string>(
         () => {
@@ -254,7 +255,7 @@ export function useMapStreams({
             type: "FeatureCollection",
             features: rays,
         });
-    }, LIDAR_RENDER_INTERVAL_MS);
+    }, renderBudget.lidarIntervalMs);
 
     const lidarStream = useWS<string>(
         () => {

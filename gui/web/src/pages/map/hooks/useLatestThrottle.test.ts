@@ -55,6 +55,20 @@ describe("createLatestThrottle", () => {
     expect(emit).toHaveBeenLastCalledWith(99);
   });
 
+  it("uses the latest budget when the display mode changes", () => {
+    const emit = vi.fn();
+    let intervalMs = 100;
+    const throttle = createLatestThrottle<number>(emit, () => intervalMs);
+
+    throttle.push(1);
+    intervalMs = 50;
+    vi.advanceTimersByTime(50);
+    throttle.push(2);
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenLastCalledWith(2);
+  });
+
   it("drops a pending trailing value when cancelled", () => {
     const emit = vi.fn();
     const throttle = createLatestThrottle<number>(emit, 100);
