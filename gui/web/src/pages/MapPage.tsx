@@ -205,21 +205,21 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     // filter (no feature rebuild). Only the full map passes withHighlight; the
     // compact overview just shows the fill/outline/label.
     const renderDynObstacleLayers = (withHighlight: boolean) => (
-        <>
-            <Layer type={"fill"} id={"dyn-obstacle-fill"}
+        [
+            <Layer key={"dyn-obstacle-fill"} type={"fill"} id={"dyn-obstacle-fill"}
                 filter={['==', ['get', 'feature_type'], 'dyn-obstacle']}
-                paint={{'fill-color': ['get', 'color']}}/>
-            <Layer type={"line"} id={"dyn-obstacle-outline"}
+                paint={{'fill-color': ['get', 'color']}}/>,
+            <Layer key={"dyn-obstacle-outline"} type={"line"} id={"dyn-obstacle-outline"}
                 filter={['==', ['get', 'feature_type'], 'dyn-obstacle']}
-                paint={{'line-color': LAYER_COLORS.lidarHit, 'line-width': 2}}/>
-            {withHighlight && (
-                <Layer type={"line"} id={"dyn-obstacle-highlight"}
+                paint={{'line-color': LAYER_COLORS.lidarHit, 'line-width': 2}}/>,
+            ...(withHighlight ? [
+                <Layer key={"dyn-obstacle-highlight"} type={"line"} id={"dyn-obstacle-highlight"}
                     filter={['all',
                         ['==', ['get', 'feature_type'], 'dyn-obstacle'],
                         ['==', ['get', 'obs_id'], selectedObstacleId ?? -1]]}
-                    paint={{'line-color': LAYER_COLORS.lidarMiss, 'line-width': 4}}/>
-            )}
-            <Layer type={"symbol"} id={"dyn-obstacle-label"}
+                    paint={{'line-color': LAYER_COLORS.lidarMiss, 'line-width': 4}}/>,
+            ] : []),
+            <Layer key={"dyn-obstacle-label"} type={"symbol"} id={"dyn-obstacle-label"}
                 filter={['==', ['get', 'feature_type'], 'dyn-obstacle']}
                 layout={{
                     'text-field': ['concat', '#', ['get', 'obs_label']],
@@ -231,8 +231,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     'text-color': LAYER_COLORS.labelText,
                     'text-halo-color': LAYER_COLORS.labelHalo,
                     'text-halo-width': 1.5,
-                }}/>
-        </>
+                }}/>,
+        ]
     );
 
     const [mowingAreas, setMowingAreas] = useState<{ key: string, label: string, feat: Feature }[]>([])
