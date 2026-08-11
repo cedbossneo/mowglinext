@@ -5,10 +5,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 START_GPS="$SCRIPT_DIR/../start_gps.sh"
 CONFIG="$SCRIPT_DIR/fixtures/waveshare_lc29h_da.yaml"
+TEST_SETUP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_SETUP_DIR"' EXIT
+ROS_SETUP_BASH="$TEST_SETUP_DIR/ros_setup.bash"
+GNSS_SIDECAR_SETUP_BASH="$TEST_SETUP_DIR/gnss_sidecar_setup.bash"
+touch "$ROS_SETUP_BASH" "$GNSS_SIDECAR_SETUP_BASH"
 
 output="$(GNSS_CONFIG_PATH="$CONFIG" \
-  ROS_SETUP_BASH=/dev/null \
-  GNSS_SIDECAR_SETUP_BASH=/dev/null \
+  ROS_SETUP_BASH="$ROS_SETUP_BASH" \
+  GNSS_SIDECAR_SETUP_BASH="$GNSS_SIDECAR_SETUP_BASH" \
   GNSS_DRY_RUN=true \
   bash "$START_GPS")"
 
