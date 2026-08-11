@@ -4,8 +4,9 @@ import {riseFade} from "../motion";
 import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
- * Glass surface with the luminous edge gradient handled by `.glass` in
- * concept.css. Pass `glow` for the lime-halo variant used on the hero.
+ * Layered surface with the luminous edge gradient handled by `.glass` in
+ * concept.css. Visual mode enables the glass blur; other modes preserve the
+ * same edge, hierarchy, and contrast without re-filtering the backdrop.
  */
 
 type Variant = "default" | "elevated" | "glow";
@@ -33,14 +34,18 @@ export function GlassCard({
   motionVariants,
   onClick,
 }: GlassCardProps) {
-  const {colors} = useThemeMode();
+  const {colors, displayMode} = useThemeMode();
   const inner = (
     <div
       onClick={onClick}
       className={`glass ${className}`}
       style={{
         padding,
-        background: variant === "elevated" ? colors.bgElevated : colors.bgCard,
+        background: variant === "elevated"
+          ? colors.bgElevated
+          : displayMode === 'efficient' ? colors.bgCard : colors.glassBackground,
+        backdropFilter: displayMode === 'visual' ? 'blur(20px) saturate(135%)' : undefined,
+        WebkitBackdropFilter: displayMode === 'visual' ? 'blur(20px) saturate(135%)' : undefined,
         boxShadow: variant === "glow"
           ? "var(--shadow-card), var(--shadow-glow-lime)"
           : "var(--shadow-card)",

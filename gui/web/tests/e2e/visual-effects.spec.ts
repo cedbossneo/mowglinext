@@ -5,6 +5,12 @@ import { SCENARIOS } from "./mock/scenarios.ts";
 const mowing = SCENARIOS.find(({ name }) => name === "mowing-area2-rtk-fixed")!;
 const emergency = SCENARIOS.find(({ name }) => name === "emergency-latched")!;
 
+async function setDisplayMode(page: Page, mode: "visual" | "balanced" | "efficient") {
+  await page.addInitScript((selectedMode) => {
+    window.localStorage.setItem("mowgli.display-mode", selectedMode);
+  }, mode);
+}
+
 const activeVisualEffects = (page: Page) =>
   page.evaluate(() => {
     const blurred = [...document.querySelectorAll<HTMLElement>("*")].filter(
@@ -39,9 +45,10 @@ const activeVisualEffects = (page: Page) =>
     };
   });
 
-test("long-running mowing views avoid continuous decorative effects", async ({
+test("Balanced and Efficient views avoid continuous decorative effects", async ({
   page,
 }) => {
+  await setDisplayMode(page, "balanced");
   await installMockBackend(page, mowing);
 
   for (const route of ["/mowglinext", "/settings", "/map"]) {
@@ -49,12 +56,20 @@ test("long-running mowing views avoid continuous decorative effects", async ({
     await page.getByText("MOWGLI").first().waitFor({ state: "visible" });
     await page.waitForTimeout(1_500);
 
+    await expect(page.locator("html")).toHaveAttribute("data-display-mode", "balanced");
     const result = await activeVisualEffects(page);
     expect(result, `${route} visual effects`).toEqual({
       blurCount: 0,
       blurAreaPx: 0,
       infiniteAnimationNames: [],
     });
+
+    if (route === "/mowglinext") {
+      await page.screenshot({
+        path: "tests/e2e/.artifacts/mowglinext__balanced-mode.png",
+        fullPage: true,
+      });
+    }
   }
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -72,6 +87,47 @@ test("long-running mowing views avoid continuous decorative effects", async ({
       infiniteAnimationNames: [],
     });
   }
+});
+
+test("Visual mode restores glass depth and restrained active-state motion", async ({
+  page,
+}) => {
+  await setDisplayMode(page, "visual");
+  await installMockBackend(page, mowing);
+  await page.goto("/#/mowglinext");
+  await page.getByText("MOWGLI").first().waitFor({ state: "visible" });
+  await page.waitForTimeout(1_500);
+
+  await expect(page.locator("html")).toHaveAttribute("data-display-mode", "visual");
+  const result = await activeVisualEffects(page);
+  expect(result.blurCount).toBeGreaterThan(0);
+  expect(result.blurAreaPx).toBeGreaterThan(0);
+  expect(result.infiniteAnimationNames).toEqual(
+    expect.arrayContaining(["liveStripSheen", "mowerPulseGreen"]),
+  );
+  await page.screenshot({
+    path: "tests/e2e/.artifacts/mowglinext__visual-mode.png",
+    fullPage: true,
+  });
+});
+
+test("Efficient mode keeps the low-compositing rendering path", async ({page}) => {
+  await setDisplayMode(page, "efficient");
+  await installMockBackend(page, mowing);
+  await page.goto("/#/mowglinext");
+  await page.getByText("MOWGLI").first().waitFor({ state: "visible" });
+  await page.waitForTimeout(1_500);
+
+  await expect(page.locator("html")).toHaveAttribute("data-display-mode", "efficient");
+  expect(await activeVisualEffects(page)).toEqual({
+    blurCount: 0,
+    blurAreaPx: 0,
+    infiniteAnimationNames: [],
+  });
+  await page.screenshot({
+    path: "tests/e2e/.artifacts/mowglinext__efficient-mode.png",
+    fullPage: true,
+  });
 });
 
 test("emergency state retains its focused visual emphasis", async ({
@@ -96,6 +152,7 @@ test("emergency emphasis respects reduced-motion preference", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await setDisplayMode(page, "visual");
   await installMockBackend(page, emergency);
   await page.goto("/#/mowglinext");
   await page.getByText("MOWGLI").first().waitFor({ state: "visible" });

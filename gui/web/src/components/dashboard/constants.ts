@@ -98,9 +98,17 @@ export const KEYFRAMES_CSS = `
     0%, 100% { box-shadow: 0 0 0 0 var(--mower-status-danger); }
     50% { box-shadow: 0 0 0 4px transparent; }
   }
+  @keyframes mowerPulseGreen {
+    0%, 100% { box-shadow: 0 0 0 0 var(--mower-status-active); }
+    50% { box-shadow: 0 0 0 4px transparent; }
+  }
   @keyframes liveStripPulse {
     0%, 100% { opacity: 0.55; }
     50% { opacity: 1; }
+  }
+  @keyframes liveStripSheen {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
   }
 }
 .mn-card-hover:hover { transform: translateY(-1px); }
@@ -121,18 +129,26 @@ export const KEYFRAMES_CSS = `
   pointer-events: none;
 }
 
-/* ─── AntD Card → layered tech-garden surface ───────────────────────────
+/* ─── AntD Card → display-mode-aware tech-garden surface ────────────────
    Pull every stock AntD Card into the tech-garden glass language so pages
    built on AntD (Diagnostics, Settings, Onboarding) match the hand-built
    DashCard/GlassCard surfaces without per-page edits. Same recipe as
-   DashCard: solid dark fill, soft border, and luminous top-left edge. */
+   DashCard: soft border and luminous top-left edge in every mode. */
 .ant-card {
   position: relative;
-  background: var(--bg-card-solid) !important;
+  background: rgba(11, 24, 20, 0.78) !important;
   border: 1px solid var(--border-soft) !important;
   border-radius: var(--radius-md) !important;
   box-shadow: 0 24px 60px -20px rgba(0,0,0,0.5), 0 4px 16px -4px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04) !important;
   overflow: hidden;
+}
+:root[data-display-mode='visual'] .ant-card {
+  background: rgba(11, 24, 20, 0.60) !important;
+  backdrop-filter: blur(20px) saturate(135%);
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+}
+:root[data-display-mode='efficient'] .ant-card {
+  background: var(--bg-card-solid) !important;
 }
 .ant-card::before {
   content: '';
@@ -151,6 +167,8 @@ export const KEYFRAMES_CSS = `
 /* Nested cards flatten to a plain tile so edges and shadows do not stack. */
 .ant-card .ant-card {
   background: var(--bg-elevated) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
 }
 .ant-card .ant-card::before { display: none; }
@@ -255,10 +273,18 @@ export const KEYFRAMES_CSS = `
 .ant-btn-primary:active { transform: translateY(0); }
 
 .ant-btn-default {
-  background: var(--bg-card-solid) !important;
+  background: rgba(11, 24, 20, 0.78) !important;
   border: 1px solid var(--border-soft) !important;
   color: var(--ink) !important;
   font-weight: 600 !important;
+}
+:root[data-display-mode='visual'] .ant-btn-default {
+  background: rgba(11, 24, 20, 0.60) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+:root[data-display-mode='efficient'] .ant-btn-default {
+  background: var(--bg-card-solid) !important;
 }
 .ant-btn-default:hover,
 .ant-btn-default:focus {

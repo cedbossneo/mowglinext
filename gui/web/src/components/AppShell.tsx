@@ -420,6 +420,7 @@ const bottomNavPill = (
 
 function MobileBottomNav({items, activePath, onNavigate, onMore, moreActive}: RailProps) {
   const {t} = useTranslation();
+  const {displayMode} = useThemeMode();
   const columns = items.length + (onMore ? 1 : 0);
   return (
     <nav style={{
@@ -428,6 +429,8 @@ function MobileBottomNav({items, activePath, onNavigate, onMore, moreActive}: Ra
       paddingTop: 10,
       paddingLeft: 14, paddingRight: 14,
       background: 'linear-gradient(180deg, rgba(2, 17, 13, 0) 0%, rgba(2, 17, 13, 0.85) 30%, rgba(2, 17, 13, 0.97) 100%)',
+      backdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined,
+      WebkitBackdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined,
       zIndex: 50,
     }}>
       <LayoutGroup>
@@ -438,6 +441,8 @@ function MobileBottomNav({items, activePath, onNavigate, onMore, moreActive}: Ra
           background: 'rgba(255, 255, 255, 0.04)',
           border: '1px solid rgba(236, 255, 244, 0.08)',
           borderRadius: 999,
+          backdropFilter: displayMode === 'visual' ? 'blur(28px)' : undefined,
+          WebkitBackdropFilter: displayMode === 'visual' ? 'blur(28px)' : undefined,
         }}>
           {items.map(({key, labelKey, shortLabelKey, icon: Icon}) => {
             const isActive = key === activePath;
@@ -473,6 +478,7 @@ interface MoreSheetProps {
 
 function MobileMoreSheet({open, items, activePath, onClose, onNavigate}: MoreSheetProps) {
   const {t} = useTranslation();
+  const {displayMode} = useThemeMode();
 
   // Escape closes the sheet (keyboard parity with the backdrop tap / X button).
   useEffect(() => {
@@ -500,6 +506,8 @@ function MobileMoreSheet({open, items, activePath, onClose, onNavigate}: MoreShe
               position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 61,
               padding: '14px 14px calc(env(safe-area-inset-bottom, 0px) + 18px)',
               background: 'rgba(6, 24, 18, 0.97)',
+              backdropFilter: displayMode === 'visual' ? 'blur(24px) saturate(140%)' : undefined,
+              WebkitBackdropFilter: displayMode === 'visual' ? 'blur(24px) saturate(140%)' : undefined,
               borderTop: '1px solid rgba(236, 255, 244, 0.1)',
               borderRadius: '20px 20px 0 0',
             }}
