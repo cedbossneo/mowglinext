@@ -7,7 +7,9 @@ RUN CGO_ENABLED=0 go build -o mowglinext
 FROM node:22 AS build-web
 COPY ./web /web
 WORKDIR /web
-RUN yarn && yarn build
+RUN yarn && yarn build \
+ && find dist/assets -type f \( -name '*.js' -o -name '*.css' -o -name '*.json' -o -name '*.svg' -o -name '*.wasm' \) \
+      -size +1024c -exec gzip -9 -k {} +
 
 FROM ubuntu:22.04 AS deps
 RUN apt-get update && apt-get install -y ca-certificates curl python3 python3-pip python3-venv libjim-dev\
