@@ -34,7 +34,7 @@ const statusColor = (stateNum: number | undefined, isEmergency: boolean, colors:
 
 export const MowerStatus = () => {
     const {t} = useTranslation();
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const {highLevelStatus} = useHighLevelStatus();
     const hwStatus = useStatus();
     const emergencyData = useEmergency();
@@ -72,10 +72,11 @@ export const MowerStatus = () => {
 
     const isMowing = stateNum === 2 || stateNum === 3 || stateNum === 4;
 
-    // The colour remains a continuous state cue. Only an emergency pulses;
-    // normal mowing can run for hours and should not keep a decorative
-    // animation active for that entire period.
-    const pulseAnimation = isEmergency ? 'mowerPulseRed 1.5s ease-in-out infinite' : 'none';
+    // The colour remains a continuous state cue. Emergency emphasis always
+    // pulses; Visual mode can additionally use a restrained active-state cue.
+    const pulseAnimation = isEmergency
+        ? 'mowerPulseRed 1.5s ease-in-out infinite'
+        : isMowing && displayMode === 'visual' ? 'mowerPulseGreen 2.4s ease-in-out infinite' : 'none';
 
     const hasArea = highLevelStatus.current_area !== undefined && highLevelStatus.current_area >= 0;
     // Coarse sub-path X/Y — the secondary readout.
@@ -197,6 +198,7 @@ export const MowerStatus = () => {
                             animation: pulseAnimation,
                             borderRadius: '50%',
                             '--mower-status-danger': colors.danger,
+                            '--mower-status-active': colors.primary,
                         } as CSSProperties}
                     />
                     <Typography.Text style={{fontSize: 12, color: colors.text, whiteSpace: 'nowrap'}}>
