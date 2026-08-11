@@ -120,8 +120,6 @@ export const MapEditorToolbar = ({
         flexDirection: 'column',
         gap: 2,
         background: colors.glassBackground,
-        backdropFilter: 'blur(16px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
         borderRadius: 12,
         border: colors.glassBorder,
         boxShadow: colors.glassShadow,

@@ -1,6 +1,7 @@
 import type {CSSProperties, ReactNode} from "react";
 import {motion, type Variants} from "framer-motion";
 import {riseFade} from "../motion";
+import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
  * Glass surface with the luminous edge gradient handled by `.glass` in
@@ -32,17 +33,14 @@ export function GlassCard({
   motionVariants,
   onClick,
 }: GlassCardProps) {
+  const {colors} = useThemeMode();
   const inner = (
     <div
       onClick={onClick}
       className={`glass ${className}`}
       style={{
         padding,
-        background: variant === "elevated"
-          ? "var(--bg-elevated)"
-          : variant === "glow"
-            ? "var(--bg-card)"
-            : "var(--bg-card)",
+        background: variant === "elevated" ? colors.bgElevated : colors.bgCard,
         boxShadow: variant === "glow"
           ? "var(--shadow-card), var(--shadow-glow-lime)"
           : "var(--shadow-card)",

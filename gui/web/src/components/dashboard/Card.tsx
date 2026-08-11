@@ -2,9 +2,8 @@ import type {CSSProperties, ReactNode} from "react";
 import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
- * Shared glass surface. Background, backdrop blur, soft border, and a
- * luminous edge gradient applied at the top-left via mask-composite --
- * the visual signature of the tech-garden language. Used by every page.
+ * Shared layered surface. A solid background, soft border, and luminous edge
+ * gradient provide the tech-garden look without a backdrop-filter layer.
  */
 
 interface DashCardProps {
@@ -21,7 +20,7 @@ export function DashCard({children, style, tone, padding = 18, onClick}: DashCar
     ? `linear-gradient(135deg, ${colors.accent}, ${colors.accent}aa)`
     : tone === 'danger'
       ? 'linear-gradient(135deg, rgba(255,107,122,0.18), rgba(255,107,122,0.04))'
-      : 'rgba(11, 24, 20, 0.6)';
+      : colors.bgCard;
 
   const shadow = tone === 'glow'
     ? '0 24px 60px -20px rgba(0,0,0,0.7), 0 0 60px rgba(124,255,178,0.18), 0 0 0 1px rgba(124,255,178,0.16) inset'
@@ -34,8 +33,6 @@ export function DashCard({children, style, tone, padding = 18, onClick}: DashCar
       style={{
         position: 'relative',
         background: bg,
-        backdropFilter: 'blur(24px) saturate(140%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(140%)',
         borderRadius: 18,
         padding,
         border: tone === 'accent' ? 'none' : `1px solid ${colors.border}`,

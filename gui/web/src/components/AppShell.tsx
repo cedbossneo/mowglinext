@@ -28,9 +28,9 @@ import "../concept/concept.css";
 /**
  * Premium tech-garden shell shared by the whole app.
  *
- * Desktop -> 88px fixed glass side-rail on the left + the page content in a
+ * Desktop -> 88px fixed side-rail on the left + the page content in a
  *            comfortable max-width column with a sticky top status strip.
- * Mobile   -> glass bottom-nav with a sliding lime pill + slim top header.
+ * Mobile   -> bottom-nav with a sliding lime pill + slim top header.
  *
  * All surfaces inherit the /concept tokens (data-concept scope on body).
  */
@@ -144,8 +144,7 @@ export function AppShell() {
           padding: '0 16px',
           paddingTop: 'max(env(safe-area-inset-top, 0px), 6px)',
           minHeight: 56,
-          background: 'rgba(2, 17, 13, 0.6)',
-          backdropFilter: 'blur(20px) saturate(140%)',
+          background: 'rgba(2, 17, 13, 0.94)',
           borderBottom: `1px solid ${colors.borderSubtle}`,
           flexShrink: 0,
           position: 'relative', zIndex: 10,
@@ -226,8 +225,7 @@ export function AppShell() {
         <header style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '18px 32px',
-          background: 'rgba(2, 17, 13, 0.45)',
-          backdropFilter: 'blur(20px) saturate(140%)',
+          background: 'rgba(2, 17, 13, 0.94)',
           borderBottom: `1px solid ${colors.borderSubtle}`,
           position: 'sticky', top: 0, zIndex: 30, overflow: 'visible',
         }}>
@@ -318,7 +316,6 @@ function DesktopSideRail({items, activePath, onNavigate}: RailProps) {
       paddingTop: 24, paddingBottom: 24,
       background: 'linear-gradient(180deg, rgba(2, 17, 13, 0.92), rgba(2, 17, 13, 0.84))',
       borderRight: '1px solid rgba(236, 255, 244, 0.07)',
-      backdropFilter: 'blur(22px) saturate(140%)',
       zIndex: 40,
     }}>
       <div style={{
@@ -431,7 +428,6 @@ function MobileBottomNav({items, activePath, onNavigate, onMore, moreActive}: Ra
       paddingTop: 10,
       paddingLeft: 14, paddingRight: 14,
       background: 'linear-gradient(180deg, rgba(2, 17, 13, 0) 0%, rgba(2, 17, 13, 0.85) 30%, rgba(2, 17, 13, 0.97) 100%)',
-      backdropFilter: 'blur(22px) saturate(140%)',
       zIndex: 50,
     }}>
       <LayoutGroup>
@@ -442,7 +438,6 @@ function MobileBottomNav({items, activePath, onNavigate, onMore, moreActive}: Ra
           background: 'rgba(255, 255, 255, 0.04)',
           border: '1px solid rgba(236, 255, 244, 0.08)',
           borderRadius: 999,
-          backdropFilter: 'blur(28px)',
         }}>
           {items.map(({key, labelKey, shortLabelKey, icon: Icon}) => {
             const isActive = key === activePath;
@@ -505,7 +500,6 @@ function MobileMoreSheet({open, items, activePath, onClose, onNavigate}: MoreShe
               position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 61,
               padding: '14px 14px calc(env(safe-area-inset-bottom, 0px) + 18px)',
               background: 'rgba(6, 24, 18, 0.97)',
-              backdropFilter: 'blur(24px) saturate(140%)',
               borderTop: '1px solid rgba(236, 255, 244, 0.1)',
               borderRadius: '20px 20px 0 0',
             }}

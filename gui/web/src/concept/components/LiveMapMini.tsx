@@ -175,16 +175,6 @@ export function LiveMapMini({
           {/* core */}
           <circle r={5.5} fill="var(--bg-deep)" stroke="var(--lime)" strokeWidth={1.6}/>
           <circle r={3.2} fill="var(--lime)"/>
-          {/* sonar pulse */}
-          <motion.circle
-            r={5.5}
-            fill="none"
-            stroke="rgba(124,255,178,0.65)"
-            strokeWidth={1}
-            initial={{r: 5.5, opacity: 0.55}}
-            animate={{r: [5.5, 28], opacity: [0.55, 0]}}
-            transition={{duration: 1.8, ease: "easeOut", repeat: Infinity}}
-          />
         </g>
 
         {/* dock marker */}

@@ -4,6 +4,7 @@ import {createHashRouter, RouterProvider,} from "react-router-dom";
 import AppShell from "./components/AppShell.tsx";
 import {App, ConfigProvider, theme} from "antd";
 import {Spinner} from "./components/Spinner.tsx";
+import {MotionConfig} from "framer-motion";
 import {ThemeProvider, useThemeMode} from "./theme/ThemeContext.tsx";
 import {NotificationCenterProvider} from "./hooks/useNotificationCenter.tsx";
 import "./i18n";
@@ -123,11 +124,13 @@ function ThemedApp() {
             },
         }}>
             <App style={{height: "100%"}}>
-                <NotificationCenterProvider>
-                    <React.Suspense fallback={<Spinner/>}>
-                        <RouterProvider router={router}/>
-                    </React.Suspense>
-                </NotificationCenterProvider>
+                <MotionConfig reducedMotion="user">
+                    <NotificationCenterProvider>
+                        <React.Suspense fallback={<Spinner/>}>
+                            <RouterProvider router={router}/>
+                        </React.Suspense>
+                    </NotificationCenterProvider>
+                </MotionConfig>
             </App>
         </ConfigProvider>
     );
