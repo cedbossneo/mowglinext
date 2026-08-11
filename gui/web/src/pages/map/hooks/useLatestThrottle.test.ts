@@ -41,6 +41,20 @@ describe("createLatestThrottle", () => {
     expect(emit).toHaveBeenLastCalledWith(99);
   });
 
+  it("caps a sustained 100 Hz stream at about 5 Hz", () => {
+    const emit = vi.fn();
+    const throttle = createLatestThrottle<number>(emit, 200);
+
+    for (let value = 0; value < 100; value += 1) {
+      throttle.push(value);
+      vi.advanceTimersByTime(10);
+    }
+
+    expect(emit.mock.calls.length).toBeGreaterThanOrEqual(5);
+    expect(emit.mock.calls.length).toBeLessThanOrEqual(6);
+    expect(emit).toHaveBeenLastCalledWith(99);
+  });
+
   it("drops a pending trailing value when cancelled", () => {
     const emit = vi.fn();
     const throttle = createLatestThrottle<number>(emit, 100);
