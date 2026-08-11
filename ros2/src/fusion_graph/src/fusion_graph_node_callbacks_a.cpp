@@ -328,7 +328,45 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
     TrySeedInitialPose();
     return;
   }
-  graph_->QueueGnss(mx, my, sigma, /*robust=*/true);
+  // GNSS bridges preserve the receiver measurement epoch in header.stamp,
+  // which may precede callback delivery by hundreds of milliseconds or more.
+  // Resolve that epoch only after the quality/docking gates above so the
+  // factor constrains the state that was actually observed instead of the
+  // state at callback-delivery time.
+  const rclcpp::Time measurement_stamp(msg->header.stamp, get_clock()->get_clock_type());
+  std::optional<uint64_t> measurement_node;
+  if (graph_->IsInitialized() && measurement_stamp.nanoseconds() != 0)
+  {
+    constexpr double kFutureStampToleranceS = 0.5;
+    const double future_offset_s = (measurement_stamp - this->now()).seconds();
+    if (future_offset_s > kFutureStampToleranceS)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           5000,
+                           "fusion_graph: GNSS stamp is %.3f s in the future; sample dropped",
+                           future_offset_s);
+      return;
+    }
+    measurement_node = graph_->FindNodeAtOrBefore(measurement_stamp.seconds());
+    if (!measurement_node)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           5000,
+                           "fusion_graph: no live graph node at/before GNSS epoch; sample dropped");
+      return;
+    }
+  }
+
+  if (!graph_->QueueGnss(mx, my, sigma, /*robust=*/true, measurement_node))
+  {
+    RCLCPP_WARN_THROTTLE(get_logger(),
+                         *get_clock(),
+                         5000,
+                         "fusion_graph: GNSS epoch node left the live graph; sample dropped");
+    return;
+  }
   seed_xy_ = gtsam::Vector2(mx, my);
   // Latch whether the most recent seed came from RTK-Fixed so the next
   // graph initialization can use a tight prior matching that quality.

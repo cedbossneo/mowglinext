@@ -106,6 +106,7 @@ void GraphManager::ResetLocked()
 
   next_index_ = 0;
   last_node_time_s_ = 0.0;
+  node_time_index_.clear();
   initialized_ = false;
 
   accum_.Reset();
@@ -425,6 +426,11 @@ bool GraphManager::Load(const std::string& prefix)
     out.node_index = next_index_ - 1;
     out.timestamp = last_node_time_s_;
     latest_ = out;
+    // Persisted files store the latest timestamp but not a complete per-node
+    // timeline. Index only the pose whose epoch is known; subsequent live
+    // ticks extend the history without guessing timestamps for older poses.
+    node_time_index_.clear();
+    node_time_index_.emplace_back(last_node_time_s_, out.node_index);
   }
 
   return true;
