@@ -1,4 +1,5 @@
 import {motion} from "framer-motion";
+import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
  * Dashboard-scale live garden view. Quiet polygon, soft fill, single
@@ -64,6 +65,7 @@ export function LiveMapMini({
   coverage = 0.42,
   height = 200,
 }: LiveMapMiniProps) {
+  const {displayMode} = useThemeMode();
   const w = 600;
   const h = height * (w / 600);
   const toX = (x: number) => x * w;
@@ -175,6 +177,17 @@ export function LiveMapMini({
           {/* core */}
           <circle r={5.5} fill="var(--bg-deep)" stroke="var(--lime)" strokeWidth={1.6}/>
           <circle r={3.2} fill="var(--lime)"/>
+          {displayMode === "visual" && (
+            <motion.circle
+              r={5.5}
+              fill="none"
+              stroke="rgba(124,255,178,0.65)"
+              strokeWidth={1}
+              initial={{r: 5.5, opacity: 0.55}}
+              animate={{r: [5.5, 28], opacity: [0.55, 0]}}
+              transition={{duration: 1.8, ease: "easeOut", repeat: Infinity}}
+            />
+          )}
         </g>
 
         {/* dock marker */}

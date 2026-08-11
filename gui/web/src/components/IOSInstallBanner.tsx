@@ -15,7 +15,7 @@ const ShareIcon = () => (
 );
 
 export const IOSInstallBanner = ({onDismiss}: IOSInstallBannerProps) => {
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const {t} = useTranslation();
     return (<div style={{
         position: 'fixed',
@@ -24,6 +24,8 @@ export const IOSInstallBanner = ({onDismiss}: IOSInstallBannerProps) => {
         right: 12,
         zIndex: 300,
         background: colors.glassBackground,
+        backdropFilter: displayMode === 'visual' ? 'blur(16px) saturate(180%)' : undefined,
+        WebkitBackdropFilter: displayMode === 'visual' ? 'blur(16px) saturate(180%)' : undefined,
         borderRadius: 14,
         border: colors.glassBorder,
         boxShadow: colors.glassShadow,

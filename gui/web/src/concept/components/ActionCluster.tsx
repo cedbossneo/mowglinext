@@ -2,6 +2,7 @@ import {motion} from "framer-motion";
 import {Play, Pause, Home, AlertTriangle, RotateCcw} from "lucide-react";
 import {useTranslation} from "react-i18next";
 import {pressFeedback, springSnap} from "../motion";
+import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
  * Primary action cluster -- big Play (lime gradient w/ inner shine), with a
@@ -28,6 +29,7 @@ interface ActionClusterProps {
 
 export function ActionCluster({phase, onStart, onPause, onHome, onStop, onRearm}: ActionClusterProps) {
   const {t} = useTranslation();
+  const {displayMode} = useThemeMode();
   const primaryPlaying = phase === "playing";
   const primaryAlert = phase === "alert";
 
@@ -40,6 +42,7 @@ export function ActionCluster({phase, onStart, onPause, onHome, onStop, onRearm}
         ariaLabel={t('actionCluster.emergencyStop')}
         onClick={onStop}
         tone="danger"
+        displayMode={displayMode}
       >
         <AlertTriangle size={20} strokeWidth={2.2}/>
       </SecondaryButton>
@@ -64,14 +67,16 @@ export function ActionCluster({phase, onStart, onPause, onHome, onStop, onRearm}
           overflow: "hidden",
         }}
       >
-        {/* Static inner sheen keeps the primary action dimensional without a
-            continuous animation during long mowing sessions. */}
+        {/* Visual mode restores the moving sheen; the other modes preserve
+            the same action hierarchy without its continuous compositing. */}
         <span aria-hidden style={{
           position: "absolute", inset: 0,
           borderRadius: "inherit",
           background: "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.45) 50%, transparent 75%)",
           mixBlendMode: "overlay",
           opacity: 0.55,
+          transform: displayMode === "visual" ? "translateX(-100%)" : undefined,
+          animation: displayMode === "visual" ? "concept-shine 3.6s var(--ease-out) infinite" : undefined,
           pointerEvents: "none",
         }}/>
         <motion.div
@@ -94,6 +99,7 @@ export function ActionCluster({phase, onStart, onPause, onHome, onStop, onRearm}
         ariaLabel={t('actionCluster.returnToBase')}
         onClick={onHome}
         tone={phase === "returning" ? "active" : "default"}
+        displayMode={displayMode}
       >
         <Home size={20} strokeWidth={2.2}/>
       </SecondaryButton>
@@ -106,9 +112,10 @@ interface SecondaryProps {
   ariaLabel: string;
   onClick: () => void;
   tone?: "default" | "active" | "danger";
+  displayMode: "visual" | "balanced" | "efficient";
 }
 
-function SecondaryButton({children, ariaLabel, onClick, tone = "default"}: SecondaryProps) {
+function SecondaryButton({children, ariaLabel, onClick, tone = "default", displayMode}: SecondaryProps) {
   const colors = {
     default: {bg: "var(--bg-elevated)",       border: "var(--border-soft)",  color: "var(--ink)"},
     active:  {bg: "rgba(69,214,232,0.14)",    border: "rgba(69,214,232,0.5)", color: "var(--aurora-cyan)"},
@@ -125,6 +132,7 @@ function SecondaryButton({children, ariaLabel, onClick, tone = "default"}: Secon
         border: `1px solid ${colors.border}`,
         color: colors.color,
         display: "flex", alignItems: "center", justifyContent: "center",
+        backdropFilter: displayMode === "visual" ? "blur(20px)" : undefined,
       }}
     >
       {children}

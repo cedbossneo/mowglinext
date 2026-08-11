@@ -1,5 +1,6 @@
 import type {ReactNode} from "react";
 import {motion, useReducedMotion} from "framer-motion";
+import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
  * Pulsing status orb used in the dashboard header. Three accent colors
@@ -10,7 +11,7 @@ import {motion, useReducedMotion} from "framer-motion";
 type Tone = "live" | "resting" | "alert" | "charging";
 
 const TONE_MAP: Record<Tone, {color: string; glow: string; pulse: boolean}> = {
-  live:     {color: "var(--lime)",       glow: "rgba(124, 255, 178, 0.65)", pulse: false},
+  live:     {color: "var(--lime)",       glow: "rgba(124, 255, 178, 0.65)", pulse: true},
   resting:  {color: "var(--aurora-cyan)", glow: "rgba(69, 214, 232, 0.55)",  pulse: false},
   alert:    {color: "var(--rose)",       glow: "rgba(255, 107, 122, 0.65)", pulse: true},
   charging: {color: "var(--lime)",       glow: "rgba(124, 255, 178, 0.5)",  pulse: false},
@@ -24,7 +25,9 @@ interface StatusOrbProps {
 
 export function StatusOrb({tone = "live", size = 10, label}: StatusOrbProps) {
   const t = TONE_MAP[tone];
+  const {displayMode} = useThemeMode();
   const reduceMotion = useReducedMotion();
+  const pulse = t.pulse && (tone !== "live" || displayMode === "visual");
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 8,
@@ -41,7 +44,7 @@ export function StatusOrb({tone = "live", size = 10, label}: StatusOrbProps) {
           opacity: 0.7,
         }}/>
         {/* pulse ring */}
-        {t.pulse && !reduceMotion && (
+        {pulse && !reduceMotion && (
           <motion.span
             style={{
               position: "absolute", inset: 0,

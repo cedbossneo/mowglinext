@@ -53,7 +53,7 @@ const DYN_OBSTACLE_INTERACTIVE_LAYERS = ['dyn-obstacle-fill'];
 export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const {notification} = App.useApp();
     const {t} = useTranslation();
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const isMobile = useIsMobile();
     const mowerAction = useMowerAction()
 
@@ -1116,7 +1116,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 )}
                 {/* Desktop: View mode — bottom glass toolbar */}
                 {!isMobile && !editMap && (
-                    <div style={{position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 10, background: colors.glassBackground, borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, padding: '10px 14px'}}>
+                    <div style={{position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 10, background: colors.glassBackground, backdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, WebkitBackdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, padding: '10px 14px'}}>
                         <MapToolbar
                             manualMode={manualMode}
                             useSatellite={useSatellite}
@@ -1145,7 +1145,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 )}
                 {/* Desktop: Right panel — areas list + offset */}
                 {!isMobile && (
-                    <div style={{position: 'absolute', top: 12, right: 16, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 0, width: 240, maxHeight: 'calc(100% - 32px)', background: colors.glassBackground, borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, overflow: 'hidden'}}>
+                    <div style={{position: 'absolute', top: 12, right: 16, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 0, width: 240, maxHeight: 'calc(100% - 32px)', background: colors.glassBackground, backdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, WebkitBackdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, overflow: 'hidden'}}>
                         <AreasListPanel
                             areas={areasList}
                             onAreaClick={editMap ? handleAreaSelect : undefined}
