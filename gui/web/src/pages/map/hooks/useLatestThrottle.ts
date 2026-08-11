@@ -11,12 +11,13 @@ export interface LatestThrottle<T> {
  */
 export function createLatestThrottle<T>(
   callback: (value: T) => void,
-  intervalMs: number,
+  intervalMs: number | (() => number),
 ): LatestThrottle<T> {
   let lastEmitAt = Number.NEGATIVE_INFINITY;
   let latest: T | undefined;
   let hasLatest = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const interval = () => typeof intervalMs === 'function' ? intervalMs() : intervalMs;
 
   const emit = () => {
     timer = null;
@@ -40,7 +41,7 @@ export function createLatestThrottle<T>(
     push: (value: T) => {
       latest = value;
       hasLatest = true;
-      const remainingMs = intervalMs - (Date.now() - lastEmitAt);
+      const remainingMs = interval() - (Date.now() - lastEmitAt);
       if (remainingMs <= 0) {
         if (timer !== null) clearTimeout(timer);
         emit();
@@ -59,12 +60,14 @@ export function useLatestThrottle<T>(
 ): LatestThrottle<T> {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
+  const intervalRef = useRef(intervalMs);
+  intervalRef.current = intervalMs;
 
   const throttleRef = useRef<LatestThrottle<T> | null>(null);
   if (throttleRef.current === null) {
     throttleRef.current = createLatestThrottle<T>(
       (value) => callbackRef.current(value),
-      intervalMs,
+      () => intervalRef.current,
     );
   }
 
@@ -72,6 +75,12 @@ export function useLatestThrottle<T>(
     const throttle = throttleRef.current;
     return () => throttle?.cancel();
   }, []);
+
+  // A display-mode change should not leave an old trailing timer running at
+  // the previous rate. The next incoming render frame starts the new budget.
+  useEffect(() => {
+    throttleRef.current?.cancel();
+  }, [intervalMs]);
 
   return throttleRef.current;
 }
