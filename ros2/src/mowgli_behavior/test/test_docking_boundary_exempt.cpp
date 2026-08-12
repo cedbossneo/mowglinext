@@ -129,8 +129,9 @@ TEST_F(IsDockingTest, NoSideEffectsOnContext)
 
 // ---------------------------------------------------------------------------
 // BoundaryGuard whitelist logic — mirrors the ReactiveFallback ordering from
-// main_tree.xml (charging omitted; the command-1 dock-transit exemption + the
-// boundary-violation inverter + a stand-in handler are what we assert on).
+// main_tree.xml (charging omitted; the manual-drive and command-1 dock-transit
+// exemptions + the boundary-violation inverter + a stand-in handler are what
+// we assert on).
 // ---------------------------------------------------------------------------
 
 class BoundaryGuardExemptTest : public ::testing::Test
@@ -163,6 +164,7 @@ protected:
         <BehaviorTree ID="MainTree">
           <ReactiveFallback name="BoundaryGuard">
             <IsCommand command="2"/>
+            <IsCommand command="9"/>
             <Sequence name="DockTransitExempt">
               <IsCommand command="1"/>
               <IsDocking/>
@@ -216,6 +218,17 @@ TEST_F(BoundaryGuardExemptTest, PassesWhenNoViolation)
 TEST_F(BoundaryGuardExemptTest, HomeCommandStillWhitelisted)
 {
   ctx->current_command = 2;
+  ctx->docking_active = false;
+  ctx->boundary_violation = true;
+  EXPECT_EQ(tick(), BT::NodeStatus::SUCCESS);  // handler skipped
+}
+
+// Manual Drive is intentionally operator-controlled, blade-disabled movement.
+// Its BoundaryGuard exemption must remain explicit and must not bleed into
+// other commands.
+TEST_F(BoundaryGuardExemptTest, ManualDriveCommandIsWhitelisted)
+{
+  ctx->current_command = 9;
   ctx->docking_active = false;
   ctx->boundary_violation = true;
   EXPECT_EQ(tick(), BT::NodeStatus::SUCCESS);  // handler skipped

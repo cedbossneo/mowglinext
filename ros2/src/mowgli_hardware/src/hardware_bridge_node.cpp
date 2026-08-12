@@ -73,6 +73,7 @@ static constexpr uint8_t HL_MODE_IDLE = 1u;  ///< Docked or between missions
 static constexpr uint8_t HL_MODE_AUTONOMOUS = 2u;  ///< Autonomous mowing
 static constexpr uint8_t HL_MODE_RECORDING = 3u;  ///< Area recording
 static constexpr uint8_t HL_MODE_MANUAL_MOWING = 4u;  ///< Manual teleop with blade
+static constexpr uint8_t HL_MODE_MANUAL_DRIVING = 5u;  ///< Manual teleop with blade off
 static constexpr double kMinRuntimeTicksPerMeter = 50.0;
 static constexpr double kMaxRuntimeTicksPerMeter = 5000.0;
 static constexpr double kMinRuntimePwmPerMps = 50.0;
@@ -110,6 +111,8 @@ static const char* high_level_mode_name(const uint8_t mode)
       return "RECORDING";
     case HL_MODE_MANUAL_MOWING:
       return "MANUAL_MOWING";
+    case HL_MODE_MANUAL_DRIVING:
+      return "MANUAL_DRIVING";
     default:
       return "UNKNOWN";
   }

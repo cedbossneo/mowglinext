@@ -15,6 +15,9 @@ const MANUAL_EXIT_DEBOUNCE_MS = 1200;
 const MAX_LINEAR_MPS = 0.25;
 const MAX_ANGULAR_RAD_S = 0.6;
 
+const isManualState = (stateName?: string) =>
+    stateName === "MANUAL_MOWING" || stateName === "MANUAL_DRIVING";
+
 interface UseManualModeOptions {
     mowerAction: (action: string, params: Record<string, unknown>) => () => Promise<void>;
     joyStream: { sendJsonMessage: (msg: unknown) => void; start: (uri: string) => void };
@@ -22,7 +25,7 @@ interface UseManualModeOptions {
 }
 
 export function useManualMode({mowerAction, joyStream, stateName}: UseManualModeOptions) {
-    const [manualMode, setManualMode] = useState(() => stateName === "MANUAL_MOWING");
+    const [manualMode, setManualMode] = useState(() => isManualState(stateName));
     const exitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     // LATCH + DEBOUNCE manual mode. Entering MANUAL_MOWING latches it ON
@@ -32,7 +35,7 @@ export function useManualMode({mowerAction, joyStream, stateName}: UseManualMode
     // the manual UI and killing the joystick socket mid-drive. The explicit Stop
     // button flips manualMode directly, so it doesn't depend on this debounce.
     useEffect(() => {
-        if (stateName === "MANUAL_MOWING") {
+        if (isManualState(stateName)) {
             clearTimeout(exitTimerRef.current);
             exitTimerRef.current = undefined;
             setManualMode(true);
@@ -84,10 +87,17 @@ export function useManualMode({mowerAction, joyStream, stateName}: UseManualMode
         setManualMode(true);
     };
 
+    const handleManualDriveMode = async () => {
+        // Manual Drive has a distinct high-level state. It is not a transient
+        // mow_enabled=0 override, so the BT and firmware agree that the blade
+        // must stay off while the operator repositions the mower.
+        await mowerAction("high_level_control", {Command: 9})();
+        setManualMode(true);
+    };
+
     const handleStopManualMode = async () => {
-        // STOP (COMMAND_STOP=8 → StopHoldSequence): from MANUAL_MOWING (state 4)
-        // this halts in place and turns the mower off, exiting manual — no dock
-        // drive.
+        // STOP (COMMAND_STOP=8 → StopHoldSequence) halts either manual mode in
+        // place and turns the mower off, without a dock drive.
         await mowerAction("high_level_control", {Command: 8})();
         // Explicit Stop: drop the manual UI immediately and cancel any pending
         // debounce so a lingering timer can't re-toggle it.
@@ -96,7 +106,6 @@ export function useManualMode({mowerAction, joyStream, stateName}: UseManualMode
         stopJoyInterval();
         lastTwistRef.current = null;
         setManualMode(false);
-        await mowerAction("mow_enabled", {mow_enabled: 0, mow_direction: 0})();
     };
 
     const handleJoyMove = useCallback((event: IJoystickUpdateEvent) => {
@@ -123,5 +132,12 @@ export function useManualMode({mowerAction, joyStream, stateName}: UseManualMode
         joyStream.sendJsonMessage(msg);
     }, [joyStream, stopJoyInterval]);
 
-    return {manualMode, handleManualMode, handleStopManualMode, handleJoyMove, handleJoyStop};
+    return {
+        manualMode,
+        handleManualMode,
+        handleManualDriveMode,
+        handleStopManualMode,
+        handleJoyMove,
+        handleJoyStop,
+    };
 }

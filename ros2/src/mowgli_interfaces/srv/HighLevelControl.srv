@@ -10,6 +10,10 @@ uint8 COMMAND_MANUAL_MOW=7
 # dock (that is COMMAND_HOME). Routes to the StopHold/IdleSequence branch. Used
 # by the GUI's "Stop Manual" and "Pause" buttons.
 uint8 COMMAND_STOP=8
+# Manual teleop with the cutting blade locked off. This is intentionally a
+# separate high-level mode, rather than a low-level blade override while
+# COMMAND_MANUAL_MOW remains active.
+uint8 COMMAND_MANUAL_DRIVE=9
 uint8 COMMAND_RESET_EMERGENCY=254
 uint8 COMMAND_DELETE_MAPS=255
 

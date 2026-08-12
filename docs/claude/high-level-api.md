@@ -13,6 +13,7 @@
 | 6 | `COMMAND_RECORD_CANCEL` | Cancel recording, discard trajectory |
 | 7 | `COMMAND_MANUAL_MOW` | Enter manual mowing mode (teleop + blade) |
 | 8 | `COMMAND_STOP` | Stop-in-place hold: mower off, halt, stay put (NOT dock — that is `COMMAND_HOME`). Routes to `StopHoldSequence`. Resumable via `COMMAND_START`. GUI Pause / Stop use this. |
+| 9 | `COMMAND_MANUAL_DRIVE` | Enter manual drive mode (teleop with blade forced off) |
 | 254 | `COMMAND_RESET_EMERGENCY` | Reset latched emergency |
 | 255 | `COMMAND_DELETE_MAPS` | Delete all maps |
 
@@ -24,6 +25,7 @@
 | 2 | `HIGH_LEVEL_STATE_AUTONOMOUS` | Autonomous mowing (undocking, transit, mowing, recovering) |
 | 3 | `HIGH_LEVEL_STATE_RECORDING` | Area recording in progress |
 | 4 | `HIGH_LEVEL_STATE_MANUAL_MOWING` | Manual mowing via teleop |
+| 5 | `HIGH_LEVEL_STATE_MANUAL_DRIVING` | Manual drive via teleop with blade disabled |
 
 ## Area Recording Flow
 1. GUI sends `COMMAND_RECORD_AREA` (3) to start recording
@@ -38,7 +40,12 @@
 ## Manual Mowing
 - Dedicated BT state with `COMMAND_MANUAL_MOW` (7) — does not hijack recording mode
 - Teleop via `/cmd_vel_teleop` (twist_mux priority)
-- Blade managed by GUI (fire-and-forget to firmware)
+- Blade requests are managed by the BT; the firmware only accepts them in manual mowing
 - Collision_monitor, GPS, and the active map-frame localizer all remain active
+
+## Manual Drive
+- Dedicated BT state with `COMMAND_MANUAL_DRIVE` (9) for joystick control with the blade disabled
+- Selecting Blade Off during manual mowing transitions to Manual Drive, rather than competing with the reactive manual-mowing branch
+- Firmware rejects blade-enable requests in this mode; `COMMAND_STOP` remains the way to halt in place
 
 > Protocol constants (`HL_MODE_*`) are manually mirrored in `firmware/stm32/ros_usbnode/include/mowgli_protocol.h` AND `ros2/src/mowgli_hardware/firmware/mowgli_protocol.h` — keep both in sync with `HighLevelStatus.msg` (see [`commands.md`](commands.md) → Code Generation Workflow).

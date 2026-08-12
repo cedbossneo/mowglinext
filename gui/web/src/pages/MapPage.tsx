@@ -590,7 +590,14 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     });
 
 
-    const {manualMode, handleManualMode, handleStopManualMode, handleJoyMove, handleJoyStop} = useManualMode({mowerAction, joyStream, stateName: highLevelStatus.highLevelStatus.state_name});
+    const {
+        manualMode,
+        handleManualMode,
+        handleManualDriveMode,
+        handleStopManualMode,
+        handleJoyMove,
+        handleJoyStop,
+    } = useManualMode({mowerAction, joyStream, stateName: highLevelStatus.highLevelStatus.state_name});
 
     // Toggle dock placement mode: re-pressing the button (or pressing Escape)
     // cancels it, so the crosshair cursor is not a one-way trap.
@@ -680,10 +687,15 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 : mowerAction("high_level_control", {Command: 8}),
         onBladeForward: mowerAction("mow_enabled", {mow_enabled: 1, mow_direction: 0}),
         onBladeBackward: mowerAction("mow_enabled", {mow_enabled: 1, mow_direction: 1}),
-        onBladeOff: mowerAction("mow_enabled", {mow_enabled: 0, mow_direction: 0}),
+        // In Manual Mow, Blade Off is an operator-level transition to the
+        // explicit Manual Drive mode. A raw low-level blade request would be
+        // re-enabled by the active ManualMowing BT branch.
+        onBladeOff: highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING"
+            ? handleManualDriveMode
+            : mowerAction("mow_enabled", {mow_enabled: 0, mow_direction: 0}),
         onRecordFinish: mowerAction("high_level_control", {Command: 5}),
         onRecordCancel: mowerAction("high_level_control", {Command: 6}),
-    }), [mowerAction, highLevelStatus.highLevelStatus.state_name]);
+    }), [mowerAction, highLevelStatus.highLevelStatus.state_name, handleManualDriveMode]);
 
     // Centered message panel used for the missing-token and missing-datum
     // states — a plain, translated explanation instead of an eternal spinner
@@ -1039,7 +1051,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     </Source>
                 </Map> : <Spinner/>}
                 <JoystickOverlay
-                    visible={highLevelStatus.highLevelStatus.state_name === "RECORDING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING" || manualMode}
+                    visible={highLevelStatus.highLevelStatus.state_name === "RECORDING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_DRIVING" || manualMode}
                     isRecording={highLevelStatus.highLevelStatus.state_name === "RECORDING"}
                     mobile={isMobile}
                     onMove={handleJoyMove}
