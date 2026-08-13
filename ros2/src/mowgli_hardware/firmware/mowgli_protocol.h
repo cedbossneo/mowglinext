@@ -377,6 +377,7 @@ extern "C"
 #define HL_MODE_AUTONOMOUS 2u /**< Autonomous mowing */
 #define HL_MODE_RECORDING 3u /**< Area boundary recording */
 #define HL_MODE_MANUAL_MOWING 4u /**< Manual teleop with blade */
+#define HL_MODE_MANUAL_DRIVING 5u /**< Manual teleop with blade locked off */
 
   typedef struct
   {

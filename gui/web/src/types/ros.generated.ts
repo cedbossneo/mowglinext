@@ -313,6 +313,7 @@ export const enum HighLevelStatusConstants {
   HIGH_LEVEL_STATE_AUTONOMOUS = 2,
   HIGH_LEVEL_STATE_RECORDING = 3,
   HIGH_LEVEL_STATE_MANUAL_MOWING = 4,
+  HIGH_LEVEL_STATE_MANUAL_DRIVING = 5,
 };
 
 export type HighLevelStatus = {

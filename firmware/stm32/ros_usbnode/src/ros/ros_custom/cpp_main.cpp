@@ -628,6 +628,15 @@ static void on_hl_state(const uint8_t *data, size_t len) {
     PANEL_Set_LED(PANEL_LED_S2, PANEL_LED_ON);
     main_eOpenmowerStatus = OPENMOWER_STATUS_MOWING;
     break;
+  case HL_MODE_MANUAL_DRIVING:
+    // Manual Drive permits teleop traction, but is a blade-off mode by
+    // contract. Enforce that at the firmware boundary so a late or stale
+    // host blade packet cannot re-arm the blade after this mode is selected.
+    PANEL_Set_LED(PANEL_LED_S1, PANEL_LED_OFF);
+    PANEL_Set_LED(PANEL_LED_S2, PANEL_LED_ON);
+    main_eOpenmowerStatus = OPENMOWER_STATUS_RECORD;
+    blade_on_off = target_blade_on_off = 0;
+    break;
   case HL_MODE_NULL:
   case HL_MODE_IDLE:
   default:
@@ -657,7 +666,8 @@ static void on_cmd_blade(const uint8_t *data, size_t len) {
    * IDLE every tick), but refusing to latch the target here keeps state
    * consistent and avoids an instantaneous spin-up on the IDLE→MOWING edge.
    * blade_dir is still accepted so direction is correct once mowing starts. */
-  if (main_eOpenmowerStatus == OPENMOWER_STATUS_IDLE) {
+  if (main_eOpenmowerStatus == OPENMOWER_STATUS_IDLE ||
+      hl_current_mode == HL_MODE_MANUAL_DRIVING) {
     target_blade_on_off = 0;
   } else {
     target_blade_on_off = pkt->blade_on;
@@ -824,6 +834,12 @@ extern "C" void motors_handler() {
     __enable_irq();
 
     blade_on_off = snap_target_blade;
+    // Manual Drive is a traction-only mode. Keep this independent of the
+    // command-blade handler so even a late packet queued before the HL mode
+    // change cannot produce a single motor-loop blade tick.
+    if (hl_current_mode == HL_MODE_MANUAL_DRIVING) {
+      blade_on_off = 0;
+    }
 
     /* --- decide effective target ---
      * Emergency or cmd_vel watchdog timeout overrides to a hard stop.

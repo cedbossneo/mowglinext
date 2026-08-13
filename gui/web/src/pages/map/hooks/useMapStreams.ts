@@ -89,7 +89,7 @@ export function useMapStreams({
     });
     const [dynamicObstacles, setDynamicObstacles] = useState<TrackedObstacle[]>([]);
     // Debounce timer for tearing down the teleop joy stream. A single stray
-    // non-MANUAL_MOWING/non-RECORDING frame (guard blip ahead of MainLogic) must
+    // non-manual/non-RECORDING frame (guard blip ahead of MainLogic) must
     // NOT kill teleop mid-drive — we only stop the joy stream after the mower has
     // stayed out of a joy-eligible state for a sustained window.
     const joyStopTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -402,7 +402,7 @@ export function useMapStreams({
             setEditMap(false);
             return;
         }
-        if (stateName === "MANUAL_MOWING") {
+        if (stateName === "MANUAL_MOWING" || stateName === "MANUAL_DRIVING") {
             clearTimeout(joyStopTimerRef.current);
             joyStopTimerRef.current = undefined;
             joyStream.start("/api/mowglinext/publish/joy");

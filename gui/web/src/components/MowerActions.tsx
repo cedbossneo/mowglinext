@@ -172,7 +172,13 @@ export const MowerActions: React.FC<React.PropsWithChildren<{bare?: boolean}>> =
             key: "mow_off",
             "label": t('mowerActions.bladeOff'),
             "danger": true,
-            actions: [{
+            // In manual mowing, a direct blade-off packet races the reactive
+            // ManualMowing BT branch, which keeps its blade request enabled.
+            // Switch to the explicit blade-disabled manual-drive mode instead.
+            actions: highLevelStatus.state_name === "MANUAL_MOWING" ? [{
+                command: "high_level_control",
+                args: {Command: 9}
+            }] : [{
                 command: "mow_enabled",
                 args: {mow_enabled: 0, mow_direction: 0}
             }]

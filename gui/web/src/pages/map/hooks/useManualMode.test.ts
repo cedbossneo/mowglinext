@@ -18,11 +18,12 @@ describe('useManualMode', () => {
         vi.useRealTimers();
     });
 
-    function renderManualMode() {
+    function renderManualMode(stateName?: string) {
         return renderHook(() =>
             useManualMode({
                 mowerAction,
                 joyStream: {sendJsonMessage, start: startStream},
+                stateName,
             })
         );
     }
@@ -38,7 +39,22 @@ describe('useManualMode', () => {
             await result.current.handleManualMode();
         });
         expect(mowerAction).toHaveBeenCalledWith('high_level_control', {Command: 7});
-        expect(mowerAction).toHaveBeenCalledWith('mow_enabled', {mow_enabled: 1, mow_direction: 0});
+        expect(mowerAction).not.toHaveBeenCalledWith('mow_enabled', expect.anything());
+        expect(result.current.manualMode).toBe(true);
+    });
+
+    it('handleManualDriveMode selects blade-disabled manual drive', async () => {
+        const {result} = renderManualMode();
+        await act(async () => {
+            await result.current.handleManualDriveMode();
+        });
+        expect(mowerAction).toHaveBeenCalledWith('high_level_control', {Command: 9});
+        expect(mowerAction).not.toHaveBeenCalledWith('mow_enabled', expect.anything());
+        expect(result.current.manualMode).toBe(true);
+    });
+
+    it('keeps the joystick active when the mower reports manual drive', () => {
+        const {result} = renderManualMode('MANUAL_DRIVING');
         expect(result.current.manualMode).toBe(true);
     });
 
@@ -52,8 +68,8 @@ describe('useManualMode', () => {
         await act(async () => {
             await result.current.handleStopManualMode();
         });
-        expect(mowerAction).toHaveBeenCalledWith('high_level_control', {Command: 2});
-        expect(mowerAction).toHaveBeenCalledWith('mow_enabled', {mow_enabled: 0, mow_direction: 0});
+        expect(mowerAction).toHaveBeenCalledWith('high_level_control', {Command: 8});
+        expect(mowerAction).not.toHaveBeenCalledWith('mow_enabled', expect.anything());
         expect(result.current.manualMode).toBe(false);
     });
 
