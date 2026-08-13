@@ -853,6 +853,9 @@ void MapServerNode::stamp_mow_progress(double x, double y)
     mow_progress_map_.setFrameId(map_frame_);
     mow_progress_map_.setGeometry(map_.getLength(), map_.getResolution(), map_.getPosition());
     mow_progress_map_[layer].setConstant(0.0F);
+    // The previous point belonged to different grid geometry, so it must not
+    // be joined to the first pose in the fresh overlay.
+    have_last_mow_tool_position_ = false;
   }
 
   const grid_map::Position center(x, y);

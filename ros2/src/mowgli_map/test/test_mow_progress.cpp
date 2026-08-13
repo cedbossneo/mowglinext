@@ -57,4 +57,25 @@ TEST(MowProgress, StampsTheCompleteStraightToolSweep)
   rclcpp::shutdown();
 }
 
+TEST(MowProgress, DoesNotSweepAcrossAProgressReset)
+{
+  rclcpp::init(0, nullptr);
+  rclcpp::NodeOptions options;
+  options.append_parameter_override("resolution", 0.05);
+  options.append_parameter_override("map_size_x", 4.0);
+  options.append_parameter_override("map_size_y", 4.0);
+  options.append_parameter_override("tool_width", 0.10);
+  auto node = std::make_shared<mowgli_map::MapServerNode>(options);
+
+  node->stamp_mow_progress_for_test(-1.0, 0.0);
+  node->clear_map_layers();
+  node->stamp_mow_progress_for_test(1.0, 0.0);
+
+  EXPECT_FLOAT_EQ(node->mow_progress_value_for_test(0.0, 0.0), 0.0F);
+  EXPECT_FLOAT_EQ(node->mow_progress_value_for_test(1.0, 0.0), 100.0F);
+
+  node.reset();
+  rclcpp::shutdown();
+}
+
 }  // namespace

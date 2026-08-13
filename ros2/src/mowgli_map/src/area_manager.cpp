@@ -190,6 +190,7 @@ void MapServerNode::init_map()
   // Drop any accumulated mowed-progress overlay: a fresh map (startup or a map
   // delete) means coverage starts over. stamp_mow_progress lazily recreates it.
   mow_progress_map_ = grid_map::GridMap();
+  have_last_mow_tool_position_ = false;
 
   RCLCPP_DEBUG(get_logger(),
                "Grid map created: %zu×%zu cells",
@@ -593,6 +594,8 @@ void MapServerNode::clear_map_layers()
 {
   map_[std::string(layers::OCCUPANCY)].setConstant(defaults::OCCUPANCY);
   map_[std::string(layers::CLASSIFICATION)].setConstant(defaults::CLASSIFICATION);
+  mow_progress_map_ = grid_map::GridMap();
+  have_last_mow_tool_position_ = false;
 }
 void MapServerNode::on_set_docking_point(
     const mowgli_interfaces::srv::SetDockingPoint::Request::SharedPtr req,
