@@ -47,7 +47,6 @@ interface MowingAreaItem extends MenuItemType {
 interface MapToolbarMobileProps {
     editMap: boolean;
     hasUnsavedChanges: boolean;
-    manualMode: boolean;
     useSatellite: boolean;
     historyIndex: number;
     editHistoryLength: number;
@@ -57,8 +56,7 @@ interface MapToolbarMobileProps {
     onUndo: () => void;
     onRedo: () => void;
     onToggleSatellite: () => void;
-    onManualMode: () => Promise<void>;
-    onStopManualMode: () => Promise<void>;
+    onOpenManualController: () => void;
     onBackupMap: () => void;
     onRestoreMap: () => void;
     onDownloadGeoJSON: () => void;
@@ -93,10 +91,10 @@ interface MapToolbarMobileProps {
 }
 
 export const MapToolbarMobile = ({
-    editMap, hasUnsavedChanges, manualMode, useSatellite,
+    editMap, hasUnsavedChanges, useSatellite,
     historyIndex, editHistoryLength, mowingAreas,
     onEditMap, onSaveMap, onUndo, onRedo, onToggleSatellite,
-    onManualMode, onStopManualMode,
+    onOpenManualController,
     onBackupMap, onRestoreMap, onDownloadGeoJSON, onUploadGeoJSON, onImportOpenMower,
     onMowArea, selectedFeatureCount = 0, onEditSelectedFeature,
     onDrawPolygon, onDrawShape, onDrawEmoji, onTrash, onCombine, onSubtract, onSplit,
@@ -408,12 +406,11 @@ export const MapToolbarMobile = ({
                     </Button>
                 </Dropdown>
 
-                <AsyncButton
+                <Button
                     size="large"
-                    danger={manualMode}
-                    icon={manualMode ? <HomeOutlined /> : <ControlOutlined />}
-                    onAsyncClick={manualMode ? onStopManualMode : onManualMode}
-                    aria-label={manualMode ? t("mapToolbarMobile.stopManualMowing") : t("mapToolbarMobile.manualMowing")}
+                    icon={<ControlOutlined />}
+                    onClick={onOpenManualController}
+                    aria-label={t("mapToolbarMobile.manualMowing")}
                     style={touchTarget}
                 />
 
