@@ -56,6 +56,10 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const {colors} = useThemeMode();
     const isMobile = useIsMobile();
     const mowerAction = useMowerAction()
+    const handleManualDriveMode = useCallback(
+        () => mowerAction("high_level_control", {Command: 9})(),
+        [mowerAction],
+    );
 
     // Brand tokens for the Mapbox display-only layers (dock, mower, lidar).
     // Shared between the compact and full render branches so the two stay in
@@ -1074,6 +1078,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                         onRedo={handleRedo}
                         onToggleSatellite={() => setUseSatellite(!useSatellite)}
                         onManualMode={handleManualMode}
+                        onManualDriveMode={handleManualDriveMode}
                         onStopManualMode={handleStopManualMode}
                         onBackupMap={handleBackupMap}
                         onRestoreMap={handleRestoreMap}
@@ -1128,6 +1133,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             onEditMap={handleEditMap}
                             onToggleSatellite={() => setUseSatellite(!useSatellite)}
                             onManualMode={handleManualMode}
+                            onManualDriveMode={handleManualDriveMode}
                             onStopManualMode={handleStopManualMode}
                             onBackupMap={handleBackupMap}
                             onRestoreMap={handleRestoreMap}

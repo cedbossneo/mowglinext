@@ -40,6 +40,7 @@ interface MapToolbarProps {
     onEditMap: () => void;
     onToggleSatellite: () => void;
     onManualMode: () => Promise<void>;
+    onManualDriveMode: () => Promise<void>;
     onStopManualMode: () => Promise<void>;
     onBackupMap: () => void;
     onRestoreMap: () => void;
@@ -65,7 +66,7 @@ interface MapToolbarProps {
 export const MapToolbar = ({
     manualMode, useSatellite, mowingAreas, stateName, emergency,
     onEditMap, onToggleSatellite,
-    onManualMode, onStopManualMode,
+    onManualMode, onManualDriveMode, onStopManualMode,
     onBackupMap, onRestoreMap, onDownloadGeoJSON, onImportOpenMower,
     onMowArea, pitched, onTogglePitch,
     onStart, onHome, onEmergencyOn, onEmergencyOff,
@@ -100,7 +101,10 @@ export const MapToolbar = ({
         {type: "divider"},
         ...(manualMode
             ? [{key: "stopManual", icon: <HomeOutlined />, label: t("mapToolbar.stopManualMowing"), danger: true} satisfies NonNullable<MenuProps["items"]>[number]]
-            : [{key: "manual", icon: <ControlOutlined />, label: t("mapToolbar.manualMowing")} satisfies NonNullable<MenuProps["items"]>[number]]
+            : [
+                {key: "manual", icon: <ControlOutlined />, label: t("mapToolbar.manualMowing")} satisfies NonNullable<MenuProps["items"]>[number],
+                {key: "manualDrive", icon: <ControlOutlined />, label: t("mapToolbar.manualDrive")} satisfies NonNullable<MenuProps["items"]>[number],
+            ]
         ),
         {type: "divider"},
         {key: "bladeForward", icon: <ThunderboltOutlined />, label: t("mapToolbar.bladeForward")},
@@ -119,6 +123,7 @@ export const MapToolbar = ({
             case "satellite": onToggleSatellite(); break;
             case "pitch": onTogglePitch?.(); break;
             case "manual": safeCall(() => onManualMode()); break;
+            case "manualDrive": safeCall(() => onManualDriveMode()); break;
             case "stopManual": safeCall(() => onStopManualMode()); break;
             case "areaRecording": safeCall(onAreaRecording); break;
             case "mowNext": safeCall(onMowNextArea); break;
@@ -218,6 +223,12 @@ export const MapToolbar = ({
             >
                 {manualMode ? t("mapToolbar.stopManual") : t("mapToolbar.manualMow")}
             </AsyncButton>
+
+            {!manualMode && (
+                <AsyncButton icon={<ControlOutlined />} onAsyncClick={onManualDriveMode}>
+                    {t("mapToolbar.manualDrive")}
+                </AsyncButton>
+            )}
 
             <Dropdown
                 menu={{items: moreMenuItems, onClick: handleMoreClick}}

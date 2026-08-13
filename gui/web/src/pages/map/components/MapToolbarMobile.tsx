@@ -58,6 +58,7 @@ interface MapToolbarMobileProps {
     onRedo: () => void;
     onToggleSatellite: () => void;
     onManualMode: () => Promise<void>;
+    onManualDriveMode: () => Promise<void>;
     onStopManualMode: () => Promise<void>;
     onBackupMap: () => void;
     onRestoreMap: () => void;
@@ -96,7 +97,7 @@ export const MapToolbarMobile = ({
     editMap, hasUnsavedChanges, manualMode, useSatellite,
     historyIndex, editHistoryLength, mowingAreas,
     onEditMap, onSaveMap, onUndo, onRedo, onToggleSatellite,
-    onManualMode, onStopManualMode,
+    onManualMode, onManualDriveMode, onStopManualMode,
     onBackupMap, onRestoreMap, onDownloadGeoJSON, onUploadGeoJSON, onImportOpenMower,
     onMowArea, selectedFeatureCount = 0, onEditSelectedFeature,
     onDrawPolygon, onDrawShape, onDrawEmoji, onTrash, onCombine, onSubtract, onSplit,
@@ -187,6 +188,9 @@ export const MapToolbarMobile = ({
         {key: "areaRecording", icon: <AimOutlined />, label: t("mapToolbarMobile.areaRecording")},
         {key: "mowNext", icon: <ForwardOutlined />, label: t("mapToolbarMobile.mowNextArea")},
         {key: "continueOrPause", icon: isIdle ? <CaretRightOutlined /> : <PauseOutlined />, label: isIdle ? t("mapToolbarMobile.continue") : t("mapToolbarMobile.pause")},
+        ...(!manualMode
+            ? [{key: "manualDrive", icon: <ControlOutlined />, label: t("mapToolbarMobile.manualDrive")} satisfies NonNullable<MenuProps["items"]>[number]]
+            : []),
         {type: "divider"},
         {key: "bladeForward", icon: <ThunderboltOutlined />, label: t("mapToolbarMobile.bladeForward")},
         {key: "bladeBackward", icon: <ThunderboltOutlined />, label: t("mapToolbarMobile.bladeBackward")},
@@ -208,6 +212,7 @@ export const MapToolbarMobile = ({
             case "areaRecording": safeCall(onAreaRecording); break;
             case "mowNext": safeCall(onMowNextArea); break;
             case "continueOrPause": safeCall(onContinueOrPause); break;
+            case "manualDrive": safeCall(() => onManualDriveMode()); break;
             case "bladeForward": safeCall(onBladeForward); break;
             case "bladeBackward": safeCall(onBladeBackward); break;
             case "bladeOff": safeCall(onBladeOff); break;
@@ -416,6 +421,16 @@ export const MapToolbarMobile = ({
                     aria-label={manualMode ? t("mapToolbarMobile.stopManualMowing") : t("mapToolbarMobile.manualMowing")}
                     style={touchTarget}
                 />
+
+                {!manualMode && (
+                    <AsyncButton
+                        size="large"
+                        icon={<ControlOutlined />}
+                        onAsyncClick={onManualDriveMode}
+                        aria-label={t("mapToolbarMobile.manualDrive")}
+                        style={touchTarget}
+                    />
+                )}
 
                 <Dropdown
                     menu={{items: dataMenuItems, onClick: handleMoreClick}}

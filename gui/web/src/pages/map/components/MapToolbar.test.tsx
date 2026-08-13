@@ -25,6 +25,7 @@ describe('MapToolbar', () => {
         onEditMap: vi.fn(),
         onToggleSatellite: vi.fn(),
         onManualMode: vi.fn().mockResolvedValue(undefined),
+        onManualDriveMode: vi.fn().mockResolvedValue(undefined),
         onStopManualMode: vi.fn().mockResolvedValue(undefined),
         onBackupMap: vi.fn(),
         onRestoreMap: vi.fn(),
@@ -78,6 +79,13 @@ describe('MapToolbar', () => {
     it('shows Mow area dropdown', () => {
         render(<MapToolbar {...defaultProps} />);
         expect(screen.getByText(en.mapToolbar.mowArea)).toBeInTheDocument();
+    });
+
+    it('starts blade-disabled Manual Drive from its dedicated control', async () => {
+        const user = userEvent.setup();
+        render(<MapToolbar {...defaultProps} />);
+        await user.click(screen.getByText(en.mapToolbar.manualDrive));
+        expect(defaultProps.onManualDriveMode).toHaveBeenCalledTimes(1);
     });
 
     it('always shows the More dropdown trigger', () => {
