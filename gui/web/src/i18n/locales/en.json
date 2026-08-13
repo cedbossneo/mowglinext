@@ -13,6 +13,8 @@
     "stats": "Stats",
     "settings": "Settings",
     "parameters": "Parameters",
+    "manualControl": "Manual Control",
+    "manualShort": "Control",
     "logs": "Logs",
     "onboarding": "Onboarding",
     "more": "More",
@@ -40,6 +42,9 @@
     },
     "parameters": {
       "subtitle": "Live ROS2 tuning"
+    },
+    "manualControl": {
+      "subtitle": "Joystick driving"
     },
     "logs": {
       "subtitle": "Container output"
@@ -3049,5 +3054,33 @@
   },
   "settingsSchema": {
     "loadFailed": "Failed to load settings schema"
+  },
+  "manualController": {
+    "ariaLabel": "Manual mower controller",
+    "title": "Manual control",
+    "subtitle": "Choose a mode, then drive under direct supervision.",
+    "combinedStick": "Drive and steer",
+    "combinedHint": "Forward / reverse · left / right",
+    "driveStick": "Drive",
+    "driveHint": "Forward / reverse",
+    "steerStick": "Steer",
+    "steerHint": "Turn left / right",
+    "keyboardHint": "Keyboard: W/S drive · A/D steer · Space stops motion. Controls work only after choosing Mow, Transport, or Record.",
+    "map": "Mower position",
+    "mapHint": "Lightweight live view",
+    "awaitingMap": "Waiting for a recorded map",
+    "livePosition": "Live position",
+    "speed": "{{value}} m/s",
+    "mow": "Mow",
+    "transport": "Transport",
+    "record": "Record",
+    "stop": "Stop",
+    "emergency": "Emergency stop",
+    "rearm": "Re-arm",
+    "rearmed": "Emergency stop released",
+    "emergencyActive": "EMERGENCY",
+    "emergencyTitle": "Emergency stop mower?",
+    "emergencyBody": "This immediately stops and latches the mower. Re-arm only when the area is safe.",
+    "cancel": "Cancel"
   }
 }

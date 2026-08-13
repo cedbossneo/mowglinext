@@ -32,15 +32,13 @@ interface MowingAreaItem extends MenuItemType {
 }
 
 interface MapToolbarProps {
-    manualMode: boolean;
     useSatellite: boolean;
     mowingAreas: MowingAreaItem[];
     stateName?: string;
     emergency?: boolean;
     onEditMap: () => void;
     onToggleSatellite: () => void;
-    onManualMode: () => Promise<void>;
-    onStopManualMode: () => Promise<void>;
+    onOpenManualController: () => void;
     onBackupMap: () => void;
     onRestoreMap: () => void;
     onDownloadGeoJSON: () => void;
@@ -63,9 +61,9 @@ interface MapToolbarProps {
 }
 
 export const MapToolbar = ({
-    manualMode, useSatellite, mowingAreas, stateName, emergency,
+    useSatellite, mowingAreas, stateName, emergency,
     onEditMap, onToggleSatellite,
-    onManualMode, onStopManualMode,
+    onOpenManualController,
     onBackupMap, onRestoreMap, onDownloadGeoJSON, onImportOpenMower,
     onMowArea, pitched, onTogglePitch,
     onStart, onHome, onEmergencyOn, onEmergencyOff,
@@ -98,10 +96,7 @@ export const MapToolbar = ({
         {key: "mowNext", icon: <ForwardOutlined />, label: t("mapToolbar.mowNextArea")},
         {key: "continueOrPause", icon: isIdle ? <CaretRightOutlined /> : <PauseOutlined />, label: isIdle ? t("mapToolbar.continue") : t("mapToolbar.pause")},
         {type: "divider"},
-        ...(manualMode
-            ? [{key: "stopManual", icon: <HomeOutlined />, label: t("mapToolbar.stopManualMowing"), danger: true} satisfies NonNullable<MenuProps["items"]>[number]]
-            : [{key: "manual", icon: <ControlOutlined />, label: t("mapToolbar.manualMowing")} satisfies NonNullable<MenuProps["items"]>[number]]
-        ),
+        {key: "manual", icon: <ControlOutlined />, label: t("mapToolbar.manualMowing")},
         {type: "divider"},
         {key: "bladeForward", icon: <ThunderboltOutlined />, label: t("mapToolbar.bladeForward")},
         {key: "bladeBackward", icon: <ThunderboltOutlined />, label: t("mapToolbar.bladeBackward")},
@@ -118,8 +113,7 @@ export const MapToolbar = ({
         switch (key) {
             case "satellite": onToggleSatellite(); break;
             case "pitch": onTogglePitch?.(); break;
-            case "manual": safeCall(() => onManualMode()); break;
-            case "stopManual": safeCall(() => onStopManualMode()); break;
+            case "manual": onOpenManualController(); break;
             case "areaRecording": safeCall(onAreaRecording); break;
             case "mowNext": safeCall(onMowNextArea); break;
             case "continueOrPause": safeCall(onContinueOrPause); break;
@@ -211,13 +205,9 @@ export const MapToolbar = ({
                 {t("mapToolbar.mowArea")}
             </AsyncDropDownButton>
 
-            <AsyncButton
-                danger={manualMode}
-                icon={manualMode ? <HomeOutlined /> : <ControlOutlined />}
-                onAsyncClick={manualMode ? onStopManualMode : onManualMode}
-            >
-                {manualMode ? t("mapToolbar.stopManual") : t("mapToolbar.manualMow")}
-            </AsyncButton>
+            <Button icon={<ControlOutlined />} onClick={onOpenManualController}>
+                {t("mapToolbar.manualMow")}
+            </Button>
 
             <Dropdown
                 menu={{items: moreMenuItems, onClick: handleMoreClick}}

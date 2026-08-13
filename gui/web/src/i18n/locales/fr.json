@@ -13,6 +13,8 @@
     "stats": "Stats",
     "settings": "Réglages",
     "parameters": "Paramètres",
+    "manualControl": "Contrôle manuel",
+    "manualShort": "Contrôle",
     "logs": "Logs",
     "onboarding": "Onboarding",
     "more": "Plus",
@@ -40,6 +42,9 @@
     },
     "parameters": {
       "subtitle": "Réglage ROS2 en direct"
+    },
+    "manualControl": {
+      "subtitle": "Conduite au joystick"
     },
     "logs": {
       "subtitle": "Sortie des conteneurs"
@@ -3049,5 +3054,33 @@
   },
   "settingsSchema": {
     "loadFailed": "Échec du chargement du schéma de réglages"
+  },
+  "manualController": {
+    "ariaLabel": "Contrôleur manuel de tondeuse",
+    "title": "Contrôle manuel",
+    "subtitle": "Choisissez un mode, puis conduisez sous surveillance directe.",
+    "combinedStick": "Conduite et direction",
+    "combinedHint": "Avancer / reculer · gauche / droite",
+    "driveStick": "Conduite",
+    "driveHint": "Avancer / reculer",
+    "steerStick": "Direction",
+    "steerHint": "Tourner à gauche / droite",
+    "keyboardHint": "Clavier : W/S pour avancer/reculer · A/D pour diriger · Espace arrête le mouvement. Les commandes ne fonctionnent qu'après avoir choisi Tondre, Transport ou Enregistrer.",
+    "map": "Position de la tondeuse",
+    "mapHint": "Vue légère en direct",
+    "awaitingMap": "En attente d'une carte enregistrée",
+    "livePosition": "Position en direct",
+    "speed": "{{value}} m/s",
+    "mow": "Tondre",
+    "transport": "Transport",
+    "record": "Enregistrer",
+    "stop": "Arrêter",
+    "emergency": "Arrêt d'urgence",
+    "rearm": "Réarmer",
+    "rearmed": "Arrêt d'urgence relâché",
+    "emergencyActive": "URGENCE",
+    "emergencyTitle": "Arrêter la tondeuse en urgence ?",
+    "emergencyBody": "Cette action arrête et verrouille immédiatement la tondeuse. Réarmez uniquement lorsque la zone est sûre.",
+    "cancel": "Annuler"
   }
 }

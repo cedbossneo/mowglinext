@@ -4,6 +4,7 @@ import {App} from "antd";
 import turfArea from "@turf/area";
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useTranslation} from "react-i18next";
+import {useNavigate} from "react-router-dom";
 import {MapArea, Map as MapType} from "../types/ros.ts";
 import DrawControl from "../components/DrawControl.tsx";
 import Map, {Layer, Source} from 'react-map-gl/mapbox';
@@ -52,6 +53,7 @@ const DYN_OBSTACLE_INTERACTIVE_LAYERS = ['dyn-obstacle-fill'];
 
 export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const {notification} = App.useApp();
+    const navigate = useNavigate();
     const {t} = useTranslation();
     const {colors} = useThemeMode();
     const isMobile = useIsMobile();
@@ -590,7 +592,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     });
 
 
-    const {manualMode, handleManualMode, handleStopManualMode, handleJoyMove, handleJoyStop} = useManualMode({mowerAction, joyStream, stateName: highLevelStatus.highLevelStatus.state_name});
+    const {handleJoyMove, handleJoyStop} = useManualMode({mowerAction, joyStream, stateName: highLevelStatus.highLevelStatus.state_name});
 
     // Toggle dock placement mode: re-pressing the button (or pressing Escape)
     // cancels it, so the crosshair cursor is not a one-way trap.
@@ -1039,7 +1041,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     </Source>
                 </Map> : <Spinner/>}
                 <JoystickOverlay
-                    visible={highLevelStatus.highLevelStatus.state_name === "RECORDING" || highLevelStatus.highLevelStatus.state_name === "MANUAL_MOWING" || manualMode}
+                    visible={highLevelStatus.highLevelStatus.state_name === "RECORDING"}
                     isRecording={highLevelStatus.highLevelStatus.state_name === "RECORDING"}
                     mobile={isMobile}
                     onMove={handleJoyMove}
@@ -1052,7 +1054,6 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     <MapToolbarMobile
                         editMap={editMap}
                         hasUnsavedChanges={hasUnsavedChanges}
-                        manualMode={manualMode}
                         useSatellite={useSatellite}
                         historyIndex={historyIndex}
                         editHistoryLength={editHistory.length}
@@ -1073,8 +1074,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                         onUndo={handleUndo}
                         onRedo={handleRedo}
                         onToggleSatellite={() => setUseSatellite(!useSatellite)}
-                        onManualMode={handleManualMode}
-                        onStopManualMode={handleStopManualMode}
+                        onOpenManualController={() => navigate("/manual-control")}
                         onBackupMap={handleBackupMap}
                         onRestoreMap={handleRestoreMap}
                         onDownloadGeoJSON={handleDownloadGeoJSON}
@@ -1118,7 +1118,6 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 {!isMobile && !editMap && (
                     <div style={{position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 10, background: colors.glassBackground, backdropFilter: 'blur(22px) saturate(140%)', WebkitBackdropFilter: 'blur(22px) saturate(140%)', borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, padding: '10px 14px'}}>
                         <MapToolbar
-                            manualMode={manualMode}
                             useSatellite={useSatellite}
                             mowingAreas={mowingAreas}
                             stateName={highLevelStatus.highLevelStatus.state_name}
@@ -1127,8 +1126,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             onTogglePitch={togglePitch}
                             onEditMap={handleEditMap}
                             onToggleSatellite={() => setUseSatellite(!useSatellite)}
-                            onManualMode={handleManualMode}
-                            onStopManualMode={handleStopManualMode}
+                            onOpenManualController={() => navigate("/manual-control")}
                             onBackupMap={handleBackupMap}
                             onRestoreMap={handleRestoreMap}
                             onDownloadGeoJSON={handleDownloadGeoJSON}

@@ -17,15 +17,13 @@ vi.mock('../../../components/AsyncDropDownButton.tsx', () => ({
 
 describe('MapToolbar', () => {
     const defaultProps = {
-        manualMode: false,
         useSatellite: true,
         mowingAreas: [],
         stateName: 'IDLE',
         emergency: false,
         onEditMap: vi.fn(),
         onToggleSatellite: vi.fn(),
-        onManualMode: vi.fn().mockResolvedValue(undefined),
-        onStopManualMode: vi.fn().mockResolvedValue(undefined),
+        onOpenManualController: vi.fn(),
         onBackupMap: vi.fn(),
         onRestoreMap: vi.fn(),
         onDownloadGeoJSON: vi.fn(),
@@ -78,6 +76,13 @@ describe('MapToolbar', () => {
     it('shows Mow area dropdown', () => {
         render(<MapToolbar {...defaultProps} />);
         expect(screen.getByText(en.mapToolbar.mowArea)).toBeInTheDocument();
+    });
+
+    it('opens the dedicated controller from Manual Mow', async () => {
+        const user = userEvent.setup();
+        render(<MapToolbar {...defaultProps} />);
+        await user.click(screen.getByText(en.mapToolbar.manualMow));
+        expect(defaultProps.onOpenManualController).toHaveBeenCalled();
     });
 
     it('always shows the More dropdown trigger', () => {
