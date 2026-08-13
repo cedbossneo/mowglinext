@@ -65,6 +65,7 @@ const PAGE_META: Record<string, {titleKey: string; subtitleKey?: string}> = {
   '/statistics':  {titleKey: 'pageMeta.statistics.title', subtitleKey: 'pageMeta.statistics.subtitle'},
   '/settings':    {titleKey: 'nav.settings',             subtitleKey: 'pageMeta.settings.subtitle'},
   '/parameters':  {titleKey: 'nav.parameters',           subtitleKey: 'pageMeta.parameters.subtitle'},
+  '/manual-control': {titleKey: 'nav.manualControl', subtitleKey: 'pageMeta.manualControl.subtitle'},
   '/logs':        {titleKey: 'nav.logs',                 subtitleKey: 'pageMeta.logs.subtitle'},
   '/onboarding':  {titleKey: 'nav.onboarding'},
 };
