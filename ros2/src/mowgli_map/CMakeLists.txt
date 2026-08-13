@@ -187,6 +187,26 @@ if(BUILD_TESTING)
     mowgli_interfaces
   )
 
+  ament_add_gtest(test_mow_progress
+    test/test_mow_progress.cpp
+  )
+
+  target_link_libraries(test_mow_progress
+    mowgli_map_lib
+  )
+
+  target_include_directories(test_mow_progress PRIVATE include)
+
+  ament_target_dependencies(test_mow_progress
+    rclcpp
+    grid_map_core
+    grid_map_ros
+    grid_map_msgs
+    nav_msgs
+    geometry_msgs
+    mowgli_interfaces
+  )
+
   ament_add_gtest(test_obstacle_tracker
     test/test_obstacle_tracker.cpp
   )

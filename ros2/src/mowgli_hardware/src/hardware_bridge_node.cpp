@@ -1202,6 +1202,7 @@ private:
       msg.firmware_debug_enabled = firmware_debug_enabled_;
       msg.mower_esc_status = blade_active_ ? 1u : 0u;
       msg.mower_motor_rpm = blade_rpm_;
+      msg.blade_status_stamp = blade_status_time_;
       msg.mower_motor_temperature = blade_temperature_;
       msg.mower_esc_current = blade_esc_current_;
       // Firmware version handshake result (image <-> firmware compatibility).
@@ -2210,6 +2211,7 @@ private:
     // Update the Status message fields with live blade data
     blade_active_ = pkt.is_active != 0u;
     blade_rpm_ = static_cast<float>(pkt.rpm);
+    blade_status_time_ = now();
     blade_temperature_ = pkt.temperature;
     blade_esc_current_ = static_cast<float>(pkt.power_watts);
   }
@@ -2704,6 +2706,7 @@ private:
   // Blade motor state (updated from LlBladeStatus packets)
   bool blade_active_{false};
   float blade_rpm_{0.0f};
+  rclcpp::Time blade_status_time_{0, 0, RCL_ROS_TIME};
   float blade_temperature_{0.0f};
   float blade_esc_current_{0.0f};
   uint8_t last_reset_cause_{RESET_CAUSE_UNKNOWN};

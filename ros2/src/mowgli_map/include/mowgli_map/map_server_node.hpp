@@ -42,6 +42,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include "mowgli_map/map_types.hpp"
+#include "mowgli_map/mow_progress.hpp"
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_msgs/msg/grid_map.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
@@ -111,6 +112,15 @@ public:
   {
     return tool_width_;
   }
+
+  /// Test-only: add a verified tool pose to the accumulated footprint.
+  void stamp_mow_progress_for_test(double x, double y)
+  {
+    stamp_mow_progress(x, y);
+  }
+
+  /// Test-only: return the mowed-layer value at a map-frame position.
+  float mow_progress_value_for_test(double x, double y) const;
 
   /// Clear all layers to their default values.
   void clear_map_layers();
@@ -190,7 +200,8 @@ private:
   /// Update mow blade state from mower status.
   void on_mower_status(mowgli_interfaces::msg::Status::ConstSharedPtr msg);
 
-  /// Latch the robot's map-frame position and check boundary violation.
+  /// Latch the robot's map-frame position, update verified cutting progress,
+  /// and check boundary violation.
   void on_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg);
 
   /// Cache the latest /obstacle_tracker/obstacles message so the
@@ -206,9 +217,9 @@ private:
   /// Publish the grid_map and (when dirty) the keepout/speed costmap masks.
   void on_publish_timer();
 
-  /// Stamp a tool-width disc of "mowed" into mow_progress_map_ at the given
-  /// map-frame robot position. Lazily (re)creates the grid to mirror map_'s
-  /// geometry. Takes map_mutex_ internally — caller must NOT hold it.
+  /// Stamp a tool-width swept footprint into mow_progress_map_ ending at the
+  /// given map-frame tool position. Lazily (re)creates the grid to mirror
+  /// map_'s geometry. Takes map_mutex_ internally — caller must NOT hold it.
   void stamp_mow_progress(double x, double y);
 
   /// Publish mow_progress_map_ as a nav_msgs/OccupancyGrid on ~/mow_progress.
@@ -514,7 +525,16 @@ private:
   double mow_progress_publish_period_s_{2.0};
   rclcpp::Time last_mow_progress_pub_time_{0, 0, RCL_ROS_TIME};
 
-  bool mow_blade_enabled_{false};
+  std::string mow_progress_tool_frame_{"blade_link"};
+  double mow_progress_min_blade_rpm_{1000.0};
+  double mow_progress_blade_telemetry_max_age_s_{1.0};
+  bool mow_blade_requested_{false};
+  bool mow_blade_active_{false};
+  double mow_blade_rpm_{0.0};
+  rclcpp::Time mow_blade_telemetry_time_{0, 0, RCL_ROS_TIME};
+  MowProgressInhibitReason mow_progress_reason_{MowProgressInhibitReason::kBladeNotRequested};
+  bool have_last_mow_tool_position_{false};
+  grid_map::Position last_mow_tool_position_;
 
   /// Most recent map-frame robot position (latched in on_odom).
   double last_robot_x_{0.0};

@@ -193,6 +193,7 @@ private:
     status.mower_esc_current = mow_enabled_ ? 0.5f : 0.0f;
     status.mower_motor_temperature = mow_enabled_ ? 30.0f : 25.0f;
     status.mower_motor_rpm = mow_enabled_ ? 3000.0f : 0.0f;
+    status.blade_status_stamp = now;
     // is_charging mirrors near_dock — opennav_docking, dock_yaw_to_set_pose,
     // BoundaryGuard, calibrate_imu_yaw, and the BT all gate on this.
     status.is_charging = near_dock;
