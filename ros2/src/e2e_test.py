@@ -50,10 +50,10 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import Path, OccupancyGrid, Odometry
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool
 from sensor_msgs.msg import LaserScan
 from mowgli_interfaces.srv import HighLevelControl, EmergencyStop
-from mowgli_interfaces.msg import HighLevelStatus
+from mowgli_interfaces.msg import GnssStatus, HighLevelStatus
 
 
 class TestPhase(Enum):
@@ -191,10 +191,10 @@ class E2ETestNode(Node):
             LaserScan, "/scan", self._on_scan, sensor_qos
         )
         self.create_subscription(
-            String,
-            "/gps_degradation_sim/status",
+            GnssStatus,
+            "/gps/status",
             self._on_gps_status,
-            transient_qos,
+            reliable_qos,
         )
         self.create_subscription(
             OccupancyGrid, "/map", self._on_map, reliable_qos
@@ -396,9 +396,18 @@ class E2ETestNode(Node):
             ):
                 self.metrics.min_obstacle_dist.append((t, min_dist))
 
-    def _on_gps_status(self, msg: String):
+    def _on_gps_status(self, msg: GnssStatus):
         t = time.time() - self.metrics.start_time
-        self.metrics.gps_states.append((t, msg.data))
+        names = {
+            GnssStatus.FIX_TYPE_NO_FIX: "NO_FIX",
+            GnssStatus.FIX_TYPE_GPS_FIX: "GPS_FIX",
+            GnssStatus.FIX_TYPE_RTK_FLOAT: "RTK_FLOAT",
+            GnssStatus.FIX_TYPE_RTK_FIXED: "RTK_FIXED",
+            GnssStatus.FIX_TYPE_DEAD_RECKONING: "DEAD_RECKONING",
+        }
+        state = names.get(msg.fix_type, f"UNKNOWN({msg.fix_type})")
+        if not self.metrics.gps_states or self.metrics.gps_states[-1][1] != state:
+            self.metrics.gps_states.append((t, state))
 
     def _on_map(self, msg: OccupancyGrid):
         t = time.time() - self.metrics.start_time
@@ -1166,12 +1175,11 @@ class E2ETestNode(Node):
         else:
             map_pass = False
 
-        # ── GPS Degradation ──
-        report.append("\n=== GPS Degradation Events ===")
-        normal_count = sum(1 for _, s in gps if s == "NORMAL")
-        degraded_count = sum(1 for _, s in gps if s == "DEGRADED")
-        report.append(f"  NORMAL transitions:   {normal_count}")
-        report.append(f"  DEGRADED transitions: {degraded_count}")
+        # ── GNSS Fix State ──
+        report.append("\n=== GNSS Fix State Transitions ===")
+        for state in ("RTK_FIXED", "RTK_FLOAT", "GPS_FIX", "NO_FIX"):
+            count = sum(1 for _, sample in gps if sample == state)
+            report.append(f"  {state:10s}: {count}")
 
         # ── Obstacle Proximity ──
         report.append("\n=== Obstacle Proximity ===")
