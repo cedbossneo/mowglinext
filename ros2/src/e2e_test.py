@@ -34,6 +34,7 @@ Or from host:
 """
 
 import math
+import os
 import signal
 import subprocess
 import sys
@@ -52,7 +53,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import Path, OccupancyGrid, Odometry
 from std_msgs.msg import Bool
 from sensor_msgs.msg import LaserScan
-from mowgli_interfaces.srv import HighLevelControl, EmergencyStop
+from mowgli_interfaces.srv import EmergencyStop, GetMowingArea, HighLevelControl
 from mowgli_interfaces.msg import GnssStatus, HighLevelStatus
 
 
@@ -81,6 +82,7 @@ class Metrics:
     start_time: float = 0.0
     bt_states: list = field(default_factory=list)
     path_deviations: list = field(default_factory=list)
+    localization_deviations: list = field(default_factory=list)
     gps_states: list = field(default_factory=list)
     map_sizes: list = field(default_factory=list)
     robot_poses: list = field(default_factory=list)
@@ -98,11 +100,16 @@ class Metrics:
     swath_deviations: dict = field(default_factory=lambda: defaultdict(list))
     current_swath_index: int = -1
 
-    # Area coverage grid (25cm cells)
+    # Fine grid over the immutable mowing polygon. Using cells substantially
+    # narrower than the cutter prevents centimetre-scale tracking offsets from
+    # aliasing into whole missed swaths.
     covered_cells: set = field(default_factory=set)
     covered_cell_visits: dict = field(default_factory=lambda: defaultdict(int))
+    covered_cell_last_visit: dict = field(default_factory=dict)
     mow_area_cells: set = field(default_factory=set)
-    coverage_grid_resolution: float = 0.18
+    planned_coverage_cells: set = field(default_factory=set)
+    coverage_grid_resolution: float = 0.05
+    coverage_target_ready: bool = False
 
     # Obstacle avoidance maneuver details
     avoidance_maneuvers: list = field(default_factory=list)
@@ -141,6 +148,10 @@ class E2ETestNode(Node):
         self.metrics = Metrics(start_time=time.time())
         self.coverage_path = None
         self.current_pose = None
+        self.wheel_pose = None
+        self.ground_truth_pose = None
+        self.mowing_boundary = []
+        self.mowing_obstacles = []
         self.current_bt_state = ""
         self.test_complete = False
         self.mowing_cycle_complete = False
@@ -180,6 +191,9 @@ class E2ETestNode(Node):
             self._on_bt_status,
             reliable_qos,
         )
+        self.mowing_area_client = self.create_client(
+            GetMowingArea, "/map_server_node/get_mowing_area"
+        )
         self.create_subscription(
             Path,
             "/coverage_planner_node/coverage_path",
@@ -188,6 +202,12 @@ class E2ETestNode(Node):
         )
         self.create_subscription(
             Odometry, "/wheel_odom", self._on_odom, sensor_qos
+        )
+        self.create_subscription(
+            PoseStamped,
+            "/sim/ground_truth_pose",
+            self._on_ground_truth,
+            sensor_qos,
         )
         self.create_subscription(
             Odometry, "/odometry/filtered_map", self._on_filtered_map, reliable_qos
@@ -235,6 +255,15 @@ class E2ETestNode(Node):
         state_name = msg.state_name if hasattr(msg, "state_name") else str(msg.state)
         t = time.time() - self.metrics.start_time
 
+        # Completion state and final counters are published together. Update
+        # the counters before evaluating a state transition so the verdict
+        # cannot read the previous status sample.
+        self.metrics.swath_count = getattr(msg, "total_swaths", 0)
+        self.metrics.completed_swaths = getattr(msg, "completed_swaths", 0)
+        self.metrics.skipped_swaths = getattr(msg, "skipped_swaths", 0)
+        if hasattr(msg, "current_path_index") and msg.current_path_index >= 0:
+            self.metrics.current_swath_index = msg.current_path_index
+
         if not self.current_bt_state:
             self.current_bt_state = state_name
             self.metrics.bt_states.append((t, state_name))
@@ -253,13 +282,6 @@ class E2ETestNode(Node):
 
             # Phase transitions
             self._track_phase_transition(prev_state, state_name, t)
-
-        # Track swath progress from HighLevelStatus fields
-        self.metrics.swath_count = getattr(msg, 'total_swaths', 0)
-        self.metrics.completed_swaths = getattr(msg, 'completed_swaths', 0)
-        self.metrics.skipped_swaths = getattr(msg, 'skipped_swaths', 0)
-        if hasattr(msg, 'current_path_index') and msg.current_path_index >= 0:
-            self.metrics.current_swath_index = msg.current_path_index
 
         if state_name in ("MOWING_COMPLETE", "IDLE_DOCKED") and self.mowing_started:
             if self.current_phase == TestPhase.DOCKING or state_name == "IDLE_DOCKED":
@@ -290,11 +312,25 @@ class E2ETestNode(Node):
 
         elif curr in ("MOWING_COMPLETE", "RETURNING_HOME", "COVERAGE_FAILED_DOCKING"):
             if self.current_phase == TestPhase.MOWING:
-                mow_passed = curr == "MOWING_COMPLETE"
+                target_complete = (
+                    self.metrics.swath_count > 0
+                    and self.metrics.completed_swaths >= self.metrics.swath_count
+                    and self.metrics.skipped_swaths == 0
+                )
+                mow_passed = curr == "MOWING_COMPLETE" and target_complete
+                if curr == "MOWING_COMPLETE" and not target_complete:
+                    details = (
+                        "BT reported completion without completing the target "
+                        f"({self.metrics.completed_swaths}/"
+                        f"{self.metrics.swath_count} paths, "
+                        f"{self.metrics.skipped_swaths} skipped)"
+                    )
+                else:
+                    details = f"Mowing {'completed' if mow_passed else 'failed'}"
                 self._complete_phase(
                     TestPhase.MOWING,
                     mow_passed,
-                    f"Mowing {'completed' if mow_passed else 'failed'}"
+                    details,
                 )
             self.current_phase = TestPhase.DOCKING
             self.phase_start_time = time.time() - self.metrics.start_time
@@ -325,11 +361,39 @@ class E2ETestNode(Node):
         self.metrics.coverage_path_poses = [
             (p.pose.position.x, p.pose.position.y) for p in msg.poses
         ]
-        self._compute_mow_area_cells()
+        if self.metrics.mow_area_cells:
+            res = self.metrics.coverage_grid_resolution
+            blade_radius = 0.5 * float(os.environ.get("E2E_TOOL_WIDTH_M", "0.18"))
+            sample_spacing = max(0.01, 0.5 * blade_radius)
+            planned_cells = set()
+            for (start_x, start_y), (end_x, end_y) in zip(
+                self.metrics.coverage_path_poses,
+                self.metrics.coverage_path_poses[1:],
+            ):
+                distance = math.hypot(end_x - start_x, end_y - start_y)
+                sample_count = max(1, math.ceil(distance / sample_spacing))
+                for sample_index in range(sample_count + 1):
+                    ratio = sample_index / sample_count
+                    x = start_x + ratio * (end_x - start_x)
+                    y = start_y + ratio * (end_y - start_y)
+                    cx = math.floor(x / res)
+                    cy = math.floor(y / res)
+                    radius_cells = max(1, math.ceil(blade_radius / res))
+                    for gx in range(cx - radius_cells, cx + radius_cells + 1):
+                        for gy in range(cy - radius_cells, cy + radius_cells + 1):
+                            px = (gx + 0.5) * res
+                            py = (gy + 0.5) * res
+                            if math.hypot(px - x, py - y) <= blade_radius:
+                                cell = (gx, gy)
+                                if cell in self.metrics.mow_area_cells:
+                                    planned_cells.add(cell)
+            self.metrics.planned_coverage_cells = planned_cells
         planned_len = self._compute_planned_path_length()
         self.get_logger().info(
             f"Received coverage path: {len(msg.poses)} poses, "
-            f"{planned_len:.1f}m planned, {len(self.metrics.mow_area_cells)} area cells"
+            f"{planned_len:.1f}m planned, "
+            f"{len(self.metrics.planned_coverage_cells)}/"
+            f"{len(self.metrics.mow_area_cells)} target cells in planned blade footprint"
         )
 
     def _on_filtered_map(self, msg: Odometry):
@@ -343,50 +407,113 @@ class E2ETestNode(Node):
             2.0 * (q.w * q.z + q.x * q.y),
             1.0 - 2.0 * (q.y * q.y + q.z * q.z),
         )
-        self.current_pose = (x, y, yaw)
+        self.wheel_pose = (x, y, yaw)
+
+    def _mark_blade_sweep(
+        self,
+        previous_x: float,
+        previous_y: float,
+        x: float,
+        y: float,
+        timestamp: float,
+    ) -> None:
+        res = self.metrics.coverage_grid_resolution
+        blade_radius = 0.5 * float(os.environ.get("E2E_TOOL_WIDTH_M", "0.18"))
+        distance = math.hypot(x - previous_x, y - previous_y)
+        sample_spacing = max(0.01, 0.5 * blade_radius)
+        sample_count = max(1, math.ceil(distance / sample_spacing))
+        swept_cells = set()
+
+        for sample_index in range(sample_count + 1):
+            ratio = sample_index / sample_count
+            sample_x = previous_x + ratio * (x - previous_x)
+            sample_y = previous_y + ratio * (y - previous_y)
+            cx = math.floor(sample_x / res)
+            cy = math.floor(sample_y / res)
+            radius_cells = max(1, math.ceil(blade_radius / res))
+            for gx in range(cx - radius_cells, cx + radius_cells + 1):
+                for gy in range(cy - radius_cells, cy + radius_cells + 1):
+                    px = (gx + 0.5) * res
+                    py = (gy + 0.5) * res
+                    if math.hypot(px - sample_x, py - sample_y) <= blade_radius:
+                        cell = (gx, gy)
+                        if cell in self.metrics.mow_area_cells:
+                            swept_cells.add(cell)
+
+        self.metrics.covered_cells.update(swept_cells)
+        for cell in swept_cells:
+            last_visit = self.metrics.covered_cell_last_visit.get(cell)
+            if last_visit is None or timestamp - last_visit > 2.0:
+                self.metrics.covered_cell_visits[cell] += 1
+            self.metrics.covered_cell_last_visit[cell] = timestamp
+
+    def _on_ground_truth(self, msg: PoseStamped):
+        x = msg.pose.position.x
+        y = msg.pose.position.y
+        q = msg.pose.orientation
+        yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
+        self.ground_truth_pose = (x, y, yaw)
+        self.current_pose = self.ground_truth_pose
 
         t = time.time() - self.metrics.start_time
-        if len(self.metrics.robot_poses) == 0 or (
-            t - self.metrics.robot_poses[-1][0] > 0.5
-        ):
-            self.metrics.robot_poses.append((t, x, y, yaw))
+        if self.metrics.robot_poses and t - self.metrics.robot_poses[-1][0] <= 0.5:
+            return
 
-            # Compute path deviation during mowing
-            if self.coverage_path and self.current_phase == TestPhase.MOWING and self.slam_pose:
-                min_dist = self._min_distance_to_path(self.slam_pose[0], self.slam_pose[1])
-                self.metrics.path_deviations.append((t, min_dist))
-                # Per-swath deviation
-                idx = self.metrics.current_swath_index
-                if idx >= 0:
-                    self.metrics.swath_deviations[idx].append(min_dist)
+        previous_pose = self.metrics.robot_poses[-1] if self.metrics.robot_poses else None
+        self.metrics.robot_poses.append((t, x, y, yaw))
+        if self.slam_pose:
+            self.metrics.localization_deviations.append(
+                (t, math.hypot(x - self.slam_pose[0], y - self.slam_pose[1]))
+            )
 
-            # Area coverage grid (mark cells visited during mowing)
-            if self.current_phase == TestPhase.MOWING and self.slam_pose:
-                res = self.metrics.coverage_grid_resolution
-                gx = int(self.slam_pose[0] / res)
-                gy = int(self.slam_pose[1] / res)
-                self.metrics.covered_cells.add((gx, gy))
-                self.metrics.covered_cell_visits[(gx, gy)] += 1
+        if self.coverage_path and self.current_phase == TestPhase.MOWING:
+            min_dist = self._min_distance_to_path(x, y)
+            self.metrics.path_deviations.append((t, min_dist))
+            idx = self.metrics.current_swath_index
+            if idx >= 0:
+                self.metrics.swath_deviations[idx].append(min_dist)
 
-            # Time classification (0.5s intervals)
-            dt = 0.5
-            phase_name = self.current_phase.value
-            if self.metrics.cmd_vels:
-                _, lin_x, ang_z = self.metrics.cmd_vels[-1]
-                speed = abs(lin_x)
-                if self.current_bt_state == "RECOVERING":
-                    self.metrics.time_recovering += dt
-                elif speed < 0.01 and abs(ang_z) < 0.01:
-                    self.metrics.time_stopped += dt
-                    self.metrics.phase_time_stopped[phase_name] += dt
-                elif abs(ang_z) > 0.3:
-                    self.metrics.time_turning += dt
-                else:
-                    self.metrics.time_moving += dt
-                    self.metrics.phase_time_moving[phase_name] += dt
-                # Track speeds per phase
-                if speed > 0.01:
-                    self.metrics.phase_speeds[phase_name].append(speed)
+        if self.current_phase == TestPhase.MOWING:
+            if previous_pose:
+                _, previous_x, previous_y, _ = previous_pose
+            else:
+                previous_x, previous_y = x, y
+            self._mark_blade_sweep(previous_x, previous_y, x, y, t)
+
+            outside = not self._point_in_polygon(x, y, self.mowing_boundary)
+            in_obstacle = any(
+                self._point_in_polygon(x, y, obstacle)
+                for obstacle in self.mowing_obstacles
+            )
+            violation = outside or in_obstacle
+            if violation and not self.metrics.boundary_violation_active:
+                self.metrics.boundary_violations.append((t, x, y))
+                self.get_logger().error(
+                    f"[{t:.1f}s] GROUND-TRUTH BOUNDARY VIOLATION: "
+                    f"robot at ({x:.2f}, {y:.2f}) is outside mowing area!"
+                )
+            self.metrics.boundary_violation_active = violation
+
+        dt = 0.5
+        phase_name = self.current_phase.value
+        if self.metrics.cmd_vels:
+            _, lin_x, ang_z = self.metrics.cmd_vels[-1]
+            speed = abs(lin_x)
+            if self.current_bt_state == "RECOVERING":
+                self.metrics.time_recovering += dt
+            elif speed < 0.01 and abs(ang_z) < 0.01:
+                self.metrics.time_stopped += dt
+                self.metrics.phase_time_stopped[phase_name] += dt
+            elif abs(ang_z) > 0.3:
+                self.metrics.time_turning += dt
+            else:
+                self.metrics.time_moving += dt
+                self.metrics.phase_time_moving[phase_name] += dt
+            if speed > 0.01:
+                self.metrics.phase_speeds[phase_name].append(speed)
 
     def _on_scan(self, msg: LaserScan):
         self._latest_scan = msg
@@ -426,18 +553,10 @@ class E2ETestNode(Node):
             self.metrics.map_sizes.append((t, w, h, known))
 
     def _on_boundary_violation(self, msg: Bool):
-        t = time.time() - self.metrics.start_time
-        was_active = self.metrics.boundary_violation_active
-        self.metrics.boundary_violation_active = msg.data
-        if msg.data and not was_active:
-            x, y = 0.0, 0.0
-            if self.slam_pose:
-                x, y = self.slam_pose
-            elif self.current_pose:
-                x, y = self.current_pose[0], self.current_pose[1]
-            self.metrics.boundary_violations.append((t, x, y))
-            self.get_logger().error(
-                f"[{t:.1f}s] BOUNDARY VIOLATION: robot at ({x:.2f}, {y:.2f}) is outside mowing area!"
+        if msg.data:
+            self.get_logger().warning(
+                "Map-server boundary guard asserted; the E2E verdict uses "
+                "simulator ground truth against the unchanged mowing polygon"
             )
 
     def _on_cmd_vel_out(self, msg: Twist):
@@ -521,23 +640,80 @@ class E2ETestNode(Node):
             dist += math.sqrt(dx * dx + dy * dy)
         return dist
 
-    def _compute_mow_area_cells(self):
-        """Rasterize the planned coverage path into grid cells."""
+    @staticmethod
+    def _point_in_polygon(x: float, y: float, polygon: list) -> bool:
+        inside = False
+        j = len(polygon) - 1
+        for i, (xi, yi) in enumerate(polygon):
+            xj, yj = polygon[j]
+            if ((yi > y) != (yj > y)) and (
+                x < (xj - xi) * (y - yi) / (yj - yi) + xi
+            ):
+                inside = not inside
+            j = i
+        return inside
+
+    def _set_mowing_area_target(self, area, success: bool) -> bool:
+        if not success or area.is_navigation_area or len(area.area.points) < 3:
+            self.get_logger().error("Could not establish immutable mowing-area target")
+            return False
+
         res = self.metrics.coverage_grid_resolution
+        boundary = [(point.x, point.y) for point in area.area.points]
+        obstacles = [
+            [(point.x, point.y) for point in obstacle.points]
+            for obstacle in area.obstacles
+            if len(obstacle.points) >= 3
+        ]
+        self.mowing_boundary = boundary
+        self.mowing_obstacles = obstacles
+        min_x = math.floor(min(x for x, _ in boundary) / res)
+        max_x = math.ceil(max(x for x, _ in boundary) / res)
+        min_y = math.floor(min(y for _, y in boundary) / res)
+        max_y = math.ceil(max(y for _, y in boundary) / res)
         cells = set()
-        poses = self.metrics.coverage_path_poses
-        for i in range(1, len(poses)):
-            ax, ay = poses[i - 1]
-            bx, by = poses[i]
-            dx, dy = bx - ax, by - ay
-            seg_len = math.sqrt(dx * dx + dy * dy)
-            steps = max(1, int(seg_len / (res * 0.5)))
-            for s in range(steps + 1):
-                frac = s / steps
-                px = ax + frac * dx
-                py = ay + frac * dy
-                cells.add((int(px / res), int(py / res)))
+        for gx in range(min_x, max_x):
+            for gy in range(min_y, max_y):
+                px = (gx + 0.5) * res
+                py = (gy + 0.5) * res
+                if self._point_in_polygon(px, py, boundary) and not any(
+                    self._point_in_polygon(px, py, obstacle)
+                    for obstacle in obstacles
+                ):
+                    cells.add((gx, gy))
         self.metrics.mow_area_cells = cells
+        self.metrics.coverage_target_ready = bool(cells)
+        self.get_logger().info(
+            f"Fixed mowing target: {len(cells)} cells from area '{area.name}'"
+        )
+        return self.metrics.coverage_target_ready
+
+    def fetch_mowing_area_target(self) -> bool:
+        if not self.mowing_area_client.wait_for_service(timeout_sec=15.0):
+            self.get_logger().error("GetMowingArea service unavailable")
+            return False
+        request = GetMowingArea.Request()
+        request.index = 0
+        future = self.mowing_area_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=15.0)
+        if not future.done() or future.result() is None:
+            self.get_logger().error("GetMowingArea request timed out")
+            return False
+        response = future.result()
+        return self._set_mowing_area_target(response.area, response.success)
+
+    def wait_for_ground_truth(self, timeout_sec: float = 10.0) -> bool:
+        deadline = time.time() + timeout_sec
+        while self.ground_truth_pose is None and time.time() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.1)
+        if self.ground_truth_pose is None:
+            self.get_logger().error("Simulator ground-truth pose unavailable")
+            return False
+        self.get_logger().info(
+            "Using /sim/ground_truth_pose for E2E tracking, distance, "
+            "coverage, and boundary metrics"
+        )
+        return True
 
     def _deviation_histogram(self, devs: list) -> str:
         """Return ASCII histogram of deviation buckets."""
@@ -1040,6 +1216,17 @@ class E2ETestNode(Node):
             report.append("  No path deviation data collected")
             path_pass = False
 
+        report.append("\n=== Localization vs Ground Truth ===")
+        if m.localization_deviations:
+            errors = sorted(error for _, error in m.localization_deviations)
+            p50 = errors[len(errors) // 2]
+            p95 = errors[min(int(len(errors) * 0.95), len(errors) - 1)]
+            report.append(f"  Median error: {p50:.4f} m")
+            report.append(f"  P95 error:    {p95:.4f} m")
+            report.append(f"  Max error:    {max(errors):.4f} m")
+        else:
+            report.append("  No paired localization/ground-truth samples")
+
         # ── Per-Swath Deviation ──
         report.append("\n=== Per-Swath Deviation ===")
         if m.swath_deviations:
@@ -1119,24 +1306,40 @@ class E2ETestNode(Node):
         # ── Area Coverage ──
         report.append("\n=== Area Coverage ===")
         coverage_pass = True
-        if m.mow_area_cells:
+        if m.coverage_target_ready and m.mow_area_cells:
             covered = len(m.covered_cells)
             total = len(m.mow_area_cells)
             pct = covered / total * 100 if total > 0 else 0.0
             uncovered = total - covered
             cell_area = m.coverage_grid_resolution ** 2
             report.append(f"  Grid resolution:      {m.coverage_grid_resolution} m")
-            report.append(f"  Planned area cells:   {total} ({total * cell_area:.1f} m²)")
+            report.append(f"  Fixed target cells:   {total} ({total * cell_area:.1f} m²)")
             report.append(f"  Covered cells:        {covered} ({covered * cell_area:.1f} m²)")
             report.append(f"  Coverage:             {pct:.1f}%")
             report.append(f"  Uncovered cells:      {uncovered} ({uncovered * cell_area:.1f} m²)")
+            if m.planned_coverage_cells:
+                planned_pct = len(m.planned_coverage_cells) / total * 100.0
+                executed_planned = len(
+                    m.covered_cells.intersection(m.planned_coverage_cells)
+                )
+                execution_pct = (
+                    executed_planned / len(m.planned_coverage_cells) * 100.0
+                )
+                report.append(
+                    f"  Planned blade cells:  {len(m.planned_coverage_cells)} "
+                    f"({planned_pct:.1f}% of target)"
+                )
+                report.append(
+                    f"  Plan footprint cut:   {executed_planned}/"
+                    f"{len(m.planned_coverage_cells)} ({execution_pct:.1f}%)"
+                )
             if pct >= 80.0:
                 report.append("  PASS: coverage >= 80%")
             else:
                 report.append("  FAIL: coverage < 80%")
                 coverage_pass = False
         else:
-            report.append("  No coverage path data")
+            report.append("  No immutable mowing-area target")
             coverage_pass = False
 
         # ── Overlap / Redundancy Analysis ──
@@ -1457,6 +1660,20 @@ def main():
     for i in range(5, 0, -1):
         node.get_logger().info(f"Starting test in {i}s...")
         time.sleep(1)
+
+    if not node.wait_for_ground_truth():
+        node.get_logger().error(
+            "Ground truth is required for a valid simulation verdict. Aborting."
+        )
+        node.destroy_node()
+        rclpy.shutdown()
+        sys.exit(1)
+
+    if not node.fetch_mowing_area_target():
+        node.get_logger().error("Failed to establish a fixed coverage target. Aborting.")
+        node.destroy_node()
+        rclpy.shutdown()
+        sys.exit(1)
 
     # Physical obstacles are pre-placed in the Gazebo world SDF (garden.sdf).
     # obs_swath1 at (-6.5, 0.0), obs_swath2 at (-6.0, -3.0), obs_mid at (3.0, 0.0).
