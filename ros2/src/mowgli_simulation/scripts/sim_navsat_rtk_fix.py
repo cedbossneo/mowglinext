@@ -8,7 +8,9 @@ sim_navsat_rtk_fix.py — SIMULATION ONLY.
 Programmable GPS-quality controller for the simulator. Subscribes to a
 raw Gazebo NavSatFix and republishes on the production topic with
 status, covariance, and position noise consistent with one of three
-quality regimes:
+quality regimes. It also publishes the matching typed GnssStatus used
+by the GUI and other consumers that cannot safely infer RTK mode from
+NavSatFix.status alone:
 
   RTK_FIXED  status=GBAS_FIX (4), sigma_xy ~3 mm, no position noise
   RTK_FLOAT  status=SBAS_FIX (1), sigma_xy ~30 cm, Gaussian position noise
@@ -47,6 +49,7 @@ import math
 import random
 from typing import List, Optional, Tuple
 
+from mowgli_interfaces.msg import GnssStatus
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -65,6 +68,14 @@ QUALITY_REGIMES: dict[str, Tuple[int, float, float]] = {
     'RTK_FLOAT': (NavSatStatus.STATUS_SBAS_FIX, 0.30, 0.60),
     'NO_FIX': (NavSatStatus.STATUS_NO_FIX, 2.0, 4.0),
 }
+
+GNSS_STATUS_CAPABILITIES = (
+    GnssStatus.CAP_RTK_MODE
+    | GnssStatus.CAP_HORIZONTAL_ACCURACY
+    | GnssStatus.CAP_VERTICAL_ACCURACY
+    | GnssStatus.CAP_DIFFERENTIAL_CORRECTIONS
+    | GnssStatus.CAP_CORRECTIONS_ACTIVE
+)
 
 
 @dataclass(frozen=True)
@@ -101,6 +112,37 @@ def _parse_pattern(spec: str) -> List[_Segment]:
     return out
 
 
+def _build_gnss_status(
+    header, regime: str, sigma_xy: float, sigma_z: float
+) -> GnssStatus:
+    status = GnssStatus()
+    status.header = header
+    status.backend = 'simulation'
+    status.receiver_vendor = 'Webots'
+    status.fix_valid = regime != 'NO_FIX'
+    status.differential_corrections = regime != 'NO_FIX'
+    status.corrections_active = regime != 'NO_FIX'
+    status.capability_flags = GNSS_STATUS_CAPABILITIES
+    status.value_flags = GNSS_STATUS_CAPABILITIES
+    status.horizontal_accuracy_m = sigma_xy
+    status.vertical_accuracy_m = sigma_z
+
+    if regime == 'RTK_FIXED':
+        status.fix_type = GnssStatus.FIX_TYPE_RTK_FIXED
+        status.rtk_mode = GnssStatus.RTK_MODE_FIXED
+        status.quality_percent = 100.0
+    elif regime == 'RTK_FLOAT':
+        status.fix_type = GnssStatus.FIX_TYPE_RTK_FLOAT
+        status.rtk_mode = GnssStatus.RTK_MODE_FLOAT
+        status.quality_percent = 70.0
+    else:
+        status.fix_type = GnssStatus.FIX_TYPE_NO_FIX
+        status.rtk_mode = GnssStatus.RTK_MODE_NONE
+        status.quality_percent = 0.0
+
+    return status
+
+
 class SimNavSatRtkFix(Node):
 
     def __init__(self) -> None:
@@ -111,6 +153,9 @@ class SimNavSatRtkFix(Node):
         ).value
         self._output_topic = self.declare_parameter(
             'output_topic', '/gps/fix'
+        ).value
+        self._status_topic = self.declare_parameter(
+            'status_topic', '/gps/status'
         ).value
         # Programmable cycle. Empty means always RTK_FIXED (legacy mode).
         pattern_spec = str(
@@ -154,6 +199,9 @@ class SimNavSatRtkFix(Node):
 
         self._pub = self.create_publisher(
             NavSatFix, self._output_topic, pub_qos
+        )
+        self._status_pub = self.create_publisher(
+            GnssStatus, self._status_topic, pub_qos
         )
         self._sub = self.create_subscription(
             NavSatFix, self._input_topic, self._on_fix, sub_qos
@@ -244,6 +292,9 @@ class SimNavSatRtkFix(Node):
             NavSatFix.COVARIANCE_TYPE_DIAGONAL_KNOWN
         )
         self._pub.publish(out)
+        self._status_pub.publish(
+            _build_gnss_status(out.header, regime, sigma_xy, sigma_z)
+        )
 
     def _log_stats(self) -> None:
         total = sum(self._regime_counts.values())
