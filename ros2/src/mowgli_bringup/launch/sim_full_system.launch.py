@@ -168,19 +168,23 @@ def generate_launch_description() -> LaunchDescription:
             # republish a stale forward-motion yaw while the robot is
             # pivoting in place).
             #
-            # Sim-only TF / cadence overrides. Hardware defaults
-            # (declared in navigation.launch.py / fusion_graph.launch.py)
-            # are 0.0 forward-stamp + 25 Hz factor-graph because the
+            # Sim-only TF override. Hardware defaults (declared in
+            # navigation.launch.py / fusion_graph.launch.py) are 0.0
+            # forward-stamp + 25 Hz factor-graph because the
             # 100 ms lead costs ~5° yaw error per pivot at 0.5 rad/s on
             # real hardware. Under sim_time, the publish/lookup phase
-            # offset routinely throws ExtrapolationException without the
-            # lead, and the controller queries align poorly with the
-            # 25 Hz TF cadence — restore the sim-tested values here.
+            # offset routinely throws ExtrapolationException without the lead.
+            #
+            # Keep the graph cadence at the hardware 25 Hz. Wheel and gyro
+            # factor sigmas are per-node, so the previous 50 Hz override
+            # accumulated twice as much process variance between identical
+            # 5 Hz RTK fixes. That made SIM trip the production localization
+            # guard even though it uses the same thresholds as hardware.
             # fusion_graph_tf_lead_s now also applies to the
             # odom→base_footprint TF (ekf_odom_node was removed
             # 2026-05-18; fusion_graph owns both transforms).
             "fusion_graph_tf_lead_s": "0.1",
-            "fusion_graph_node_period_s": "0.02",
+            "fusion_graph_node_period_s": "0.04",
         }.items(),
     )
 
