@@ -33,3 +33,20 @@ def test_required_failure_fails_e2e_process():
     ]
 
     assert not e2e._required_criteria_pass(criteria)
+
+
+def test_mowing_efficiency_is_one_for_exact_distance():
+    assert e2e._mowing_efficiency(100.0, 100.0) == 1.0
+
+
+def test_mowing_efficiency_penalizes_incomplete_traversal():
+    assert e2e._mowing_efficiency(300.0, 30.0) == 0.1
+
+
+def test_mowing_efficiency_penalizes_excess_distance():
+    assert e2e._mowing_efficiency(300.0, 400.0) == 0.75
+
+
+def test_mowing_efficiency_rejects_missing_distance():
+    assert e2e._mowing_efficiency(0.0, 100.0) == 0.0
+    assert e2e._mowing_efficiency(100.0, 0.0) == 0.0
