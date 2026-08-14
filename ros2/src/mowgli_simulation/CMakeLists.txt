@@ -129,6 +129,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_nav2_readiness_gate
     test/test_nav2_readiness_gate.py
   )
+  ament_add_pytest_test(test_ground_truth_publisher
+    test/test_ground_truth_publisher.py
+  )
 
   # ---- test_firmware_wheel_model ----
   # firmware_wheel_model.hpp is header-only and ROS-free; no ROS deps needed.
