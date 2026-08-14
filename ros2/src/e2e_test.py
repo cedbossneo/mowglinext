@@ -141,6 +141,14 @@ def _required_criteria_pass(
     return all(passed for _, passed, required in criteria if required)
 
 
+def _mowing_efficiency(planned_distance: float, actual_distance: float) -> float:
+    if planned_distance <= 0 or actual_distance <= 0:
+        return 0.0
+    return min(planned_distance, actual_distance) / max(
+        planned_distance, actual_distance
+    )
+
+
 class E2ETestNode(Node):
     def __init__(self):
         super().__init__("e2e_test_node")
@@ -1053,7 +1061,7 @@ class E2ETestNode(Node):
         planned = self._compute_planned_path_length()
         actual = self._compute_actual_mowing_distance()
         if actual > 0 and planned > 0:
-            eff = planned / actual
+            eff = _mowing_efficiency(planned, actual)
             overhead = (actual - planned) / planned * 100
             report.append(
                 f"  Path efficiency: {eff:.3f} (1.0=optimal)  "
@@ -1288,12 +1296,15 @@ class E2ETestNode(Node):
         actual_mow_dist = self._compute_actual_mowing_distance()
         efficiency_pass = True
         if planned_len > 0 and actual_mow_dist > 0:
-            efficiency = planned_len / actual_mow_dist
+            efficiency = _mowing_efficiency(planned_len, actual_mow_dist)
             overhead_pct = (actual_mow_dist - planned_len) / planned_len * 100
             report.append(f"  Planned path length:  {planned_len:.1f} m")
             report.append(f"  Actual mowing dist:   {actual_mow_dist:.1f} m")
-            report.append(f"  Efficiency ratio:     {efficiency:.3f} (planned/actual, 1.0 = optimal)")
-            report.append(f"  Overhead:             {overhead_pct:+.1f}% extra distance")
+            report.append(
+                f"  Efficiency ratio:     {efficiency:.3f} "
+                "(shorter/longer, 1.0 = optimal)"
+            )
+            report.append(f"  Distance delta:       {overhead_pct:+.1f}% vs planned")
             if efficiency >= 0.85:
                 report.append("  PASS: efficiency >= 0.85")
             else:
