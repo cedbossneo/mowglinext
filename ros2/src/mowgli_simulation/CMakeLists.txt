@@ -115,6 +115,11 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+
+  ament_add_pytest_test(test_sim_navsat_rtk_fix
+    test/test_sim_navsat_rtk_fix.py
+  )
 
   # ---- test_firmware_wheel_model ----
   # firmware_wheel_model.hpp is header-only and ROS-free; no ROS deps needed.
