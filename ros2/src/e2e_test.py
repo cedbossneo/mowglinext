@@ -128,6 +128,12 @@ class Metrics:
     bt_state_durations: dict = field(default_factory=lambda: defaultdict(float))
 
 
+def _required_criteria_pass(
+    criteria: list[tuple[str, bool, bool]],
+) -> bool:
+    return all(passed for _, passed, required in criteria if required)
+
+
 class E2ETestNode(Node):
     def __init__(self):
         super().__init__("e2e_test_node")
@@ -965,7 +971,7 @@ class E2ETestNode(Node):
         report.append(f"{'═' * 80}")
         self.get_logger().info("\n".join(report))
 
-    def print_final_report(self):
+    def print_final_report(self) -> bool:
         t = time.time() - self.metrics.start_time
         m = self.metrics
         devs = m.path_deviations
@@ -1415,32 +1421,32 @@ class E2ETestNode(Node):
                 overlap_pass = False
 
         criteria = [
-            ("Undock->Plan->Mow->Dock cycle", all_phases_pass),
-            ("Path tracking (median < 50cm)", path_pass),
-            ("SLAM map growth", map_pass),
-            ("No collisions", collision_pass),
-            ("Stayed within boundary", boundary_pass),
-            ("Obstacle avoidance", obstacle_pass),
-            ("Mowing efficiency >= 0.85", efficiency_pass),
-            ("Area coverage >= 80%", coverage_pass),
-            ("Idle ratio < 20%", idle_ratio_pass),
-            ("Path overlap < 30%", overlap_pass),
-            ("Manual mowing mode", manual_mow_pass),
-            ("Area recording mode", area_rec_pass),
-            ("Emergency auto-reset on dock", emergency_pass),
+            ("Undock->Plan->Mow->Dock cycle", all_phases_pass, True),
+            ("Path tracking (median < 50cm)", path_pass, True),
+            ("SLAM map growth", map_pass, False),
+            ("No collisions", collision_pass, True),
+            ("Stayed within boundary", boundary_pass, True),
+            ("Obstacle avoidance", obstacle_pass, True),
+            ("Mowing efficiency >= 0.85", efficiency_pass, False),
+            ("Area coverage >= 80%", coverage_pass, False),
+            ("Idle ratio < 20%", idle_ratio_pass, False),
+            ("Path overlap < 30%", overlap_pass, False),
+            ("Manual mowing mode", manual_mow_pass, True),
+            ("Area recording mode", area_rec_pass, True),
+            ("Emergency auto-reset on dock", emergency_pass, True),
         ]
 
-        overall_pass = True
-        for name, passed in criteria:
+        overall_pass = _required_criteria_pass(criteria)
+        for name, passed, required in criteria:
             status = "PASS" if passed else "FAIL"
-            report.append(f"  [{status}] {name}")
-            if not passed:
-                overall_pass = False
+            qualifier = "" if required else " (informational)"
+            report.append(f"  [{status}] {name}{qualifier}")
 
-        report.append(f"\nOVERALL: {'PASS' if overall_pass else 'NEEDS ATTENTION'}")
+        report.append(f"\nOVERALL: {'PASS' if overall_pass else 'FAIL'}")
         report.append(f"{'#' * 70}\n")
 
         self.get_logger().info("\n".join(report))
+        return overall_pass
 
 
 def main():
@@ -1479,10 +1485,10 @@ def main():
 
     def _on_signal(sig, frame):
         node.get_logger().info(f"Received signal {sig}, printing final report...")
-        node.print_final_report()
+        overall_pass = node.print_final_report()
         node.destroy_node()
         rclpy.shutdown()
-        sys.exit(0)
+        sys.exit(0 if overall_pass else 1)
 
     signal.signal(signal.SIGTERM, _on_signal)
 
@@ -1648,9 +1654,10 @@ def main():
         for name in spawned_obstacles:
             node._remove_obstacle(name)
 
-    node.print_final_report()
+    overall_pass = node.print_final_report()
     node.destroy_node()
     rclpy.shutdown()
+    sys.exit(0 if overall_pass else 1)
 
 
 if __name__ == "__main__":
