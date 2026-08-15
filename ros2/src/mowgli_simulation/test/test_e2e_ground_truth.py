@@ -98,7 +98,7 @@ def test_obstacle_detection_reads_filtered_beams_toward_world_target() -> None:
     node = module.E2ETestNode.__new__(module.E2ETestNode)
     node.ground_truth_pose = (0.0, 0.0, 0.0)
     ranges = [float('inf')] * 9
-    ranges[4] = 2.75
+    ranges[0] = 2.75
     node._latest_collision_scan = SimpleNamespace(
         angle_min=-math.pi,
         angle_increment=math.pi / 4.0,
@@ -117,5 +117,6 @@ def test_obstacle_validation_has_no_gazebo_service_fallback() -> None:
     ).read_text()
 
     assert 'WEBOTS_TEST_OBSTACLE_X = 3.0' in source
+    assert 'WEBOTS_LIDAR_YAW_IN_BASE_RAD = math.pi' in source
     assert '/scan_collision' in source
     assert 'gz service' not in source

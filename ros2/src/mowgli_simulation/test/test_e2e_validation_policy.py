@@ -50,3 +50,10 @@ def test_mowing_efficiency_penalizes_excess_distance():
 def test_mowing_efficiency_rejects_missing_distance():
     assert e2e._mowing_efficiency(0.0, 100.0) == 0.0
     assert e2e._mowing_efficiency(100.0, 0.0) == 0.0
+
+
+def test_obstacle_criterion_requires_complete_pass():
+    assert e2e._obstacle_test_passed('PASS')
+    assert not e2e._obstacle_test_passed('PARTIAL')
+    assert not e2e._obstacle_test_passed('FAIL')
+    assert not e2e._obstacle_test_passed(None)
