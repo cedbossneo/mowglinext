@@ -70,9 +70,11 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "mowgli_interfaces/msg/status.hpp"
+#include "mowgli_localization/scan_temporal_filter.hpp"
 #include "rclcpp/qos.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
@@ -107,6 +109,11 @@ public:
     min_ground_run_ = declare_parameter<int>("min_ground_run", 8);
     imu_max_age_s_ = declare_parameter<double>("imu_max_age_s", 0.5);
     accel_g_tolerance_ms2_ = declare_parameter<double>("accel_g_tolerance_ms2", 3.0);
+    confirm_transient_returns_ = declare_parameter<bool>("confirm_transient_returns", false);
+    confirmation_angle_tolerance_rad_ =
+        declare_parameter<double>("confirmation_angle_tolerance_rad", 0.12);
+    confirmation_range_tolerance_m_ =
+        declare_parameter<double>("confirmation_range_tolerance_m", 0.20);
     const std::string input_topic = declare_parameter<std::string>("input_topic", "/scan");
     const std::string output_topic =
         declare_parameter<std::string>("output_topic", "/scan_costmap");
@@ -159,7 +166,7 @@ public:
                 "dock_blank_range=%.2f m, post_undock_blank_sec=%.1f s, "
                 "ground_filter=%s [Z range %.2f..%.2f m, lidar_height=%.2f m, "
                 "lidar_mount_yaw=%.3f rad, imu_max_age=%.2f s, "
-                "accel_g_tol=±%.2f m/s², source %s].",
+                "accel_g_tol=±%.2f m/s², source %s], transient_confirmation=%s.",
                 input_topic.c_str(),
                 output_topic.c_str(),
                 chassis_blank_range_,
@@ -172,7 +179,8 @@ public:
                 lidar_mount_yaw_,
                 imu_max_age_s_,
                 accel_g_tolerance_ms2_,
-                imu_topic.c_str());
+                imu_topic.c_str(),
+                confirm_transient_returns_ ? "on" : "off");
   }
 
   static constexpr double kGravityMs2 = 9.80665;
@@ -390,7 +398,16 @@ private:
     const bool dock_active = is_blank_active();
     const double effective_blank =
         std::max(chassis_blank_range_, dock_active ? dock_blank_range_ : 0.0);
-    sensor_msgs::msg::LaserScan out = filter_scan(msg, effective_blank, effective_blank > 0.0);
+    sensor_msgs::msg::LaserScan radial = filter_scan(msg, effective_blank, effective_blank > 0.0);
+    sensor_msgs::msg::LaserScan out = radial;
+    if (confirm_transient_returns_)
+    {
+      out = confirm_scan_returns(radial,
+                                 previous_radial_scan_ ? &*previous_radial_scan_ : nullptr,
+                                 confirmation_angle_tolerance_rad_,
+                                 confirmation_range_tolerance_m_);
+      previous_radial_scan_ = std::move(radial);
+    }
 
     // SAFETY: collision_monitor gets the scan with chassis/dock self-returns
     // blanked but WITHOUT the gravity ground filter applied. The ground filter
@@ -471,6 +488,10 @@ private:
   int min_ground_run_{8};
   double imu_max_age_s_{0.5};
   double accel_g_tolerance_ms2_{3.0};
+  bool confirm_transient_returns_{false};
+  double confirmation_angle_tolerance_rad_{0.12};
+  double confirmation_range_tolerance_m_{0.20};
+  std::optional<sensor_msgs::msg::LaserScan> previous_radial_scan_;
 
   // --- Charging-state machine -------------------------------------------
 

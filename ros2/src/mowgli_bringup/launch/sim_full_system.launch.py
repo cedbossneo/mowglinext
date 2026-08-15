@@ -185,6 +185,12 @@ def generate_launch_description() -> LaunchDescription:
             # 2026-05-18; fusion_graph owns both transforms).
             "fusion_graph_tf_lead_s": "0.1",
             "fusion_graph_node_period_s": "0.04",
+            # KinematicDrive updates the Webots Robot pose through the
+            # Supervisor API. Webots can render the previous pose into one
+            # LiDAR frame after such an update; require the return to persist
+            # into the next 10 Hz scan before exposing it to Nav2. Production
+            # keeps navigation.launch.py's false default.
+            "confirm_transient_scan_returns": "true",
         }.items(),
     )
 

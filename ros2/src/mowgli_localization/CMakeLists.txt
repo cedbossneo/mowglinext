@@ -169,6 +169,7 @@ target_link_libraries(calibrate_imu_yaw_node yaml-cpp)
 add_executable(costmap_scan_filter_node
   src/costmap_scan_filter_node.cpp
 )
+target_include_directories(costmap_scan_filter_node PUBLIC ${INCLUDE_DIR})
 
 ament_target_dependencies(costmap_scan_filter_node
   rclcpp
@@ -296,6 +297,9 @@ if(BUILD_TESTING)
   )
   ament_target_dependencies(test_costmap_scan_filter
     sensor_msgs
+  )
+  target_include_directories(test_costmap_scan_filter PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
 
   ament_add_gtest(test_navsat_projection_utils
