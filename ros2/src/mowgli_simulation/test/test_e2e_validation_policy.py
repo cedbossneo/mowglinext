@@ -57,3 +57,11 @@ def test_obstacle_criterion_requires_complete_pass():
     assert not e2e._obstacle_test_passed('PARTIAL')
     assert not e2e._obstacle_test_passed('FAIL')
     assert not e2e._obstacle_test_passed(None)
+
+
+def test_mowing_timeout_is_configurable_without_changing_default():
+    source = (
+        Path(__file__).resolve().parents[2] / 'e2e_test.py'
+    ).read_text()
+
+    assert 'os.getenv("E2E_MOWING_TIMEOUT_S", "1200")' in source
