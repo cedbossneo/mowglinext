@@ -1,4 +1,5 @@
 import importlib.util
+import math
 from pathlib import Path
 import sys
 
@@ -23,6 +24,40 @@ def _load_module():
 
 
 sim_navsat = _load_module()
+
+
+@pytest.mark.parametrize(
+    ('base_x', 'base_y', 'yaw', 'expected_x', 'expected_y'),
+    [
+        (1.0, 2.0, 0.0, 1.30, 2.0),
+        (1.0, 2.0, math.pi / 2.0, 1.0, 2.30),
+        (1.0, 2.0, math.pi, 0.70, 2.0),
+    ],
+)
+def test_ground_truth_pose_is_projected_to_rotated_antenna_position(
+    base_x, base_y, yaw, expected_x, expected_y
+):
+    datum_lat = 48.137154
+    datum_lon = 11.576124
+
+    latitude, longitude = sim_navsat._antenna_wgs84(
+        base_x,
+        base_y,
+        yaw,
+        datum_lat,
+        datum_lon,
+        0.30,
+        0.0,
+    )
+
+    projected_x = (
+        (longitude - datum_lon)
+        * math.cos(math.radians(datum_lat))
+        * sim_navsat.METERS_PER_DEG
+    )
+    projected_y = (latitude - datum_lat) * sim_navsat.METERS_PER_DEG
+    assert projected_x == pytest.approx(expected_x, abs=1e-7)
+    assert projected_y == pytest.approx(expected_y, abs=1e-7)
 
 
 @pytest.mark.parametrize(

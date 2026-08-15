@@ -26,3 +26,14 @@ def test_chassis_and_wheel_odom_share_one_actuation_model() -> None:
     assert "properties.get('applyFirmwareModel', 'true')" in source
     assert 'if self.__apply_firmware_model:' in source
     assert 'vx, wz = cmd_vx, cmd_wz' in source
+def test_full_sim_gyro_uses_authoritative_achievable_twist() -> None:
+    source_root = Path(__file__).resolve().parents[2]
+    launch = (
+        source_root
+        / 'mowgli_bringup'
+        / 'launch'
+        / 'sim_full_system.launch.py'
+    ).read_text()
+
+    assert '"synthesize_from_cmd_vel": True' in launch
+    assert '"cmd_vel_topic": "/cmd_vel_wheels"' in launch
