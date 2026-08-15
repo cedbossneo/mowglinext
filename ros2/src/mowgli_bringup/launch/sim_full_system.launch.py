@@ -313,12 +313,13 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # 9. Sim NavSat RTK status promoter
+    # 9. Sim NavSat RTK source
     #     Production code (navsat_to_absolute_pose_node) requires
-    #     STATUS_GBAS_FIX (2) for the GPS path. The sim GPS source
-    #     publishes on /gps/fix_raw with default STATUS_FIX (0); this
-    #     relay rewrites status -> GBAS_FIX and republishes on /gps/fix
-    #     with a realistic RTK-Fixed covariance (sigma ~3 mm).
+    #     STATUS_GBAS_FIX (2) for the GPS path. Webots samples GPS before
+    #     KinematicDrive restores its authoritative pose, so obstacle
+    #     contacts can displace the raw sensor reading from ground truth.
+    #     Use the raw fix only for cadence/header and derive antenna
+    #     position from the authoritative chassis pose plus lever arm.
     # ------------------------------------------------------------------
     sim_navsat_rtk_fix_node = Node(
         package="mowgli_simulation",
@@ -330,13 +331,17 @@ def generate_launch_description() -> LaunchDescription:
                 "use_sim_time": True,
                 "input_topic": "/gps/fix_raw",
                 "output_topic": "/gps/fix",
+                "ground_truth_topic": "/sim/ground_truth_pose",
+                "datum_lat": 48.137154000,
+                "datum_lon": 11.576124000,
+                "lever_arm_x": 0.30,
+                "lever_arm_y": 0.0,
                 # Realistic mowing scenario: 90 s RTK-Fixed (open sky),
                 # 30 s RTK-Float (light tree cover), 10 s no-fix (dense
                 # canopy / multipath). Empty pattern → always RTK_FIXED
-                # (σ=3 mm, no Python noise injection — sensor only sees
-                # the simulator GPS plugin's intrinsic ~2 cm noise). Bias
-                # disabled while debugging fusion_graph; restore the
-                # cycle pattern once the baseline is clean.
+                # (σ=3 mm, no Python noise injection). Bias disabled while
+                # debugging fusion_graph; restore the cycle pattern once
+                # the baseline is clean.
                 "quality_pattern": "",
                 "noise_seed": 42,
             }
@@ -459,16 +464,15 @@ def generate_launch_description() -> LaunchDescription:
                 "accel_bias_walk_std": 1.0e-3,  # m/s^2/sqrt(s)
                 "accel_bias_init_std": 0.05,    # m/s^2
                 "noise_seed": 42,
-                # Use the Webots gyro/accel directly (no cmd_vel
-                # synthesis). The kinematic_drive plugin now runs the
-                # firmware motor model end-to-end (deadband + PI +
-                # saturation), so the Webots-reported chassis motion
-                # IS the achievable-twist post-firmware response. An
-                # IMU synthesized from raw cmd_vel would lie about
-                # sub-deadband stalled rotations and starve the
-                # fusion_graph wheel/gyro consistency checks.
-                "synthesize_from_cmd_vel": False,
-                "cmd_vel_topic": "/cmd_vel",
+                # Webots samples the ODE body between KinematicDrive
+                # teleports, so obstacle contacts can create angular
+                # velocity that is absent from the authoritative
+                # kinematic pose. Synthesize gyro_z from the post-firmware
+                # achievable twist consumed by KinematicDrive itself.
+                # Using /cmd_vel_wheels rather than raw /cmd_vel preserves
+                # deadband, PI, and saturation behavior.
+                "synthesize_from_cmd_vel": True,
+                "cmd_vel_topic": "/cmd_vel_wheels",
             }
         ],
     )

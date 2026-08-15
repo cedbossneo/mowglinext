@@ -5,10 +5,12 @@
 """
 sim_navsat_rtk_fix.py — SIMULATION ONLY.
 
-Programmable GPS-quality controller for the simulator. Subscribes to a
-raw Gazebo NavSatFix and republishes on the production topic with
-status, covariance, and position noise consistent with one of three
-quality regimes. It also publishes the matching typed GnssStatus used
+Programmable GPS-quality controller for the simulator. Uses the raw
+Webots NavSatFix as a clock/header source, but derives antenna position
+from the kinematic simulator's authoritative ground-truth chassis pose.
+It republishes on the production topic with status, covariance, and
+position noise consistent with one of three quality regimes. It also
+publishes the matching typed GnssStatus used
 by the GUI and other consumers that cannot safely infer RTK mode from
 NavSatFix.status alone:
 
@@ -49,6 +51,7 @@ import math
 import random
 from typing import List, Optional, Tuple
 
+from geometry_msgs.msg import PoseStamped
 from mowgli_interfaces.msg import GnssStatus
 import rclpy
 from rclpy.node import Node
@@ -68,6 +71,9 @@ QUALITY_REGIMES: dict[str, Tuple[int, float, float]] = {
     'RTK_FLOAT': (NavSatStatus.STATUS_SBAS_FIX, 0.30, 0.60),
     'NO_FIX': (NavSatStatus.STATUS_NO_FIX, 2.0, 4.0),
 }
+
+EARTH_RADIUS_M = 6378137.0
+METERS_PER_DEG = EARTH_RADIUS_M * math.pi / 180.0
 
 GNSS_STATUS_CAPABILITIES = (
     GnssStatus.CAP_RTK_MODE
@@ -143,6 +149,32 @@ def _build_gnss_status(
     return status
 
 
+def _antenna_wgs84(
+    base_x: float,
+    base_y: float,
+    yaw: float,
+    datum_lat: float,
+    datum_lon: float,
+    lever_arm_x: float,
+    lever_arm_y: float,
+) -> Tuple[float, float]:
+    antenna_x = (
+        base_x
+        + math.cos(yaw) * lever_arm_x
+        - math.sin(yaw) * lever_arm_y
+    )
+    antenna_y = (
+        base_y
+        + math.sin(yaw) * lever_arm_x
+        + math.cos(yaw) * lever_arm_y
+    )
+    latitude = datum_lat + antenna_y / METERS_PER_DEG
+    longitude = datum_lon + antenna_x / (
+        METERS_PER_DEG * math.cos(math.radians(datum_lat))
+    )
+    return latitude, longitude
+
+
 class SimNavSatRtkFix(Node):
 
     def __init__(self) -> None:
@@ -157,6 +189,21 @@ class SimNavSatRtkFix(Node):
         self._status_topic = self.declare_parameter(
             'status_topic', '/gps/status'
         ).value
+        self._ground_truth_topic = self.declare_parameter(
+            'ground_truth_topic', '/sim/ground_truth_pose'
+        ).value
+        self._datum_lat = float(
+            self.declare_parameter('datum_lat', 0.0).value
+        )
+        self._datum_lon = float(
+            self.declare_parameter('datum_lon', 0.0).value
+        )
+        self._lever_arm_x = float(
+            self.declare_parameter('lever_arm_x', 0.30).value
+        )
+        self._lever_arm_y = float(
+            self.declare_parameter('lever_arm_y', 0.0).value
+        )
         # Programmable cycle. Empty means always RTK_FIXED (legacy mode).
         pattern_spec = str(
             self.declare_parameter('quality_pattern', '').value
@@ -206,6 +253,13 @@ class SimNavSatRtkFix(Node):
         self._sub = self.create_subscription(
             NavSatFix, self._input_topic, self._on_fix, sub_qos
         )
+        self._ground_truth_sub = self.create_subscription(
+            PoseStamped,
+            self._ground_truth_topic,
+            self._on_ground_truth,
+            sub_qos,
+        )
+        self._ground_truth: Optional[PoseStamped] = None
 
         # Diagnostics — surface the regime distribution observed.
         self._regime_counts: dict[str, int] = {k: 0 for k in QUALITY_REGIMES}
@@ -262,14 +316,31 @@ class SimNavSatRtkFix(Node):
     # Callback
     # ------------------------------------------------------------------
 
+    def _on_ground_truth(self, msg: PoseStamped) -> None:
+        self._ground_truth = msg
+
     def _on_fix(self, msg: NavSatFix) -> None:
+        if self._ground_truth is None:
+            return
+
         ros_now_s = self.get_clock().now().nanoseconds * 1e-9
         regime = self._current_regime(ros_now_s)
         status_code, sigma_xy, sigma_z = QUALITY_REGIMES[regime]
         self._regime_counts[regime] += 1
 
-        lat = msg.latitude
-        lon = msg.longitude
+        pose = self._ground_truth.pose
+        yaw = 2.0 * math.atan2(
+            pose.orientation.z, pose.orientation.w
+        )
+        lat, lon = _antenna_wgs84(
+            pose.position.x,
+            pose.position.y,
+            yaw,
+            self._datum_lat,
+            self._datum_lon,
+            self._lever_arm_x,
+            self._lever_arm_y,
+        )
         # Add Gaussian position noise above the RTK-Fixed bedrock.
         if sigma_xy > 0.01:
             # 1 deg latitude  ~= 111 320 m  =>  m_per_deg_lat = 111320
