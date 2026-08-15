@@ -1722,7 +1722,7 @@ def main():
 
     # Spin until mowing cycle completes or timeout (20 min for full cycle).
     # Feature tests run after timeout regardless.
-    timeout = 1200.0
+    timeout = float(os.getenv("E2E_MOWING_TIMEOUT_S", "1200"))
     start = time.time()
 
     def _on_signal(sig, frame):
