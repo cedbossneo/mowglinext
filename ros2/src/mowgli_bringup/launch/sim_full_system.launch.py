@@ -190,7 +190,7 @@ def generate_launch_description() -> LaunchDescription:
             # LiDAR frame after such an update; require the return to persist
             # into the next 10 Hz scan before exposing it to Nav2. Production
             # keeps navigation.launch.py's false default.
-            "confirm_transient_scan_returns": "true",
+            "scan_confirmation_frames": "3",
         }.items(),
     )
 

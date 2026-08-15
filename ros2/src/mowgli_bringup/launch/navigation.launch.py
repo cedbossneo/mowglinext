@@ -227,13 +227,13 @@ def generate_launch_description() -> LaunchDescription:
         default_value=_early_fusion_graph_period,
         description="fusion_graph factor-graph node cadence (seconds). Default read from mowgli_robot.yaml; hardware fallback 0.04 = 25 Hz, recommended 0.1 = 10 Hz on Pi. Sim default 0.02 = 50 Hz.",
     )
-    confirm_transient_scan_returns_arg = DeclareLaunchArgument(
-        "confirm_transient_scan_returns",
-        default_value="false",
+    scan_confirmation_frames_arg = DeclareLaunchArgument(
+        "scan_confirmation_frames",
+        default_value="1",
         description=(
-            "Require a LiDAR return in two consecutive scans before publishing it "
-            "to costmaps/collision_monitor. Simulation-only workaround for "
-            "single-frame Webots ghosts after Supervisor pose updates."
+            "Consecutive compatible LiDAR observations required before publishing "
+            "a return to costmaps/collision_monitor. Hardware default 1; SIM uses "
+            "3 to reject Webots Supervisor pose-update ghosts."
         ),
     )
 
@@ -1215,9 +1215,9 @@ def generate_launch_description() -> LaunchDescription:
              "chassis_blank_range": 0.55,
              "dock_blank_range": 0.70,
              "post_undock_blank_sec": 5.0,
-             "confirm_transient_returns": ParameterValue(
-                 LaunchConfiguration("confirm_transient_scan_returns"),
-                 value_type=bool,
+             "scan_confirmation_frames": ParameterValue(
+                 LaunchConfiguration("scan_confirmation_frames"),
+                 value_type=int,
              ),
              # Ground-filter geometry from mowgli_robot.yaml. lidar_mount_yaw
              # (~π on the 180°-rotated mount) is essential — without it the
@@ -1292,7 +1292,7 @@ def generate_launch_description() -> LaunchDescription:
             cog_stationary_seed_rate_hz_arg,
             fusion_graph_tf_lead_arg,
             fusion_graph_node_period_arg,
-            confirm_transient_scan_returns_arg,
+            scan_confirmation_frames_arg,
             # Localization helpers + fusion_graph_node (single localizer
             # for both map→odom AND odom→base_footprint; ekf_odom_node
             # was removed 2026-05-18).

@@ -70,7 +70,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "mowgli_interfaces/msg/status.hpp"
@@ -109,7 +108,7 @@ public:
     min_ground_run_ = declare_parameter<int>("min_ground_run", 8);
     imu_max_age_s_ = declare_parameter<double>("imu_max_age_s", 0.5);
     accel_g_tolerance_ms2_ = declare_parameter<double>("accel_g_tolerance_ms2", 3.0);
-    confirm_transient_returns_ = declare_parameter<bool>("confirm_transient_returns", false);
+    scan_confirmation_frames_ = declare_parameter<int>("scan_confirmation_frames", 1);
     confirmation_angle_tolerance_rad_ =
         declare_parameter<double>("confirmation_angle_tolerance_rad", 0.12);
     confirmation_range_tolerance_m_ =
@@ -180,7 +179,7 @@ public:
                 imu_max_age_s_,
                 accel_g_tolerance_ms2_,
                 imu_topic.c_str(),
-                confirm_transient_returns_ ? "on" : "off");
+                scan_confirmation_frames_ > 1 ? "on" : "off");
   }
 
   static constexpr double kGravityMs2 = 9.80665;
@@ -400,13 +399,13 @@ private:
         std::max(chassis_blank_range_, dock_active ? dock_blank_range_ : 0.0);
     sensor_msgs::msg::LaserScan radial = filter_scan(msg, effective_blank, effective_blank > 0.0);
     sensor_msgs::msg::LaserScan out = radial;
-    if (confirm_transient_returns_)
+    if (scan_confirmation_frames_ > 1)
     {
       out = confirm_scan_returns(radial,
-                                 previous_radial_scan_ ? &*previous_radial_scan_ : nullptr,
+                                 static_cast<unsigned int>(scan_confirmation_frames_),
                                  confirmation_angle_tolerance_rad_,
-                                 confirmation_range_tolerance_m_);
-      previous_radial_scan_ = std::move(radial);
+                                 confirmation_range_tolerance_m_,
+                                 scan_confirmation_state_);
     }
 
     // SAFETY: collision_monitor gets the scan with chassis/dock self-returns
@@ -488,10 +487,10 @@ private:
   int min_ground_run_{8};
   double imu_max_age_s_{0.5};
   double accel_g_tolerance_ms2_{3.0};
-  bool confirm_transient_returns_{false};
+  int scan_confirmation_frames_{1};
   double confirmation_angle_tolerance_rad_{0.12};
   double confirmation_range_tolerance_m_{0.20};
-  std::optional<sensor_msgs::msg::LaserScan> previous_radial_scan_;
+  ScanConfirmationState scan_confirmation_state_;
 
   // --- Charging-state machine -------------------------------------------
 
