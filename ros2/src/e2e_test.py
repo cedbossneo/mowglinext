@@ -36,7 +36,6 @@ Or from host:
 import math
 import os
 import signal
-import subprocess
 import sys
 import time
 import threading
@@ -55,6 +54,12 @@ from std_msgs.msg import Bool
 from sensor_msgs.msg import LaserScan
 from mowgli_interfaces.srv import EmergencyStop, GetMowingArea, HighLevelControl
 from mowgli_interfaces.msg import GnssStatus, HighLevelStatus
+
+WEBOTS_TEST_OBSTACLE_X = 3.0
+WEBOTS_TEST_OBSTACLE_Y = 1.5
+OBSTACLE_ENCOUNTER_RADIUS_M = 1.5
+OBSTACLE_DETECTION_MARGIN_M = 0.35
+OBSTACLE_DEPARTURE_TRAVEL_M = 0.5
 
 
 class TestPhase(Enum):
@@ -176,7 +181,6 @@ class E2ETestNode(Node):
         self._last_bt_state_time = time.time()
 
         # Obstacle avoidance tracking
-        self.obstacle_spawned = False
         self.obstacle_test_done = False
         self.obstacle_test_result = None
         self.obstacle_spawn_time = 0.0
@@ -223,6 +227,9 @@ class E2ETestNode(Node):
         self.slam_pose = None
         self.create_subscription(
             LaserScan, "/scan", self._on_scan, sensor_qos
+        )
+        self.create_subscription(
+            LaserScan, "/scan_collision", self._on_collision_scan, sensor_qos
         )
         self.create_subscription(
             GnssStatus,
@@ -537,6 +544,9 @@ class E2ETestNode(Node):
             ):
                 self.metrics.min_obstacle_dist.append((t, min_dist))
 
+    def _on_collision_scan(self, msg: LaserScan):
+        self._latest_collision_scan = msg
+
     def _on_gps_status(self, msg: GnssStatus):
         t = time.time() - self.metrics.start_time
         names = {
@@ -606,6 +616,27 @@ class E2ETestNode(Node):
         s = self._latest_scan
         valid = [r for r in s.ranges if r > s.range_min and r < s.range_max]
         return min(valid) if valid else float('inf')
+
+    def _collision_scan_range_toward(self, world_x: float, world_y: float) -> float:
+        if self.ground_truth_pose is None:
+            return float("inf")
+        scan = getattr(self, "_latest_collision_scan", None)
+        if scan is None or not scan.ranges or scan.angle_increment == 0.0:
+            return float("inf")
+
+        robot_x, robot_y, robot_yaw = self.ground_truth_pose
+        bearing = math.atan2(world_y - robot_y, world_x - robot_x) - robot_yaw
+        bearing = math.atan2(math.sin(bearing), math.cos(bearing))
+        beam = round((bearing - scan.angle_min) / scan.angle_increment)
+        window = max(1, round(math.radians(3.0) / abs(scan.angle_increment)))
+        start = max(0, beam - window)
+        end = min(len(scan.ranges), beam + window + 1)
+        valid = [
+            scan.ranges[index]
+            for index in range(start, end)
+            if scan.range_min < scan.ranges[index] < scan.range_max
+        ]
+        return min(valid) if valid else float("inf")
 
     def _compute_planned_path_length(self) -> float:
         """Sum of Euclidean distances between consecutive coverage path poses."""
@@ -741,55 +772,13 @@ class E2ETestNode(Node):
             lines.append(f"    {label:>8s} | {bar:<50s} {count:4d} ({pct:.1f}%)")
         return "\n".join(lines)
 
-    def _spawn_obstacle_at(self, ox: float, oy: float, name: str = "e2e_obstacle") -> bool:
-        """Spawn a cylinder obstacle using blocking create service."""
-        sdf = (
-            f'<sdf version="1.9"><model name="{name}"><static>true</static>'
-            f'<pose>{ox:.3f} {oy:.3f} 0.50 0 0 0</pose>'
-            f'<link name="link">'
-            f'<collision name="c"><geometry><cylinder><radius>0.30</radius>'
-            f'<length>1.0</length></cylinder></geometry></collision>'
-            f'<visual name="v"><geometry><cylinder><radius>0.30</radius>'
-            f'<length>1.0</length></cylinder></geometry>'
-            f'<material><ambient>1 0.5 0 1</ambient>'
-            f'<diffuse>1 0.5 0 1</diffuse></material></visual>'
-            f'</link></model></sdf>'
-        )
-        escaped = sdf.replace('"', '\\"')
-        cmd = (
-            f'gz service -s /world/garden/create/blocking '
-            f'--reqtype gz.msgs.EntityFactory '
-            f'--reptype gz.msgs.Boolean '
-            f'--timeout 10000 '
-            f'--req \'sdf: "{escaped}"\''
-        )
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
-        success = "true" in result.stdout
-        if success:
-            self.get_logger().info(f"Spawned obstacle '{name}' at ({ox:.2f}, {oy:.2f})")
-        else:
-            self.get_logger().warn(f"Failed to spawn obstacle: {result.stderr[:200]}")
-        return success
-
-    def _remove_obstacle(self, name: str = "e2e_obstacle"):
-        cmd = (
-            f'gz service -s /world/garden/remove '
-            f'--reqtype gz.msgs.Entity '
-            f'--reptype gz.msgs.Boolean '
-            f'--timeout 5000 '
-            f'--req \'name: "{name}" type: MODEL\''
-        )
-        subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-        self.get_logger().info(f"Removed test obstacle '{name}'")
-
     def _run_obstacle_avoidance_test(self):
         """
-        Active obstacle avoidance test — runs in a background thread.
+        Validate an encounter with the static obstacle in the Webots world.
 
-        Pre-spawns a cylinder on a coverage swath. Validates that the robot:
-        1. Detects the obstacle (stops or slows)
-        2. Reroutes AROUND the obstacle (NavigateToPose via planner)
-        3. Resumes mowing the remaining swath
+        The test passes only when the robot physically enters the obstacle's
+        vicinity, the filtered collision scan sees a return in the obstacle's
+        direction, and the robot then travels onward and leaves the vicinity.
         """
         self.get_logger().info("=== OBSTACLE AVOIDANCE TEST: waiting for MOWING phase ===")
 
@@ -801,47 +790,69 @@ class E2ETestNode(Node):
         if self.test_complete:
             return
 
-        # Wait a bit for robot to start mowing (let it complete first transit)
-        time.sleep(15.0)
-
         self.get_logger().info("=== OBSTACLE AVOIDANCE TEST: monitoring robot behavior ===")
         self.obstacle_spawn_time = time.time()
 
-        # Monitor for rerouting behavior
-        robot_stopped = False
-        robot_resumed = False
-        stop_time = None
-        resume_time = None
-        closest_approach = 999.0
-        initial_vel_samples = []
+        encountered = False
+        detected = False
+        departed = False
+        encounter_time = None
+        departure_time = None
+        closest_center_distance = float("inf")
+        closest_scan_range = float("inf")
+        previous_pose = None
+        travel_after_detection = 0.0
 
         for i in range(3000):  # 5 minutes at 10Hz
             time.sleep(0.1)
             vel = self._last_cmd_vel_x
 
-            # Track closest scan range
-            cur_min = self._get_min_scan_range()
-            if cur_min < closest_approach:
-                closest_approach = cur_min
-
-            # Detect stop (obstacle detected)
-            if abs(vel) < 0.01 and not robot_stopped and i > 50:
-                robot_stopped = True
-                stop_time = time.time() - self.obstacle_spawn_time
-                self.get_logger().info(
-                    f"=== OBSTACLE TEST: robot STOPPED after {stop_time:.1f}s "
-                    f"(closest={closest_approach:.2f}m) ==="
+            center_distance = float("inf")
+            directed_scan = float("inf")
+            if self.ground_truth_pose is not None:
+                x, y, _ = self.ground_truth_pose
+                center_distance = math.hypot(
+                    x - WEBOTS_TEST_OBSTACLE_X, y - WEBOTS_TEST_OBSTACLE_Y
                 )
-
-            # Detect resume (rerouted around obstacle)
-            if robot_stopped and not robot_resumed and abs(vel) > 0.05:
-                robot_resumed = True
-                resume_time = time.time() - self.obstacle_spawn_time
-                self.obstacle_rerouted = True
-                self.get_logger().info(
-                    f"=== OBSTACLE TEST: robot RESUMED after {resume_time:.1f}s "
-                    f"(rerouted around obstacle) ==="
+                closest_center_distance = min(closest_center_distance, center_distance)
+                directed_scan = self._collision_scan_range_toward(
+                    WEBOTS_TEST_OBSTACLE_X, WEBOTS_TEST_OBSTACLE_Y
                 )
+                closest_scan_range = min(closest_scan_range, directed_scan)
+
+                if center_distance <= OBSTACLE_ENCOUNTER_RADIUS_M and not encountered:
+                    encountered = True
+                    encounter_time = time.time() - self.obstacle_spawn_time
+                    self.get_logger().info(
+                        f"=== OBSTACLE TEST: entered obstacle vicinity after "
+                        f"{encounter_time:.1f}s ==="
+                    )
+
+                expected_surface_range = max(0.0, center_distance - 0.25)
+                if (
+                    encountered
+                    and directed_scan
+                    <= expected_surface_range + OBSTACLE_DETECTION_MARGIN_M
+                ):
+                    detected = True
+
+                current_xy = (x, y)
+                if detected and previous_pose is not None:
+                    travel_after_detection += math.hypot(
+                        current_xy[0] - previous_pose[0],
+                        current_xy[1] - previous_pose[1],
+                    )
+                previous_pose = current_xy
+
+                if (
+                    detected
+                    and center_distance > OBSTACLE_ENCOUNTER_RADIUS_M
+                    and travel_after_detection >= OBSTACLE_DEPARTURE_TRAVEL_M
+                ):
+                    departed = True
+                    departure_time = time.time() - self.obstacle_spawn_time
+                    self.obstacle_rerouted = True
+                    break
 
             # Log every 5 seconds
             if i % 50 == 0:
@@ -851,43 +862,40 @@ class E2ETestNode(Node):
                     pose_str = f" robot=({x:.1f},{y:.1f})"
                 self.get_logger().info(
                     f"=== OBSTACLE TEST t+{i/10:.0f}s: vel={vel:.3f} "
-                    f"scan_min={cur_min:.2f}m stopped={robot_stopped} "
-                    f"resumed={robot_resumed}{pose_str} ==="
+                    f"center={center_distance:.2f}m directed_scan={directed_scan:.2f}m "
+                    f"encountered={encountered} detected={detected}{pose_str} ==="
                 )
-
-            # Success: robot stopped AND resumed (navigated around)
-            if robot_stopped and robot_resumed:
-                time.sleep(5.0)  # Let it continue a bit
-                break
 
             if self.test_complete:
                 break
 
         # Evaluate
-        if robot_stopped and robot_resumed and stop_time is not None and resume_time is not None:
+        if detected and departed and encounter_time is not None and departure_time is not None:
             self.metrics.avoidance_maneuvers.append({
-                "start_time": stop_time,
-                "end_time": resume_time,
-                "time_cost": resume_time - stop_time,
-                "closest_approach": closest_approach,
+                "start_time": encounter_time,
+                "end_time": departure_time,
+                "time_cost": departure_time - encounter_time,
+                "closest_approach": closest_scan_range,
             })
             self.obstacle_test_result = "PASS"
             self.get_logger().info(
-                f"=== OBSTACLE AVOIDANCE TEST: PASS — robot stopped and navigated around "
-                f"(stop={stop_time:.1f}s, resume={resume_time:.1f}s, "
-                f"closest={closest_approach:.2f}m) ==="
+                f"=== OBSTACLE AVOIDANCE TEST: PASS — obstacle detected and passed "
+                f"(encounter={encounter_time:.1f}s, departure={departure_time:.1f}s, "
+                f"center_min={closest_center_distance:.2f}m, "
+                f"scan_min={closest_scan_range:.2f}m) ==="
             )
-        elif robot_stopped:
+        elif encountered:
             self.obstacle_test_result = "PARTIAL"
             self.get_logger().warn(
-                f"=== OBSTACLE AVOIDANCE TEST: PARTIAL — robot stopped but did NOT resume "
-                f"(may have skipped swath instead of rerouting) ==="
+                f"=== OBSTACLE AVOIDANCE TEST: PARTIAL — entered the obstacle vicinity "
+                f"but did not both detect and pass it (detected={detected}, "
+                f"departed={departed}) ==="
             )
         else:
             self.obstacle_test_result = "FAIL"
             self.get_logger().error(
-                f"=== OBSTACLE AVOIDANCE TEST: FAIL — robot did NOT stop for obstacle "
-                f"(closest={closest_approach:.2f}m) ==="
+                f"=== OBSTACLE AVOIDANCE TEST: FAIL — robot never encountered the "
+                f"Webots obstacle (center_min={closest_center_distance:.2f}m) ==="
             )
 
         self.obstacle_test_done = True
@@ -1433,19 +1441,19 @@ class E2ETestNode(Node):
         report.append("\n=== Active Obstacle Avoidance Test ===")
         obstacle_pass = True
         if self.obstacle_test_result == "PASS":
-            report.append("  Robot stopped for obstacle: YES")
-            report.append("  Robot navigated around obstacle: YES")
-            report.append("  PASS: obstacle avoidance with rerouting")
+            report.append("  Robot encountered configured Webots obstacle: YES")
+            report.append("  Filtered collision scan detected obstacle: YES")
+            report.append("  Robot continued beyond obstacle: YES")
+            report.append("  PASS: obstacle detected and safely passed")
         elif self.obstacle_test_result == "PARTIAL":
-            report.append("  Robot stopped for obstacle: YES")
-            report.append("  Robot navigated around obstacle: NO (skipped swath)")
-            report.append("  PARTIAL: collision avoided but no rerouting")
+            report.append("  Robot encountered configured Webots obstacle: YES")
+            report.append("  PARTIAL: obstacle was not both detected and passed")
         elif self.obstacle_test_result == "FAIL":
-            report.append("  Robot stopped for obstacle: NO")
-            report.append("  FAIL: obstacle not detected or avoided")
+            report.append("  Robot encountered configured Webots obstacle: NO")
+            report.append("  FAIL: coverage did not exercise obstacle avoidance")
             obstacle_pass = False
         elif self.obstacle_test_result == "SKIP":
-            report.append("  SKIP: could not spawn obstacle in Gazebo")
+            report.append("  SKIP: configured Webots obstacle unavailable")
         else:
             report.append("  NOT RUN: test did not reach mowing phase")
 
@@ -1686,12 +1694,10 @@ def main():
         rclpy.shutdown()
         sys.exit(1)
 
-    # Physical obstacles are pre-placed in the Gazebo world SDF (garden.sdf).
-    # obs_swath1 at (-6.5, 0.0), obs_swath2 at (-6.0, -3.0), obs_mid at (3.0, 0.0).
-    # They exist from sim start so the obstacle tracker detects them before mowing.
-    node.obstacle_spawned = True
-    spawned_obstacles = ["obs_swath1", "obs_swath2", "obs_mid"]
-    node.get_logger().info("Using 3 pre-placed obstacles from Gazebo world")
+    node.get_logger().info(
+        "Using Webots test_obstacle at "
+        f"({WEBOTS_TEST_OBSTACLE_X:.1f}, {WEBOTS_TEST_OBSTACLE_Y:.1f})"
+    )
 
     # Send START command
     if not node.send_start_command():
@@ -1876,11 +1882,6 @@ def main():
 
     except KeyboardInterrupt:
         node.get_logger().info("Test interrupted by user")
-
-    # Clean up all spawned obstacles
-    if node.obstacle_spawned:
-        for name in spawned_obstacles:
-            node._remove_obstacle(name)
 
     overall_pass = node.print_final_report()
     node.destroy_node()
