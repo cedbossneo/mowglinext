@@ -57,6 +57,7 @@ from mowgli_interfaces.msg import GnssStatus, HighLevelStatus
 
 WEBOTS_TEST_OBSTACLE_X = 3.0
 WEBOTS_TEST_OBSTACLE_Y = 1.5
+WEBOTS_LIDAR_YAW_IN_BASE_RAD = math.pi
 OBSTACLE_ENCOUNTER_RADIUS_M = 1.5
 OBSTACLE_DETECTION_MARGIN_M = 0.35
 OBSTACLE_DEPARTURE_TRAVEL_M = 0.5
@@ -152,6 +153,10 @@ def _mowing_efficiency(planned_distance: float, actual_distance: float) -> float
     return min(planned_distance, actual_distance) / max(
         planned_distance, actual_distance
     )
+
+
+def _obstacle_test_passed(result: Optional[str]) -> bool:
+    return result == "PASS"
 
 
 class E2ETestNode(Node):
@@ -625,7 +630,11 @@ class E2ETestNode(Node):
             return float("inf")
 
         robot_x, robot_y, robot_yaw = self.ground_truth_pose
-        bearing = math.atan2(world_y - robot_y, world_x - robot_x) - robot_yaw
+        bearing = (
+            math.atan2(world_y - robot_y, world_x - robot_x)
+            - robot_yaw
+            - WEBOTS_LIDAR_YAW_IN_BASE_RAD
+        )
         bearing = math.atan2(math.sin(bearing), math.cos(bearing))
         beam = round((bearing - scan.angle_min) / scan.angle_increment)
         window = max(1, round(math.radians(3.0) / abs(scan.angle_increment)))
@@ -1439,7 +1448,7 @@ class E2ETestNode(Node):
 
         # ── Active Obstacle Avoidance Test ──
         report.append("\n=== Active Obstacle Avoidance Test ===")
-        obstacle_pass = True
+        obstacle_pass = _obstacle_test_passed(self.obstacle_test_result)
         if self.obstacle_test_result == "PASS":
             report.append("  Robot encountered configured Webots obstacle: YES")
             report.append("  Filtered collision scan detected obstacle: YES")
@@ -1451,7 +1460,6 @@ class E2ETestNode(Node):
         elif self.obstacle_test_result == "FAIL":
             report.append("  Robot encountered configured Webots obstacle: NO")
             report.append("  FAIL: coverage did not exercise obstacle avoidance")
-            obstacle_pass = False
         elif self.obstacle_test_result == "SKIP":
             report.append("  SKIP: configured Webots obstacle unavailable")
         else:
