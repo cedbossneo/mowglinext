@@ -231,9 +231,6 @@ class E2ETestNode(Node):
         )
         self.slam_pose = None
         self.create_subscription(
-            LaserScan, "/scan", self._on_scan, sensor_qos
-        )
-        self.create_subscription(
             LaserScan, "/scan_collision", self._on_collision_scan, sensor_qos
         )
         self.create_subscription(
@@ -535,8 +532,8 @@ class E2ETestNode(Node):
             if speed > 0.01:
                 self.metrics.phase_speeds[phase_name].append(speed)
 
-    def _on_scan(self, msg: LaserScan):
-        self._latest_scan = msg
+    def _on_collision_scan(self, msg: LaserScan):
+        self._latest_collision_scan = msg
         t = time.time() - self.metrics.start_time
         valid_ranges = [
             r for r in msg.ranges
@@ -548,9 +545,6 @@ class E2ETestNode(Node):
                 t - self.metrics.min_obstacle_dist[-1][0] > 1.0
             ):
                 self.metrics.min_obstacle_dist.append((t, min_dist))
-
-    def _on_collision_scan(self, msg: LaserScan):
-        self._latest_collision_scan = msg
 
     def _on_gps_status(self, msg: GnssStatus):
         t = time.time() - self.metrics.start_time
@@ -614,13 +608,6 @@ class E2ETestNode(Node):
             if d < min_d:
                 min_d = d
         return min_d
-
-    def _get_min_scan_range(self) -> float:
-        if not hasattr(self, '_latest_scan') or self._latest_scan is None:
-            return float('inf')
-        s = self._latest_scan
-        valid = [r for r in s.ranges if r > s.range_min and r < s.range_max]
-        return min(valid) if valid else float('inf')
 
     def _collision_scan_range_toward(self, world_x: float, world_y: float) -> float:
         if self.ground_truth_pose is None:
