@@ -111,6 +111,22 @@ def test_obstacle_detection_reads_filtered_beams_toward_world_target() -> None:
     assert math.isinf(node._collision_scan_range_toward(0.0, 3.0))
 
 
+def test_collision_metrics_use_filtered_safety_scan() -> None:
+    module = _load_e2e_module()
+    node = module.E2ETestNode.__new__(module.E2ETestNode)
+    node.metrics = module.Metrics()
+    scan = SimpleNamespace(
+        range_min=0.05,
+        range_max=10.0,
+        ranges=[float('inf'), 0.12, 0.40],
+    )
+
+    node._on_collision_scan(scan)
+
+    assert node._latest_collision_scan is scan
+    assert node.metrics.min_obstacle_dist[0][1] == 0.12
+
+
 def test_obstacle_validation_has_no_gazebo_service_fallback() -> None:
     source = (
         Path(__file__).resolve().parents[2] / 'e2e_test.py'
@@ -119,4 +135,5 @@ def test_obstacle_validation_has_no_gazebo_service_fallback() -> None:
     assert 'WEBOTS_TEST_OBSTACLE_X = 3.0' in source
     assert 'WEBOTS_LIDAR_YAW_IN_BASE_RAD = math.pi' in source
     assert '/scan_collision' in source
+    assert 'LaserScan, "/scan",' not in source
     assert 'gz service' not in source
