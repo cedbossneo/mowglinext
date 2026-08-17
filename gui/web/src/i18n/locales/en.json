@@ -2891,7 +2891,7 @@
     "restart": "Restart",
     "stop": "Stop",
     "start": "Start",
-    "searchPlaceholder": "Search logs...",
+    "searchPlaceholder": "Search logs…",
     "levelErrors": "Errors",
     "levelWarnings": "Warnings",
     "levelInfo": "Info",
