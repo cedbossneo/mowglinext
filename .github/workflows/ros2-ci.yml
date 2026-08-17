@@ -113,8 +113,15 @@ jobs:
           python3 -m pytest -q ros2/scripts/test_check_config_drift.py
 
   # ─── Build & Test ────────────────────────────────────────────────────────────
+  # The name is STATIC, not `Build & Test (ROS2 ${{ matrix.ros_distro }})`.
+  # `Build & Test (ROS2 kilted)` is the required status check on `dev`, and when
+  # this job is skipped by the `if:` below GitHub cannot evaluate the matrix — it
+  # reports the check under the raw, uninterpolated template name, which matches
+  # nothing and leaves the required check pending forever. Keep this literal in
+  # sync with the branch-protection rule; if a second distro is ever added to the
+  # matrix, give the name back its interpolation AND update the protection rule.
   build-and-test:
-    name: Build & Test (ROS2 ${{ matrix.ros_distro }})
+    name: Build & Test (ROS2 kilted)
     runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.ros2 == 'true'
