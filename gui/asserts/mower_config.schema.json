@@ -208,7 +208,7 @@
         "lidar_z": {
           "type": "number",
           "title": "LiDAR Offset Z",
-          "default": 0.22,
+          "default": 0.30,
           "description": "Body-frame up offset of LiDAR from base_footprint (metres)."
         },
         "lidar_yaw": {
@@ -670,7 +670,7 @@
         "obstacle_wait_timeout_s": {
           "type": "number",
           "title": "Obstacle Wait Timeout",
-          "default": 5.0,
+          "default": 2.5,
           "description": "How long (s) to wait in place when an obstacle blocks every detour before giving up on the current strip. Lets transient blockages (a person walking past) clear without aborting. Clamped to [0.5, 60.0] at launch."
         },
         "max_obstacle_avoidance_distance": {
@@ -764,7 +764,7 @@
         "yaw_goal_tolerance": {
           "type": "number",
           "title": "Yaw Goal Tolerance",
-          "default": 0.2,
+          "default": 0.1,
           "description": "Acceptable heading error at goal (radians)."
         },
         "coverage_xy_tolerance": {
@@ -776,7 +776,7 @@
         "progress_timeout_sec": {
           "type": "number",
           "title": "Progress Timeout",
-          "default": 10.0,
+          "default": 30.0,
           "description": "Seconds without progress before recovery."
         }
       }
