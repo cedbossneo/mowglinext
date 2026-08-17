@@ -8,13 +8,21 @@ on:
       - 'tools/motor/**'
       - 'install/config/mowgli/**'
       - '.github/workflows/ros2-ci.yml'
+  # NOTE: deliberately NO `paths:` filter here, and `dev` is included alongside
+  # `main`. Two bugs used to hide in this block:
+  #   1. `branches: [main]` meant a ROS2 change opened against `dev` — where all
+  #      feature work lands — was never built, tested, cppcheck'd or
+  #      format-checked. Branch-name luck (`fix/**` etc. matching the `push`
+  #      trigger above) was the only thing that ran CI on those PRs; a
+  #      `codex/fix/...` or `feature/...` branch got nothing.
+  #   2. `Build & Test (ROS2 kilted)` is a REQUIRED status check on `dev`. A
+  #      workflow skipped by a `paths:` filter reports NOTHING, so the required
+  #      check sat pending forever and every GUI-only PR was permanently
+  #      BLOCKED. A job skipped by an `if:` condition, in contrast, reports as
+  #      skipped and satisfies branch protection — hence the `changes` job
+  #      below, which moves the path filtering from the trigger into a job gate.
   pull_request:
-    branches: [main]
-    paths:
-      - 'ros2/**'
-      - 'tools/motor/**'
-      - 'install/config/mowgli/**'
-      - '.github/workflows/ros2-ci.yml'
+    branches: [main, dev]
 
 concurrency:
   group: ros2-ci-${{ github.ref }}
@@ -24,6 +32,57 @@ env:
   ROS_DISTRO: kilted
 
 jobs:
+  # ─── Change Detection ────────────────────────────────────────────────────────
+  # The `pull_request` trigger has no `paths:` filter (see the comment on it) so
+  # that the REQUIRED `Build & Test (ROS2 kilted)` check always reports. This job
+  # reinstates the same filtering one level down, as a job gate: on a PR that
+  # touches no ROS2 path, the four jobs below are skipped by `if:` — and a
+  # job skipped that way is reported to branch protection as satisfied, whereas a
+  # workflow skipped by a trigger-level `paths:` filter reports nothing at all.
+  # On `push` (already path-filtered at the trigger) this always answers true.
+  changes:
+    name: Detect ROS2 changes
+    runs-on: ubuntu-24.04
+    outputs:
+      ros2: ${{ steps.filter.outputs.ros2 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect ROS2-relevant paths
+        id: filter
+        env:
+          # Via env, never inlined into the script — a branch name is attacker
+          # controlled on a fork PR.
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Not a pull_request — trigger-level paths: filter already applied."
+            echo "ros2=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=200 origin "$BASE_REF" \
+            || git fetch --no-tags origin "$BASE_REF" || true
+          BASE=$(git merge-base FETCH_HEAD HEAD 2>/dev/null || true)
+          if [ -z "$BASE" ]; then
+            echo "No merge-base with $BASE_REF — running the full suite to fail safe."
+            echo "ros2=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BASE" HEAD -- \
+            'ros2/**' 'tools/motor/**' 'install/config/mowgli/**' \
+            '.github/workflows/ros2-ci.yml')
+          if [ -n "$CHANGED" ]; then
+            echo "ROS2-relevant changes:"; echo "$CHANGED"
+            echo "ros2=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No ROS2-relevant changes — downstream jobs will be skipped."
+            echo "ros2=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ─── Config Drift Gate ───────────────────────────────────────────────────────
   # Guards Architecture Invariant 15: the installed mowgli_robot.yaml is SPARSE
   # over the in-package template. check_config_drift.py fails if a STRUCTURAL
@@ -37,6 +96,8 @@ jobs:
   config-drift:
     name: Config Drift (mowgli_robot.yaml)
     runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.ros2 == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -55,6 +116,8 @@ jobs:
   build-and-test:
     name: Build & Test (ROS2 ${{ matrix.ros_distro }})
     runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.ros2 == 'true'
 
     strategy:
       fail-fast: false
@@ -336,6 +399,8 @@ jobs:
   format-check:
     name: Formatting (clang-format)
     runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.ros2 == 'true'
 
     steps:
       - name: Checkout
@@ -378,6 +443,8 @@ jobs:
   static-analysis:
     name: Static Analysis (cppcheck)
     runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.ros2 == 'true'
 
     steps:
       - name: Checkout
