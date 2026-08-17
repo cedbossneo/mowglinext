@@ -64,6 +64,7 @@ interface MapToolbarMobileProps {
     onDownloadGeoJSON: () => void;
     onUploadGeoJSON: () => void;
     onImportOpenMower: () => void;
+    onResetMowingProgress: () => void;
     onMowArea: (key: string) => Promise<void>;
     selectedFeatureCount?: number;
     onEditSelectedFeature?: () => void;
@@ -77,6 +78,7 @@ interface MapToolbarMobileProps {
     onPlaceDock?: () => void;
     dockPlacementMode?: boolean;
     stateName?: string;
+    highLevelState?: number;
     emergency?: boolean;
     onStart?: () => Promise<void>;
     onHome?: () => Promise<void>;
@@ -97,11 +99,11 @@ export const MapToolbarMobile = ({
     historyIndex, editHistoryLength, mowingAreas,
     onEditMap, onSaveMap, onUndo, onRedo, onToggleSatellite,
     onManualMode, onStopManualMode,
-    onBackupMap, onRestoreMap, onDownloadGeoJSON, onUploadGeoJSON, onImportOpenMower,
+    onBackupMap, onRestoreMap, onDownloadGeoJSON, onUploadGeoJSON, onImportOpenMower, onResetMowingProgress,
     onMowArea, selectedFeatureCount = 0, onEditSelectedFeature,
     onDrawPolygon, onDrawShape, onDrawEmoji, onTrash, onCombine, onSubtract, onSplit,
     onPlaceDock, dockPlacementMode,
-    stateName, emergency,
+    stateName, highLevelState, emergency,
     onStart, onHome, onEmergencyOn, onEmergencyOff,
     onAreaRecording, onMowNextArea, onContinueOrPause,
     onBladeForward, onBladeBackward, onBladeOff,
@@ -170,6 +172,7 @@ export const MapToolbarMobile = ({
 
     const isIdle = stateName === "IDLE" || stateName === "IDLE_DOCKED";
     const isRecording = stateName === "RECORDING";
+    const resetDisabled = highLevelState === undefined || highLevelState >= 2;
 
     const safeCall = (fn?: () => Promise<void>) => {
         fn?.().catch((e: Error) => {
@@ -195,6 +198,13 @@ export const MapToolbarMobile = ({
         {key: "backup", icon: <DatabaseOutlined />, label: t("mapToolbarMobile.backupMap")},
         {key: "restore", icon: <DatabaseOutlined />, label: t("mapToolbarMobile.restoreMap")},
         {key: "importOpenMower", icon: <ImportOutlined />, label: t("mapToolbarMobile.importFromOpenMower")},
+        {
+            key: "resetMowingProgress",
+            icon: <DeleteOutlined />,
+            label: t("resetMowingProgress.action"),
+            danger: true,
+            disabled: resetDisabled,
+        },
         {type: "divider"},
         {key: "download", icon: <DownloadOutlined />, label: t("mapToolbarMobile.downloadGeojson")},
         ...(editMap
@@ -214,6 +224,7 @@ export const MapToolbarMobile = ({
             case "backup": onBackupMap(); break;
             case "restore": onRestoreMap(); break;
             case "importOpenMower": onImportOpenMower(); break;
+            case "resetMowingProgress": onResetMowingProgress(); break;
             case "download": onDownloadGeoJSON(); break;
             case "upload": onUploadGeoJSON(); break;
         }
