@@ -5,10 +5,10 @@
 // test_dock_cog_gate.cpp
 //
 // Unit tests for the one-click dock-calibration COG-coherence gate
-// (dock_cog_gate.hpp). RESOLUTION A: the dock yaw is circular_mean of the
-// /imu/cog_heading BODY-heading samples with NO +pi (the topic is already the
-// reverse-aware chassis heading), cross-checked against the INDEPENDENT
-// reversed GPS travel bearing.
+// (dock_cog_gate.hpp). The dock yaw is the REVERSED RTK TRAVEL BEARING of the
+// leg (precise to ~1° over 2 m); the circular_mean of the /imu/cog_heading
+// BODY-heading samples (NO +pi — the topic is already the reverse-aware
+// chassis heading) is only cross-checked against it as a coarse sanity gate.
 
 #include <cmath>
 #include <vector>
@@ -87,7 +87,7 @@ TEST(CircularStats, StdGrowsWithSpread)
   EXPECT_GT(loose, 3.0 * kRad);
 }
 
-// ── dock_yaw = circular_mean, NO +pi (Resolution A) ─────────────────────────
+// ── dock_yaw = reversed travel bearing (body heading of the leg, NO +pi) ────
 
 TEST(DockCogGate, DockYawIsBodyHeadingMeanNoPiOffset)
 {
@@ -100,9 +100,11 @@ TEST(DockCogGate, DockYawIsBodyHeadingMeanNoPiOffset)
 
   EXPECT_TRUE(r.coherent);
   EXPECT_EQ(r.reason, DockCogReason::OK);
-  // dock_yaw must equal the body-heading mean, NOT heading+pi.
+  // dock_yaw must be the chassis heading of the leg, NOT heading+pi.
   EXPECT_NEAR(ang_diff(r.dock_yaw_rad, heading), 0.0, 1.0 * kRad);
   EXPECT_GT(std::abs(ang_diff(r.dock_yaw_rad, heading + M_PI)), 3.0);  // definitely not +pi
+  // The COG mean is reported as the cross-check value.
+  EXPECT_NEAR(ang_diff(r.cog_mean_rad, heading), 0.0, 1.0 * kRad);
 }
 
 TEST(DockCogGate, CoherentAcrossHeadingsIncludingWrap)

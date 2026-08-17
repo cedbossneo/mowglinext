@@ -1377,6 +1377,17 @@
     "manualMow": "Manual Mow",
     "more": "More"
   },
+  "resetMowingProgress": {
+    "action": "Reset mowing progress",
+    "confirmTitle": "Reset saved mowing progress?",
+    "confirmBody": "This permanently clears the saved coverage progress for the current map.",
+    "confirmHint": "The mower will not start, and your mapped areas will not be deleted.",
+    "confirmAction": "Reset progress",
+    "cancel": "Cancel",
+    "success": "Mowing progress was reset",
+    "error": "Could not reset mowing progress",
+    "unknownError": "An unknown error occurred"
+  },
   "mapToolbarMobile": {
     "actionFailed": "Action failed",
     "darkMap": "Dark map",
@@ -2884,7 +2895,7 @@
     "restart": "Restart",
     "stop": "Stop",
     "start": "Start",
-    "searchPlaceholder": "Search logs...",
+    "searchPlaceholder": "Search logs…",
     "levelErrors": "Errors",
     "levelWarnings": "Warnings",
     "levelInfo": "Info",

@@ -60,17 +60,19 @@ struct DeltaGateConfig
 /// Outcome of folding one measurement.
 enum class DeltaGateAction
 {
-  SEEDED,    ///< First sample: Δ set directly.
+  SEEDED,  ///< First sample: Δ set directly.
   ACCEPTED,  ///< Within the jump band: EMA-smoothed into Δ.
   REJECTED,  ///< Jump too large: held the baseline (candidate run accumulating).
-  RESEEDED   ///< Sustained consistent rejection: Δ jumped to the new candidate.
+  RESEEDED  ///< Sustained consistent rejection: Δ jumped to the new candidate.
 };
 
 class DeltaGate
 {
 public:
   DeltaGate() = default;
-  explicit DeltaGate(const DeltaGateConfig& cfg) : cfg_(cfg) {}
+  explicit DeltaGate(const DeltaGateConfig& cfg) : cfg_(cfg)
+  {
+  }
 
   /// Fold one Δ measurement sampled at monotonic time `t_s` (seconds).
   DeltaGateAction update(double delta, double t_s)
@@ -124,11 +126,26 @@ public:
     return DeltaGateAction::REJECTED;
   }
 
-  bool has_offset() const { return have_offset_; }
-  double value() const { return offset_; }
-  double last_jump_rad() const { return last_jump_; }
-  bool has_candidate() const { return have_candidate_; }
-  double candidate_rad() const { return candidate_; }
+  bool has_offset() const
+  {
+    return have_offset_;
+  }
+  double value() const
+  {
+    return offset_;
+  }
+  double last_jump_rad() const
+  {
+    return last_jump_;
+  }
+  bool has_candidate() const
+  {
+    return have_candidate_;
+  }
+  double candidate_rad() const
+  {
+    return candidate_;
+  }
 
 private:
   DeltaGateConfig cfg_{};

@@ -25,6 +25,7 @@ import {useManualMode} from "./map/hooks/useManualMode.ts";
 import {useMapEditing} from "./map/hooks/useMapEditing.ts";
 import {useMapStreams} from "./map/hooks/useMapStreams.ts";
 import {useMapFiles, type ImportOpenMowerSummary} from "./map/hooks/useMapFiles.ts";
+import {useResetMowingProgress} from "./map/hooks/useResetMowingProgress.tsx";
 import {ImportOpenMowerModal} from "./map/components/ImportOpenMowerModal.tsx";
 import {NewAreaModal} from "./map/components/NewAreaModal.tsx";
 import {EditAreaModal} from "./map/components/EditAreaModal.tsx";
@@ -56,6 +57,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const {colors} = useThemeMode();
     const isMobile = useIsMobile();
     const mowerAction = useMowerAction()
+    const resetMowingProgress = useResetMowingProgress()
 
     // Brand tokens for the Mapbox display-only layers (dock, mower, lidar).
     // Shared between the compact and full render branches so the two stay in
@@ -315,13 +317,36 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
             // for the current area (/coverage/full_plan, a nav_msgs/Path).
             // Execution is swath-by-swath, but this shows the whole plan.
             // Rendered green so it reads distinctly from the transit plan below.
-            const coordinates: Position[] = path.poses.map((pose) => {
-                return transpose(offsetX, offsetY, datum, pose.pose?.position?.y!, pose.pose?.position?.x!)
-            });
-            if (coordinates.length > 1) {
-                const feature = new PathFeature("coverage-path", coordinates, LAYER_COLORS.coveragePath, 2);
-                newFeatures[feature.id] = feature
+            //
+            // full_path is the CONCATENATION of the drivable sub-paths; the
+            // jump between two sub-paths is never driven directly (the BT
+            // bridges it with an obstacle-avoiding Nav2 transit), so break the
+            // polyline at large gaps — drawing them as one line paints fake
+            // straight "routes" through the very obstacles the sub-path split
+            // exists to avoid.
+            const SUBPATH_GAP_M = 0.75;
+            let segment: Position[] = [];
+            let segmentIdx = 0;
+            let prev: { x: number; y: number } | null = null;
+            const flushSegment = () => {
+                if (segment.length > 1) {
+                    const feature = new PathFeature(
+                        `coverage-path-${segmentIdx}`, segment, LAYER_COLORS.coveragePath, 2);
+                    newFeatures[feature.id] = feature
+                    segmentIdx += 1;
+                }
+                segment = [];
+            };
+            for (const pose of path.poses) {
+                const x = pose.pose?.position?.x!;
+                const y = pose.pose?.position?.y!;
+                if (prev && Math.hypot(x - prev.x, y - prev.y) > SUBPATH_GAP_M) {
+                    flushSegment();
+                }
+                segment.push(transpose(offsetX, offsetY, datum, y, x));
+                prev = { x, y };
             }
+            flushSegment();
         }
         if (plan?.poses) {
             const coordinates = plan.poses.map((pose) => {
@@ -330,7 +355,17 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
             const feature = new ActivePathFeature("plan", coordinates);
             newFeatures[feature.id] = feature
         }
-        setFeatures(newFeatures)
+        // Preserve the live robot features — they are owned by the pose stream
+        // (useMapStreams merges mower/mower-* in) and must survive this
+        // map/path/plan-driven rebuild. Replacing the record wholesale wiped
+        // the mower on every path update, so the robot only stayed visible
+        // while the path overlays were NOT being streamed.
+        setFeatures((old) => ({
+            ...newFeatures,
+            ...Object.fromEntries(
+                Object.entries(old).filter(([k]) => k === "mower" || k.startsWith("mower-"))
+            ),
+        }))
     }, [map, path, plan, offsetX, offsetY, datum, editMap, LAYER_COLORS]);
 
     useEffect(() => {
@@ -1054,7 +1089,9 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             })()
                         }}
                         stateName={highLevelStatus.highLevelStatus.state_name}
+                        highLevelState={highLevelStatus.highLevelStatus.state}
                         emergency={highLevelStatus.highLevelStatus.emergency}
+                        onResetMowingProgress={resetMowingProgress}
                         {...mowerActions}
                     />
                 )}
@@ -1089,7 +1126,9 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             useSatellite={useSatellite}
                             mowingAreas={mowingAreas}
                             stateName={highLevelStatus.highLevelStatus.state_name}
+                            highLevelState={highLevelStatus.highLevelStatus.state}
                             emergency={highLevelStatus.highLevelStatus.emergency}
+                            onResetMowingProgress={resetMowingProgress}
                             pitched={pitched}
                             onTogglePitch={togglePitch}
                             onEditMap={handleEditMap}

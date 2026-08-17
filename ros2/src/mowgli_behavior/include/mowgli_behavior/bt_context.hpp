@@ -238,6 +238,15 @@ struct BTContext
   /// operator" — blade/motors past this margin can do real damage.
   bool lethal_boundary_violation{false};
 
+  /// Set (with hysteresis, see behavior_tree_node's /odometry/filtered_map
+  /// callback) while the fused position uncertainty is too high to trust —
+  /// σ_xy above loc_sigma_pause_m latches it, dropping below
+  /// loc_sigma_resume_m clears it. The LocalizationGuard pauses blade-on
+  /// mowing while set: field incident 2026-08-02 — RTK dropped to plain GPS
+  /// (σ ≈ 1.5 m) for >60 s and FTC kept steering on the drifting estimate
+  /// until the robot physically left the area and BoundaryGuard tripped.
+  bool localization_degraded{false};
+
   /// Current navigation mode: "precise" or "degraded"
   std::string current_nav_mode{"precise"};
 

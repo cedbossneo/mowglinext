@@ -32,28 +32,49 @@ describe('useManualMode', () => {
         expect(result.current.manualMode).toBe(false);
     });
 
-    it('handleManualMode activates manual mode', async () => {
+    it('activates manual mode without sending a client-side blade command', async () => {
         const {result} = renderManualMode();
         await act(async () => {
             await result.current.handleManualMode();
         });
+        expect(mowerAction).toHaveBeenCalledTimes(1);
         expect(mowerAction).toHaveBeenCalledWith('high_level_control', {Command: 7});
-        expect(mowerAction).toHaveBeenCalledWith('mow_enabled', {mow_enabled: 1, mow_direction: 0});
         expect(result.current.manualMode).toBe(true);
     });
 
-    it('handleStopManualMode deactivates manual mode', async () => {
+    it('stops in place, disables the blade, and deactivates manual mode', async () => {
         const {result} = renderManualMode();
         await act(async () => {
             await result.current.handleManualMode();
         });
         expect(result.current.manualMode).toBe(true);
+        vi.mocked(mowerAction).mockClear();
 
         await act(async () => {
             await result.current.handleStopManualMode();
         });
-        expect(mowerAction).toHaveBeenCalledWith('high_level_control', {Command: 2});
-        expect(mowerAction).toHaveBeenCalledWith('mow_enabled', {mow_enabled: 0, mow_direction: 0});
+        expect(mowerAction).toHaveBeenCalledTimes(2);
+        expect(mowerAction).toHaveBeenNthCalledWith(1, 'high_level_control', {Command: 8});
+        expect(mowerAction).toHaveBeenNthCalledWith(2, 'mow_enabled', {mow_enabled: 0, mow_direction: 0});
+        expect(result.current.manualMode).toBe(false);
+    });
+
+    it('keeps manual mode latched through a short non-manual state blip', () => {
+        const {result, rerender} = renderHook(
+            ({stateName}: {stateName: string | undefined}) => useManualMode({
+                mowerAction,
+                joyStream: {sendJsonMessage, start: startStream},
+                stateName,
+            }),
+            {initialProps: {stateName: 'MANUAL_MOWING'}},
+        );
+        expect(result.current.manualMode).toBe(true);
+
+        rerender({stateName: 'IDLE'});
+        act(() => vi.advanceTimersByTime(1199));
+        expect(result.current.manualMode).toBe(true);
+
+        act(() => vi.advanceTimersByTime(1));
         expect(result.current.manualMode).toBe(false);
     });
 
@@ -80,7 +101,7 @@ describe('useManualMode', () => {
         });
     });
 
-    it('cleans up blade keepalive on unmount', async () => {
+    it('cleans up timers on unmount', async () => {
         const {result, unmount} = renderManualMode();
         await act(async () => {
             await result.current.handleManualMode();

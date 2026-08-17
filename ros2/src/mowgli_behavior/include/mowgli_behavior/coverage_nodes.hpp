@@ -60,7 +60,7 @@ inline constexpr double kMowAngleAutoDeg = -1.0;
 // ---------------------------------------------------------------------------
 struct ResumeLocation
 {
-  bool valid = false;    ///< false → no resumable cursor; mow fresh from pose 0.
+  bool valid = false;  ///< false → no resumable cursor; mow fresh from pose 0.
   std::size_t unit = 0;  ///< index of the sub-path the cursor lands in (units 0..unit-1 are done).
   std::size_t local = 0;  ///< local offset to trim to; 0 → resume at the unit's front pose.
 };
@@ -72,7 +72,8 @@ struct ResumeLocation
 /// interior (local > 0 and at least 2 poses before the unit end) — otherwise the
 /// resume snaps to the unit's front. `total_poses` is the sum of unit sizes.
 ResumeLocation resolveResumeLocation(const std::vector<nav_msgs::msg::Path>& units,
-                                     std::size_t cursor, std::size_t total_poses);
+                                     std::size_t cursor,
+                                     std::size_t total_poses);
 
 // ---------------------------------------------------------------------------
 // refreshSwathProgress — publish the GUI-facing live swath progress for the
@@ -113,7 +114,8 @@ float coveragePercentFromCursor(std::size_t absolute_cursor, std::size_t total_p
 // goal-checker quirk) and guarantees the cursor advances monotonically.
 // ---------------------------------------------------------------------------
 std::size_t forwardSkipIndex(const std::vector<geometry_msgs::msg::PoseStamped>& poses,
-                             std::size_t from, double skip_dist_m);
+                             std::size_t from,
+                             double skip_dist_m);
 
 // ---------------------------------------------------------------------------
 // FollowStrip — execute the planned coverage path, blade ON.

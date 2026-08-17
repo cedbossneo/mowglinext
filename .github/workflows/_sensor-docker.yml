@@ -61,6 +61,12 @@ jobs:
       packages: write
 
     steps:
+      # Registry references must be lowercase; github.repository keeps the
+      # owner's casing, which breaks the build on forks with mixed-case
+      # owner names. GITHUB_ENV overrides the workflow-level IMAGE_PREFIX
+      # for all subsequent steps in this job.
+      - name: Lowercase image prefix
+        run: echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -163,6 +169,12 @@ jobs:
       packages: write
 
     steps:
+      # Registry references must be lowercase; github.repository keeps the
+      # owner's casing, which breaks the build on forks with mixed-case
+      # owner names. GITHUB_ENV overrides the workflow-level IMAGE_PREFIX
+      # for all subsequent steps in this job.
+      - name: Lowercase image prefix
+        run: echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - name: Download digests
         uses: actions/download-artifact@v8
         with:

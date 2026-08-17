@@ -2,8 +2,15 @@
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain id="any">
     <General>
+      <!-- Every container runs with network_mode: host + ipc: host, so all
+           ROS2 participants share this host's loopback. Pin DDS to "lo" and
+           disable multicast so discovery/traffic never leaves the machine.
+           The previous autodetermine="true" let Cyclone pick an external
+           NIC and try to talk over WiFi/Ethernet, which broke GPS/RTK
+           (UDP write failures + bridge crashes). See issue #418. -->
+      <AllowMulticast>false</AllowMulticast>
       <Interfaces>
-        <NetworkInterface autodetermine="true"/>
+        <NetworkInterface name="lo" priority="default"/>
       </Interfaces>
     </General>
     <Discovery>
@@ -11,6 +18,10 @@
            total participant count once every container + short-lived
            CLI clients have joined. -->
       <MaxAutoParticipantIndex>500</MaxAutoParticipantIndex>
+      <!-- Multicast is disabled above, so seed unicast discovery on lo. -->
+      <Peers>
+        <Peer Address="localhost"/>
+      </Peers>
     </Discovery>
   </Domain>
 </CycloneDDS>

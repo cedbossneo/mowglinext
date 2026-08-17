@@ -1373,6 +1373,17 @@
     "manualMow": "Tonte manuelle",
     "more": "Plus"
   },
+  "resetMowingProgress": {
+    "action": "Réinitialiser la progression de tonte",
+    "confirmTitle": "Réinitialiser la progression enregistrée ?",
+    "confirmBody": "Cette action efface définitivement la progression de couverture enregistrée pour la carte actuelle.",
+    "confirmHint": "La tondeuse ne démarrera pas et les zones cartographiées ne seront pas supprimées.",
+    "confirmAction": "Réinitialiser",
+    "cancel": "Annuler",
+    "success": "La progression de tonte a été réinitialisée",
+    "error": "Impossible de réinitialiser la progression de tonte",
+    "unknownError": "Une erreur inconnue est survenue"
+  },
   "mapToolbarMobile": {
     "actionFailed": "Échec de l'action",
     "darkMap": "Carte sombre",

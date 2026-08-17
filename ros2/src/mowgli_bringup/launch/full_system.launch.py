@@ -43,7 +43,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -545,8 +545,22 @@ def generate_launch_description() -> LaunchDescription:
     # bystander-permanently-shapes-the-map effect at the cost of slower
     # adaptation to real new obstacles). Toggle off via the
     # use_obstacle_tracker launch arg if it misbehaves on real grass.
+    # LiDAR-only in practice: the tracker clusters LiDAR obstacle returns, so
+    # without a scanner it only burns CPU (~30 % on a Pi 4, measured while
+    # mowing with lidar_enabled: false) waiting on inputs that never come —
+    # gate it on use_lidar as well.
     obstacle_tracker_node = Node(
-        condition=IfCondition(LaunchConfiguration("use_obstacle_tracker")),
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    LaunchConfiguration("use_obstacle_tracker"),
+                    "' == 'true' and '",
+                    LaunchConfiguration("use_lidar"),
+                    "' == 'true'",
+                ]
+            )
+        ),
         package="mowgli_map",
         executable="obstacle_tracker_node",
         name="obstacle_tracker",
