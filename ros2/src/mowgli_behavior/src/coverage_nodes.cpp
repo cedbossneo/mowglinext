@@ -69,7 +69,8 @@ uint64_t hashPlanGeometry(const std::vector<nav_msgs::msg::Path>& units)
 }  // namespace
 
 ResumeLocation resolveResumeLocation(const std::vector<nav_msgs::msg::Path>& units,
-                                     std::size_t cursor, std::size_t total_poses)
+                                     std::size_t cursor,
+                                     std::size_t total_poses)
 {
   ResumeLocation loc;
   // A cursor at 0 (never interrupted) or within 2 poses of the very end (whole
@@ -118,7 +119,8 @@ float coveragePercentFromCursor(std::size_t absolute_cursor, std::size_t total_p
 }
 
 std::size_t forwardSkipIndex(const std::vector<geometry_msgs::msg::PoseStamped>& poses,
-                             std::size_t from, double skip_dist_m)
+                             std::size_t from,
+                             double skip_dist_m)
 {
   if (poses.size() < 2 || from + 1 >= poses.size() || skip_dist_m <= 0.0)
   {
@@ -299,9 +301,8 @@ BT::NodeStatus FollowStrip::onStart()
           resume_start_idx_ = rl.local;
           nav_msgs::msg::Path trimmed;
           trimmed.header = units[rl.unit].header;
-          trimmed.poses.assign(
-              units[rl.unit].poses.begin() + static_cast<std::ptrdiff_t>(rl.local),
-              units[rl.unit].poses.end());
+          trimmed.poses.assign(units[rl.unit].poses.begin() + static_cast<std::ptrdiff_t>(rl.local),
+                               units[rl.unit].poses.end());
           units[rl.unit] = std::move(trimmed);
         }
         RCLCPP_INFO(ctx->node->get_logger(),

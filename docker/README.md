@@ -362,11 +362,24 @@ inside the running `mowgli-ros2` container.
 
 All ROS2 containers use **Cyclone DDS** (`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`).
 The shared config at `config/cyclonedds.xml` is bind-mounted to
-`/cyclonedds.xml` in every container and sets:
+`/cyclonedds.xml` in every container. Because all containers run with
+`network_mode: host`, every ROS2 participant shares the host loopback, so the
+config pins DDS to `lo` and disables multicast — keeping discovery and traffic
+off the WiFi/Ethernet NICs (letting DDS pick an external interface broke
+GPS/RTK, see issue #418):
 
 ```xml
+<General>
+  <AllowMulticast>false</AllowMulticast>
+  <Interfaces>
+    <NetworkInterface name="lo" priority="default"/>
+  </Interfaces>
+</General>
 <Discovery>
-  <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+  <MaxAutoParticipantIndex>500</MaxAutoParticipantIndex>
+  <Peers>
+    <Peer Address="localhost"/>
+  </Peers>
 </Discovery>
 ```
 
@@ -601,11 +614,20 @@ expected; Nav2 does not receive LiDAR scans.
    ```
 
 3. The `MaxAutoParticipantIndex` in `config/cyclonedds.xml` defaults to
-   `120`. If you add more nodes and discovery still fails, increase it.
+   `500`. If you add more nodes and discovery still fails, increase it.
 
-4. For the remote split deployment, confirm DDS multicast is routable
-   between the Pi and the host, or switch to a FastDDS unicast peer
-   configuration using `fastdds.xml` as a reference.
+4. Confirm DDS is still pinned to `lo` — `NetworkInterface name="lo"` plus
+   `AllowMulticast=false`. Letting Cyclone autodetermine the interface makes it
+   route DDS over WiFi/Ethernet, where a link flap turns into
+   `ddsi_udp_conn_write ... failed with retcode -1` floods and dying nodes
+   (issue #418).
+
+5. Run `ros2` CLI commands **inside** a container (`docker exec mowgli-ros2 …`).
+   A host-native `ros2` binary will not see the graph unless it uses the same
+   config: `export CYCLONEDDS_URI=file://$PWD/config/cyclonedds.xml`.
+
+The split deployment shares serial devices over ser2net, not DDS — DDS never
+crosses hosts here, so there is nothing to make routable between boards.
 
 ### Nav2 does not start or times out on ARM
 

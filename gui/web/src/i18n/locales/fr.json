@@ -137,7 +137,11 @@
     "confirm": "Confirmer",
     "cancel": "Annuler",
     "restartMowgli": "Redémarrer Mowgli",
-    "restartMowgliConfirm": "Cela va redémarrer le conteneur MowgliNext.",
+    "restartMowgliConfirm": "Cela redémarre toute la pile Mowgli (ROS2, GPS, LiDAR et cette interface web) — comme la commande mowgli-restart. La page se déconnectera brièvement et se rechargera automatiquement au retour de l'interface.",
+    "restartingStackTitle": "Redémarrage de Mowgli…",
+    "restartingStackBody": "Redémarrage de toute la pile. Cette page se reconnectera et se rechargera automatiquement au retour de l'interface.",
+    "rebootingPiTitle": "Redémarrage du Raspberry Pi…",
+    "rebootingPiBody": "Le Raspberry Pi redémarre. Cette page se reconnectera et se rechargera automatiquement à son retour (cela peut prendre une à deux minutes).",
     "advanced": "Avancé",
     "restartBoard": "Redémarrer la carte (STM32)",
     "restartBoardConfirm": "Réinitialise le firmware STM32 (NVIC_SystemReset). À utiliser pour débloquer une carte figée — par ex. l'IMU renvoyant NaN. Les moteurs/la lame s'arrêtent pendant le reset (~1 s).",
@@ -1368,6 +1372,17 @@
     "stopManual": "Arrêter",
     "manualMow": "Tonte manuelle",
     "more": "Plus"
+  },
+  "resetMowingProgress": {
+    "action": "Réinitialiser la progression de tonte",
+    "confirmTitle": "Réinitialiser la progression enregistrée ?",
+    "confirmBody": "Cette action efface définitivement la progression de couverture enregistrée pour la carte actuelle.",
+    "confirmHint": "La tondeuse ne démarrera pas et les zones cartographiées ne seront pas supprimées.",
+    "confirmAction": "Réinitialiser",
+    "cancel": "Annuler",
+    "success": "La progression de tonte a été réinitialisée",
+    "error": "Impossible de réinitialiser la progression de tonte",
+    "unknownError": "Une erreur inconnue est survenue"
   },
   "mapToolbarMobile": {
     "actionFailed": "Échec de l'action",

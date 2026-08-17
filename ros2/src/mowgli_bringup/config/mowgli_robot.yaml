@@ -91,6 +91,19 @@ mowgli:
     yaw_gyro_sign: 1
     # Behavior tree tuning (consumed by behavior_tree_node)
     tick_rate: 10.0
+    # Localization-quality gate (LocalizationGuard): pause blade-on mowing
+    # while the fused σ_xy exceeds loc_sigma_pause_m; resume once it falls
+    # below loc_sigma_resume_m (hysteresis so RTK flapping doesn't chatter).
+    # Field incident 2026-08-02: >60 s plain-GPS fallback (σ ≈ 1.5 m) drove
+    # the robot out of the area before BoundaryGuard could see it.
+    loc_sigma_pause_m: 0.15
+    loc_sigma_resume_m: 0.08
+    # Persistence debounce: σ must stay beyond the threshold this long before
+    # the guard flips. Graph covariance spikes to ~0.9 m for a few seconds on
+    # every rejected/missed GPS fix and snaps back — without the debounce the
+    # guard flipped 32× in 15 min and shredded mowing into stutter intervals.
+    loc_sigma_pause_persist_s: 3.0
+    loc_sigma_resume_persist_s: 2.0
     bt_debug_logging: false
     # idle_nav2_suspend (default false): when true, the BT PAUSEs the Nav2
     # lifecycle stack while parked on the dock so the costmaps stop looping and
@@ -356,13 +369,23 @@ mowgli:
     # the forward re-dock before failing with NO_CHARGE_ON_REDOCK.
     dock_calib_rtk_wait_timeout_s: 10.0
     dock_calib_redock_charge_timeout_s: 30.0
-    # COG-coherence gate over the reverse leg (Resolution A — dock_yaw =
-    # circular_mean of the /imu/cog_heading BODY-heading samples, NO +pi;
-    # cross-checked against the reversed GPS travel bearing). See
-    # dock_cog_gate.hpp. Fail (b)/(c) => COG_INCOHERENT => operator retries.
+    # COG-coherence gate over the reverse leg. The persisted dock_yaw is the
+    # REVERSED RTK TRAVEL BEARING of the leg (~1° over 2 m); the circular mean
+    # of the /imu/cog_heading BODY-heading samples is only cross-checked
+    # against it. See dock_cog_gate.hpp. Fail (b)/(c) => COG_INCOHERENT =>
+    # operator retries.
     dock_calib_cog_min_samples: 8                    # (a) min valid /imu/cog_heading samples
-    dock_calib_cog_std_max_rad: 0.0524              # (b) ~3° circular-std ceiling
-    dock_calib_cog_bearing_match_max_rad: 0.1047    # (c) ~6° COG-vs-GPS-bearing match
+    # (b) circular-std ceiling. Per-sample COG scatter is set by the publisher's
+    # 0.10 m baseline vs. RTK noise (2-3 cm σ => 10-19° per sample even on a
+    # perfectly straight leg; field-measured 10-27° std across runs), so this
+    # gate only screens gross RTK-Float wander. Heading quality is enforced by
+    # (c) on the MEAN.
+    dock_calib_cog_std_max_rad: 0.70
+    # (c) COG-mean vs GPS-travel-bearing cross-check. Sanity only — the yaw
+    # that gets persisted IS the reversed RTK travel bearing (~1° over a 2 m
+    # leg); the COG mean has a 3-4° standard error, so a tight match gate
+    # would trip on noise. ~20° still catches a dead/stale COG feed.
+    dock_calib_cog_bearing_match_max_rad: 0.35
     dock_calib_min_baseline_displacement_m: 0.5      # (d) min reverse displacement for a fit
 
     # -----------------------------------------------------------------
