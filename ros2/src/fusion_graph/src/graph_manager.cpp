@@ -158,12 +158,16 @@ void GraphManager::AddGyroDelta(double wz, double dt)
   }
 }
 
-void GraphManager::QueueGnss(double x, double y, double sigma_xy, bool robust)
+bool GraphManager::QueueGnss(
+    double x, double y, double sigma_xy, bool robust, std::optional<uint64_t> target_node)
 {
   std::lock_guard<std::mutex> lock(mu_);
+  if (target_node && !HasPoseAt(*target_node))
+    return false;
   if (sigma_xy < params_.gps_sigma_floor)
     sigma_xy = params_.gps_sigma_floor;
-  queue_.gnss = UnaryQueue::Gnss{gtsam::Vector2(x, y), sigma_xy, robust};
+  queue_.gnss = UnaryQueue::Gnss{gtsam::Vector2(x, y), sigma_xy, robust, target_node};
+  return true;
 }
 
 void GraphManager::QueueYaw(double yaw, double sigma_yaw, bool robust)
@@ -236,6 +240,8 @@ void GraphManager::Initialize(const gtsam::Pose2& X0,
 
   next_index_ = 1;
   last_node_time_s_ = timestamp;
+  node_time_index_.clear();
+  node_time_index_.emplace_back(timestamp, 0);
   initialized_ = true;
 
   TickOutput out;
@@ -245,6 +251,20 @@ void GraphManager::Initialize(const gtsam::Pose2& X0,
   out.node_index = 0;
   out.timestamp = timestamp;
   latest_ = out;
+}
+
+std::optional<uint64_t> GraphManager::FindNodeAtOrBefore(double timestamp_s) const
+{
+  std::lock_guard<std::mutex> lock(mu_);
+  if (!initialized_ || !std::isfinite(timestamp_s))
+    return std::nullopt;
+
+  for (auto it = node_time_index_.rbegin(); it != node_time_index_.rend(); ++it)
+  {
+    if (it->first <= timestamp_s && HasPoseAt(it->second))
+      return it->second;
+  }
+  return std::nullopt;
 }
 
 std::optional<TickOutput> GraphManager::LatestSnapshot() const
