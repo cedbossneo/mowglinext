@@ -25,6 +25,7 @@ import {useManualMode} from "./map/hooks/useManualMode.ts";
 import {useMapEditing} from "./map/hooks/useMapEditing.ts";
 import {useMapStreams} from "./map/hooks/useMapStreams.ts";
 import {useMapFiles, type ImportOpenMowerSummary} from "./map/hooks/useMapFiles.ts";
+import {useResetMowingProgress} from "./map/hooks/useResetMowingProgress.tsx";
 import {ImportOpenMowerModal} from "./map/components/ImportOpenMowerModal.tsx";
 import {NewAreaModal} from "./map/components/NewAreaModal.tsx";
 import {EditAreaModal} from "./map/components/EditAreaModal.tsx";
@@ -56,6 +57,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const {colors, displayMode} = useThemeMode();
     const isMobile = useIsMobile();
     const mowerAction = useMowerAction()
+    const resetMowingProgress = useResetMowingProgress()
 
     // Brand tokens for the Mapbox display-only layers (dock, mower, lidar).
     // Shared between the compact and full render branches so the two stay in
@@ -1087,7 +1089,9 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             })()
                         }}
                         stateName={highLevelStatus.highLevelStatus.state_name}
+                        highLevelState={highLevelStatus.highLevelStatus.state}
                         emergency={highLevelStatus.highLevelStatus.emergency}
+                        onResetMowingProgress={resetMowingProgress}
                         {...mowerActions}
                     />
                 )}
@@ -1122,7 +1126,9 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             useSatellite={useSatellite}
                             mowingAreas={mowingAreas}
                             stateName={highLevelStatus.highLevelStatus.state_name}
+                            highLevelState={highLevelStatus.highLevelStatus.state}
                             emergency={highLevelStatus.highLevelStatus.emergency}
+                            onResetMowingProgress={resetMowingProgress}
                             pitched={pitched}
                             onTogglePitch={togglePitch}
                             onEditMap={handleEditMap}

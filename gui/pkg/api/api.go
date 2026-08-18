@@ -1,15 +1,15 @@
 package api
 
 import (
+	"log"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"github.com/mowglinext/mowglinext/docs"
 	"github.com/mowglinext/mowglinext/pkg/providers"
 	"github.com/mowglinext/mowglinext/pkg/types"
-	"github.com/gin-contrib/cors"
-	"github.com/gin-contrib/static"
-	"github.com/gin-gonic/gin"
 	swaggerfiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
-	"log"
 )
 
 // gin-swagger middleware
@@ -33,18 +33,7 @@ func NewAPI(dbProvider types.IDBProvider, dockerProvider types.IDockerProvider, 
 		log.Fatal(err)
 	}
 	webDir := string(webDirectory)
-	r.Use(func(c *gin.Context) {
-		p := c.Request.URL.Path
-		if p == "/" || p == "/index.html" {
-			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-		}
-		c.Next()
-	})
-	r.Use(static.Serve("/", static.LocalFile(webDir, false)))
-	r.NoRoute(func(c *gin.Context) {
-		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-		c.File(webDir + "/index.html")
-	})
+	registerWebUI(r, webDir)
 	apiGroup := r.Group("/api")
 	ConfigRoute(apiGroup, dbProvider)
 	SettingsRoutes(apiGroup, dbProvider)
