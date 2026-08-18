@@ -54,7 +54,7 @@ const DYN_OBSTACLE_INTERACTIVE_LAYERS = ['dyn-obstacle-fill'];
 export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     const {notification} = App.useApp();
     const {t} = useTranslation();
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const isMobile = useIsMobile();
     const mowerAction = useMowerAction()
     const resetMowingProgress = useResetMowingProgress()
@@ -207,21 +207,21 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     // filter (no feature rebuild). Only the full map passes withHighlight; the
     // compact overview just shows the fill/outline/label.
     const renderDynObstacleLayers = (withHighlight: boolean) => (
-        <>
-            <Layer type={"fill"} id={"dyn-obstacle-fill"}
+        [
+            <Layer key={"dyn-obstacle-fill"} type={"fill"} id={"dyn-obstacle-fill"}
                 filter={['==', ['get', 'feature_type'], 'dyn-obstacle']}
-                paint={{'fill-color': ['get', 'color']}}/>
-            <Layer type={"line"} id={"dyn-obstacle-outline"}
+                paint={{'fill-color': ['get', 'color']}}/>,
+            <Layer key={"dyn-obstacle-outline"} type={"line"} id={"dyn-obstacle-outline"}
                 filter={['==', ['get', 'feature_type'], 'dyn-obstacle']}
-                paint={{'line-color': LAYER_COLORS.lidarHit, 'line-width': 2}}/>
-            {withHighlight && (
-                <Layer type={"line"} id={"dyn-obstacle-highlight"}
+                paint={{'line-color': LAYER_COLORS.lidarHit, 'line-width': 2}}/>,
+            ...(withHighlight ? [
+                <Layer key={"dyn-obstacle-highlight"} type={"line"} id={"dyn-obstacle-highlight"}
                     filter={['all',
                         ['==', ['get', 'feature_type'], 'dyn-obstacle'],
                         ['==', ['get', 'obs_id'], selectedObstacleId ?? -1]]}
-                    paint={{'line-color': LAYER_COLORS.lidarMiss, 'line-width': 4}}/>
-            )}
-            <Layer type={"symbol"} id={"dyn-obstacle-label"}
+                    paint={{'line-color': LAYER_COLORS.lidarMiss, 'line-width': 4}}/>,
+            ] : []),
+            <Layer key={"dyn-obstacle-label"} type={"symbol"} id={"dyn-obstacle-label"}
                 filter={['==', ['get', 'feature_type'], 'dyn-obstacle']}
                 layout={{
                     'text-field': ['concat', '#', ['get', 'obs_label']],
@@ -233,8 +233,8 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                     'text-color': LAYER_COLORS.labelText,
                     'text-halo-color': LAYER_COLORS.labelHalo,
                     'text-halo-width': 1.5,
-                }}/>
-        </>
+                }}/>,
+        ]
     );
 
     const [mowingAreas, setMowingAreas] = useState<{ key: string, label: string, feat: Feature }[]>([])
@@ -1120,7 +1120,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 )}
                 {/* Desktop: View mode — bottom glass toolbar */}
                 {!isMobile && !editMap && (
-                    <div style={{position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 10, background: colors.glassBackground, backdropFilter: 'blur(22px) saturate(140%)', WebkitBackdropFilter: 'blur(22px) saturate(140%)', borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, padding: '10px 14px'}}>
+                    <div style={{position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 10, background: colors.glassBackground, backdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, WebkitBackdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, padding: '10px 14px'}}>
                         <MapToolbar
                             manualMode={manualMode}
                             useSatellite={useSatellite}
@@ -1151,7 +1151,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                 )}
                 {/* Desktop: Right panel — areas list + offset */}
                 {!isMobile && (
-                    <div style={{position: 'absolute', top: 12, right: 16, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 0, width: 240, maxHeight: 'calc(100% - 32px)', background: colors.glassBackground, backdropFilter: 'blur(22px) saturate(140%)', WebkitBackdropFilter: 'blur(22px) saturate(140%)', borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, overflow: 'hidden'}}>
+                    <div style={{position: 'absolute', top: 12, right: 16, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 0, width: 240, maxHeight: 'calc(100% - 32px)', background: colors.glassBackground, backdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, WebkitBackdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined, borderRadius: 18, border: colors.glassBorder, boxShadow: colors.glassShadow, overflow: 'hidden'}}>
                         <AreasListPanel
                             areas={areasList}
                             onAreaClick={editMap ? handleAreaSelect : undefined}

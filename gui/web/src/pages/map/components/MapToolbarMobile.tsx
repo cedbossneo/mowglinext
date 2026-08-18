@@ -108,7 +108,7 @@ export const MapToolbarMobile = ({
     onAreaRecording, onMowNextArea, onContinueOrPause,
     onBladeForward, onBladeBackward, onBladeOff,
 }: MapToolbarMobileProps) => {
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const {notification} = App.useApp();
     const {t} = useTranslation();
     const [mowLoading, setMowLoading] = useState(false);
@@ -144,8 +144,8 @@ export const MapToolbarMobile = ({
         WebkitOverflowScrolling: "touch",
         alignItems: "center",
         background: colors.glassBackground,
-        backdropFilter: "blur(22px) saturate(140%)",
-        WebkitBackdropFilter: "blur(22px) saturate(140%)",
+        backdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined,
+        WebkitBackdropFilter: displayMode === 'visual' ? 'blur(22px) saturate(140%)' : undefined,
         borderRadius: 18,
         border: colors.glassBorder,
         boxShadow: colors.glassShadow,

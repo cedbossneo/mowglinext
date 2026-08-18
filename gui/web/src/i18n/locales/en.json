@@ -2954,6 +2954,10 @@
     "errorOccurred": "An error occured"
   },
   "settingsSections": {
+    "appearance": {
+      "label": "Appearance",
+      "description": "Visual richness and energy use on this device"
+    },
     "hardware": {
       "label": "Hardware",
       "description": "Robot model, wheels, chassis, and blade dimensions"
@@ -3022,6 +3026,23 @@
       "drivePidUpdateFailed": "Settings saved, but live drive-PID update failed",
       "drivePidUpdateFailedDescription": "Restart ROS2 to apply the new drive-motor PID gains.",
       "saveFailed": "Failed to save settings"
+    }
+  },
+  "displayMode": {
+    "title": "Display mode",
+    "description": "Choose the balance of visual richness, responsiveness, and energy use for this browser.",
+    "reducedMotion": "Your system's reduced-motion setting always limits non-essential motion.",
+    "visual": {
+      "label": "Visual",
+      "description": "Richer glass surfaces and subtle ambient feedback."
+    },
+    "balanced": {
+      "label": "Balanced",
+      "description": "The intended Mowgli look with efficient default rendering."
+    },
+    "efficient": {
+      "label": "Efficient",
+      "description": "Lower compositing and conservative visual update rates."
     }
   },
   "ntripProviders": {

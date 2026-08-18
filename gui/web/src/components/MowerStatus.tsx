@@ -14,25 +14,10 @@ import {PoweroffOutlined, ReloadOutlined, DesktopOutlined, WifiOutlined, AlertOu
 import {stateRenderer} from "./utils.tsx";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {useApi} from "../hooks/useApi.ts";
-import {limeAlpha} from "../theme/colors.ts";
 import {SettingOutlined} from "@ant-design/icons";
+import type {CSSProperties} from "react";
 import type {MenuProps} from "antd";
 import {useTranslation} from "react-i18next";
-
-// Builds the badge pulse keyframes from brand tokens. Green pulse derives
-// from the lime hero accent; red pulse derives from colors.danger (rose).
-// colors.danger is a hex string ("#FF6B7A"); append an 8-bit alpha suffix
-// to get the translucent stops without hardcoding the rose RGB here.
-const buildPulseKeyframes = (dangerHex: string) => `
-@keyframes mowerPulseGreen {
-    0%, 100% { box-shadow: 0 0 0 0 ${limeAlpha(0.6)}; }
-    50% { box-shadow: 0 0 0 4px ${limeAlpha(0)}; }
-}
-@keyframes mowerPulseRed {
-    0%, 100% { box-shadow: 0 0 0 0 ${dangerHex}99; }
-    50% { box-shadow: 0 0 0 4px ${dangerHex}00; }
-}
-`;
 
 // Colour by the NUMERIC high-level state (status_nodes.cpp publishes it every
 // tick): 2=AUTONOMOUS / 3=RECORDING / 4=MANUAL_MOWING are active (primary);
@@ -49,8 +34,7 @@ const statusColor = (stateNum: number | undefined, isEmergency: boolean, colors:
 
 export const MowerStatus = () => {
     const {t} = useTranslation();
-    const {colors} = useThemeMode();
-    const pulseKeyframes = buildPulseKeyframes(colors.danger);
+    const {colors, displayMode} = useThemeMode();
     const {highLevelStatus} = useHighLevelStatus();
     const hwStatus = useStatus();
     const emergencyData = useEmergency();
@@ -88,11 +72,11 @@ export const MowerStatus = () => {
 
     const isMowing = stateNum === 2 || stateNum === 3 || stateNum === 4;
 
+    // The colour remains a continuous state cue. Emergency emphasis always
+    // pulses; Visual mode can additionally use a restrained active-state cue.
     const pulseAnimation = isEmergency
         ? 'mowerPulseRed 1.5s ease-in-out infinite'
-        : isMowing
-            ? 'mowerPulseGreen 2s ease-in-out infinite'
-            : 'none';
+        : isMowing && displayMode === 'visual' ? 'mowerPulseGreen 2.4s ease-in-out infinite' : 'none';
 
     const hasArea = highLevelStatus.current_area !== undefined && highLevelStatus.current_area >= 0;
     // Coarse sub-path X/Y — the secondary readout.
@@ -252,7 +236,6 @@ export const MowerStatus = () => {
 
     return (
         <>
-            <style>{pulseKeyframes}</style>
             {/* Blocking overlay while a whole-stack restart or Pi reboot takes the
                 GUI down. The page reconnects and reloads via watchForGuiAndReload. */}
             <Modal
@@ -272,7 +255,12 @@ export const MowerStatus = () => {
                 <Space size={4}>
                     <Badge
                         color={statusColor(stateNum, isEmergency, colors)}
-                        style={{animation: pulseAnimation, borderRadius: '50%'}}
+                        style={{
+                            animation: pulseAnimation,
+                            borderRadius: '50%',
+                            '--mower-status-danger': colors.danger,
+                            '--mower-status-active': colors.primary,
+                        } as CSSProperties}
                     />
                     <Typography.Text style={{fontSize: 12, color: colors.text, whiteSpace: 'nowrap'}}>
                         {stateRenderer(stateName)}

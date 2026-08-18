@@ -1,6 +1,7 @@
 import {Cloud, CloudRain, Sun, CloudSun, Snowflake, CloudFog, CloudLightning} from "lucide-react";
 import {useTranslation} from "react-i18next";
 import i18n from "../../i18n";
+import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
  * Compact weather pill -- icon + temp + condition. Tone shifts to amber
@@ -27,6 +28,7 @@ interface WeatherChipProps {
 
 export function WeatherChip({condition, tempC, rainSoon}: WeatherChipProps) {
   const {t} = useTranslation();
+  const {displayMode} = useThemeMode();
   const Icon = ICON[condition];
   const warn = rainSoon || condition === "rain" || condition === "storm";
   return (
@@ -39,7 +41,7 @@ export function WeatherChip({condition, tempC, rainSoon}: WeatherChipProps) {
       border: `1px solid ${warn ? "rgba(243, 168, 92, 0.32)" : "var(--border-soft)"}`,
       borderRadius: "var(--radius-pill)",
       color: warn ? "var(--amber)" : "var(--ink)",
-      backdropFilter: "blur(20px)",
+      backdropFilter: displayMode === "visual" ? "blur(20px)" : undefined,
       fontSize: 13, fontWeight: 600,
     }}>
       <Icon size={16} strokeWidth={2}/>
