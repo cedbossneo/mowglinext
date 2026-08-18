@@ -72,6 +72,11 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   robot_yaml_path_ = declare_parameter<std::string>("robot_yaml_path", kRuntimeRobotYaml);
   publish_rate_ = declare_parameter<double>("publish_rate", 1.0);
   mow_progress_publish_period_s_ = declare_parameter<double>("mow_progress_publish_period_s", 2.0);
+  mow_progress_tool_frame_ =
+      declare_parameter<std::string>("mow_progress_tool_frame", "blade_link");
+  mow_progress_min_blade_rpm_ = declare_parameter<double>("mow_progress_min_blade_rpm", 1000.0);
+  mow_progress_blade_telemetry_max_age_s_ =
+      declare_parameter<double>("mow_progress_blade_telemetry_max_age_s", 1.0);
   keepout_nav_margin_ = declare_parameter<double>("keepout_nav_margin", 0.45);
   // Hard area-boundary enforcement: when true (operator default), the keepout
   // mask marks every cell OUTSIDE the union of all areas (mowing + navigation)
@@ -568,7 +573,10 @@ void MapServerNode::on_occupancy_grid(nav_msgs::msg::OccupancyGrid::ConstSharedP
 
 void MapServerNode::on_mower_status(mowgli_interfaces::msg::Status::ConstSharedPtr msg)
 {
-  mow_blade_enabled_ = msg->mow_enabled;
+  mow_blade_requested_ = msg->mow_enabled;
+  mow_blade_active_ = msg->mower_esc_status != 0U;
+  mow_blade_rpm_ = msg->mower_motor_rpm;
+  mow_blade_telemetry_time_ = rclcpp::Time(msg->blade_status_stamp);
   last_is_charging_ = msg->is_charging;
   last_status_time_ = now();
 }
@@ -620,10 +628,49 @@ void MapServerNode::on_odom(nav_msgs::msg::Odometry::ConstSharedPtr /*msg*/)
   last_robot_x_ = x;
   last_robot_y_ = y;
 
-  // Accumulate the mowed footprint while the blade is running.
-  if (mow_blade_enabled_)
+  const rclcpp::Time now_t = now();
+  const bool telemetry_fresh =
+      mow_blade_telemetry_time_.nanoseconds() > 0 &&
+      (now_t - mow_blade_telemetry_time_).seconds() >= 0.0 &&
+      (now_t - mow_blade_telemetry_time_).seconds() <= mow_progress_blade_telemetry_max_age_s_;
+  const auto reason = GetMowProgressInhibitReason(mow_blade_requested_,
+                                                  telemetry_fresh,
+                                                  mow_blade_active_,
+                                                  mow_blade_rpm_,
+                                                  mow_progress_min_blade_rpm_);
+  if (reason != mow_progress_reason_)
   {
-    stamp_mow_progress(x, y);
+    RCLCPP_INFO(get_logger(),
+                "Mow-progress stamping %s: %s",
+                reason == MowProgressInhibitReason::kActive ? "enabled" : "inhibited",
+                ToString(reason));
+    mow_progress_reason_ = reason;
+  }
+
+  if (reason == MowProgressInhibitReason::kActive)
+  {
+    try
+    {
+      const auto tool_tf =
+          tf_buffer_->lookupTransform(map_frame_, mow_progress_tool_frame_, tf2::TimePointZero);
+      stamp_mow_progress(tool_tf.transform.translation.x, tool_tf.transform.translation.y);
+    }
+    catch (const tf2::TransformException& ex)
+    {
+      have_last_mow_tool_position_ = false;
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           5000,
+                           "Mow-progress stamping inhibited: no %s -> %s transform: %s",
+                           map_frame_.c_str(),
+                           mow_progress_tool_frame_.c_str(),
+                           ex.what());
+    }
+  }
+  else
+  {
+    // Never sweep across a period in which cutting was unverified.
+    have_last_mow_tool_position_ = false;
   }
 
   check_boundary_violation(x, y);
@@ -806,18 +853,54 @@ void MapServerNode::stamp_mow_progress(double x, double y)
     mow_progress_map_.setFrameId(map_frame_);
     mow_progress_map_.setGeometry(map_.getLength(), map_.getResolution(), map_.getPosition());
     mow_progress_map_[layer].setConstant(0.0F);
+    // The previous point belonged to different grid geometry, so it must not
+    // be joined to the first pose in the fresh overlay.
+    have_last_mow_tool_position_ = false;
   }
 
   const grid_map::Position center(x, y);
   const double radius = std::max(tool_width_ * 0.5, mow_progress_map_.getResolution());
-  for (grid_map::CircleIterator it(mow_progress_map_, center, radius); !it.isPastEnd(); ++it)
+  const auto stamp_disc = [this, &layer, radius](const grid_map::Position& position)
   {
-    if (mow_progress_map_.at(layer, *it) < 100.0F)
+    for (grid_map::CircleIterator it(mow_progress_map_, position, radius); !it.isPastEnd(); ++it)
     {
-      mow_progress_map_.at(layer, *it) = 100.0F;
-      mow_progress_dirty_ = true;
+      if (mow_progress_map_.at(layer, *it) < 100.0F)
+      {
+        mow_progress_map_.at(layer, *it) = 100.0F;
+        mow_progress_dirty_ = true;
+      }
+    }
+  };
+
+  if (have_last_mow_tool_position_)
+  {
+    const double distance = (center - last_mow_tool_position_).norm();
+    const size_t steps = SweepStepCount(distance, mow_progress_map_.getResolution());
+    for (size_t step = 1; step <= steps; ++step)
+    {
+      const double fraction = static_cast<double>(step) / static_cast<double>(steps);
+      stamp_disc(last_mow_tool_position_ + fraction * (center - last_mow_tool_position_));
     }
   }
+  else
+  {
+    stamp_disc(center);
+  }
+  last_mow_tool_position_ = center;
+  have_last_mow_tool_position_ = true;
+}
+
+float MapServerNode::mow_progress_value_for_test(double x, double y) const
+{
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  const std::string layer = "mowed";
+  grid_map::Index index;
+  if (!mow_progress_map_.exists(layer) ||
+      !mow_progress_map_.getIndex(grid_map::Position(x, y), index))
+  {
+    return 0.0F;
+  }
+  return mow_progress_map_.at(layer, index);
 }
 
 void MapServerNode::publish_mow_progress()

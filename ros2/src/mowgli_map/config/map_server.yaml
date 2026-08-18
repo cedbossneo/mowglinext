@@ -22,6 +22,14 @@ map_server_node:
     # cutting that serialization ~publish_rate× (transient_local still delivers
     # the latest grid to late subscribers immediately).
     mow_progress_publish_period_s: 2.0
+    # The `actually mowed` overlay follows this physical cutting-tool TF, not
+    # base_footprint. Override for mower-specific cutter frames.
+    mow_progress_tool_frame: "blade_link"
+    # Progress is recorded only while a fresh blade-controller report confirms
+    # active state and at least this RPM. Missing, stale, spin-up, stalled and
+    # spin-down telemetry all fail closed (they do not mark grass as cut).
+    mow_progress_min_blade_rpm: 1000.0
+    mow_progress_blade_telemetry_max_age_s: 1.0
     # Navigation margin around area boundaries for keepout mask.
     # Cells outside the area but within this distance of the boundary
     # edge are marked FREE (not lethal) in the keepout mask. Needed so

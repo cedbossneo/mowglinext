@@ -28,6 +28,10 @@ float32 mower_esc_temperature
 float32 mower_esc_current
 float32 mower_motor_temperature
 float32 mower_motor_rpm
+# Time of the most recent direct blade-controller report.  This differs from
+# `stamp`, which is refreshed for every mainboard status packet even when the
+# blade telemetry stream has stopped. A zero stamp means no report received.
+builtin_interfaces/Time blade_status_stamp
 
 # Firmware version handshake (image <-> firmware compatibility). Populated by
 # hardware_bridge from the STM32's CONFIG_RSP reply. firmware_compatible is
