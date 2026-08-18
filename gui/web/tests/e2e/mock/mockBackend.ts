@@ -70,6 +70,13 @@ export async function installMockBackend(page: Page, scenario: Scenario): Promis
         });
     });
 
+    await page.routeWebSocket(/\/api\/containers\/[^/]+\/logs/, (ws) => {
+        if (!scenario.containerLogs) return;
+        setTimeout(() => {
+            for (const line of scenario.containerLogs ?? []) ws.send(Buffer.from(line).toString("base64"));
+        }, 0);
+    });
+
     // Dedicated (non-multiplex) subscribe sockets used by a few pages: accept
     // and stay silent so nothing errors.
     await page.routeWebSocket(/\/api\/mowglinext\/subscribe\//, () => { /* silent */ });

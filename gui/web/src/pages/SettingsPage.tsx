@@ -29,6 +29,7 @@ import { NavigationSection } from "../components/settings/NavigationSection.tsx"
 import { RainSection } from "../components/settings/RainSection.tsx";
 import { AdvancedSection } from "../components/settings/AdvancedSection.tsx";
 import { SettingsPreview } from "../components/settings/SettingsPreview.tsx";
+import { DisplayModeSection } from "../components/settings/DisplayModeSection.tsx";
 
 const { Text } = Typography;
 
@@ -111,6 +112,8 @@ export const SettingsPage = () => {
 
     const renderSection = () => {
         switch (activeSection) {
+            case "appearance":
+                return <DisplayModeSection />;
             case "hardware":
                 return (
                     <HardwareSection

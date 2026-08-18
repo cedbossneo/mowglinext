@@ -113,25 +113,23 @@ jobs:
           python3 -m pytest -q ros2/scripts/test_check_config_drift.py
 
   # ─── Build & Test ────────────────────────────────────────────────────────────
-  # The name is STATIC, not `Build & Test (ROS2 ${{ matrix.ros_distro }})`.
-  # `Build & Test (ROS2 kilted)` is the required status check on `dev`, and when
-  # this job is skipped by the `if:` below GitHub cannot evaluate the matrix — it
-  # reports the check under the raw, uninterpolated template name, which matches
-  # nothing and leaves the required check pending forever. Keep this literal in
-  # sync with the branch-protection rule; if a second distro is ever added to the
-  # matrix, give the name back its interpolation AND update the protection rule.
+  # NO `strategy.matrix` here, deliberately, and the name is a literal.
+  # `Build & Test (ROS2 kilted)` is the required status check on `dev`, and a
+  # single-entry matrix broke that name in BOTH directions:
+  #   - skipped by `if:`  -> GitHub cannot evaluate the matrix, so it published
+  #     the raw template `Build & Test (ROS2 ${{ env.ROS_DISTRO }})`;
+  #   - actually running  -> GitHub appends the matrix context, publishing
+  #     `Build & Test (ROS2 kilted) (kilted, 24.04)`.
+  # Neither equals the protected name, so the required check never reported.
+  # The matrix only ever had one entry and only `ros_distro` was referenced, so
+  # it is collapsed onto the existing global `env.ROS_DISTRO`. If a second distro
+  # is ever needed, reinstate the matrix AND update the branch-protection rule to
+  # the matrix-suffixed names.
   build-and-test:
     name: Build & Test (ROS2 kilted)
     runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.ros2 == 'true'
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - ros_distro: kilted
-            ubuntu: "24.04"
 
     defaults:
       run:
@@ -168,14 +166,14 @@ jobs:
           # metadata instead so CI follows the published asset URL directly.
           bash .github/scripts/install-ros-apt-source.sh ros2-apt-source
 
-      - name: Setup ROS2 ${{ matrix.ros_distro }}
+      - name: Setup ROS2 ${{ env.ROS_DISTRO }}
         uses: ros-tooling/setup-ros@v0.7
         with:
-          required-ros-distributions: ${{ matrix.ros_distro }}
+          required-ros-distributions: ${{ env.ROS_DISTRO }}
 
       - name: Validate mowgli_tools package discovery
         run: |
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           colcon list --base-paths src | tee /tmp/colcon-list.txt
           grep -E '^mowgli_tools\s' /tmp/colcon-list.txt
 
@@ -255,8 +253,8 @@ jobs:
             build-essential cmake git pkg-config \
             libeigen3-dev libgdal-dev libgeos++-dev libgeos-dev libgsl-dev \
             libtinyxml2-dev libpython3-dev python3-dev libtbb-dev nlohmann-json3-dev \
-            ros-${{ matrix.ros_distro }}-ortools-vendor
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+            ros-${{ env.ROS_DISTRO }}-ortools-vendor
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           cd /tmp
           # Pinned to v3.0 @ 884d895 — keep in sync with ros2/Dockerfile. Patch the
           # upstream missing <iomanip> include (std::setw/setfill in visualizer.cpp;
@@ -283,7 +281,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgdal-dev libgeos-dev libgeos++-dev libtinyxml2-dev \
-            ros-${{ matrix.ros_distro }}-ortools-vendor
+            ros-${{ env.ROS_DISTRO }}-ortools-vendor
           echo "/opt/fields2cover-300/lib" | sudo tee /etc/ld.so.conf.d/f2c.conf
           sudo ldconfig
           echo "CMAKE_PREFIX_PATH=/opt/fields2cover-300:$CMAKE_PREFIX_PATH" >> $GITHUB_ENV
@@ -292,9 +290,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ros/rosdep
-          key: rosdep-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/package.xml', 'tools/motor/package.xml') }}
+          key: rosdep-${{ env.ROS_DISTRO }}-${{ hashFiles('ros2/src/**/package.xml', 'tools/motor/package.xml') }}
           restore-keys: |
-            rosdep-${{ matrix.ros_distro }}-
+            rosdep-${{ env.ROS_DISTRO }}-
 
       # Only opennav_coverage_msgs (the action types) is used from the
       # opennav_coverage submodule; the upstream server subpackages are pinned
@@ -310,16 +308,16 @@ jobs:
 
       - name: Install rosdep dependencies
         run: |
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           sudo apt-get update
-          rosdep update --rosdistro ${{ matrix.ros_distro }}
+          rosdep update --rosdistro ${{ env.ROS_DISTRO }}
           # skip-keys:
           # - the opennav_coverage server subpackages are intentionally not
           #   part of this CI build (only opennav_coverage_msgs is used)
           rosdep install \
             --from-paths src \
             --ignore-src \
-            --rosdistro ${{ matrix.ros_distro }} \
+            --rosdistro ${{ env.ROS_DISTRO }} \
             --skip-keys "opennav_coverage opennav_coverage_bt opennav_coverage_demo opennav_coverage_navigator opennav_row_coverage" \
             -y
 
@@ -330,13 +328,13 @@ jobs:
             ros2/build
             ros2/install
             ros2/log
-          key: colcon-v2-${{ matrix.ros_distro }}-${{ hashFiles('ros2/src/**/CMakeLists.txt', 'ros2/src/**/package.xml', 'ros2/src/**/*.cpp', 'ros2/src/**/*.hpp', 'tools/motor/**') }}
+          key: colcon-v2-${{ env.ROS_DISTRO }}-${{ hashFiles('ros2/src/**/CMakeLists.txt', 'ros2/src/**/package.xml', 'ros2/src/**/*.cpp', 'ros2/src/**/*.hpp', 'tools/motor/**') }}
           restore-keys: |
-            colcon-v2-${{ matrix.ros_distro }}-
+            colcon-v2-${{ env.ROS_DISTRO }}-
 
       - name: Build workspace
         run: |
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           colcon build \
             --cmake-args -DCMAKE_BUILD_TYPE=Release \
             --parallel-workers $(nproc) \
@@ -344,7 +342,7 @@ jobs:
 
       - name: Run tests
         run: |
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           source install/setup.bash
           colcon test \
             --return-code-on-test-failure \
@@ -353,7 +351,7 @@ jobs:
 
       - name: Validate mowgli_tools package entrypoint
         run: |
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           source install/setup.bash
           ros2 pkg prefix mowgli_tools
           ros2 run mowgli_tools tune_drive_pid --help | tee /tmp/mowgli_tools_help.txt
@@ -368,7 +366,7 @@ jobs:
           find / -name setup.bash 2>/dev/null | grep install || true
           find / -type d -name install 2>/dev/null | head -50 || true
           set +u
-          source /opt/ros/${{ matrix.ros_distro }}/setup.bash
+          source /opt/ros/${{ env.ROS_DISTRO }}/setup.bash
           source "${GITHUB_WORKSPACE}/ros2/install/setup.bash"
           set -u
           # This CI job runs on the GitHub-hosted runner checkout under
@@ -396,7 +394,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-results-${{ matrix.ros_distro }}
+          name: test-results-${{ env.ROS_DISTRO }}
           path: |
             ros2/build/**/test_results/**/*.xml
             ros2/log/latest_test/**

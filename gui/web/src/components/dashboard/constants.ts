@@ -77,15 +77,15 @@ export const fmt = {
 };
 
 export const KEYFRAMES_CSS = `
-@keyframes mn-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
-}
-@keyframes mn-rise {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 @media (prefers-reduced-motion: no-preference) {
+  @keyframes mn-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+  @keyframes mn-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
   @keyframes mn-bounds-glow {
     0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0.7), inset 0 0 0 1px rgba(255,107,107,0.6); }
     50% { box-shadow: 0 0 0 6px rgba(255,107,107,0), inset 0 0 0 1px rgba(255,107,107,0.9); }
@@ -93,6 +93,22 @@ export const KEYFRAMES_CSS = `
   @keyframes mn-pulse-red {
     0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); }
     50% { box-shadow: 0 0 0 8px rgba(255,107,107,0.15); }
+  }
+  @keyframes mowerPulseRed {
+    0%, 100% { box-shadow: 0 0 0 0 var(--mower-status-danger); }
+    50% { box-shadow: 0 0 0 4px transparent; }
+  }
+  @keyframes mowerPulseGreen {
+    0%, 100% { box-shadow: 0 0 0 0 var(--mower-status-active); }
+    50% { box-shadow: 0 0 0 4px transparent; }
+  }
+  @keyframes liveStripPulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  @keyframes liveStripSheen {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
   }
 }
 .mn-card-hover:hover { transform: translateY(-1px); }
@@ -113,21 +129,26 @@ export const KEYFRAMES_CSS = `
   pointer-events: none;
 }
 
-/* ─── AntD Card → liquid glass ──────────────────────────────────────────
+/* ─── AntD Card → display-mode-aware tech-garden surface ────────────────
    Pull every stock AntD Card into the tech-garden glass language so pages
    built on AntD (Diagnostics, Settings, Onboarding) match the hand-built
    DashCard/GlassCard surfaces without per-page edits. Same recipe as
-   DashCard: translucent dark fill, backdrop blur, soft border, luminous
-   top-left edge. */
+   DashCard: soft border and luminous top-left edge in every mode. */
 .ant-card {
   position: relative;
-  background: rgba(11, 24, 20, 0.6) !important;
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  background: rgba(11, 24, 20, 0.78) !important;
   border: 1px solid var(--border-soft) !important;
   border-radius: var(--radius-md) !important;
   box-shadow: 0 24px 60px -20px rgba(0,0,0,0.5), 0 4px 16px -4px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04) !important;
   overflow: hidden;
+}
+:root[data-display-mode='visual'] .ant-card {
+  background: rgba(11, 24, 20, 0.60) !important;
+  backdrop-filter: blur(20px) saturate(135%);
+  -webkit-backdrop-filter: blur(20px) saturate(135%);
+}
+:root[data-display-mode='efficient'] .ant-card {
+  background: var(--bg-card-solid) !important;
 }
 .ant-card::before {
   content: '';
@@ -143,12 +164,11 @@ export const KEYFRAMES_CSS = `
 }
 .ant-card-head { border-bottom: 1px solid var(--border-soft) !important; background: transparent !important; }
 .ant-card-body, .ant-card-head { position: relative; z-index: 1; }
-/* Nested cards (a card inside a card) shouldn't double up the blur+edge —
-   flatten the inner one to a plain translucent tile. */
+/* Nested cards flatten to a plain tile so edges and shadows do not stack. */
 .ant-card .ant-card {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   background: var(--bg-elevated) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
 }
 .ant-card .ant-card::before { display: none; }
@@ -253,11 +273,18 @@ export const KEYFRAMES_CSS = `
 .ant-btn-primary:active { transform: translateY(0); }
 
 .ant-btn-default {
-  background: var(--bg-card) !important;
+  background: rgba(11, 24, 20, 0.78) !important;
   border: 1px solid var(--border-soft) !important;
   color: var(--ink) !important;
-  backdrop-filter: blur(12px);
   font-weight: 600 !important;
+}
+:root[data-display-mode='visual'] .ant-btn-default {
+  background: rgba(11, 24, 20, 0.60) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+:root[data-display-mode='efficient'] .ant-btn-default {
+  background: var(--bg-card-solid) !important;
 }
 .ant-btn-default:hover,
 .ant-btn-default:focus {
@@ -346,9 +373,19 @@ export const KEYFRAMES_CSS = `
 
 /* Staggered page entrance: children with [data-stagger] animate in
    sequence on initial mount. Combine with --stagger-index from JS. */
-.mn-stagger > [data-stagger] {
-  opacity: 0;
-  animation: mn-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  animation-delay: calc(var(--stagger-index, 0) * 60ms + 80ms);
+@media (prefers-reduced-motion: no-preference) {
+  .mn-stagger > [data-stagger] {
+    opacity: 0;
+    animation: mn-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(var(--stagger-index, 0) * 60ms + 80ms);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-concept], [data-concept] *, [data-concept] *::before, [data-concept] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 `;
