@@ -1,0 +1,62 @@
+name: GUI — CI
+
+# The GUI's 270+ vitest unit tests gated NOTHING before this workflow existed.
+# `gui-docker.yml` builds the image, and `yarn build` is `tsc && vite build`, so
+# the TYPECHECK was already covered — but nothing ever executed the test suite.
+# That is how #440's manual-mode expectations were able to drift out of sync
+# with the hook they cover and sit broken on dev unnoticed.
+#
+# This job is deliberately separate from gui-docker.yml: the Docker build spends
+# minutes under arm64 emulation, whereas this returns a pass/fail on the tests in
+# well under a minute.
+
+on:
+  push:
+    branches: [main, dev, 'feat/**', 'fix/**', 'refactor/**', 'chore/**', 'perf/**']
+    paths:
+      - 'gui/web/**'
+      - '.github/workflows/gui-ci.yml'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'gui/web/**'
+      - '.github/workflows/gui-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: gui-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: gui/web
+
+jobs:
+  unit-tests:
+    name: Unit Tests (vitest + tsc)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # node:22 is what gui/Dockerfile builds the web bundle with — keep these
+      # in lockstep so a version-specific failure cannot pass here and break the
+      # image build (or vice versa).
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: gui/web/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Same typecheck `yarn build` runs, but seconds instead of an emulated
+      # image build — so a type error is reported immediately rather than after
+      # the arm64 layer finishes.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: yarn test
