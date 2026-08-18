@@ -1,5 +1,6 @@
 import type {ReactNode} from "react";
-import {motion} from "framer-motion";
+import {motion, useReducedMotion} from "framer-motion";
+import {useThemeMode} from "../../theme/ThemeContext.tsx";
 
 /**
  * Pulsing status orb used in the dashboard header. Three accent colors
@@ -24,6 +25,9 @@ interface StatusOrbProps {
 
 export function StatusOrb({tone = "live", size = 10, label}: StatusOrbProps) {
   const t = TONE_MAP[tone];
+  const {displayMode} = useThemeMode();
+  const reduceMotion = useReducedMotion();
+  const pulse = t.pulse && (tone !== "live" || displayMode === "visual");
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 8,
@@ -40,7 +44,7 @@ export function StatusOrb({tone = "live", size = 10, label}: StatusOrbProps) {
           opacity: 0.7,
         }}/>
         {/* pulse ring */}
-        {t.pulse && (
+        {pulse && !reduceMotion && (
           <motion.span
             style={{
               position: "absolute", inset: 0,

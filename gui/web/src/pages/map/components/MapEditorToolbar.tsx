@@ -92,7 +92,7 @@ export const MapEditorToolbar = ({
     onDrawPolygon, onDrawShape, onDrawEmoji, onTrash, onCombine, onSubtract, onSplit, onEditSelectedFeature,
     onPlaceDock, dockPlacementMode,
 }: MapEditorToolbarProps) => {
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const {t} = useTranslation();
 
     const btnStyle: React.CSSProperties = {
@@ -120,8 +120,8 @@ export const MapEditorToolbar = ({
         flexDirection: 'column',
         gap: 2,
         background: colors.glassBackground,
-        backdropFilter: 'blur(16px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+        backdropFilter: displayMode === 'visual' ? 'blur(16px) saturate(180%)' : undefined,
+        WebkitBackdropFilter: displayMode === 'visual' ? 'blur(16px) saturate(180%)' : undefined,
         borderRadius: 12,
         border: colors.glassBorder,
         boxShadow: colors.glassShadow,

@@ -21,7 +21,7 @@ export const JoystickOverlay = ({
     visible, isRecording, mobile,
     onMove, onStop, onFinishRecording, onCancelRecording, onHome,
 }: JoystickOverlayProps) => {
-    const {colors} = useThemeMode();
+    const {colors, displayMode} = useThemeMode();
     const {t} = useTranslation();
     if (!visible) return null;
 
@@ -66,8 +66,8 @@ export const JoystickOverlay = ({
                 background: colors.glassBackground,
                 border: `1px solid ${limeAlpha(0.28)}`,
                 boxShadow: `0 10px 30px -10px rgba(0,0,0,0.6), inset 0 0 24px ${limeAlpha(0.06)}`,
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
+                backdropFilter: displayMode === 'visual' ? 'blur(8px)' : undefined,
+                WebkitBackdropFilter: displayMode === 'visual' ? 'blur(8px)' : undefined,
             }}>
                 <Joystick
                     size={size}

@@ -9,6 +9,7 @@ import { ContentType } from "../api/Api.ts";
 import { valuesMatch } from "../utils/settingsValues.ts";
 
 export type SettingsSection =
+    | "appearance"
     | "hardware"
     | "drive_motor"
     | "ntrip"
@@ -33,6 +34,13 @@ export type SectionMeta = {
 };
 
 const SECTION_DEFINITIONS: SectionMeta[] = [
+    {
+        id: "appearance",
+        label: "settingsSections.appearance.label",
+        icon: "bg-colors",
+        description: "settingsSections.appearance.description",
+        keys: [],
+    },
     {
         id: "hardware",
         label: "settingsSections.hardware.label",

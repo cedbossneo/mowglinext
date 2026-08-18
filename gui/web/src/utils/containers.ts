@@ -1,4 +1,4 @@
-import { Api } from "../api/Api.ts";
+import { Api, ApiContainer } from "../api/Api.ts";
 
 type GuiApi = Api<unknown>;
 
@@ -43,9 +43,46 @@ export const restartRos2 = (api: GuiApi) =>
 export const restartGui = (api: GuiApi) =>
     containerAction(api, { name: "gui" }, "restart");
 
-/** Restart the MowgliNext container */
-export const restartMowgliNext = (api: GuiApi) =>
-    containerAction(api, { name: "mowglinext", label: { key: "app", value: "mowglinext" } }, "restart");
+/**
+ * Restart the entire Mowgli stack — the GUI equivalent of the `mowgli-restart`
+ * CLI command (`docker compose restart`). Restarts every running `mowgli-*`
+ * container.
+ *
+ * The GUI container (`mowgli-gui`) is restarted LAST and fire-and-forget:
+ * restarting it kills the backend serving this very request, so the response
+ * never returns. The caller is responsible for reconnecting/reloading the
+ * browser once the GUI comes back.
+ *
+ * (The old `restartMowgliNext` matched name "mowglinext"/label app=mowglinext,
+ * which matched nothing — the main container is named `mowgli-ros2` with no
+ * labels — so "Restart Mowgli" always failed with "Container not found".)
+ */
+export const restartMowgliStack = async (api: GuiApi): Promise<void> => {
+    const res = await api.containers.containersList();
+    if (res.error) throw new Error(res.error.error);
+
+    const bare = (n: string) => n.replace(/^\//, "");
+    const inStack = (c: ApiContainer) =>
+        !!c.id && (c.names ?? []).some((n) => bare(n).startsWith("mowgli-"));
+    const isGui = (c: ApiContainer) =>
+        (c.names ?? []).some((n) => bare(n).startsWith("mowgli-gui"));
+
+    const stack = (res.data.containers ?? []).filter(inStack);
+    if (stack.length === 0) throw new Error("No mowgli-* containers found");
+
+    // Restart everything except the GUI first (in parallel), so the whole
+    // stack is already bouncing before we take our own backend down.
+    await Promise.all(
+        stack
+            .filter((c) => !isGui(c))
+            .map((c) => api.containers.containersCreate(c.id!, "restart")),
+    );
+
+    // Restart the GUI last. This stops the container serving this request, so
+    // the promise never resolves — fire it and don't await.
+    const gui = stack.find(isGui);
+    if (gui?.id) void api.containers.containersCreate(gui.id, "restart");
+};
 
 /** Restart the GNSS receiver container (picks up new NTRIP / serial config) */
 export const restartGps = (api: GuiApi) =>

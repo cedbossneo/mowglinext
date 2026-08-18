@@ -23,9 +23,6 @@ const mockGnss = vi.fn();
 vi.mock('../hooks/useGnssStatus.ts', () => ({useGnssStatus: () => mockGnss()}));
 vi.mock('../hooks/useSettings.ts', () => ({useSettings: () => ({settings: {}})}));
 vi.mock('../hooks/useApi.ts', () => ({useApi: () => ({request: vi.fn()})}));
-vi.mock('../hooks/useContainerRestart.ts', () => ({
-    useContainerRestart: (o: any) => ({pending: false, pendingLabel: o?.pendingLabel ?? '', run: vi.fn()}),
-}));
 vi.mock('./MowerActions.tsx', () => ({useMowerAction: () => () => vi.fn()}));
 vi.mock('../theme/ThemeContext.tsx', () => ({
     useThemeMode: () => ({
