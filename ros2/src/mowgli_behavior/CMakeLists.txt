@@ -432,6 +432,44 @@ if(BUILD_TESTING)
     tf2_geometry_msgs
   )
 
+  # ---- test_guard_fallthrough ----
+  # Regression for the "blocking guard falls through into MainLogic" bug
+  # class (issues #459, #445). LocalizationGuard's handler ended with a
+  # WaitForDuration that returns SUCCESS, so the Root ReactiveSequence
+  # advanced into MainLogic -> MowingSequence once per cycle and restarted
+  # mowing from PREFLIGHT_CHECK/UNDOCKING every 2 s while sigma_xy flapped.
+  # Covers the guard behaviour AND asserts structurally that every blocking
+  # guard in main_tree.xml still terminates with <AlwaysFailure/>, so a
+  # newly added guard cannot reintroduce it.
+  ament_add_gtest(test_guard_fallthrough
+    test/test_guard_fallthrough.cpp
+    src/condition_nodes.cpp
+  )
+
+  target_include_directories(test_guard_fallthrough PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
+  # The structural half reads the real tree from the source tree.
+  target_compile_definitions(test_guard_fallthrough PRIVATE
+    MOWGLI_MAIN_TREE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/trees/main_tree.xml"
+  )
+
+  ament_target_dependencies(test_guard_fallthrough
+    rclcpp
+    behaviortree_cpp
+    mowgli_interfaces
+    nav2_msgs
+    nav_msgs
+    geometry_msgs
+    std_msgs
+    std_srvs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+  )
+
 endif()
 
 ament_package()
