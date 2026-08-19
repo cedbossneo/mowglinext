@@ -714,8 +714,9 @@ private:
     // Latched dig reports. TRANSIENT_LOCAL so map_server still receives the
     // event if it (re)starts a moment after the dig — the location is worth
     // marking whenever it arrives, and these are rare, low-rate events.
-    pub_dig_event_ = create_publisher<mowgli_interfaces::msg::DigEvent>(
-        "~/dig_event", rclcpp::QoS(10).transient_local());
+    pub_dig_event_ =
+        create_publisher<mowgli_interfaces::msg::DigEvent>("~/dig_event",
+                                                           rclcpp::QoS(10).transient_local());
     timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
                                             [this]()
                                             {
@@ -2624,8 +2625,7 @@ private:
   void dig_monitor_tick()
   {
     const rclcpp::Time tick_now = now();
-    const double dt =
-        have_dig_tick_ ? (tick_now - last_dig_tick_).seconds() : 0.0;
+    const double dt = have_dig_tick_ ? (tick_now - last_dig_tick_).seconds() : 0.0;
     last_dig_tick_ = tick_now;
     have_dig_tick_ = true;
 
@@ -2692,10 +2692,9 @@ private:
       return;
     }
 
-    const double map_step =
-        have_map_baseline_ ? std::hypot(last_map_pose_x_ - last_map_baseline_x_,
-                                        last_map_pose_y_ - last_map_baseline_y_)
-                           : 0.0;
+    const double map_step = have_map_baseline_ ? std::hypot(last_map_pose_x_ - last_map_baseline_x_,
+                                                            last_map_pose_y_ - last_map_baseline_y_)
+                                               : 0.0;
     last_map_baseline_x_ = last_map_pose_x_;
     last_map_baseline_y_ = last_map_pose_y_;
     have_map_baseline_ = true;
@@ -2705,13 +2704,8 @@ private:
         have_cmd_vel_ && (tick_now - last_cmd_vel_time_).seconds() < dig_cmd_timeout_s_;
     const double cmd_vx = cmd_fresh ? last_cmd_vx_ : 0.0;
 
-    const DigVerdict verdict = DigDecide(dig_cfg_,
-                                         dig_state_,
-                                         cmd_vx,
-                                         wheel_step,
-                                         map_step,
-                                         last_map_sigma_,
-                                         dt);
+    const DigVerdict verdict =
+        DigDecide(dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, last_map_sigma_, dt);
 
     if (verdict.action != DigAction::kDig)
     {

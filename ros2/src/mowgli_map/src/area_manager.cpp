@@ -1099,8 +1099,10 @@ void MapServerNode::on_dig_event(mowgli_interfaces::msg::DigEvent::ConstSharedPt
   // Square keepout centred on the dig, side = dig_obstacle_size_.
   const double half = std::max(dig_obstacle_size_, 0.05) * 0.5;
   geometry_msgs::msg::Polygon poly;
-  const double corners[4][2] = {
-      {x - half, y - half}, {x + half, y - half}, {x + half, y + half}, {x - half, y + half}};
+  const double corners[4][2] = {{x - half, y - half},
+                                {x + half, y - half},
+                                {x + half, y + half},
+                                {x - half, y + half}};
   for (const auto& c : corners)
   {
     geometry_msgs::msg::Point32 p;
@@ -1111,11 +1113,8 @@ void MapServerNode::on_dig_event(mowgli_interfaces::msg::DigEvent::ConstSharedPt
 
   if (!apply_promoted_obstacle(*area_index, poly))
   {
-    RCLCPP_WARN(get_logger(),
-                "Dig keepout rejected for area %zu at (%.2f, %.2f).",
-                *area_index,
-                x,
-                y);
+    RCLCPP_WARN(
+        get_logger(), "Dig keepout rejected for area %zu at (%.2f, %.2f).", *area_index, x, y);
     return;
   }
 

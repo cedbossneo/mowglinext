@@ -17,11 +17,11 @@
 #define MOWGLI_MAP__MAP_SERVER_NODE_HPP_
 
 #include <cmath>
-#include <optional>
 #include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <tuple>

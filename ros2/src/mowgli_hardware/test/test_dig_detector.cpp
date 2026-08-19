@@ -4,9 +4,8 @@
 // Unit tests for the wheel-slip "digging" detector and its bounded
 // reverse-escape budget. Pure logic, no ROS — mirrors test_ftc_stall.cpp.
 
-#include <gtest/gtest.h>
-
 #include "mowgli_hardware/dig_detector.hpp"
+#include <gtest/gtest.h>
 
 namespace mh = mowgli_hardware;
 
@@ -130,8 +129,8 @@ TEST(DigDetector, TractionReturningResetsTheWindow)
   mh::DigDetectorCfg cfg;
   mh::DigDetectorState st;
 
-  RunDigging(cfg, st, 0.5);          // partial evidence
-  RunGoodTraction(cfg, st, 2.0);     // traction returns -> must clear
+  RunDigging(cfg, st, 0.5);  // partial evidence
+  RunGoodTraction(cfg, st, 2.0);  // traction returns -> must clear
   EXPECT_EQ(RunDigging(cfg, st, 0.5), mh::DigAction::kNone);
 }
 

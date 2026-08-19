@@ -85,7 +85,7 @@ struct DigVerdict
 {
   DigAction action = DigAction::kNone;
   double wheel_dist = 0.0;  ///< encoder-claimed travel over the window [m]
-  double map_dist = 0.0;    ///< fused-pose travel over the same window [m]
+  double map_dist = 0.0;  ///< fused-pose travel over the same window [m]
 };
 
 /// Caller-owned window accumulators (mirrors ftc_stall's in-place state).
@@ -147,10 +147,10 @@ inline DigVerdict DigDecide(const DigDetectorCfg& cfg,
   const bool wheels_claim_travel = st.wheel_dist >= cfg.min_wheel_dist;
   const bool map_disagrees = st.map_dist < cfg.progress_fraction * st.wheel_dist;
 
-  const DigVerdict verdict{
-      (wheels_claim_travel && map_disagrees) ? DigAction::kDig : DigAction::kNone,
-      st.wheel_dist,
-      st.map_dist};
+  const DigVerdict verdict{(wheels_claim_travel && map_disagrees) ? DigAction::kDig
+                                                                  : DigAction::kNone,
+                           st.wheel_dist,
+                           st.map_dist};
 
   DigResetWindow(st);  // start a fresh window either way
   return verdict;
@@ -172,14 +172,14 @@ inline DigVerdict DigDecide(const DigDetectorCfg& cfg,
 struct DigEscapeCfg
 {
   double reverse_speed = 0.12;  ///< magnitude of the reverse command [m/s]
-  double reverse_dist = 0.30;   ///< distance budget [m]
-  double timeout_s = 4.0;       ///< hard time bound [s]
+  double reverse_dist = 0.30;  ///< distance budget [m]
+  double timeout_s = 4.0;  ///< hard time bound [s]
 };
 
 struct DigEscapeState
 {
   double travelled = 0.0;  ///< commanded-integral distance so far [m]
-  double elapsed = 0.0;    ///< time spent escaping [s]
+  double elapsed = 0.0;  ///< time spent escaping [s]
 };
 
 inline bool DigEscapeDone(const DigEscapeCfg& cfg, const DigEscapeState& st)
