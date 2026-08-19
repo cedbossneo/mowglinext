@@ -184,10 +184,9 @@ TEST(GuardFallthroughTest, HandlerWithoutTerminatorLeaksIntoMainLogic)
     tree.tickOnce();
   }
 
-  EXPECT_GT(probe.ticks, 0)
-      << "Expected the pre-fix shape to leak into MainLogic — if this now "
-         "reports 0, BT.CPP semantics changed and the fix's rationale needs "
-         "re-deriving rather than the assertion being flipped.";
+  EXPECT_GT(probe.ticks, 0) << "Expected the pre-fix shape to leak into MainLogic — if this now "
+                               "reports 0, BT.CPP semantics changed and the fix's rationale needs "
+                               "re-deriving rather than the assertion being flipped.";
 }
 
 // The fix: while degraded, MainLogic is never reached.
@@ -203,9 +202,8 @@ TEST(GuardFallthroughTest, DegradedLocalizationNeverReachesMainLogic)
     EXPECT_EQ(tree.tickOnce(), BT::NodeStatus::FAILURE);
   }
 
-  EXPECT_EQ(probe.ticks, 0)
-      << "MainLogic ran while localization was degraded — MowingSequence "
-         "would restart from PREFLIGHT_CHECK/UNDOCKING (issues #459, #445).";
+  EXPECT_EQ(probe.ticks, 0) << "MainLogic ran while localization was degraded — MowingSequence "
+                               "would restart from PREFLIGHT_CHECK/UNDOCKING (issues #459, #445).";
 }
 
 // ...and the guard must RELEASE promptly once the hysteresis clears, or the
@@ -230,8 +228,7 @@ TEST(GuardFallthroughTest, MainLogicResumesOnTheTickAfterRecovery)
 // gauge-pinned. Neither may be blocked by a degraded-localization latch.
 TEST(GuardFallthroughTest, ExemptModesStillReachMainLogicWhileDegraded)
 {
-  for (const auto& [command, charging] :
-       std::vector<std::pair<int, bool>>{{7, false}, {1, true}})
+  for (const auto& [command, charging] : std::vector<std::pair<int, bool>>{{7, false}, {1, true}})
   {
     auto ctx = MakeContext("test_guard_exempt_" + std::to_string(command) +
                            (charging ? "_chg" : "_nochg"));
@@ -245,9 +242,8 @@ TEST(GuardFallthroughTest, ExemptModesStillReachMainLogicWhileDegraded)
 
     EXPECT_EQ(tree.tickOnce(), BT::NodeStatus::SUCCESS)
         << "command=" << command << " charging=" << charging;
-    EXPECT_EQ(probe.ticks, 1)
-        << "Exempt mode was blocked by LocalizationGuard: command=" << command
-        << " charging=" << charging;
+    EXPECT_EQ(probe.ticks, 1) << "Exempt mode was blocked by LocalizationGuard: command=" << command
+                              << " charging=" << charging;
   }
 }
 
@@ -311,11 +307,11 @@ TEST(GuardFallthroughTest, AllBlockingGuardsTerminateWithFailure)
   ASSERT_FALSE(xml.empty());
 
   for (const std::string guard : {"EmergencyGuard",
-                                   "SensorSafetyGuard",
-                                   "BoundaryGuard",
-                                   "LocalizationGuard",
-                                   "RainGuard",
-                                   "BatteryGuard"})
+                                  "SensorSafetyGuard",
+                                  "BoundaryGuard",
+                                  "LocalizationGuard",
+                                  "RainGuard",
+                                  "BatteryGuard"})
   {
     const std::string block = ExtractGuardBlock(xml, guard);
     ASSERT_FALSE(block.empty()) << "Guard not found in main_tree.xml: " << guard;
