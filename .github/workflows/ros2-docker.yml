@@ -91,7 +91,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE_NAME }}${{ matrix.suffix }},push-by-digest=true,name-canonical=true,push=true
           provenance: true
-          sbom: true
+          # SBOM attestation is DISABLED for the ROS2 images (it stays on for
+          # the much smaller sensor images in _sensor-docker.yml). The image
+          # carries a full ROS2 Kilted userland plus the colcon install tree,
+          # so syft's SPDX document came out over buildkit's attestation cap
+          # and failed the export AFTER every layer had already built:
+          #   #89 exporting to image
+          #   ERROR: /tmp/.../sbom.spdx.json exceeds 41943040 bytes
+          # That 40 MiB ceiling is hardcoded in buildkit's image exporter, so
+          # it cannot be raised from here and the document only grows as the
+          # workspace does. provenance stays on. If a package inventory is
+          # needed, scan the pushed digest out-of-band (e.g. `syft <image>`)
+          # and upload it as an artifact rather than inlining it here.
+          sbom: false
 
       - name: Smoke test runtime image
         run: |
