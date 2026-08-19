@@ -17,6 +17,7 @@
 #define MOWGLI_MAP__MAP_SERVER_NODE_HPP_
 
 #include <cmath>
+#include <optional>
 #include <deque>
 #include <limits>
 #include <memory>
@@ -46,6 +47,7 @@
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_msgs/msg/grid_map.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
+#include <mowgli_interfaces/msg/dig_event.hpp>
 #include <mowgli_interfaces/msg/obstacle_array.hpp>
 #include <mowgli_interfaces/msg/status.hpp>
 #include <mowgli_interfaces/srv/add_mowing_area.hpp>
@@ -132,6 +134,18 @@ public:
                                         const geometry_msgs::msg::Polygon& polygon)
   {
     return apply_promoted_obstacle(area_index, polygon);
+  }
+
+  /// Test-only: feed a dig report through the real handler.
+  void on_dig_event_for_test(mowgli_interfaces::msg::DigEvent::ConstSharedPtr msg)
+  {
+    on_dig_event(std::move(msg));
+  }
+
+  /// Test-only: forward to the private mowing_area_containing.
+  [[nodiscard]] std::optional<size_t> mowing_area_containing_for_test(double x, double y) const
+  {
+    return mowing_area_containing(x, y);
   }
 
   /// Test-only: obstacle-store sizes, to assert promotion / load is
@@ -298,6 +312,20 @@ private:
   ///         is out of range / a navigation area.
   bool apply_promoted_obstacle(size_t area_index, const geometry_msgs::msg::Polygon& polygon);
 
+  /// Handle a wheel-slip dig report from hardware_bridge_node.
+  ///
+  /// The bridge has already hard-stopped and reversed out; our job is to make
+  /// sure coverage does not send the robot straight back to the same patch on
+  /// the next pass. Resolves which mowing area contains the dig point, builds
+  /// a small square keepout around it, and promotes it through the SAME path
+  /// the GUI uses (apply_promoted_obstacle) so it becomes a NO_GO_ZONE, lands
+  /// in the keepout mask Smac/Nav2 read, and persists to areas.dat.
+  void on_dig_event(mowgli_interfaces::msg::DigEvent::ConstSharedPtr msg);
+
+  /// Index of the first mowing (non-navigation) area whose polygon contains
+  /// the point, or std::nullopt if the point is outside every mowing area.
+  [[nodiscard]] std::optional<size_t> mowing_area_containing(double x, double y) const;
+
   /// Build and publish the speed OccupancyGrid mask and CostmapFilterInfo.
   /// Cells within one tool_width of the mowing boundary → 50 (50 % speed).
   /// All other interior cells → 0 (full speed).
@@ -362,6 +390,10 @@ private:
   double map_size_y_;
   std::string map_frame_;
   double tool_width_;
+  /// Auto-promote wheel-slip dig locations to permanent keepouts.
+  bool dig_obstacle_enabled_{true};
+  /// Side length of the square keepout stamped at a dig location [m].
+  double dig_obstacle_size_{0.0};
   std::string map_file_path_;
   std::string areas_file_path_;
 
@@ -681,6 +713,7 @@ private:
   rclcpp::Subscription<mowgli_interfaces::msg::ObstacleArray>::SharedPtr obstacle_sub_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr gps_pose_cov_sub_;
+  rclcpp::Subscription<mowgli_interfaces::msg::DigEvent>::SharedPtr dig_event_sub_;
 
   /// Latest Nav2 costmap (global by default — same frame as map_), guarded
   /// by `costmap_mutex_`. Read on every cell-walker step via

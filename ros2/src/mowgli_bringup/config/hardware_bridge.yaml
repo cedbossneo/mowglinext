@@ -26,3 +26,34 @@ hardware_bridge:
     # now runs in firmware (task #33), closing on the same gyro without the
     # host's USB round-trip latency; tune it via yaw_kp/yaw_ki (SET_DRIVE_PID)
     # instead.
+
+    # ── Wheel-slip dig detection (smart avoidance) ────────────────────────
+    # Catches the robot DIGGING: wheels turning freely while the chassis
+    # stays put, carving a hole in the lawn. Every other stuck-check on this
+    # robot measures the wheels (firmware ANTIDIG_* compares encoder ticks;
+    # FTC's stall cap reads /wheel_odom; fusion_graph's slip veto is
+    # rotational only), so all of them are confirmed by the very encoders
+    # that are lying. This one compares encoder-claimed travel against the
+    # GNSS-anchored fused pose (/odometry/filtered_map) — the only
+    # wheel-independent signal available — and on a mismatch hard-stops and
+    # reverses out. It runs in the bridge so it covers EVERY motion lane
+    # (coverage, transit, docking, teleop), which all merge onto ~/cmd_vel.
+    #
+    # The firmware anti-dig is unchanged and remains the un-bypassable
+    # backstop for BLOCKED wheels — the complementary case this cannot see.
+    dig_detect_enabled: true
+    dig_window_s: 1.2          # sustained evidence before latching [s]
+    dig_min_cmd_speed: 0.05    # below this we aren't commanding travel [m/s]
+    dig_min_wheel_dist: 0.15   # encoders must claim this much travel first [m]
+                               # (without it a BLOCKED wheel — the firmware's
+                               # case, not ours — looks identical)
+    dig_progress_fraction: 0.35  # latch if map travel < 35 % of wheel travel
+    # Above this fused-pose 1-sigma the detector STANDS DOWN: in RTK-Float the
+    # map pose cannot tell slip from GNSS noise, and a false positive
+    # hard-stops a healthy robot mid-mow. Raise only with RTK-Fixed evidence.
+    dig_max_pos_sigma: 0.10
+    dig_reverse_speed: 0.12    # escape reverse speed [m/s]
+    dig_reverse_dist: 0.30     # escape distance budget [m]
+    dig_reverse_timeout_s: 4.0  # hard time bound on the escape [s]
+    dig_monitor_rate: 10.0     # Hz
+    dig_pose_timeout_s: 1.0    # fused pose older than this = stand down [s]
