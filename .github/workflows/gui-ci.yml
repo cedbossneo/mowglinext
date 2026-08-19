@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # node:22 is what gui/Dockerfile builds the web bundle with — keep these
       # in lockstep so a version-specific failure cannot pass here and break the
