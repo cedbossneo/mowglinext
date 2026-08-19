@@ -56,6 +56,13 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   map_size_y_ = declare_parameter<double>("map_size_y", 20.0);
   map_frame_ = declare_parameter<std::string>("map_frame", "map");
   tool_width_ = declare_parameter<double>("tool_width", 0.18);
+  // Wheel-slip dig auto-keepout (see on_dig_event). Default size is one
+  // tool width: wide enough that coverage's next swath plans around the
+  // churned patch rather than clipping its edge, small enough that a single
+  // bad patch doesn't carve a hole out of the lawn the robot will never
+  // revisit. Resolved after tool_width_ so it can default from it.
+  dig_obstacle_enabled_ = declare_parameter<bool>("dig_obstacle_enabled", true);
+  dig_obstacle_size_ = declare_parameter<double>("dig_obstacle_size", tool_width_);
   yaw_convergence_threshold_rad_ =
       declare_parameter<double>("yaw_convergence_threshold_rad", 0.00873);  // 0.5°
   yaw_convergence_window_s_ = declare_parameter<double>("yaw_convergence_window_s", 5.0);
@@ -371,6 +378,23 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
       {
         on_obstacles(std::move(msg));
       });
+
+  // ── Wheel-slip dig reports (hardware_bridge_node) ─────────────────────
+  // The bridge detects the robot digging a hole (wheels turning, GNSS pose
+  // not moving), hard-stops and reverses out. We turn that location into a
+  // permanent keepout so the next coverage pass routes around it instead of
+  // driving back into the same patch. TRANSIENT_LOCAL matches the bridge's
+  // publisher so a dig that happened while we were restarting still lands.
+  if (dig_obstacle_enabled_)
+  {
+    dig_event_sub_ = create_subscription<mowgli_interfaces::msg::DigEvent>(
+        "/hardware_bridge/dig_event",
+        rclcpp::QoS(10).transient_local(),
+        [this](mowgli_interfaces::msg::DigEvent::ConstSharedPtr msg)
+        {
+          on_dig_event(std::move(msg));
+        });
+  }
 
   promote_obstacle_srv_ = create_service<mowgli_interfaces::srv::PromoteObstacle>(
       "~/promote_obstacle",

@@ -29,6 +29,15 @@ type CoveragePath struct {
 	Path                      nav.Path                       `json:"path"`
 }
 
+// DigEvent matches mowgli_interfaces/msg/DigEvent.
+type DigEvent struct {
+	Header                    geometry.Header                `json:"header"`
+	Position                  geometry.Point                 `json:"position"`
+	WheelDistance             float64                        `json:"wheel_distance"`
+	MapDistance               float64                        `json:"map_distance"`
+	PositionSigma             float64                        `json:"position_sigma"`
+}
+
 // DockCalibrationStatus matches mowgli_interfaces/msg/DockCalibrationStatus.
 type DockCalibrationStatus struct {
 	Phase                     uint8                          `json:"phase"`

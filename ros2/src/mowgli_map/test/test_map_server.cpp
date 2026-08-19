@@ -27,6 +27,7 @@
 #include "mowgli_map/map_server_node.hpp"
 #include "mowgli_map/map_types.hpp"
 #include <gtest/gtest.h>
+#include <mowgli_interfaces/msg/dig_event.hpp>
 #include <mowgli_interfaces/srv/add_mowing_area.hpp>
 #include <mowgli_interfaces/srv/get_mowing_area.hpp>
 
@@ -389,6 +390,90 @@ TEST_F(AreaTypeTest, PromoteObstacleIsIdempotent)
   EXPECT_TRUE(node_->apply_promoted_obstacle_for_test(0, obs2));
   EXPECT_EQ(node_->obstacle_polygon_count_for_test(), 2u) << "distinct obstacle was wrongly merged";
   EXPECT_EQ(node_->area_obstacle_count_for_test(0), 2u);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wheel-slip dig reports → automatic permanent keepout.
+//
+// hardware_bridge_node detects the robot digging a hole (wheels turning while
+// the GNSS-anchored pose stays put), stops and reverses out, then publishes a
+// DigEvent. map_server turns that location into a keepout so the NEXT coverage
+// pass routes around the churned patch instead of digging it deeper.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+mowgli_interfaces::msg::DigEvent::SharedPtr make_dig_event(double x, double y)
+{
+  auto msg = std::make_shared<mowgli_interfaces::msg::DigEvent>();
+  msg->header.frame_id = "map";
+  msg->position.x = x;
+  msg->position.y = y;
+  msg->wheel_distance = 0.45;
+  msg->map_distance = 0.02;
+  msg->position_sigma = 0.004;
+  return msg;
+}
+}  // namespace
+
+TEST_F(AreaTypeTest, DigInsideMowingAreaBecomesKeepout)
+{
+  ASSERT_TRUE(add_area("lawn", make_rect(-3, -3, 3, 3), /*is_navigation=*/false));
+  ASSERT_EQ(node_->area_obstacle_count_for_test(0), 0u);
+
+  node_->on_dig_event_for_test(make_dig_event(1.0, 1.0));
+
+  EXPECT_EQ(node_->area_obstacle_count_for_test(0), 1u)
+      << "a dig inside a mowing area must leave a permanent keepout behind";
+  EXPECT_EQ(node_->obstacle_polygon_count_for_test(), 1u);
+}
+
+TEST_F(AreaTypeTest, DigOutsideEveryMowingAreaIsNotPromoted)
+{
+  ASSERT_TRUE(add_area("lawn", make_rect(-3, -3, 3, 3), /*is_navigation=*/false));
+
+  // Digs during transit or docking can happen well outside any mowing area.
+  // There is no area to attach a keepout to, and coverage never plans there.
+  node_->on_dig_event_for_test(make_dig_event(50.0, 50.0));
+
+  EXPECT_EQ(node_->area_obstacle_count_for_test(0), 0u);
+  EXPECT_EQ(node_->obstacle_polygon_count_for_test(), 0u);
+}
+
+TEST_F(AreaTypeTest, DigInsideNavigationAreaOnlyIsNotPromoted)
+{
+  // A navigation corridor is not a mowing area — promotion must refuse it,
+  // matching the ~/promote_obstacle contract.
+  ASSERT_TRUE(add_area("corridor", make_rect(-2, -2, 2, 2), /*is_navigation=*/true));
+
+  node_->on_dig_event_for_test(make_dig_event(0.0, 0.0));
+
+  EXPECT_FALSE(node_->mowing_area_containing_for_test(0.0, 0.0).has_value());
+  EXPECT_EQ(node_->obstacle_polygon_count_for_test(), 0u);
+}
+
+TEST_F(AreaTypeTest, RepeatedDigsAtTheSameSpotDoNotStack)
+{
+  ASSERT_TRUE(add_area("lawn", make_rect(-3, -3, 3, 3), /*is_navigation=*/false));
+
+  // The robot can re-detect the same patch on a later pass; promotion is
+  // deduped by centroid, so the keepout must not accumulate.
+  node_->on_dig_event_for_test(make_dig_event(1.0, 1.0));
+  node_->on_dig_event_for_test(make_dig_event(1.0, 1.0));
+  node_->on_dig_event_for_test(make_dig_event(1.01, 1.01));
+
+  EXPECT_EQ(node_->obstacle_polygon_count_for_test(), 1u) << "repeated digs stacked keepouts";
+}
+
+TEST_F(AreaTypeTest, MowingAreaContainingResolvesTheRightArea)
+{
+  ASSERT_TRUE(add_area("north", make_rect(0, 0, 2, 2), /*is_navigation=*/false));
+  ASSERT_TRUE(add_area("south", make_rect(0, -4, 2, -2), /*is_navigation=*/false));
+
+  EXPECT_EQ(node_->mowing_area_containing_for_test(1.0, 1.0), std::optional<size_t>(0));
+  EXPECT_EQ(node_->mowing_area_containing_for_test(1.0, -3.0), std::optional<size_t>(1));
+  EXPECT_FALSE(node_->mowing_area_containing_for_test(1.0, -1.0).has_value())
+      << "the gap between two areas belongs to neither";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

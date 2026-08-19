@@ -75,6 +75,20 @@ public:
     return wheels_stationary_;
   }
 
+  /// Monotonic sum of |forward distance| the ENCODERS claim the robot has
+  /// travelled [m]. Callers sample the delta between two reads to get
+  /// encoder-claimed travel over an interval; the absolute value is
+  /// meaningless on its own (it never decreases, even driving in reverse).
+  ///
+  /// This is the wheel-side half of the wheel-slip dig comparison in
+  /// hardware_bridge_node (see dig_detector.hpp): the encoders keep
+  /// accumulating here while a spinning wheel digs, which is exactly the
+  /// discrepancy the detector looks for against the fused map pose.
+  [[nodiscard]] double travelled() const
+  {
+    return travelled_m_;
+  }
+
 private:
   rclcpp::Node& node_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
@@ -89,6 +103,7 @@ private:
   int32_t odom_acc_delta_right_{0};
   uint32_t odom_acc_dt_ms_{0};
   bool wheels_stationary_{true};
+  double travelled_m_{0.0};  ///< monotonic |distance| odometer, see travelled()
 
   // Per-wheel cumulative-magnitude tick counters + last direction (for
   // WheelTick). Magnitude is monotonic-up; direction is 1=fwd/0=rev.

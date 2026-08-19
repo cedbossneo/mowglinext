@@ -28,6 +28,7 @@ set(msg_files
   "msg/ObstacleArray.msg"
   "msg/TrackedObstacle.msg"
   "msg/DockCalibrationStatus.msg"
+  "msg/DigEvent.msg"
 )
 
 # Declare service files

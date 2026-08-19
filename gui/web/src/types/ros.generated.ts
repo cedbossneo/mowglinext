@@ -159,6 +159,14 @@ export type CoveragePath = {
   path?: Path;
 };
 
+export type DigEvent = {
+  header?: { stamp: { sec: number; nanosec: number }; frame_id: string };
+  position?: Point;
+  wheel_distance?: number;
+  map_distance?: number;
+  position_sigma?: number;
+};
+
 export const enum DockCalibrationStatusConstants {
   PHASE_WAIT_RTK = 0,
   PHASE_REVERSING = 1,

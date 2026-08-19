@@ -187,7 +187,15 @@ void OdometryPublisher::handle_packet(const LlOdometry& pkt,
   const double dt_sec = static_cast<double>(acc_dt_ms) / 1000.0;
   const double d_left_m = static_cast<double>(acc_d_left) / ticks_per_meter;
   const double d_right_m = static_cast<double>(acc_d_right) / ticks_per_meter;
-  double vx = (d_left_m + d_right_m) * 0.5 / dt_sec;
+  const double d_center_m = (d_left_m + d_right_m) * 0.5;
+  double vx = d_center_m / dt_sec;
+
+  // Encoder odometer for the dig detector (see travelled()). Accumulated
+  // from the SAME per-window tick deltas as vx, before the is_charging
+  // zeroing below — that clamp exists to stop dock-stationary compass drift
+  // corrupting the fused heading (Invariant 11) and must not be mistaken for
+  // real distance either way. On dock, acc_d_* are ~0 anyway.
+  travelled_m_ += std::abs(d_center_m);
   double vyaw = (d_right_m - d_left_m) / wheel_track / dt_sec;
 
   auto msg = nav_msgs::msg::Odometry{};
