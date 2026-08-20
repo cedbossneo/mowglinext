@@ -98,6 +98,19 @@ struct BoustrophedonPlan
   // perimeter ring, forcing every edge turn-around below min_turning_radius →
   // straight fallback → sub-path fragmentation. Empty when the erosion degenerates
   // (tiny field) — the caller then falls back to safe_boundary. (x, y), first==last.
+  //
+  // The invariant, uniform across both branches: a connector centerline may go
+  // NO FURTHER OUT than the outermost DRIVEN pass. WITH THE RING STAGE DISABLED
+  // (num_headland_passes < 0 → zero rings, issue #429) there is no ring 0 to
+  // erode to — the SWATH ENDS are then the outermost driven geometry and they
+  // lie exactly ON safe_boundary, so this ring is safe_boundary EXACTLY (no
+  // expansion, no erosion). Ends sitting on the ring are accepted by
+  // allInside()'s 1 mm on-edge tolerance, not by moving the polygon outward.
+  // Consequence to expect: with no mowed apron beyond the swath ends, a U-turn
+  // arc usually does NOT fit, so buildConnector falls back to a straight join —
+  // a pivot-through corner (which roundSharpCorners fillets where a
+  // min_turning_radius arc fits). That fallback still passes allInside, so
+  // conn_safe stays true and the sub-path does NOT fragment.
   std::vector<std::pair<double, double>> connector_clearance_boundary;
   // Inset ("grown") interior hole rings the continuous-path connectors and
   // corner fillets must stay OUT of, mirroring how safe_boundary is the ring
@@ -117,9 +130,23 @@ struct BoustrophedonPlan
 // Plan boustrophedon coverage of `field_cell` (outer ring + optional holes).
 //
 //   op_width             swath spacing = F2C cov_width (m)
-//   headland_width       desired headland band width (m); the ring count is
-//                        ceil(headland_width / op_width), min 1, unless
-//                        num_headland_passes_override > 0 forces a count
+//   headland_width       desired headland band width (m); used only by the AUTO
+//                        ring count (see num_headland_passes_override)
+//   num_headland_passes_override
+//                        THREE-WAY contract (issue #429):
+//                          < 0  NONE   — zero perimeter rings; the serpentine
+//                                        swaths are the outermost driven pass.
+//                                        They cut to the SAME line the outermost
+//                                        ring would have (chassis_safety_inset
+//                                        inside the recorded boundary) — this is
+//                                        NOT "closer to the edge", it only drops
+//                                        the perimeter loop. With no mowed apron
+//                                        beyond the swath ends, row-end U-turns
+//                                        degrade to straight pivot-through
+//                                        joins.
+//                          == 0 AUTO   — ceil(headland_width / op_width),
+//                                        floored at 1.
+//                          > 0  FORCED — exactly that many rings.
 //   chassis_safety_inset polygon pull-back applied before everything (m)
 //   mow_angle_rad        fixed swath heading; < 0 → auto (minimise swath count)
 //   min_swath_length     drop straight swaths shorter than this (m)
@@ -132,6 +159,9 @@ struct BoustrophedonPlan
 // Geometry: safe = inset(field, chassis_safety_inset); rings are n_rings
 // concentric loops spaced op_width inside safe; mainland = inset(safe,
 // n_rings * op_width) so the swaths butt against the innermost ring's cut.
+// With n_rings == 0 the whole ring stage is skipped and mainland == safe (never
+// inset(safe, 0.0) — upstream that is a real GEOS buffer round-trip, not a
+// no-op), so the swaths run edge to edge of the inset field.
 //
 // Returns a plan whose rings/swaths may BOTH be empty (field too small after
 // insets — the caller reports failure). Throws on internal F2C errors. The

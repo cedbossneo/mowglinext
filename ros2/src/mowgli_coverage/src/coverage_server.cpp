@@ -53,6 +53,20 @@ nav2_util::CallbackReturn CoverageServer::on_configure(const rclcpp_lifecycle::S
   robot_width_ = declare_double("robot_width", 0.40);
   operation_width_ = declare_double("operation_width", 0.18);
   default_headland_width_ = declare_double("default_headland_width", 0.20);
+  // Perimeter (headland) ring count. THREE-WAY sentinel, matching the
+  // mow_angle_deg convention on this same surface (issue #429):
+  //   < 0  NONE   — no perimeter rings at all; the serpentine swaths become the
+  //                 outermost driven pass and cut to the SAME line the outermost
+  //                 ring would have (chassis_safety_inset inside the recorded
+  //                 boundary). It removes the perimeter loop, it does NOT mow
+  //                 closer to the edge; row-end U-turns become pivot-through
+  //                 corners for want of a mowed apron.
+  //   == 0 AUTO   — ceil(default_headland_width / operation_width), min 1.
+  //   > 0  FORCED — exactly that many rings.
+  // Deliberately NOT clamped: a negative value must flow through to
+  // planBoustrophedon. Read once here (on_configure), so a GUI change needs a
+  // stack restart — unlike chassis_safety_inset / ring_direction, which are
+  // read live per plan.
   num_headland_passes_ = declare_int("num_headland_passes", 0);
   // Declared here, READ LIVE in planCoverage — both are field-tuned between
   // plans with `ros2 param set` (no node restart).
@@ -467,9 +481,16 @@ void CoverageServer::planCoverage()
     if (plan.rings.empty() && plan.swaths.empty())
     {
       result->success = false;
+      // Name the disabled-headland case explicitly (#429) — with rings off the
+      // ONLY geometry is the swaths, so this message must not read as an
+      // inset-ate-the-headland problem.
       result->message =
           "field too small after insets (chassis_safety_inset=" + std::to_string(effective_inset) +
-          "m, headland=" + std::to_string(default_headland_width_) + "m)";
+          "m, " +
+          (num_headland_passes_ < 0
+               ? std::string("headland rings DISABLED via num_headland_passes<0")
+               : "headland=" + std::to_string(default_headland_width_) + "m") +
+          ")";
       RCLCPP_WARN(get_logger(),
                   "PlanCoverage: %s (field area=%.2fm²)",
                   result->message.c_str(),
