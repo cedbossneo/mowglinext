@@ -238,13 +238,17 @@ struct BTContext
   /// operator" — blade/motors past this margin can do real damage.
   bool lethal_boundary_violation{false};
 
-  /// Set (with hysteresis, see behavior_tree_node's /odometry/filtered_map
-  /// callback) while the fused position uncertainty is too high to trust —
-  /// σ_xy above loc_sigma_pause_m latches it, dropping below
-  /// loc_sigma_resume_m clears it. The LocalizationGuard pauses blade-on
-  /// mowing while set: field incident 2026-08-02 — RTK dropped to plain GPS
-  /// (σ ≈ 1.5 m) for >60 s and FTC kept steering on the drifting estimate
-  /// until the robot physically left the area and BoundaryGuard tripped.
+  /// Set (with hysteresis, see behavior_tree_node's updateLocalizationHealthLocked)
+  /// while ABSOLUTE POSITION is untrustworthy. The LocalizationGuard pauses
+  /// blade-on mowing while set: field incident 2026-08-02 — RTK dropped to
+  /// plain GPS (σ ≈ 1.5 m) for >60 s and FTC kept steering on the drifting
+  /// estimate until the robot physically left the area and BoundaryGuard
+  /// tripped.
+  ///
+  /// Driven by GNSS solution quality from /gps/status, NOT by the fused
+  /// marginal covariance — fusion_graph inflates that deliberately on every
+  /// pivot, which livelocked mowing at 0 % on 2026-08-20. σ_xy survives only
+  /// as a generous divergence backstop. See localization_health.hpp.
   bool localization_degraded{false};
 
   /// Current navigation mode: "precise" or "degraded"
