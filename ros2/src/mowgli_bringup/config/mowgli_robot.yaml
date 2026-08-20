@@ -92,18 +92,39 @@ mowgli:
     # Behavior tree tuning (consumed by behavior_tree_node)
     tick_rate: 10.0
     # Localization-quality gate (LocalizationGuard): pause blade-on mowing
-    # while the fused σ_xy exceeds loc_sigma_pause_m; resume once it falls
-    # below loc_sigma_resume_m (hysteresis so RTK flapping doesn't chatter).
-    # Field incident 2026-08-02: >60 s plain-GPS fallback (σ ≈ 1.5 m) drove
-    # the robot out of the area before BoundaryGuard could see it.
-    loc_sigma_pause_m: 0.15
-    loc_sigma_resume_m: 0.08
-    # Persistence debounce: σ must stay beyond the threshold this long before
-    # the guard flips. Graph covariance spikes to ~0.9 m for a few seconds on
-    # every rejected/missed GPS fix and snaps back — without the debounce the
-    # guard flipped 32× in 15 min and shredded mowing into stutter intervals.
+    # while ABSOLUTE POSITION is untrustworthy. Field incident 2026-08-02:
+    # >60 s plain-GPS fallback (σ ≈ 1.5 m) drove the robot out of the area
+    # before BoundaryGuard could see it.
+    #
+    # The signal is GNSS solution quality from /gps/status, NOT the fused
+    # marginal covariance. fusion_graph deliberately releases the X constraint
+    # during pivots (pivot_wheel_sigma_x = 0.5 m/node) and slip (adaptive
+    # noise gain 10), so its σ_xy reaches >1.8 m while the receiver holds
+    # RTK-Fixed at 1.4 cm. The old σ-keyed gate at 0.15/0.08 m was therefore
+    # only satisfiable while PARKED (σ ≈ 0.05 m) and re-tripped on FTC's
+    # PRE_ROTATE at every strip start — field 2026-08-20: ten degrade/recover
+    # cycles in eight minutes with FollowStrip pinned at 0 %, a livelock.
+    # See mowgli_behavior/localization_health.hpp for the full derivation.
+    #
+    # Pause above this receiver-reported horizontal accuracy, resume below the
+    # tighter one. Defaults sit far above RTK-Fixed (~0.015 m) and ordinary
+    # RTK-Float, but well under the ~1.5 m plain-GPS fallback being caught.
+    loc_gnss_acc_pause_m: 0.30
+    loc_gnss_acc_resume_m: 0.15
+    # /gps/status older than this counts as a dead GNSS feed [s].
+    loc_gnss_stale_s: 5.0
+    # Persistence debounce: the condition must hold this long before the guard
+    # flips, so per-epoch RTK fix flicker does not chatter it.
     loc_sigma_pause_persist_s: 3.0
     loc_sigma_resume_persist_s: 2.0
+    # Divergence backstop on the fused σ_xy — the one hazard /gps/status
+    # cannot see: the localizer rejecting every fix while the receiver stays
+    # healthy (the reverted GnssMobileGate runaway, σ ≈ 2.5 m). MUST stay
+    # above fusion_graph's own inflation ceiling (~2.35 m worst case) or the
+    # 2026-08-20 livelock comes straight back. 0 disables the backstop.
+    loc_sigma_pause_m: 5.0
+    loc_sigma_resume_m: 2.0
+    loc_sigma_backstop_persist_s: 10.0
     bt_debug_logging: false
     # idle_nav2_suspend (default false): when true, the BT PAUSEs the Nav2
     # lifecycle stack while parked on the dock so the costmaps stop looping and

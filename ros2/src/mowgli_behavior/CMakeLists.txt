@@ -402,6 +402,21 @@ if(BUILD_TESTING)
     mowgli_interfaces
   )
 
+  # ---- test_localization_health ----
+  # Unit tests for the LocalizationGuard's input signal
+  # (localization_health.hpp). Pins the 2026-08-20 livelock: pivot/slip
+  # covariance inflation on a healthy RTK-Fixed receiver must NOT pause
+  # mowing, while the 2026-08-02 plain-GPS fallback still must.
+  # Header-only helper -> no source link.
+  ament_add_gtest(test_localization_health
+    test/test_localization_health.cpp
+  )
+
+  target_include_directories(test_localization_health PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
   # ---- test_battery_critical_resume ----
   # Regression for "robot stuck after a critical-battery charge": the
   # CriticalBatteryDock tail must AUTO-CONTINUE on recovery (undock, keep
