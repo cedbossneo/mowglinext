@@ -211,7 +211,7 @@ the affected containers to apply manual edits.
 | `dock_approach_distance` | `1` | Stop distance before final dock approach (metres) |
 | `undock_distance` | `1.5` | How far to reverse before turning (metres) |
 | `undock_speed` | `0.15` | Reverse speed during undocking (m/s) |
-| `dock_use_charger_detection` | `true` | Stop when charging current detected |
+| `dock_use_charger_detection` | `true` | Confirm the dock from the charging current (injected at launch into nav2 `simple_charging_dock.use_battery_status`). `false` = dock confirmed on pose proximity alone |
 
 **Robot geometry**
 
@@ -243,10 +243,8 @@ the affected containers to apply manual edits.
 | `transit_speed` | `0.4` | Transit-to-area speed in m/s |
 | `path_spacing` | `0.13` | Distance between parallel mowing passes (metres) |
 | `headland_width` | `0.18` | Width of the headland strip around the boundary |
-| `outline_passes` | `1` | Number of perimeter passes before filling |
-| `outline_offset` | `0.05` | Inset from the mapped boundary (metres) |
+| `num_headland_passes` | `2` | Concentric perimeter rings before the inner field. `<0` = none, `0` = auto |
 | `min_turning_radius` | `0.3` | Minimum turning radius for path planning (metres) |
-| `mow_angle_increment_deg` | `0` | Rotate mowing angle by this many degrees each session |
 
 **SLAM**
 

@@ -320,7 +320,7 @@ Don't tighten transit XY below 0.20 m — FTC's PRE_ROTATE state can oscillate a
 These are operator-facing and self-explanatory in the UI:
 
 - **Schedule** — add weekly recurrences with start time + duration. Rain-aware and auto-dock-low rules apply globally.
-- **Mowing** (settings) — speed (0.50 m/s default for both transit and mowing), `tool_width` (0.18 m, single source for blade cut width and F2C swath spacing), `mow_angle_offset_deg` / `headland_width` exposed for F2C v2 coverage, perimeter (outline passes count and offset for the legacy strip planner).
+- **Mowing** (settings) — `mowing_speed` / `transit_speed` (0.2 m/s default for both), `tool_width` (0.18 m, the single source for blade cut width and — minus `swath_overlap`, 0.02 m — the F2C swath spacing), `mow_angle_deg` (negative = auto swath angle, 0..179 forces a fixed one) and `num_headland_passes` (concentric perimeter rings: negative = none, 0 = auto, >0 = exactly that many). `mowing_enabled` off is a dry run — the robot drives the whole path with the blade never spinning.
 - **Battery** — voltage thresholds with hysteresis (Low Dock 20% / Resume Above 95%) — this is also enforced firmware-side.
 - **Rain** — choose Dock / Dock Until Dry / Pause Auto / Ignore behaviour, plus debounce (10 s default) and resume delay (30 min default).
 

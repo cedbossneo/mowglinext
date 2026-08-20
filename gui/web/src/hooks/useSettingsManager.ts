@@ -162,7 +162,17 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
         icon: "safety",
         description: "settingsSections.safety.description",
         keys: [
-            "motor_temp_high_c", "motor_temp_low_c",
+            // motor_temp_high_c / motor_temp_low_c REMOVED (issue #195): no
+            // layer of the stack implements a thermal blade cutoff — the
+            // firmware only measures and reports blade temperature. The real
+            // surface is mowgli_monitoring's motor_temp_warn_c /
+            // motor_temp_error_c diagnostics thresholds.
+            // The two lift keys below stay CLAIMED by this section but are
+            // deliberately NOT rendered (see SafetySection.tsx):
+            // lift_recovery_mode suppresses the ROS2 lift emergency and
+            // auto-releases the firmware latch, and the delay is inert unless
+            // that mode is on. Listing them here is what keeps them out of
+            // AdvancedSection's free-form editor, exactly as before.
             "lift_blade_resume_delay_sec", "lift_recovery_mode",
         ],
     },
@@ -235,7 +245,7 @@ export const useSettingsManager = () => {
                 setLoading(true);
                 const res = await guiApi.settings.yamlList();
                 if (res.error) throw new Error((res.error as any).error);
-                const data = (res.data as Record<string, any>) || {};
+                const data = (res.data) || {};
                 setSavedValues(data);
                 setLocalValues(data);
                 // Best-effort: the reset-to-default UI degrades gracefully
@@ -579,6 +589,20 @@ export const useSettingsManager = () => {
         "gps_antenna_y",
         "gps_antenna_z",
         "automatic_mode",
+        // Retired in issue #195: removed from the ROS2 template AND the GUI
+        // schema because no node ever read them. Belt-and-braces for a robot
+        // whose installed yaml still carries them between the schema removal
+        // and the retired-key scrub that runs on the next Settings save
+        // (gui/pkg/api/settings.go retiredParamKeys) — same rationale as
+        // slam_mode / map_save_on_dock above: dead config that would silently
+        // mislead anyone who edits it.
+        "outline_passes",
+        "outline_offset",
+        "outline_overlap",
+        "mow_angle_offset_deg",
+        "mow_angle_increment_deg",
+        "motor_temp_high_c",
+        "motor_temp_low_c",
     ]);
     const advancedKeys = useMemo(() => {
         const knownKeys = new Set(

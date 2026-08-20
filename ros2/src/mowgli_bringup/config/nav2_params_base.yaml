@@ -882,6 +882,9 @@ docking_server:
     dock_approach_timeout: 30.0
     undock_linear_tolerance: 0.05
     undock_angular_tolerance: 0.1
+    # Static default; OVERRIDDEN at launch from mowgli_robot.yaml
+    # dock_max_retries (navigation.launch.py _inject_dock_pose_and_speeds).
+    # Editing the value here does NOT stick — see issue #192 / #195.
     max_retries: 3
     base_frame: base_footprint
     fixed_frame: odom
@@ -1038,6 +1041,12 @@ docking_server:
       # in odom. Keep false here so disabling the feature restores the legacy
       # path cleanly.
       use_external_detection_pose: false
+      # Static default; OVERRIDDEN at launch from mowgli_robot.yaml
+      # dock_use_charger_detection (navigation.launch.py
+      # _inject_dock_pose_and_speeds). Editing the value here does NOT stick.
+      # false = dock success falls back to pose proximity alone (with
+      # use_stall_detection also false), so wait_charge_timeout stops gating
+      # contact — see issue #195.
       use_battery_status: true
       battery_topic: "/battery_state"
       use_stall_detection: false
@@ -1119,6 +1128,11 @@ coverage_server:
     # swaths, unless num_headland_passes (>0) forces a count. INJECTED at
     # launch from mowgli_robot.yaml.headland_width.
     default_headland_width: 0.20
+    # num_headland_passes: <0 = NONE (no perimeter rings — the serpentine swaths
+    # mow to the boundary, #429), 0 = auto (ceil(default_headland_width /
+    # operation_width), min 1), >0 = exactly that many rings. The value below is
+    # the node default for isolated runs; OVERWRITTEN at launch from
+    # mowgli_robot.yaml.num_headland_passes.
     num_headland_passes: 0
     # chassis_safety_inset: polygon pull-back applied before all planning so
     # the chassis cannot cross the boundary under tracking error. INJECTED at

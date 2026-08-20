@@ -328,7 +328,7 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 | `transit_speed` | `0.25` | Speed during point-to-point navigation (m/s) |
 | `path_spacing` | `0.18` | Distance between parallel swath centrelines |
 | `headland_width` | `0.18` | Width of one headland pass (1 x tool_width) |
-| `mow_angle_offset_deg` | `-1.0` | Swath angle; -1 = auto-detect optimal |
+| `mow_angle_deg` | `-1.0` | Swath angle in degrees; negative = auto (swath-count-minimising) |
 | `min_turning_radius` | `0.30` | Minimum turning radius for Dubins curves |
 
 #### Docking
@@ -340,7 +340,7 @@ All sensor positions drive both the URDF (TF frames) and the Nav2 footprint poly
 | `dock_pose_yaw` | `4.17` | Dock heading in map frame (rad) — **set per site** |
 | `undock_distance` | `1.5` | Distance to reverse when undocking |
 | `undock_speed` | `0.15` | Reverse speed during undocking (m/s) |
-| `dock_max_retries` | `3` | Maximum docking attempts |
+| `dock_max_retries` | `3` | Maximum docking attempts (injected at launch into nav2 `docking_server.max_retries`) |
 
 #### Rain
 
@@ -759,6 +759,11 @@ MowingSequence
 The default Webots world is
 `src/mowgli_simulation/worlds_webots/mowgli_garden.wbt`. Select another
 available world with the `world` launch argument.
+
+Before editing any simulation asset (`worlds_webots/`, `protos/`,
+`urdf_webots/`, `kinematic_drive.py`), read
+[`docs/WEBOTS_SIM.md`](../docs/WEBOTS_SIM.md) — the ODE quirks documented there
+are load-bearing, and breaking one presents as a Nav2 bug rather than a sim bug.
 
 | World | Size | Use |
 |-------|------|-----|

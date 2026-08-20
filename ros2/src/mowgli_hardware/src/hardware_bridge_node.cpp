@@ -60,6 +60,7 @@
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "mowgli_hardware/blade_gate.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
 #include "mowgli_hardware/ll_datatypes.hpp"
@@ -610,6 +611,13 @@ private:
     // so a redeploy reads the latest values from the same source.
     lift_recovery_mode_ = declare_parameter<bool>("lift_recovery_mode", false);
     lift_blade_resume_delay_sec_ = declare_parameter<double>("lift_blade_resume_delay_sec", 1.0);
+    // Dry-run inhibit (issue #195): false suppresses every blade ENABLE that
+    // reaches on_mower_control, so a full mowing mission can be driven with the
+    // blade never spinning. NOT a safety interlock — the firmware remains the
+    // sole blade safety authority and a DISABLE always passes through
+    // (see blade_gate.hpp). Read once here, so a GUI change needs a ROS2
+    // container restart.
+    mowing_enabled_ = declare_parameter<bool>("mowing_enabled", true);
     // imu_yaw parameter is used by URDF for mounting rotation, not needed here
     imu_cal_samples_ = declare_parameter<int>("imu_cal_samples", 200);
     // Persist the last successful calibration so container restarts don't
@@ -2825,7 +2833,18 @@ private:
   void on_mower_control(const std::shared_ptr<mowgli_interfaces::srv::MowerControl::Request> req,
                         std::shared_ptr<mowgli_interfaces::srv::MowerControl::Response> res)
   {
-    mow_enabled_ = (req->mow_enabled != 0u);
+    const bool requested_enable = (req->mow_enabled != 0u);
+    // Dry-run inhibit (issue #195). Suppresses an ENABLE only; a DISABLE always
+    // passes through in either state, so a stop can never be swallowed. The
+    // firmware stays the sole blade safety authority — this is NOT an interlock.
+    mow_enabled_ = blade_enable_allowed(requested_enable, mowing_enabled_);
+
+    if (requested_enable && !mow_enabled_)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "MowerControl: blade enable SUPPRESSED — mowing_enabled=false (dry run). "
+                  "Set mowing_enabled: true in mowgli_robot.yaml and restart ROS2 to mow.");
+    }
 
     RCLCPP_INFO(get_logger(),
                 "MowerControl: mow_enabled=%s mow_direction=%u",
@@ -2835,6 +2854,8 @@ private:
     // Send blade command to STM32
     send_blade_command(mow_enabled_ ? 1u : 0u, req->mow_direction);
 
+    // The request was accepted and acted on — a suppressed enable is a
+    // configured behaviour, not a failure.
     res->success = true;
   }
 
@@ -2993,6 +3014,8 @@ private:
   // Lift recovery mode: blade off on lift, no emergency, auto-resume
   bool lift_recovery_mode_{false};
   double lift_blade_resume_delay_sec_{1.0};
+  // mowgli_robot.yaml `mowing_enabled` — dry-run inhibit, see blade_gate.hpp.
+  bool mowing_enabled_{true};
   bool lift_detected_{false};
   rclcpp::Time lift_start_time_;
   bool blade_was_enabled_before_lift_{false};
