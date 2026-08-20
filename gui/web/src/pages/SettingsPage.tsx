@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, App, Badge, Button, Empty, Input, Spin, Typography } from "antd";
+import { Alert, App, Badge, Button, Empty, Input, Space, Spin, Typography } from "antd";
 import {
     ReloadOutlined,
     SaveOutlined,
@@ -30,6 +30,7 @@ import { RainSection } from "../components/settings/RainSection.tsx";
 import { AdvancedSection } from "../components/settings/AdvancedSection.tsx";
 import { SettingsPreview } from "../components/settings/SettingsPreview.tsx";
 import { DisplayModeSection } from "../components/settings/DisplayModeSection.tsx";
+import { LogTimeZoneSection } from "../components/settings/LogTimeZoneSection.tsx";
 
 const { Text } = Typography;
 
@@ -113,7 +114,12 @@ export const SettingsPage = () => {
     const renderSection = () => {
         switch (activeSection) {
             case "appearance":
-                return <DisplayModeSection />;
+                return (
+                    <Space direction="vertical" size={16} style={{width: "100%"}}>
+                        <DisplayModeSection />
+                        <LogTimeZoneSection />
+                    </Space>
+                );
             case "hardware":
                 return (
                     <HardwareSection
