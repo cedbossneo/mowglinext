@@ -379,7 +379,9 @@ def generate_launch_description() -> LaunchDescription:
     # #396). Kept equal to that default so the effective timeout is one number.
     progress_timeout_sec = 30.0
     # num_headland_passes: 0 = auto (ceil(headland_width / tool_width)),
-    # >0 forces exactly that many concentric perimeter rings.
+    # >0 forces exactly that many concentric perimeter rings, <0 = NONE (no
+    # perimeter rings at all — the serpentine swaths mow to the boundary, #429).
+    # The negative sentinel must flow through UNCLAMPED to coverage_server.
     num_headland_passes = 0
     # mow_direction: perimeter/headland travel winding (issue #335) — 0 = planner
     # default (F2C natural), 1 = clockwise, 2 = counter-clockwise. Set it to keep
@@ -432,6 +434,19 @@ def generate_launch_description() -> LaunchDescription:
     # early, 0.5 over-presses" rationale). Operator-overridable via
     # mowgli_robot.yaml so sites with different chargers can tune.
     dock_charging_threshold = 0.3
+    # docking_server retry budget (issue #195). MUST have a module-level default
+    # for the same reason dock_approach_overshoot does: it is read
+    # unconditionally in _inject_dock_pose_and_speeds, but only assigned inside
+    # the `if runtime yaml exists` block below — a fresh checkout / CI run with
+    # no /ros2_ws/config/mowgli_robot.yaml would otherwise NameError and abort
+    # the whole navigation launch. Matches nav2_params_base.yaml's static value.
+    dock_max_retries = 3
+    # Confirm docking from the charging current (SimpleChargingDock
+    # use_battery_status). False = the dock is considered reached on pose
+    # proximity alone (wait_charge_timeout no longer gates contact). Matches
+    # nav2_params_base.yaml's static value. See dock_max_retries for why this
+    # needs a module-level default.
+    dock_use_charger_detection = True
     # Phantom-tuning knobs surfaced through mowgli_robot.yaml so the GUI
     # can edit them without an SSH session. Defaults match the C++ node
     # defaults; override on the Settings page.
@@ -509,6 +524,9 @@ def generate_launch_description() -> LaunchDescription:
             rt_rp.get("dock_approach_overshoot", 0.05))
         dock_charging_threshold = float(
             rt_rp.get("dock_charging_threshold", dock_charging_threshold))
+        dock_max_retries = int(rt_rp.get("dock_max_retries", dock_max_retries))
+        dock_use_charger_detection = bool(
+            rt_rp.get("dock_use_charger_detection", dock_use_charger_detection))
         # NOTE: coverage_xy_tolerance is FLOORED at FTC's max_goal_distance_error
         # at injection time (see _inject below) — a value tighter than FTC's
         # parking distance would make the area never complete and re-mow. We no
@@ -605,9 +623,12 @@ def generate_launch_description() -> LaunchDescription:
             overlay_doc = yaml.safe_load(fh) or {}
         doc = deep_merge(base_doc, overlay_doc)
         # home_dock.pose must be a YAML list (PARAMETER_DOUBLE_ARRAY).
-        home_dock = (doc.setdefault("docking_server", {})
-                        .setdefault("ros__parameters", {})
-                        .setdefault("home_dock", {}))
+        ds = (doc.setdefault("docking_server", {})
+                 .setdefault("ros__parameters", {}))
+        # Retry budget (issue #195) — was a static nav2_params_base.yaml value
+        # with the mowgli_robot.yaml key wired to nothing.
+        ds["max_retries"] = int(dock_max_retries)
+        home_dock = ds.setdefault("home_dock", {})
         # Apply dock_approach_overshoot in the body forward direction.
         # opennav_docking's graceful_controller will drive toward this
         # shifted target and stop at docking_threshold (5 cm) before it,
@@ -631,6 +652,10 @@ def generate_launch_description() -> LaunchDescription:
                   .setdefault("ros__parameters", {})
                   .setdefault("simple_charging_dock", {}))
         scd["charging_threshold"] = dock_charging_threshold
+        # Confirm contact from the charging current (issue #195). False falls
+        # back to pose proximity alone — wait_charge_timeout then no longer
+        # gates dock success.
+        scd["use_battery_status"] = bool(dock_use_charger_detection)
         # GPS-derived dock detection. When enabled, SimpleChargingDock pulls
         # the live dock target from the `detected_dock_pose` topic
         # (gps_dock_detection_node, fed by RTK-Fixed /gps/absolute_pose) every

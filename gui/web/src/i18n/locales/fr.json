@@ -315,7 +315,7 @@
     "approachDistance": "Distance d'approche",
     "approachDistanceTooltip": "Distance du point de préparation devant la base",
     "chargerDetection": "Détection du chargeur",
-    "chargerDetectionTooltip": "Utiliser la tension de charge pour confirmer l'accostage",
+    "chargerDetectionTooltip": "Confirmer l'accostage par le courant de charge (nav2 simple_charging_dock.use_battery_status). Désactivé = l'accostage est considéré atteint sur la seule proximité de pose, le délai d'attente de charge ne conditionne donc plus le contact. Prend effet au prochain redémarrage de ROS2.",
     "advanced": "Avancé",
     "maxRetries": "Tentatives max",
     "maxRetriesTooltip": "Nombre d'essais d'accostage avant d'abandonner",
@@ -1635,7 +1635,7 @@
     },
     "num_headland_passes": {
       "label": "Passes de bordure",
-      "description": "Nombre d'anneaux de bordure concentriques tondus avant les bandes en va-et-vient."
+      "description": "Nombre d'anneaux de bordure concentriques tondus avant les bandes en va-et-vient. Une valeur négative (« aucune ») désactive complètement les anneaux de bordure : les bandes deviennent la passe la plus extérieure et leur axe suit exactement la ligne qu'aurait parcourue l'anneau extérieur, la bande non tondue latérale reste donc inchangée (environ 12 cm avec le retrait de sécurité châssis par défaut de 0,20 m). En revanche les EXTRÉMITÉS des bandes atteignent cette limite, soit environ 8 cm plus près de la bordure que n'importe quelle passe d'anneau, et sans tablier tondu les demi-tours en bout de rang deviennent des pivots à angle vif au lieu d'arcs réguliers."
     },
     "headland_width": {
       "label": "Largeur de bordure",
@@ -2337,13 +2337,10 @@
   },
   "settingsSafety": {
     "alertMessage": "Les réglages de sécurité protègent le robot et son environnement",
-    "alertDescription": "Le firmware est la seule autorité de sécurité. Ces réglages configurent le comportement du firmware — les désactiver réduit la protection.",
-    "motorTemperatureLimits": "Limites de température moteur",
-    "motorTemperatureLimitsDescription": "Le moteur de lame s'arrête au-dessus du seuil haut et reprend en dessous du seuil bas (hystérésis).",
-    "stopAbove": "Arrêt au-dessus",
-    "stopAboveTooltip": "Arrêter le moteur de lame au-dessus de cette température",
-    "resumeBelow": "Reprise en dessous",
-    "resumeBelowTooltip": "Reprendre le moteur de lame en dessous de cette température"
+    "alertDescription": "Le firmware STM32 est la seule autorité de sécurité : il coupe la lame en cas de soulèvement, d’inclinaison ou d’arrêt d’urgence, et rien de cela n’est configurable depuis cette page. Il n’y a rien à modifier ici.",
+    "firmwareOwnedTitle": "Géré par le firmware",
+    "firmwareOwnedDescription": "La détection de soulèvement et d’inclinaison, le verrou d’arrêt d’urgence et la coupure de la lame résident tous dans le firmware STM32, qui décide selon ses propres seuils physiques. L’interface ne peut ni les assouplir, ni les retarder, ni les contourner : aucun réglage n’est donc proposé ici.",
+    "temperatureThresholdsNote": "La température du moteur de lame est uniquement mesurée et rapportée — aucune couche de la pile n’arrête la lame en fonction de la température. Les seuils d’alerte et d’erreur utilisés par les diagnostics (motor_temp_warn_c et motor_temp_error_c, dans mowgli_monitoring/config/diagnostics.yaml) se modifient sur la page Paramètres."
   },
   "settingsObstacles": {
     "rootZoneHintTitle": "Arbres avec de grosses racines ?",
@@ -2369,7 +2366,7 @@
   },
   "settingsMowing": {
     "mowingMotor": "Moteur de tonte",
-    "mowingMotorDescription": "Désactivez pour tester sans faire tourner la lame.",
+    "mowingMotorDescription": "Désactivé = essai à vide : le robot parcourt tout le trajet sans jamais faire tourner la lame. Il s’agit d’une inhibition de confort, PAS d’une coupure de sécurité — le firmware reste l’autorité de sécurité de la lame. Prend effet au prochain redémarrage de ROS2.",
     "mowingSpeed": "Vitesse de tonte",
     "mowingSpeedTooltip": "Vitesse pendant les bandes de tonte (m/s)",
     "transitSpeed": "Vitesse de transit",
@@ -2380,7 +2377,9 @@
     "swathOverlap": "Chevauchement des passes",
     "swathOverlapTooltip": "Chevauchement supplémentaire entre passes adjacentes pour éviter les bandes non tondues. Espacement F2C = tool_width − swath_overlap.",
     "headlandPasses": "Passes de tournière",
-    "headlandPassesTooltip": "Nombre d'anneaux périmétriques concentriques avant le champ intérieur. 0 = auto (ceil(headland_width / tool_width)). >0 force exactement ce nombre quelle que soit headland_width. Relié à coverage_server.num_headland_passes.",
+    "headlandPassesTooltip": "Anneaux périmétriques concentriques tondus avant le champ intérieur. Aucune = pas d'anneau périmétrique : les bandes en va-et-vient deviennent la passe la plus extérieure, et leur axe suit exactement la ligne qu'aurait parcourue l'anneau extérieur — latéralement, la bande non tondue reste donc la même qu'avec les anneaux (environ 12 cm avec le retrait de sécurité châssis par défaut de 0,20 m), ni plus près du bord ni plus loin. En revanche les EXTRÉMITÉS des bandes atteignent cette limite, soit environ 8 cm plus près de la bordure que n'importe quelle passe d'anneau, et sans tablier tondu les demi-tours en bout de rang deviennent des pivots à angle vif au lieu d'arcs réguliers. À tester sur votre terrain avant de vous y fier.",
+    "headlandPassesNone": "Aucune",
+    "headlandPassesAuto": "Auto",
     "mowDirection": "Sens de tonte du périmètre",
     "mowDirectionTooltip": "Sens de déplacement autour des anneaux de périmètre/tournière. Réglez-le pour qu'une lame déportée sur le côté reste du côté à tondre. Auto conserve le sens naturel du planificateur. Relié à coverage_server.ring_direction.",
     "mowDirectionAuto": "Auto (défaut du planificateur)",
@@ -2901,7 +2900,9 @@
     "paused": "En pause",
     "clear": "Effacer",
     "waitingForOutput": "En attente de la sortie des logs…",
-    "noLinesMatch": "Aucune ligne ne correspond aux filtres actifs."
+    "noLinesMatch": "Aucune ligne ne correspond aux filtres actifs.",
+    "timeZoneLocal": "Locale",
+    "timeZoneUtc": "UTC"
   },
   "imuYawCalibration": {
     "timedOut": "Délai dépassé après 155 s. Le service tourne peut-être encore — vérifiez le robot et réessayez.",
@@ -2952,7 +2953,7 @@
   "settingsSections": {
     "appearance": {
       "label": "Apparence",
-      "description": "Richesse visuelle et consommation d'énergie sur cet appareil"
+      "description": "Richesse visuelle, consommation d'énergie et affichage des horodatages sur cet appareil"
     },
     "hardware": {
       "label": "Matériel",
@@ -2992,7 +2993,7 @@
     },
     "safety": {
       "label": "Sécurité",
-      "description": "Arrêts d'urgence et limites de température"
+      "description": "Ce que le firmware gère lui-même"
     },
     "obstacles": {
       "label": "Obstacles",
@@ -3085,5 +3086,20 @@
   },
   "settingsSchema": {
     "loadFailed": "Échec du chargement du schéma de réglages"
+  },
+  "logTime": {
+    "title": "Horodatage des journaux",
+    "description": "Les lignes de journal et les dates de calibration sont réaffichées dans le fuseau choisi ici, afin que le robot, les conteneurs et ce navigateur se lisent de la même façon. Enregistré uniquement sur cet appareil.",
+    "zoneBadge": "Heures affichées actuellement en {{zone}}.",
+    "toggleAria": "Basculer entre l'heure locale et UTC",
+    "approximate": "Cette ligne ne contenait pas d'horodatage — affichage de l'heure de réception.",
+    "local": {
+      "label": "Heure locale",
+      "description": "Le fuseau de ce navigateur. Correspond à l'horloge de l'appareil utilisé."
+    },
+    "utc": {
+      "label": "UTC",
+      "description": "Le fuseau des conteneurs du robot. Idéal pour comparer des journaux à plusieurs."
+    }
   }
 }

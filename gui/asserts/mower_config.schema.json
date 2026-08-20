@@ -459,13 +459,13 @@
           "type": "integer",
           "title": "Dock Max Retries",
           "default": 3,
-          "description": "Maximum docking retry attempts."
+          "description": "Maximum docking retry attempts (nav2 docking_server.max_retries). Applied at launch: takes effect after a ROS2 restart."
         },
         "dock_use_charger_detection": {
           "type": "boolean",
           "title": "Use Charger Detection",
           "default": true,
-          "description": "Detect charging voltage to confirm successful dock."
+          "description": "Confirm docking from the charging current (nav2 simple_charging_dock.use_battery_status). Off = the dock is considered reached on pose proximity alone. Applied at launch: takes effect after a ROS2 restart."
         },
         "dock_charging_threshold": {
           "type": "number",
@@ -483,7 +483,7 @@
           "type": "boolean",
           "title": "Enable Mowing Motor",
           "default": true,
-          "description": "Enable mowing blade. Set false for testing without blade."
+          "description": "Enable the mowing blade. false = DRY RUN: the robot mows the full path with the blade never spinning (commissioning, coverage tuning). This is a convenience inhibit, NOT a safety cut-out \u2014 the STM32 firmware remains the blade safety authority. Read by hardware_bridge_node at startup: takes effect after a ROS2 restart."
         },
         "mowing_speed": {
           "type": "number",
@@ -496,24 +496,6 @@
           "title": "Transit Speed",
           "default": 0.2,
           "description": "Robot speed when transiting between zones and to dock (m/s)."
-        },
-        "outline_passes": {
-          "type": "integer",
-          "title": "Outline Passes",
-          "default": 1,
-          "description": "Number of perimeter passes before fill mowing."
-        },
-        "outline_offset": {
-          "type": "number",
-          "title": "Outline Offset",
-          "default": 0.05,
-          "description": "Inward offset from recorded boundary (metres)."
-        },
-        "outline_overlap": {
-          "type": "number",
-          "title": "Outline Overlap",
-          "default": 0.0,
-          "description": "Overlap between outline and fill passes (metres)."
         },
         "path_spacing": {
           "type": "number",
@@ -531,7 +513,8 @@
           "type": "integer",
           "title": "Headland Passes",
           "default": 2,
-          "description": "Number of concentric perimeter rings before the inner field. 0 = auto (ceil(headland_width / tool_width)); >0 forces exactly that count."
+          "minimum": -1,
+          "description": "Number of concentric perimeter rings before the inner field. -1 (or any negative) = none — no perimeter rings. The back-and-forth swaths become the outermost pass, and their centreline lands on exactly the line the outermost ring would have driven (chassis_safety_inset inside the recorded boundary), so sideways they leave the same uncut band as the rings — about 12 cm at the default 0.20 m inset. The swath ENDS, however, reach that same band, roughly 8 cm closer to the boundary than any ring pass gets, and with no mowed apron the row-end U-turns become pivot-through corners instead of smooth arcs. 0 = auto (ceil(headland_width / tool_width)); >0 forces exactly that count."
         },
         "chassis_safety_inset": {
           "type": "number",
@@ -552,18 +535,6 @@
           "maximum": 179,
           "default": -1.0,
           "description": "Swath (mowing line) direction. -1 (or any negative) = auto: the coverage server picks the swath-count-minimising angle. 0..179 forces a fixed swath angle in degrees."
-        },
-        "mow_angle_offset_deg": {
-          "type": "number",
-          "title": "Mow Angle Offset",
-          "default": -1.0,
-          "description": "Mowing angle offset in degrees (-1 = auto-detect)."
-        },
-        "mow_angle_increment_deg": {
-          "type": "number",
-          "title": "Mow Angle Increment",
-          "default": 0.0,
-          "description": "Rotate mowing pattern by this many degrees each full pass."
         }
       }
     },
@@ -619,18 +590,6 @@
       "title": "Safety",
       "type": "object",
       "properties": {
-        "motor_temp_high_c": {
-          "type": "number",
-          "title": "Motor Temp High",
-          "default": 80.0,
-          "description": "Stop blade above this motor temperature (C)."
-        },
-        "motor_temp_low_c": {
-          "type": "number",
-          "title": "Motor Temp Low",
-          "default": 40.0,
-          "description": "Resume blade below this motor temperature (C)."
-        },
         "lift_blade_resume_delay_sec": {
           "type": "number",
           "title": "Lift Blade Resume Delay",

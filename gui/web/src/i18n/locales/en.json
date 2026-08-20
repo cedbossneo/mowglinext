@@ -315,7 +315,7 @@
     "approachDistance": "Approach distance",
     "approachDistanceTooltip": "Staging-point distance in front of the base",
     "chargerDetection": "Charger detection",
-    "chargerDetectionTooltip": "Use the charging voltage to confirm docking",
+    "chargerDetectionTooltip": "Confirm docking from the charging current (nav2 simple_charging_dock.use_battery_status). Off = the dock is considered reached on pose proximity alone, so the charge-wait timeout no longer gates contact. Takes effect after a ROS2 restart.",
     "advanced": "Advanced",
     "maxRetries": "Max retries",
     "maxRetriesTooltip": "Number of docking attempts before giving up",
@@ -1639,7 +1639,7 @@
     },
     "num_headland_passes": {
       "label": "Headland passes",
-      "description": "Number of concentric border rings mowed before the back-and-forth swaths."
+      "description": "Number of concentric border rings mowed before the back-and-forth swaths. A negative value ('none') disables the perimeter rings entirely: the swaths become the outermost pass and their centreline lands on exactly the line the outermost ring would have driven, so sideways the uncut band is unchanged (about 12 cm at the default 0.20 m chassis safety inset). The swath ENDS do reach that band, roughly 8 cm closer to the boundary than any ring pass gets, and with no mowed apron the row-end U-turns become pivot-through corners instead of smooth arcs."
     },
     "headland_width": {
       "label": "Headland width",
@@ -2341,13 +2341,10 @@
   },
   "settingsSafety": {
     "alertMessage": "Safety settings protect the robot and its surroundings",
-    "alertDescription": "Firmware is the sole safety authority. These settings configure firmware behavior — disabling them reduces protection.",
-    "motorTemperatureLimits": "Motor Temperature Limits",
-    "motorTemperatureLimitsDescription": "Blade motor stops above the high threshold and resumes below the low threshold (hysteresis).",
-    "stopAbove": "Stop Above",
-    "stopAboveTooltip": "Stop blade motor above this temperature",
-    "resumeBelow": "Resume Below",
-    "resumeBelowTooltip": "Resume blade motor below this temperature"
+    "alertDescription": "The STM32 firmware is the sole safety authority: it cuts the blade on lift, tilt and emergency stop, and none of that is configurable from this page. There is nothing to edit here.",
+    "firmwareOwnedTitle": "Handled by the firmware",
+    "firmwareOwnedDescription": "Lift and tilt detection, the emergency-stop latch and the blade cut-out all live in the STM32 firmware, which decides on its own physical thresholds. The GUI cannot relax, delay or bypass any of them, so no control is offered here.",
+    "temperatureThresholdsNote": "Blade-motor temperature is measured and reported only — no layer of the stack stops the blade on temperature. The warning and error thresholds used by the diagnostics (motor_temp_warn_c and motor_temp_error_c, in mowgli_monitoring/config/diagnostics.yaml) can be edited on the Parameters page."
   },
   "settingsObstacles": {
     "rootZoneHintTitle": "Trees with large roots?",
@@ -2373,7 +2370,7 @@
   },
   "settingsMowing": {
     "mowingMotor": "Mowing Motor",
-    "mowingMotorDescription": "Disable for testing without the blade spinning.",
+    "mowingMotorDescription": "Off = dry run: the robot mows the full path with the blade never spinning. A convenience inhibit, NOT a safety cut-out — the firmware remains the blade safety authority. Takes effect after a ROS2 restart.",
     "mowingSpeed": "Mowing Speed",
     "mowingSpeedTooltip": "Speed during mowing strips (m/s)",
     "transitSpeed": "Transit Speed",
@@ -2384,7 +2381,9 @@
     "swathOverlap": "Swath Overlap",
     "swathOverlapTooltip": "Extra overlap between adjacent swaths to avoid thin un-mowed strips. F2C swath spacing = tool_width − swath_overlap.",
     "headlandPasses": "Headland Passes",
-    "headlandPassesTooltip": "Number of concentric perimeter rings before the inner field. 0 = auto (ceil(headland_width / tool_width)). >0 forces exactly that count regardless of headland_width. Wired to coverage_server.num_headland_passes.",
+    "headlandPassesTooltip": "Concentric perimeter rings mowed before the inner field. None = no perimeter rings: the back-and-forth swaths become the outermost pass, and their centreline lands on exactly the line the outermost ring would have driven, so sideways they leave the same uncut band as the rings (about 12 cm at the default 0.20 m chassis safety inset) — no closer to the edge, no further. The swath ENDS do reach that band though, roughly 8 cm closer to the boundary than any ring pass gets, and with no mowed apron the row-end U-turns become pivot-through corners instead of smooth arcs. Field-test this on your lawn before relying on it.",
+    "headlandPassesNone": "None",
+    "headlandPassesAuto": "Auto",
     "mowDirection": "Perimeter Direction",
     "mowDirectionTooltip": "Travel direction around the perimeter/headland rings. Set it so a side-mounted blade stays on the cut side. Auto keeps the planner's natural winding. Wired to coverage_server.ring_direction.",
     "mowDirectionAuto": "Auto (planner default)",
@@ -2905,7 +2904,9 @@
     "paused": "Paused",
     "clear": "Clear",
     "waitingForOutput": "Waiting for log output...",
-    "noLinesMatch": "No lines match the active filters."
+    "noLinesMatch": "No lines match the active filters.",
+    "timeZoneLocal": "Local",
+    "timeZoneUtc": "UTC"
   },
   "imuYawCalibration": {
     "timedOut": "Timed out after 155 s. The service may still be running — check the robot and retry.",
@@ -2956,7 +2957,7 @@
   "settingsSections": {
     "appearance": {
       "label": "Appearance",
-      "description": "Visual richness and energy use on this device"
+      "description": "Visual richness, energy use and timestamp display on this device"
     },
     "hardware": {
       "label": "Hardware",
@@ -2996,7 +2997,7 @@
     },
     "safety": {
       "label": "Safety",
-      "description": "Emergency stops and temperature limits"
+      "description": "What the firmware handles on its own"
     },
     "obstacles": {
       "label": "Obstacles",
@@ -3085,5 +3086,20 @@
   },
   "settingsSchema": {
     "loadFailed": "Failed to load settings schema"
+  },
+  "logTime": {
+    "title": "Log timestamps",
+    "description": "Log lines and calibration dates are re-stamped in the zone you pick here, so the robot, the containers and this browser all read the same way. Stored on this device only.",
+    "zoneBadge": "Currently showing times in {{zone}}.",
+    "toggleAria": "Switch between local time and UTC",
+    "approximate": "This line carried no timestamp — showing when the browser received it.",
+    "local": {
+      "label": "Local time",
+      "description": "This browser's time zone. Matches the clock on the device you are reading from."
+    },
+    "utc": {
+      "label": "UTC",
+      "description": "The zone the robot containers run in. Best for comparing logs with a colleague."
+    }
   }
 }
