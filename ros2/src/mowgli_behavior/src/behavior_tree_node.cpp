@@ -32,6 +32,7 @@
 #include "mowgli_behavior/coverage_nodes.hpp"
 #include "mowgli_behavior/coverage_persistence.hpp"
 #include "mowgli_behavior/localization_health.hpp"
+#include "mowgli_behavior/status_snapshot.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
@@ -598,6 +599,15 @@ private:
                                                  });
   }
 
+  // Re-publish the last state identity with the LIVE context fields folded in.
+  // Publishing the cached message verbatim froze everything the operator
+  // watches for as long as the tree sat in a transition-free branch: the
+  // low-battery charge hold publishes "CHARGING" once and then loops on a 30 s
+  // wait, so the GUI battery gauge stayed pinned at the percent captured at
+  // dock contact for the whole charge (observed 2026-08-23: 46.03 % while the
+  // pack actually climbed 25.84 V → 26.42 V), and a multi-minute FollowStrip
+  // froze the mowing progress the same way. Only state/state_name/sub_state_name
+  // are genuinely tree-owned; see status_snapshot.hpp.
   void republishHighLevelStatus()
   {
     std::lock_guard<std::mutex> lock(context_->context_mutex);
@@ -605,7 +615,8 @@ private:
     {
       return;
     }
-    context_->high_level_status_pub->publish(context_->last_high_level_status);
+    context_->high_level_status_pub->publish(
+        withLiveStatusFields(context_->last_high_level_status, *context_));
   }
 
   // Publish whether a coverage session can be resumed (a persisted resume cursor

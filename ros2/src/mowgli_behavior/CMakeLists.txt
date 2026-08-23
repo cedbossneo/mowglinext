@@ -47,6 +47,7 @@ add_executable(behavior_tree_node
   src/docking_nodes.cpp
   src/calibration_nodes.cpp
   src/status_nodes.cpp
+  src/status_snapshot.cpp
   src/utility_nodes.cpp
   src/coverage_nodes.cpp
   src/coverage_persistence.cpp
@@ -425,6 +426,7 @@ if(BUILD_TESTING)
     test/test_battery_critical_resume.cpp
     src/condition_nodes.cpp
     src/status_nodes.cpp
+    src/status_snapshot.cpp
     src/coverage_persistence.cpp
   )
 
@@ -472,6 +474,36 @@ if(BUILD_TESTING)
   )
 
   ament_target_dependencies(test_guard_fallthrough
+    rclcpp
+    behaviortree_cpp
+    mowgli_interfaces
+    nav2_msgs
+    nav_msgs
+    geometry_msgs
+    std_msgs
+    std_srvs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+  )
+
+  # ---- test_high_level_status_snapshot ----
+  # Regression for the frozen GUI gauges: behavior_tree_node's 1 Hz republish
+  # timer used to re-send the CACHED HighLevelStatus verbatim, so every live
+  # field stalled while the tree sat in a transition-free branch (battery pinned
+  # for the whole low-battery charge hold; mowing progress pinned for the whole
+  # FollowStrip). Pins the tree-owned vs live-field split.
+  ament_add_gtest(test_high_level_status_snapshot
+    test/test_high_level_status_snapshot.cpp
+    src/status_snapshot.cpp
+  )
+
+  target_include_directories(test_high_level_status_snapshot PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
+  ament_target_dependencies(test_high_level_status_snapshot
     rclcpp
     behaviortree_cpp
     mowgli_interfaces
