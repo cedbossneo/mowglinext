@@ -202,6 +202,13 @@ struct BTContext
   // -----------------------------------------------------------------------
 
   float battery_percent{100.0f};
+
+  /// Low-pass-filtered v_battery, in volts, from which battery_percent above is
+  /// derived. 0 means no valid reading has arrived yet — check that before
+  /// comparing against a voltage threshold. Raw latest_power.v_battery swings
+  /// 0.5-1 V on motor transients; see battery_filter.hpp.
+  float battery_voltage_filtered{0.0f};
+
   float gps_quality{0.0f};
 
   /// Latest GPS position in map frame (from /gps/absolute_pose)
