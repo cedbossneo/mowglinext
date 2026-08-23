@@ -48,8 +48,7 @@ namespace mowgli_behavior
 /// BTContext::context_mutex across the call, since the fields read here are
 /// written by subscriber callbacks on another thread.
 mowgli_interfaces::msg::HighLevelStatus withLiveStatusFields(
-    const mowgli_interfaces::msg::HighLevelStatus& base,
-    const BTContext& ctx);
+    const mowgli_interfaces::msg::HighLevelStatus& base, const BTContext& ctx);
 
 }  // namespace mowgli_behavior
 

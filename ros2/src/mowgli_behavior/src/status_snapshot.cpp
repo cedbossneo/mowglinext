@@ -23,8 +23,7 @@ namespace mowgli_behavior
 {
 
 mowgli_interfaces::msg::HighLevelStatus withLiveStatusFields(
-    const mowgli_interfaces::msg::HighLevelStatus& base,
-    const BTContext& ctx)
+    const mowgli_interfaces::msg::HighLevelStatus& base, const BTContext& ctx)
 {
   mowgli_interfaces::msg::HighLevelStatus msg;
 
