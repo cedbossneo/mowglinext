@@ -42,6 +42,7 @@ find_package(rcl_interfaces REQUIRED)
 
 add_executable(behavior_tree_node
   src/behavior_tree_node.cpp
+  src/battery_filter.cpp
   src/condition_nodes.cpp
   src/navigation_nodes.cpp
   src/docking_nodes.cpp
@@ -515,6 +516,24 @@ if(BUILD_TESTING)
     tf2
     tf2_ros
     tf2_geometry_msgs
+  )
+
+  # ---- test_battery_filter ----
+  # Regression for the premature LOW_BATTERY_DOCKING trip: battery_percent used
+  # to be interpolated off the RAW rail voltage, so a sub-second motor sag
+  # (PWM startup / stiction, 0.5-1 V) crossed battery_low_percent at a genuine
+  # 30-40 % SoC. Pins that a brief sag does not trip while a real discharge
+  # still does, that the smoothing is rate-independent (4 Hz robot vs 10 Hz
+  # sim), and that an invalid reading never becomes a 0 % gauge.
+  # Pure logic — no ROS, so no ament_target_dependencies needed.
+  ament_add_gtest(test_battery_filter
+    test/test_battery_filter.cpp
+    src/battery_filter.cpp
+  )
+
+  target_include_directories(test_battery_filter PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
   )
 
 endif()

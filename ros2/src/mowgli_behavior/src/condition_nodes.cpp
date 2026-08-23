@@ -98,8 +98,15 @@ BT::NodeStatus IsBatteryLow::tick()
   // Voltage gate as a redundant trip: a sagging pack can read fine on
   // percent (which is interpolated from full/empty endpoints) and still
   // be below the safe operating voltage. Disabled when threshold is 0.
-  if (voltage_threshold > 0.0f && ctx->latest_power.v_battery > 0.0f &&
-      ctx->latest_power.v_battery < voltage_threshold)
+  //
+  // Reads the FILTERED voltage, not latest_power.v_battery. Both trips in this
+  // node have to see the same signal — gating this one on the raw rail would
+  // re-open, for any operator who sets battery_critical_voltage, exactly the
+  // motor-transient false trip that filtering battery_percent closes. A pack
+  // that is genuinely below the threshold stays below it, so the gate still
+  // fires, just one time constant (~2 s) later. 0 means no reading yet.
+  if (voltage_threshold > 0.0f && ctx->battery_voltage_filtered > 0.0f &&
+      ctx->battery_voltage_filtered < voltage_threshold)
   {
     return BT::NodeStatus::SUCCESS;
   }

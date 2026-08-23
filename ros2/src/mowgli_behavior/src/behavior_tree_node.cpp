@@ -27,6 +27,7 @@
 #include "behaviortree_cpp/behavior_tree.h"
 #include "behaviortree_cpp/loggers/bt_cout_logger.h"
 #include "mowgli_behavior/action_nodes.hpp"
+#include "mowgli_behavior/battery_filter.hpp"
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
@@ -157,24 +158,32 @@ private:
                                              std::chrono::steady_clock::now();
                                        });
 
-    power_sub_ =
-        create_subscription<Power>("/hardware_bridge/power",
-                                   10,
-                                   [this](Power::ConstSharedPtr msg)
-                                   {
-                                     std::lock_guard<std::mutex> lock(context_->context_mutex);
-                                     context_->latest_power = *msg;
+    power_sub_ = create_subscription<Power>(
+        "/hardware_bridge/power",
+        10,
+        [this](Power::ConstSharedPtr msg)
+        {
+          std::lock_guard<std::mutex> lock(context_->context_mutex);
+          context_->latest_power = *msg;
 
-                                     // Derive battery_percent from voltage using
-                                     // configurable thresholds from ROS parameters.
-                                     const float v_max = battery_full_voltage_;
-                                     const float v_min = battery_empty_voltage_;
-                                     const float clamped = std::clamp(msg->v_battery, v_min, v_max);
-                                     const float range = v_max - v_min;
-                                     context_->battery_percent =
-                                         (range > 0.01f) ? 100.0f * (clamped - v_min) / range
-                                                         : 0.0f;
-                                   });
+          // Smooth the rail voltage before deriving the percent — motor transients
+          // sag it 0.5-1 V and used to trip the docking thresholds at a genuine
+          // 30-40 % SoC. See battery_filter.hpp for the incident, and for why the
+          // time constant rather than a fixed EWMA weight is the tuning knob.
+          const auto v_filtered = battery_filter_.update(msg->v_battery, now().seconds());
+          if (!v_filtered)
+          {
+            // No valid reading yet. Leave battery_percent at its last good value
+            // rather than publishing a 0 % derived from a disconnected pack.
+            return;
+          }
+
+          // Derive battery_percent from voltage using
+          // configurable thresholds from ROS parameters.
+          context_->battery_voltage_filtered = *v_filtered;
+          context_->battery_percent =
+              batteryPercentFromVoltage(*v_filtered, battery_empty_voltage_, battery_full_voltage_);
+        });
 
     // Replan / boundary signals from map_server_node
     replan_needed_sub_ =
@@ -983,6 +992,11 @@ private:
   // Battery voltage curve parameters
   float battery_full_voltage_{28.0f};
   float battery_empty_voltage_{24.0f};
+
+  // Low-pass state for v_battery. Rate-independent (time-constant based), so
+  // the robot's 4 Hz status packets and the sim bridge's 10 Hz both behave the
+  // same. See battery_filter.hpp.
+  BatteryVoltageFilter battery_filter_;
 };
 
 }  // namespace mowgli_behavior
