@@ -16,6 +16,7 @@
 #include "mowgli_behavior/status_nodes.hpp"
 
 #include "mowgli_behavior/coverage_persistence.hpp"
+#include "mowgli_behavior/status_snapshot.hpp"
 
 namespace mowgli_behavior
 {
@@ -85,38 +86,22 @@ BT::NodeStatus PublishHighLevelStatus::tick()
     pending_idle_ticks_ = 0;
   }
 
-  mowgli_interfaces::msg::HighLevelStatus msg;
-  msg.state = published_state;
-  msg.state_name = name_res.value();
+  mowgli_interfaces::msg::HighLevelStatus identity;
+  identity.state = published_state;
+  identity.state_name = name_res.value();
+  identity.sub_state_name = "";
   last_published_state_ = published_state;
   have_published_ = true;
-  msg.sub_state_name = "";
-  msg.current_area = static_cast<int16_t>(ctx->current_area);
-  // Real per-area swath progress. The GUI computes progress as
-  // current_path_index / current_path * 100 (MowerStatus.tsx,
-  // MowgliNextPage.tsx), so current_path is the DENOMINATOR (total swaths in
-  // the current area's plan) and current_path_index the NUMERATOR (completed
-  // swaths). Both are tracked by PlanCoverageArea/FollowStrip in coverage_nodes
-  // (ctx->total_swaths / ctx->completed_swaths). Previously current_path was
-  // hardcoded to -1, which made the GUI ratio divide by a negative and never
-  // render a real percentage.
-  msg.current_path = static_cast<int16_t>(ctx->total_swaths);
-  msg.current_path_index = static_cast<int16_t>(ctx->completed_swaths);
-  msg.total_swaths = static_cast<int16_t>(ctx->total_swaths);
-  msg.completed_swaths = static_cast<int16_t>(ctx->completed_swaths);
-  msg.skipped_swaths = static_cast<int16_t>(ctx->skipped_swaths);
-  // Smooth pose-cursor-based progress for the current area (primary GUI %); the
-  // swath counts above are the coarse secondary "sub-path X/Y" readout.
-  msg.coverage_percent = ctx->coverage_percent;
-  msg.gps_quality_percent = ctx->gps_quality;
-  msg.battery_percent = ctx->battery_percent;
-  msg.is_charging = ctx->latest_power.charger_enabled;
-  msg.emergency = ctx->latest_emergency.active_emergency;
 
   // Cache the message so the behavior_tree_node timer can re-publish it while
   // the tree is parked in a long-running action with no further transitions.
+  // Only the state identity above is authored here; every live field is filled
+  // by the same projection the republish timer uses, so the two paths cannot
+  // drift apart (see status_snapshot.hpp).
+  mowgli_interfaces::msg::HighLevelStatus msg;
   {
     std::lock_guard<std::mutex> lock(ctx->context_mutex);
+    msg = withLiveStatusFields(identity, *ctx);
     ctx->last_high_level_status = msg;
     ctx->has_high_level_status = true;
     ctx->high_level_status_pub->publish(msg);
