@@ -137,7 +137,11 @@
     "confirm": "Confirmer",
     "cancel": "Annuler",
     "restartMowgli": "Redémarrer Mowgli",
-    "restartMowgliConfirm": "Cela va redémarrer le conteneur MowgliNext.",
+    "restartMowgliConfirm": "Cela redémarre toute la pile Mowgli (ROS2, GPS, LiDAR et cette interface web) — comme la commande mowgli-restart. La page se déconnectera brièvement et se rechargera automatiquement au retour de l'interface.",
+    "restartingStackTitle": "Redémarrage de Mowgli…",
+    "restartingStackBody": "Redémarrage de toute la pile. Cette page se reconnectera et se rechargera automatiquement au retour de l'interface.",
+    "rebootingPiTitle": "Redémarrage du Raspberry Pi…",
+    "rebootingPiBody": "Le Raspberry Pi redémarre. Cette page se reconnectera et se rechargera automatiquement à son retour (cela peut prendre une à deux minutes).",
     "advanced": "Avancé",
     "restartBoard": "Redémarrer la carte (STM32)",
     "restartBoardConfirm": "Réinitialise le firmware STM32 (NVIC_SystemReset). À utiliser pour débloquer une carte figée — par ex. l'IMU renvoyant NaN. Les moteurs/la lame s'arrêtent pendant le reset (~1 s).",
@@ -1368,6 +1372,17 @@
     "stopManual": "Arrêter",
     "manualMow": "Tonte manuelle",
     "more": "Plus"
+  },
+  "resetMowingProgress": {
+    "action": "Réinitialiser la progression de tonte",
+    "confirmTitle": "Réinitialiser la progression enregistrée ?",
+    "confirmBody": "Cette action efface définitivement la progression de couverture enregistrée pour la carte actuelle.",
+    "confirmHint": "La tondeuse ne démarrera pas et les zones cartographiées ne seront pas supprimées.",
+    "confirmAction": "Réinitialiser",
+    "cancel": "Annuler",
+    "success": "La progression de tonte a été réinitialisée",
+    "error": "Impossible de réinitialiser la progression de tonte",
+    "unknownError": "Une erreur inconnue est survenue"
   },
   "mapToolbarMobile": {
     "actionFailed": "Échec de l'action",
@@ -2935,6 +2950,10 @@
     "errorOccurred": "Une erreur est survenue"
   },
   "settingsSections": {
+    "appearance": {
+      "label": "Apparence",
+      "description": "Richesse visuelle et consommation d'énergie sur cet appareil"
+    },
     "hardware": {
       "label": "Matériel",
       "description": "Modèle de robot, roues, châssis et dimensions de la lame"
@@ -3003,6 +3022,23 @@
       "drivePidUpdateFailed": "Réglages enregistrés, mais la mise à jour à chaud du PID des moteurs a échoué",
       "drivePidUpdateFailedDescription": "Redémarrez ROS2 pour appliquer les nouveaux gains PID des moteurs.",
       "saveFailed": "Échec de l'enregistrement des réglages"
+    }
+  },
+  "displayMode": {
+    "title": "Mode d'affichage",
+    "description": "Choisissez l'équilibre entre richesse visuelle, réactivité et consommation d'énergie pour ce navigateur.",
+    "reducedMotion": "Le réglage système de réduction des animations limite toujours les mouvements non essentiels.",
+    "visual": {
+      "label": "Visuel",
+      "description": "Surfaces vitrées plus riches et retours d'ambiance subtils."
+    },
+    "balanced": {
+      "label": "Équilibré",
+      "description": "L'apparence Mowgli prévue avec un rendu efficace par défaut."
+    },
+    "efficient": {
+      "label": "Efficace",
+      "description": "Moins de composition graphique et des mises à jour visuelles prudentes."
     }
   },
   "ntripProviders": {

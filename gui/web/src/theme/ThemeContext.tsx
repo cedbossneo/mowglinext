@@ -1,17 +1,39 @@
-import {createContext, useCallback, useContext, useEffect} from "react";
+import {createContext, useCallback, useContext, useEffect, useState} from "react";
 import type {ThemeMode} from "./colors.ts";
 import {cssVars, getColors, setColors} from "./colors.ts";
+
+export const DISPLAY_MODES = ['visual', 'balanced', 'efficient'] as const;
+export type DisplayMode = typeof DISPLAY_MODES[number];
+
+const DISPLAY_MODE_STORAGE_KEY = 'mowgli.display-mode';
+
+function isDisplayMode(value: string | null): value is DisplayMode {
+    return value !== null && (DISPLAY_MODES as readonly string[]).includes(value);
+}
+
+function readDisplayMode(): DisplayMode {
+    try {
+        const stored = window.localStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
+        return isDisplayMode(stored) ? stored : 'balanced';
+    } catch {
+        return 'balanced';
+    }
+}
 
 interface ThemeContextValue {
     mode: ThemeMode;
     toggleMode: () => void;
     colors: ReturnType<typeof getColors>;
+    displayMode: DisplayMode;
+    setDisplayMode: (mode: DisplayMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
     mode: 'light',
     toggleMode: () => {},
     colors: getColors('light'),
+    displayMode: 'balanced',
+    setDisplayMode: () => {},
 });
 
 // Mowgli is dark-mode-only. The light tokens stay in `colors.ts` for now in
@@ -20,6 +42,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 export function ThemeProvider({children}: {children: React.ReactNode}) {
     const mode: ThemeMode = 'dark';
     const colors = getColors(mode);
+    const [displayMode, setDisplayMode] = useState<DisplayMode>(readDisplayMode);
 
     useEffect(() => {
         setColors(mode);
@@ -39,8 +62,18 @@ export function ThemeProvider({children}: {children: React.ReactNode}) {
 
     const toggleMode = useCallback(() => { /* dark-only */ }, []);
 
+    useEffect(() => {
+        document.documentElement.dataset.displayMode = displayMode;
+        try {
+            window.localStorage.setItem(DISPLAY_MODE_STORAGE_KEY, displayMode);
+        } catch {
+            // Private browsing or a locked-down WebView can reject storage.
+            // The selected mode still applies for this session.
+        }
+    }, [displayMode]);
+
     return (
-        <ThemeContext.Provider value={{mode, toggleMode, colors}}>
+        <ThemeContext.Provider value={{mode, toggleMode, colors, displayMode, setDisplayMode}}>
             {children}
         </ThemeContext.Provider>
     );

@@ -193,6 +193,12 @@
                re-issuing goals; the emergency status is visible in the
                GUI so the user knows to recover manually. -->
           <WaitForDuration duration_sec="3600.0"/>
+          <!-- Belt-and-braces: the 3600 s wait above returns RUNNING so the
+               guard already blocks, but do not LEAN on that. If the wait
+               ever elapses (or is shortened) a bare Sequence would return
+               SUCCESS and let the Root advance into MainLogic while the
+               lethal latch is still asserted. -->
+          <AlwaysFailure/>
         </Sequence>
 
         <!-- Soft path: stop, then route back to a known-inside pose -->
@@ -223,6 +229,74 @@
               <WaitForDuration duration_sec="3600.0"/>
             </Sequence>
           </Fallback>
+          <!-- Terminate with FAILURE so the Root ReactiveSequence is halted
+               for THIS tick rather than falling straight into MainLogic the
+               instant RecoverOrEscalate succeeds. Costs exactly one tick:
+               the recovery cleared /boundary_violation, so on the next tick
+               the Inverter<IsBoundaryViolation> child short-circuits the
+               guard and the tree proceeds normally. Without it a successful
+               NavigateBackInside returns SUCCESS up through this Sequence
+               and re-enters MowingSequence from its FIRST node in the same
+               tick — the boundary-recovery analogue of the LocalizationGuard
+               restart documented above. -->
+          <AlwaysFailure/>
+        </Sequence>
+      </ReactiveFallback>
+
+      <!-- ================================================================
+           GUARD 2b: Localization quality (reactive)
+           Pauses autonomous motion while the fused σ_xy is too high to
+           trust (hysteresis latched in behavior_tree_node's odometry
+           callback: pause above loc_sigma_pause_m, resume below
+           loc_sigma_resume_m). Field incident 2026-08-02: RTK fell back
+           to plain GPS (σ ≈ 1.5 m) for >60 s and FTC kept steering on the
+           drifting estimate until the robot physically left the area and
+           BoundaryGuard tripped. Exemptions mirror BoundaryGuard: on the
+           charger the pose is gauge-pinned; manual/recording modes are
+           operator-supervised; HOME + the blade-off dock transit must not
+           be stranded mid-return by a GPS outage (docking itself is
+           charger-detection based).
+           ================================================================ -->
+      <ReactiveFallback name="LocalizationGuard">
+        <IsCharging/>
+        <IsCommand command="7"/>
+        <IsCommand command="3"/>
+        <IsCommand command="5"/>
+        <IsCommand command="6"/>
+        <IsCommand command="2"/>
+        <Sequence name="LocDockTransitExempt">
+          <IsCommand command="1"/>
+          <IsDocking/>
+        </Sequence>
+        <Inverter><IsLocalizationDegraded/></Inverter>
+
+        <!-- Hold in place until σ recovers: blade off, wheels stopped.
+             The ReactiveFallback re-evaluates IsLocalizationDegraded every
+             tick, so the guard releases within one tick of the hysteresis
+             clearing and the resume-cursor machinery continues the strip. -->
+        <Sequence name="LocalizationDegradedHandler">
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="2" state_name="WAITING_FOR_RTK"/>
+          <WaitForDuration duration_sec="2.0"/>
+          <!-- Terminate with FAILURE so LocalizationGuard returns FAILURE
+               WHILE localization is still degraded, halting the Root
+               ReactiveSequence before MainLogic — same contract as
+               EmergencyGuard / SensorSafetyGuard / RainGuard / BatteryGuard.
+               Without it the 2 s WaitForDuration returns SUCCESS, the
+               ReactiveFallback succeeds, and the Root advances into
+               MainLogic -> MowingSequence for one tick per cycle. That
+               restarts MowingSequence from its FIRST node every 2 s:
+               observed in the field 2026-08-18 as PREFLIGHT_CHECK +
+               UNDOCKING status flapping (249.788 WAITING_FOR_RTK + 2.0 s
+               -> 251.887 PREFLIGHT_CHECK), and since each restart is
+               halted ~1 s later at the UndockOrSkip wait, the tree can
+               NEVER reach the coverage branch while sigma flaps — a
+               livelock, not just a status flap. On recovery the run then
+               re-entered from the top instead of resuming the strip
+               (issues #459, #445). The stop + blade-off + status above
+               still run every tick before this. -->
+          <AlwaysFailure/>
         </Sequence>
       </ReactiveFallback>
 

@@ -309,7 +309,8 @@ bool ObstacleDeviation::hasClearExit(const nav2_costmap_2d::Costmap2D& costmap,
   for (std::size_t i = start_idx; i < end_idx; ++i)
   {
     // Nominal (zero-deviation) body sample — no zone guard (see doc comment).
-    const bool blocked = regionBlocked(costmap, path[i], 0.0, half_width, footprint, BoundaryGuard{});
+    const bool blocked =
+        regionBlocked(costmap, path[i], 0.0, half_width, footprint, BoundaryGuard{});
     if (blocked)
     {
       obstacle_seen = true;

@@ -123,7 +123,7 @@ void MapServerNode::check_boundary_violation(double x, double y)
   // both states legitimately place the robot outside any defined polygon, so
   // an ERROR-level log would just spam the rosout. The /boundary_violation
   // topics are still published unconditionally so the BT can react.
-  if (!inside_any && mow_blade_enabled_)
+  if (!inside_any && mow_blade_requested_)
   {
     if (lethal_msg.data)
     {

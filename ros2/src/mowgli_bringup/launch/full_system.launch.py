@@ -43,7 +43,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -246,6 +246,35 @@ def generate_launch_description() -> LaunchDescription:
             # fixed swath angle in degrees. Read by PlanCoverageArea::buildGoal
             # off the BT blackboard into the plan_coverage action goal.
             {"mow_angle_deg": float(robot_params.get("mow_angle_deg", -1.0))},
+            # LocalizationGuard thresholds. These were previously listed in
+            # mowgli_robot.yaml but NEVER forwarded here, so the node silently
+            # ran its compiled defaults and the GUI's reset-to-default had
+            # nothing to act on. The guard keys on GNSS solution quality from
+            # /gps/status — see mowgli_behavior/localization_health.hpp for why
+            # the fused covariance is the wrong signal.
+            {"loc_gnss_acc_pause_m": float(robot_params.get("loc_gnss_acc_pause_m", 0.30))},
+            {"loc_gnss_acc_resume_m": float(robot_params.get("loc_gnss_acc_resume_m", 0.15))},
+            {"loc_gnss_stale_s": float(robot_params.get("loc_gnss_stale_s", 5.0))},
+            {
+                "loc_sigma_pause_persist_s": float(
+                    robot_params.get("loc_sigma_pause_persist_s", 3.0)
+                )
+            },
+            {
+                "loc_sigma_resume_persist_s": float(
+                    robot_params.get("loc_sigma_resume_persist_s", 2.0)
+                )
+            },
+            # Divergence backstop — MUST stay above fusion_graph's own
+            # pivot/slip inflation ceiling (~2.35 m) or the 2026-08-20
+            # livelock returns. 0 disables it.
+            {"loc_sigma_pause_m": float(robot_params.get("loc_sigma_pause_m", 5.0))},
+            {"loc_sigma_resume_m": float(robot_params.get("loc_sigma_resume_m", 2.0))},
+            {
+                "loc_sigma_backstop_persist_s": float(
+                    robot_params.get("loc_sigma_backstop_persist_s", 10.0)
+                )
+            },
             # Battery thresholds — operator-tunable in mowgli_robot.yaml and
             # surfaced on the GUI Settings page. Forwarded here under the C++
             # parameter names the behavior node declares (behavior_tree.yaml
@@ -545,8 +574,22 @@ def generate_launch_description() -> LaunchDescription:
     # bystander-permanently-shapes-the-map effect at the cost of slower
     # adaptation to real new obstacles). Toggle off via the
     # use_obstacle_tracker launch arg if it misbehaves on real grass.
+    # LiDAR-only in practice: the tracker clusters LiDAR obstacle returns, so
+    # without a scanner it only burns CPU (~30 % on a Pi 4, measured while
+    # mowing with lidar_enabled: false) waiting on inputs that never come —
+    # gate it on use_lidar as well.
     obstacle_tracker_node = Node(
-        condition=IfCondition(LaunchConfiguration("use_obstacle_tracker")),
+        condition=IfCondition(
+            PythonExpression(
+                [
+                    "'",
+                    LaunchConfiguration("use_obstacle_tracker"),
+                    "' == 'true' and '",
+                    LaunchConfiguration("use_lidar"),
+                    "' == 'true'",
+                ]
+            )
+        ),
         package="mowgli_map",
         executable="obstacle_tracker_node",
         name="obstacle_tracker",

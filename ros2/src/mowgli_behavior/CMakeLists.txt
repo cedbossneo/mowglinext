@@ -47,6 +47,7 @@ add_executable(behavior_tree_node
   src/docking_nodes.cpp
   src/calibration_nodes.cpp
   src/status_nodes.cpp
+  src/status_snapshot.cpp
   src/utility_nodes.cpp
   src/coverage_nodes.cpp
   src/coverage_persistence.cpp
@@ -402,6 +403,21 @@ if(BUILD_TESTING)
     mowgli_interfaces
   )
 
+  # ---- test_localization_health ----
+  # Unit tests for the LocalizationGuard's input signal
+  # (localization_health.hpp). Pins the 2026-08-20 livelock: pivot/slip
+  # covariance inflation on a healthy RTK-Fixed receiver must NOT pause
+  # mowing, while the 2026-08-02 plain-GPS fallback still must.
+  # Header-only helper -> no source link.
+  ament_add_gtest(test_localization_health
+    test/test_localization_health.cpp
+  )
+
+  target_include_directories(test_localization_health PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
   # ---- test_battery_critical_resume ----
   # Regression for "robot stuck after a critical-battery charge": the
   # CriticalBatteryDock tail must AUTO-CONTINUE on recovery (undock, keep
@@ -410,6 +426,7 @@ if(BUILD_TESTING)
     test/test_battery_critical_resume.cpp
     src/condition_nodes.cpp
     src/status_nodes.cpp
+    src/status_snapshot.cpp
     src/coverage_persistence.cpp
   )
 
@@ -419,6 +436,74 @@ if(BUILD_TESTING)
   )
 
   ament_target_dependencies(test_battery_critical_resume
+    rclcpp
+    behaviortree_cpp
+    mowgli_interfaces
+    nav2_msgs
+    nav_msgs
+    geometry_msgs
+    std_msgs
+    std_srvs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+  )
+
+  # ---- test_guard_fallthrough ----
+  # Regression for the "blocking guard falls through into MainLogic" bug
+  # class (issues #459, #445). LocalizationGuard's handler ended with a
+  # WaitForDuration that returns SUCCESS, so the Root ReactiveSequence
+  # advanced into MainLogic -> MowingSequence once per cycle and restarted
+  # mowing from PREFLIGHT_CHECK/UNDOCKING every 2 s while sigma_xy flapped.
+  # Covers the guard behaviour AND asserts structurally that every blocking
+  # guard in main_tree.xml still terminates with <AlwaysFailure/>, so a
+  # newly added guard cannot reintroduce it.
+  ament_add_gtest(test_guard_fallthrough
+    test/test_guard_fallthrough.cpp
+    src/condition_nodes.cpp
+  )
+
+  target_include_directories(test_guard_fallthrough PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
+  # The structural half reads the real tree from the source tree.
+  target_compile_definitions(test_guard_fallthrough PRIVATE
+    MOWGLI_MAIN_TREE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/trees/main_tree.xml"
+  )
+
+  ament_target_dependencies(test_guard_fallthrough
+    rclcpp
+    behaviortree_cpp
+    mowgli_interfaces
+    nav2_msgs
+    nav_msgs
+    geometry_msgs
+    std_msgs
+    std_srvs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+  )
+
+  # ---- test_high_level_status_snapshot ----
+  # Regression for the frozen GUI gauges: behavior_tree_node's 1 Hz republish
+  # timer used to re-send the CACHED HighLevelStatus verbatim, so every live
+  # field stalled while the tree sat in a transition-free branch (battery pinned
+  # for the whole low-battery charge hold; mowing progress pinned for the whole
+  # FollowStrip). Pins the tree-owned vs live-field split.
+  ament_add_gtest(test_high_level_status_snapshot
+    test/test_high_level_status_snapshot.cpp
+    src/status_snapshot.cpp
+  )
+
+  target_include_directories(test_high_level_status_snapshot PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
+  ament_target_dependencies(test_high_level_status_snapshot
     rclcpp
     behaviortree_cpp
     mowgli_interfaces

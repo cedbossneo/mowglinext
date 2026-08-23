@@ -159,6 +159,14 @@ export type CoveragePath = {
   path?: Path;
 };
 
+export type DigEvent = {
+  header?: { stamp: { sec: number; nanosec: number }; frame_id: string };
+  position?: Point;
+  wheel_distance?: number;
+  map_distance?: number;
+  position_sigma?: number;
+};
+
 export const enum DockCalibrationStatusConstants {
   PHASE_WAIT_RTK = 0,
   PHASE_REVERSING = 1,
@@ -398,6 +406,7 @@ export type Status = {
   mower_esc_current?: number;
   mower_motor_temperature?: number;
   mower_motor_rpm?: number;
+  blade_status_stamp?: { sec: number; nanosec: number };
   firmware_version?: string;
   firmware_protocol_version?: number;
   firmware_compatible?: boolean;

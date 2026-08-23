@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -45,6 +46,26 @@ func getSystemInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, info)
 }
 
+// hostPowerAction runs a systemd power verb (reboot/poweroff) on the HOST from
+// inside the GUI container.
+//
+// The container can't reboot the Pi on its own: `reboot`/`sudo reboot` talk to
+// systemd over D-Bus, but the container's PID 1 is the GUI, not systemd, and a
+// raw reboot(2) from the container's own PID namespace only tears down the
+// container — not the host. Instead we enter the host init's namespaces with
+// nsenter (-t 1) and invoke the HOST's systemctl for a clean shutdown. This
+// requires the gui service to run privileged with `pid: host` (see
+// docker-compose.gui.yml); nsenter ships in util-linux (see Dockerfile).
+func hostPowerAction(verb string) error {
+	// -m/-u/-i/-n/-p: enter host init's mount/uts/ipc/net/pid namespaces, so
+	// `systemctl` resolves to the host binary and reaches the host's dbus.
+	cmd := exec.Command("nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--", "systemctl", verb)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // postSystemReboot reboots the host system
 //
 // @Summary reboot the system
@@ -55,7 +76,7 @@ func getSystemInfo(c *gin.Context) {
 // @Failure 500 {object} ErrorResponse
 // @Router /system/reboot [post]
 func postSystemReboot(c *gin.Context) {
-	if err := exec.Command("sudo", "reboot").Start(); err != nil {
+	if err := hostPowerAction("reboot"); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -72,7 +93,7 @@ func postSystemReboot(c *gin.Context) {
 // @Failure 500 {object} ErrorResponse
 // @Router /system/shutdown [post]
 func postSystemShutdown(c *gin.Context) {
-	if err := exec.Command("sudo", "shutdown", "-h", "now").Start(); err != nil {
+	if err := hostPowerAction("poweroff"); err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}

@@ -105,8 +105,15 @@ public:
   // at next tick. sigma is per-axis; pass < 0 to use floor. When
   // `robust` is true, the noise model is wrapped in a Huber kernel —
   // appropriate for RTK-Float / single-fix samples where multipath
-  // outliers can lie outside the reported covariance.
-  void QueueGnss(double x, double y, double sigma_xy, bool robust = false);
+  // outliers can lie outside the reported covariance. When `target_node`
+  // is set, the factor is attached to that existing pose instead of the
+  // node created by the next Tick(). Returns false if the requested node
+  // is no longer present in the live graph.
+  bool QueueGnss(double x,
+                 double y,
+                 double sigma_xy,
+                 bool robust = false,
+                 std::optional<uint64_t> target_node = std::nullopt);
 
   // Yaw observation (COG or mag). sigma_yaw is rad. `robust` should be
   // true for magnetometer yaw (uncalibrated / heading-dependent bias),
@@ -158,6 +165,13 @@ public:
   // Read-only accessors (snapshot of current state).
   std::optional<TickOutput> LatestSnapshot() const;
   GraphStats Stats() const;
+
+  // Newest live pose node whose graph timestamp is at or before
+  // `timestamp_s`. Sensor callbacks use this to associate delayed stamped
+  // observations with the state they measured instead of the state at
+  // callback-delivery time. Returns nullopt before the oldest indexed live
+  // node, for non-finite timestamps, or while uninitialized.
+  std::optional<uint64_t> FindNodeAtOrBefore(double timestamp_s) const;
 
   // Count of pose ('x') variables currently live in the iSAM2 graph.
   // Distinct from GraphStats::total_nodes, which is the monotonic
@@ -388,6 +402,7 @@ private:
       gtsam::Vector2 xy;
       double sigma;
       bool robust;
+      std::optional<uint64_t> target_node;
     };
     struct Yaw
     {
@@ -446,6 +461,10 @@ private:
 
   uint64_t next_index_ = 0;  // index of the next node to create
   double last_node_time_s_ = 0.0;  // wall time of last created node
+  // Creation times for recent live pose nodes, in chronological order.
+  // The deque is capped alongside the graph window; FindNodeAtOrBefore also
+  // skips entries already removed by an asynchronous rebase.
+  std::deque<std::pair<double, uint64_t>> node_time_index_;
 
   Accumulator accum_;
   UnaryQueue queue_;

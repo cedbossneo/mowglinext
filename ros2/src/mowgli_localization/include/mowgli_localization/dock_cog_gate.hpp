@@ -55,9 +55,16 @@ struct DockCogGateResult
 {
   bool coherent = false;
   DockCogReason reason = DockCogReason::INSUFFICIENT_SAMPLES;
-  double dock_yaw_rad = 0.0;  // circular_mean(headings) — Resolution A, NO +pi
+  // The yaw to persist: wrap(travel_bearing + pi) from the net RTK
+  // displacement of the reverse leg. Over a 2 m leg with 2-3 cm RTK noise this
+  // is good to ~1°, whereas the COG circular mean carries a 3-4° standard
+  // error (per-sample scatter 10-19° from the publisher's 0.10 m baseline) —
+  // the COG mean is therefore only the cross-check (bearing_err_rad), not the
+  // yaw source.
+  double dock_yaw_rad = 0.0;
+  double cog_mean_rad = 0.0;  // circular_mean(headings) — the cross-check value
   double cog_std_rad = 0.0;  // circular std of the heading samples
-  double bearing_err_rad = 0.0;  // |mean_heading − expected_heading_from_gps|
+  double bearing_err_rad = 0.0;  // |cog_mean − dock_yaw| (cross-check residual)
   double displacement_m = 0.0;  // net GPS displacement of the reverse leg
 };
 
@@ -114,7 +121,9 @@ inline double circular_std(const std::vector<double>& angles)
 //   max_bearing_err_rad    : reject if |mean − expected_from_gps| exceeds this.
 //   min_displacement_m     : reject if the reverse travelled less than this.
 //
-// On acceptance, dock_yaw_rad = circular_mean(heading_samples).
+// On acceptance, dock_yaw_rad = wrap(atan2(gps_dy, gps_dx) + pi) — the
+// reversed RTK travel bearing (see DockCogGateResult for why the COG mean is
+// only the cross-check).
 inline DockCogGateResult evaluate_dock_cog_gate(const std::vector<double>& heading_samples,
                                                 double gps_dx,
                                                 double gps_dy,
@@ -126,7 +135,7 @@ inline DockCogGateResult evaluate_dock_cog_gate(const std::vector<double>& headi
   DockCogGateResult res;
   res.displacement_m = std::hypot(gps_dx, gps_dy);
   res.cog_std_rad = circular_std(heading_samples);
-  res.dock_yaw_rad = circular_mean(heading_samples);
+  res.cog_mean_rad = circular_mean(heading_samples);
 
   // (d) The reverse must have actually moved, else the travel bearing (and any
   // heading fit) is meaningless.
@@ -153,10 +162,12 @@ inline DockCogGateResult evaluate_dock_cog_gate(const std::vector<double>& headi
 
   // (c) The COG mean must agree with the INDEPENDENT GPS travel bearing. In
   // reverse, travel_bearing = body_heading − pi, so the expected body heading
-  // is wrap(atan2(dy, dx) + pi).
+  // is wrap(atan2(dy, dx) + pi). This is a coarse sanity cross-check (is the
+  // COG feed alive and pointing the right way?), NOT the yaw source — the
+  // reversed travel bearing itself is what gets persisted.
   const double travel_bearing = std::atan2(gps_dy, gps_dx);
-  const double expected_heading = wrap_angle(travel_bearing + M_PI);
-  res.bearing_err_rad = std::abs(wrap_angle(res.dock_yaw_rad - expected_heading));
+  res.dock_yaw_rad = wrap_angle(travel_bearing + M_PI);
+  res.bearing_err_rad = std::abs(wrap_angle(res.cog_mean_rad - res.dock_yaw_rad));
   if (res.bearing_err_rad > max_bearing_err_rad)
   {
     res.reason = DockCogReason::BEARING_MISMATCH;

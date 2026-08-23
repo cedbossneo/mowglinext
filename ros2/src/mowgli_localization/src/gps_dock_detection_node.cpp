@@ -112,8 +112,8 @@
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
-#include "mowgli_localization/delta_gate.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
+#include "mowgli_localization/delta_gate.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "tf2/LinearMath/Quaternion.hpp"

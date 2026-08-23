@@ -40,9 +40,17 @@ std::optional<TickOutput> GraphManager::Tick(double now_s)
   // but Tick() is driven by the node clock — under use_sim_time those differ
   // by ~1.79e9 s, so the gate below would never fire and node creation would
   // freeze for the whole sim. Snapping down to now_s resumes the cadence and
-  // is clock-source-agnostic (no-op on real hardware where they agree).
+  // is clock-source-agnostic (no-op on real hardware where they agree). The
+  // timestamp index belongs to the old clock epoch, so rebuild it from the
+  // latest live node rather than allowing new sensor stamps to match stale
+  // entries after a bag loop / simulation reset.
   if (last_node_time_s_ > now_s)
+  {
     last_node_time_s_ = now_s;
+    node_time_index_.clear();
+    if (latest_ && HasPoseAt(latest_->node_index))
+      node_time_index_.emplace_back(now_s, latest_->node_index);
+  }
   if (now_s - last_node_time_s_ < params_.node_period_s)
     return std::nullopt;
 
@@ -335,8 +343,17 @@ std::optional<TickOutput> GraphManager::CreateNodeLocked(double now_s)
                                                     params_.huber_k_gps),
                                                 noise);
     }
-    new_factors_.add(GnssLeverArmFactor(
-        k_curr, queue_.gnss->xy, gtsam::Vector2(params_.lever_arm_x, params_.lever_arm_y), noise));
+    const auto factor_key = queue_.gnss->target_node ? PoseKey(*queue_.gnss->target_node) : k_curr;
+    // A windowed asynchronous rebase may remove a historical target after
+    // QueueGnss validated it. Drop that stale observation rather than silently
+    // applying it to the current state at the wrong epoch.
+    if (!queue_.gnss->target_node || HasPoseAt(*queue_.gnss->target_node))
+    {
+      new_factors_.add(GnssLeverArmFactor(factor_key,
+                                          queue_.gnss->xy,
+                                          gtsam::Vector2(params_.lever_arm_x, params_.lever_arm_y),
+                                          noise));
+    }
   }
   if (queue_.yaw)
   {
@@ -458,6 +475,11 @@ std::optional<TickOutput> GraphManager::CreateNodeLocked(double now_s)
   // 6. Reset for next tick.
   ++next_index_;
   last_node_time_s_ = now_s;
+  node_time_index_.emplace_back(now_s, out.node_index);
+  const size_t time_index_cap =
+      params_.max_graph_nodes > 0 ? static_cast<size_t>(params_.max_graph_nodes) : 10000U;
+  while (node_time_index_.size() > std::max<size_t>(1U, time_index_cap))
+    node_time_index_.pop_front();
   accum_.Reset();
   queue_.gnss.reset();
   queue_.yaw.reset();

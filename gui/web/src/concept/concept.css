@@ -26,12 +26,11 @@
 [data-concept] .display { font-family: var(--font-display); }
 [data-concept] .mono    { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* glass surface util */
+/* Layer-free glass surface util. The opaque card tone preserves contrast
+   without forcing the browser to re-filter everything behind each card. */
 [data-concept] .glass {
   position: relative;
-  background: var(--bg-card);
-  backdrop-filter: blur(28px) saturate(140%);
-  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  background: var(--bg-card-solid);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-soft);
   box-shadow: var(--shadow-card);

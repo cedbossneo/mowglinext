@@ -21,14 +21,12 @@
 // then drive ~10 m off elsewhere"). This test pins the mapping so that failure
 // mode cannot silently reopen.
 
-#include "mowgli_behavior/coverage_nodes.hpp"
-
-#include <gtest/gtest.h>
-
 #include <vector>
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "mowgli_behavior/coverage_nodes.hpp"
 #include "nav_msgs/msg/path.hpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -186,9 +184,9 @@ TEST(ForwardSkipIndex, SnapsToEndWhenRemainderShorterThanSkip)
 TEST(ForwardSkipIndex, DegenerateInputsReturnFrom)
 {
   const auto poses = makePoses(1000, 0.1);
-  EXPECT_EQ(forwardSkipIndex(poses, 42, 0.0), 42u);    // non-positive skip
-  EXPECT_EQ(forwardSkipIndex(poses, 42, -1.0), 42u);   // negative skip
+  EXPECT_EQ(forwardSkipIndex(poses, 42, 0.0), 42u);  // non-positive skip
+  EXPECT_EQ(forwardSkipIndex(poses, 42, -1.0), 42u);  // negative skip
   EXPECT_EQ(forwardSkipIndex(makePoses(1, 0.1), 0, 0.8), 0u);  // too short
   const std::vector<geometry_msgs::msg::PoseStamped> empty;
-  EXPECT_EQ(forwardSkipIndex(empty, 0, 0.8), 0u);      // empty
+  EXPECT_EQ(forwardSkipIndex(empty, 0, 0.8), 0u);  // empty
 }

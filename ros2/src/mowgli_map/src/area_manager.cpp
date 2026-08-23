@@ -25,6 +25,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -190,6 +191,7 @@ void MapServerNode::init_map()
   // Drop any accumulated mowed-progress overlay: a fresh map (startup or a map
   // delete) means coverage starts over. stamp_mow_progress lazily recreates it.
   mow_progress_map_ = grid_map::GridMap();
+  have_last_mow_tool_position_ = false;
 
   RCLCPP_DEBUG(get_logger(),
                "Grid map created: %zu×%zu cells",
@@ -593,6 +595,8 @@ void MapServerNode::clear_map_layers()
 {
   map_[std::string(layers::OCCUPANCY)].setConstant(defaults::OCCUPANCY);
   map_[std::string(layers::CLASSIFICATION)].setConstant(defaults::CLASSIFICATION);
+  mow_progress_map_ = grid_map::GridMap();
+  have_last_mow_tool_position_ = false;
 }
 void MapServerNode::on_set_docking_point(
     const mowgli_interfaces::srv::SetDockingPoint::Request::SharedPtr req,
@@ -1030,6 +1034,111 @@ void MapServerNode::on_promote_obstacle(
               "promote_obstacle: appended polygon (%zu points) to area %u",
               poly.points.size(),
               req->area_index);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wheel-slip dig reports
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::optional<size_t> MapServerNode::mowing_area_containing(double x, double y) const
+{
+  geometry_msgs::msg::Point32 pt;
+  pt.x = static_cast<float>(x);
+  pt.y = static_cast<float>(y);
+
+  for (size_t i = 0; i < areas_.size(); ++i)
+  {
+    if (areas_[i].is_navigation_area)
+    {
+      continue;  // obstacles can only be promoted into mowing areas
+    }
+    if (point_in_polygon(pt, areas_[i].polygon))
+    {
+      return i;
+    }
+  }
+  return std::nullopt;
+}
+
+void MapServerNode::on_dig_event(mowgli_interfaces::msg::DigEvent::ConstSharedPtr msg)
+{
+  const double x = msg->position.x;
+  const double y = msg->position.y;
+
+  RCLCPP_WARN(get_logger(),
+              "Dig reported at (%.2f, %.2f): wheels claimed %.2f m, fused pose moved "
+              "%.2f m (sigma %.3f m).",
+              x,
+              y,
+              msg->wheel_distance,
+              msg->map_distance,
+              msg->position_sigma);
+
+  std::optional<size_t> area_index;
+  {
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    area_index = mowing_area_containing(x, y);
+  }
+
+  if (!area_index.has_value())
+  {
+    // Digs during transit or docking can happen outside every mowing area.
+    // There is no area to attach a keepout to, and inventing one would put a
+    // permanent obstacle somewhere the operator never drew a boundary. The
+    // stop-and-reverse already happened at the bridge; this is only about
+    // whether COVERAGE needs to route around the spot, and coverage never
+    // goes here. Log it and move on.
+    RCLCPP_INFO(get_logger(),
+                "Dig at (%.2f, %.2f) is outside every mowing area — not promoting a "
+                "keepout (nothing plans coverage there).",
+                x,
+                y);
+    return;
+  }
+
+  // Square keepout centred on the dig, side = dig_obstacle_size_.
+  const double half = std::max(dig_obstacle_size_, 0.05) * 0.5;
+  geometry_msgs::msg::Polygon poly;
+  const double corners[4][2] = {{x - half, y - half},
+                                {x + half, y - half},
+                                {x + half, y + half},
+                                {x - half, y + half}};
+  for (const auto& c : corners)
+  {
+    geometry_msgs::msg::Point32 p;
+    p.x = static_cast<float>(c[0]);
+    p.y = static_cast<float>(c[1]);
+    poly.points.push_back(p);
+  }
+
+  if (!apply_promoted_obstacle(*area_index, poly))
+  {
+    RCLCPP_WARN(
+        get_logger(), "Dig keepout rejected for area %zu at (%.2f, %.2f).", *area_index, x, y);
+    return;
+  }
+
+  // Persist immediately — same policy as ~/promote_obstacle: the live state
+  // is already updated, so a failed save is a warning, not a failure.
+  if (!areas_file_path_.empty())
+  {
+    try
+    {
+      save_areas_to_file(areas_file_path_);
+    }
+    catch (const std::exception& ex)
+    {
+      RCLCPP_WARN(get_logger(), "Dig keepout applied but YAML save failed: %s", ex.what());
+    }
+  }
+
+  RCLCPP_WARN(get_logger(),
+              "Dig keepout (%.2f m square) added to area %zu at (%.2f, %.2f); coverage "
+              "will route around it.",
+              2.0 * half,
+              *area_index,
+              x,
+              y);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

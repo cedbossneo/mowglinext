@@ -60,6 +60,7 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
+#include "mowgli_hardware/dig_detector.hpp"
 #include "mowgli_hardware/ll_datatypes.hpp"
 #include "mowgli_hardware/odometry_publisher.hpp"
 #include "mowgli_hardware/packet_handler.hpp"
@@ -116,6 +117,7 @@ static const char* high_level_mode_name(const uint8_t mode)
 }
 
 #include "mowgli_interfaces/gnss_status_utils.hpp"
+#include "mowgli_interfaces/msg/dig_event.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/gnss_status.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
@@ -642,6 +644,38 @@ private:
     // at 91 Hz × 200 samples.
     imu_cal_periodic_recal_sec_ = declare_parameter<double>("imu_cal_periodic_recal_sec", 60.0);
 
+    // ── Wheel-slip dig detection (see mowgli_hardware/dig_detector.hpp) ────
+    //
+    // Runs HERE, in the bridge, and not in a controller, because ~/cmd_vel is
+    // twist_mux's MERGED output: every lane that can move this robot —
+    // coverage (FTC), transit (RPP), docking, teleop — converges on this one
+    // path, so a check placed here covers all of them by construction. A
+    // controller-side check would only ever see its own lane, and docking is
+    // exactly a case where a controller-side check sees nothing.
+    //
+    // The firmware anti-dig (ANTIDIG_* in cpp_main.cpp) is unchanged and
+    // remains the un-bypassable backstop for BLOCKED wheels. This detector
+    // covers the complementary case it structurally cannot see — wheels
+    // SPINNING while the chassis stays put — because the firmware has no
+    // absolute position reference, only the encoders that are lying.
+    dig_detect_enabled_ = declare_parameter<bool>("dig_detect_enabled", true);
+    dig_cfg_.window_s = declare_parameter<double>("dig_window_s", 1.2);
+    dig_cfg_.min_cmd_speed = declare_parameter<double>("dig_min_cmd_speed", 0.05);
+    dig_cfg_.min_wheel_dist = declare_parameter<double>("dig_min_wheel_dist", 0.15);
+    dig_cfg_.progress_fraction = declare_parameter<double>("dig_progress_fraction", 0.35);
+    // Above this fused-pose sigma the detector stands down entirely: under
+    // RTK-Float the map pose cannot distinguish slip from GNSS noise, and a
+    // false dig would hard-stop a perfectly healthy robot mid-mow.
+    dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.10);
+    dig_escape_cfg_.reverse_speed = declare_parameter<double>("dig_reverse_speed", 0.12);
+    dig_escape_cfg_.reverse_dist = declare_parameter<double>("dig_reverse_dist", 0.30);
+    dig_escape_cfg_.timeout_s = declare_parameter<double>("dig_reverse_timeout_s", 4.0);
+    dig_monitor_rate_ = declare_parameter<double>("dig_monitor_rate", 10.0);
+    // Fused pose older than this is treated as absent (detector stands down)
+    // rather than compared against stale coordinates.
+    dig_pose_timeout_s_ = declare_parameter<double>("dig_pose_timeout_s", 1.0);
+    dig_cfg_.enabled = dig_detect_enabled_;
+
     RCLCPP_INFO(get_logger(),
                 "Parameters: serial_port=%s baud_rate=%d heartbeat_rate=%.1f Hz "
                 "publish_rate=%.1f Hz high_level_rate=%.1f Hz",
@@ -677,6 +711,12 @@ private:
     // into ekf_map/ekf_odom set_pose. Remapped to /gnss/heading in
     // mowgli.launch.py. Stops automatically when the robot undocks.
     pub_dock_heading_ = create_publisher<sensor_msgs::msg::Imu>("~/dock_heading", rclcpp::QoS(10));
+    // Latched dig reports. TRANSIENT_LOCAL so map_server still receives the
+    // event if it (re)starts a moment after the dig — the location is worth
+    // marking whenever it arrives, and these are rare, low-rate events.
+    pub_dig_event_ =
+        create_publisher<mowgli_interfaces::msg::DigEvent>("~/dig_event",
+                                                           rclcpp::QoS(10).transient_local());
     timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
                                             [this]()
                                             {
@@ -729,6 +769,17 @@ private:
                        "High-level mode updated to %u (%s)",
                        msg->state,
                        msg->state_name.c_str());
+        });
+
+    // GNSS-anchored fused pose — the ONLY signal on this robot independent
+    // of the wheels, and therefore the only one that can witness a dig.
+    // SensorDataQoS to match fusion_graph's publisher.
+    sub_filtered_map_ = create_subscription<nav_msgs::msg::Odometry>(
+        "/odometry/filtered_map",
+        rclcpp::SensorDataQoS(),
+        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
+        {
+          on_filtered_map_odom(msg);
         });
   }
 
@@ -881,6 +932,22 @@ private:
                                           {
                                             send_high_level_state();
                                           });
+
+    // Wheel-slip dig monitor. Runs on its own timer rather than inside
+    // on_cmd_vel because the escape must keep driving the wire even when the
+    // controller that caused the dig has gone silent (an aborted Nav2 goal
+    // stops publishing cmd_vel entirely — exactly the moment the robot is
+    // still sitting in the hole it dug).
+    if (dig_detect_enabled_)
+    {
+      const auto dig_period_ms =
+          std::chrono::milliseconds(static_cast<int>(1000.0 / std::max(1.0, dig_monitor_rate_)));
+      timer_dig_monitor_ = create_wall_timer(dig_period_ms,
+                                             [this]()
+                                             {
+                                               dig_monitor_tick();
+                                             });
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1202,6 +1269,7 @@ private:
       msg.firmware_debug_enabled = firmware_debug_enabled_;
       msg.mower_esc_status = blade_active_ ? 1u : 0u;
       msg.mower_motor_rpm = blade_rpm_;
+      msg.blade_status_stamp = blade_status_time_;
       msg.mower_motor_temperature = blade_temperature_;
       msg.mower_esc_current = blade_esc_current_;
       // Firmware version handshake result (image <-> firmware compatibility).
@@ -2210,6 +2278,7 @@ private:
     // Update the Status message fields with live blade data
     blade_active_ = pkt.is_active != 0u;
     blade_rpm_ = static_cast<float>(pkt.rpm);
+    blade_status_time_ = now();
     blade_temperature_ = pkt.temperature;
     blade_esc_current_ = static_cast<float>(pkt.power_watts);
   }
@@ -2491,6 +2560,208 @@ private:
       vx = 0.0;
     }
 
+    // Remember what we were actually told to do; the dig monitor compares
+    // this against real-world progress (see dig_monitor_tick). Stamped
+    // because a command that stopped ARRIVING must not keep counting as a
+    // command: when a Nav2 goal aborts, cmd_vel simply goes silent, and a
+    // stale non-zero value here would let the detector accumulate evidence
+    // against a robot that is no longer being asked to move at all.
+    last_cmd_vx_ = vx;
+    last_cmd_vel_time_ = now();
+    have_cmd_vel_ = true;
+
+    // While escaping a dig, WE own the wire. Drop the incoming command
+    // entirely instead of forwarding it: the controller that dug the hole is
+    // still asking to drive forward into it, and the escape is a bounded,
+    // deliberately un-overridable manoeuvre. Normal command flow resumes the
+    // moment the budget is spent.
+    if (dig_escaping_)
+    {
+      return;
+    }
+
+    send_cmd_vel_packet(vx, wz);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wheel-slip dig detection + bounded reverse escape
+  // ---------------------------------------------------------------------------
+  //
+  // See mowgli_hardware/dig_detector.hpp for WHY this lives here and why the
+  // wheel-derived checks elsewhere in the stack cannot see this failure.
+
+  void on_filtered_map_odom(nav_msgs::msg::Odometry::ConstSharedPtr msg)
+  {
+    last_map_pose_x_ = msg->pose.pose.position.x;
+    last_map_pose_y_ = msg->pose.pose.position.y;
+    // Worst axis of the position block; the detector compares a scalar
+    // distance so the larger sigma is the honest one to gate on.
+    const double var_xx = msg->pose.covariance[0];
+    const double var_yy = msg->pose.covariance[7];
+    last_map_sigma_ = std::sqrt(std::max(var_xx, var_yy));
+    last_map_pose_time_ = now();
+    have_map_pose_ = true;
+  }
+
+  /// True when it is safe for US to command motion. The firmware remains the
+  /// sole safety authority (Invariant 9) — this only ever declines to act.
+  [[nodiscard]] bool dig_escape_allowed() const
+  {
+    return !emergency_active_ && !fw_latched_emergency_ && !is_charging_;
+  }
+
+  /// Drop the wheel/map baselines so the next live tick starts a fresh
+  /// interval. Called whenever ticks are skipped (escape, re-arm window,
+  /// clock jump): without it, the first tick after the gap measures the
+  /// WHOLE gap as one step, fabricating travel that never happened inside a
+  /// single detector interval.
+  void dig_invalidate_baselines()
+  {
+    have_wheel_baseline_ = false;
+    have_map_baseline_ = false;
+    DigResetWindow(dig_state_);
+  }
+
+  void dig_monitor_tick()
+  {
+    const rclcpp::Time tick_now = now();
+    const double dt = have_dig_tick_ ? (tick_now - last_dig_tick_).seconds() : 0.0;
+    last_dig_tick_ = tick_now;
+    have_dig_tick_ = true;
+
+    if (dt <= 0.0 || dt > 1.0)
+    {
+      dig_invalidate_baselines();
+      return;  // first tick, clock jump, or a stall in our own timer
+    }
+
+    // ── Escape in progress: we own the wire until the budget is spent ──────
+    if (dig_escaping_)
+    {
+      if (!dig_escape_allowed())
+      {
+        // Emergency asserted (or we docked) mid-escape — abandon it. The
+        // firmware is already cutting the motors; do not fight it.
+        RCLCPP_WARN(get_logger(), "Dig escape aborted: emergency or charging asserted.");
+        dig_escaping_ = false;
+        dig_escape_state_ = DigEscapeState{};
+        dig_invalidate_baselines();
+        return;
+      }
+
+      const double vx = DigEscapeStep(dig_escape_cfg_, dig_escape_state_, dt);
+      send_cmd_vel_packet(vx, 0.0);
+
+      if (DigEscapeDone(dig_escape_cfg_, dig_escape_state_))
+      {
+        RCLCPP_INFO(get_logger(),
+                    "Dig escape complete: reversed %.2f m in %.1f s. Holding stop; "
+                    "navigation may resume.",
+                    dig_escape_state_.travelled,
+                    dig_escape_state_.elapsed);
+        send_cmd_vel_packet(0.0, 0.0);
+        dig_escaping_ = false;
+        dig_escape_state_ = DigEscapeState{};
+        dig_invalidate_baselines();
+        // Don't re-arm instantly: the encoders need a moment of honest
+        // motion before their travel means anything again.
+        dig_rearm_deadline_ = tick_now + rclcpp::Duration::from_seconds(dig_rearm_delay_s_);
+      }
+      return;
+    }
+
+    // ── Detection ─────────────────────────────────────────────────────────
+    if (tick_now < dig_rearm_deadline_)
+    {
+      dig_invalidate_baselines();
+      return;
+    }
+
+    const double wheel_total = odometry_publisher_.travelled();
+    const double wheel_step = have_wheel_baseline_ ? (wheel_total - last_wheel_total_) : 0.0;
+    last_wheel_total_ = wheel_total;
+    have_wheel_baseline_ = true;
+
+    // No usable fused pose (not yet received, or stale) -> stand down. The
+    // firmware backstop still covers the blocked-wheel case meanwhile.
+    const bool pose_fresh =
+        have_map_pose_ && (tick_now - last_map_pose_time_).seconds() < dig_pose_timeout_s_;
+    if (!pose_fresh)
+    {
+      dig_invalidate_baselines();
+      return;
+    }
+
+    const double map_step = have_map_baseline_ ? std::hypot(last_map_pose_x_ - last_map_baseline_x_,
+                                                            last_map_pose_y_ - last_map_baseline_y_)
+                                               : 0.0;
+    last_map_baseline_x_ = last_map_pose_x_;
+    last_map_baseline_y_ = last_map_pose_y_;
+    have_map_baseline_ = true;
+
+    // Treat a command that has stopped arriving as no command at all.
+    const bool cmd_fresh =
+        have_cmd_vel_ && (tick_now - last_cmd_vel_time_).seconds() < dig_cmd_timeout_s_;
+    const double cmd_vx = cmd_fresh ? last_cmd_vx_ : 0.0;
+
+    const DigVerdict verdict =
+        DigDecide(dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, last_map_sigma_, dt);
+
+    if (verdict.action != DigAction::kDig)
+    {
+      return;
+    }
+
+    on_dig_detected(verdict);
+  }
+
+  void on_dig_detected(const DigVerdict& verdict)
+  {
+    RCLCPP_WARN(get_logger(),
+                "DIG DETECTED at map (%.2f, %.2f): encoders claimed %.2f m but the fused "
+                "pose moved %.2f m (sigma %.3f m). Hard stop + bounded reverse.",
+                last_map_pose_x_,
+                last_map_pose_y_,
+                verdict.wheel_dist,
+                verdict.map_dist,
+                last_map_sigma_);
+
+    // 1. Hard stop, immediately and on the wire — not a request to whichever
+    //    controller is driving, which is the one that just dug the hole.
+    send_cmd_vel_packet(0.0, 0.0);
+
+    // 2. Report the location BEFORE escaping, so map_server marks the spot
+    //    even if the escape is cut short by an emergency.
+    publish_dig_event(verdict);
+
+    // 3. Begin the bounded reverse (executed by subsequent monitor ticks).
+    dig_escape_state_ = DigEscapeState{};
+    dig_escaping_ = dig_escape_allowed();
+    if (!dig_escaping_)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Dig escape suppressed: emergency active or robot charging. "
+                  "Stop stands; no reverse commanded.");
+    }
+  }
+
+  void publish_dig_event(const DigVerdict& verdict)
+  {
+    auto msg = mowgli_interfaces::msg::DigEvent{};
+    msg.header.stamp = now();
+    msg.header.frame_id = "map";
+    msg.position.x = last_map_pose_x_;
+    msg.position.y = last_map_pose_y_;
+    msg.position.z = 0.0;
+    msg.wheel_distance = verdict.wheel_dist;
+    msg.map_distance = verdict.map_dist;
+    msg.position_sigma = last_map_sigma_;
+    pub_dig_event_->publish(msg);
+  }
+
+  /// Single point where a velocity command reaches the firmware.
+  void send_cmd_vel_packet(double vx, double wz)
+  {
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
     pkt.linear_x = static_cast<float>(vx);
@@ -2557,6 +2828,52 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_dock_heading_;
 
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr sub_cmd_vel_;
+
+  // ── Wheel-slip dig detection state (see dig_detector.hpp) ────────────────
+  rclcpp::Publisher<mowgli_interfaces::msg::DigEvent>::SharedPtr pub_dig_event_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_filtered_map_;
+  rclcpp::TimerBase::SharedPtr timer_dig_monitor_;
+
+  bool dig_detect_enabled_{true};
+  double dig_monitor_rate_{10.0};
+  double dig_pose_timeout_s_{1.0};
+  /// Settling time after an escape before the detector may latch again [s].
+  /// Not a parameter: it is a property of the manoeuvre (the encoders need a
+  /// moment of honest motion before their travel means anything), not a
+  /// site-tunable preference.
+  static constexpr double dig_rearm_delay_s_ = 2.0;
+
+  DigDetectorCfg dig_cfg_;
+  DigDetectorState dig_state_;
+  DigEscapeCfg dig_escape_cfg_;
+  DigEscapeState dig_escape_state_;
+  bool dig_escaping_{false};
+  rclcpp::Time dig_rearm_deadline_{0, 0, RCL_ROS_TIME};
+
+  /// Latest commanded forward velocity, captured in on_cmd_vel, with the
+  /// time it arrived — a command that goes silent must stop counting.
+  double last_cmd_vx_{0.0};
+  bool have_cmd_vel_{false};
+  rclcpp::Time last_cmd_vel_time_{0, 0, RCL_ROS_TIME};
+  /// A cmd_vel older than this no longer counts as "commanded to move" [s].
+  /// Controllers publish at 10-20 Hz, so this is many missed cycles.
+  static constexpr double dig_cmd_timeout_s_ = 0.5;
+
+  /// Fused-pose (map-frame) tracking.
+  bool have_map_pose_{false};
+  double last_map_pose_x_{0.0};
+  double last_map_pose_y_{0.0};
+  double last_map_sigma_{0.0};
+  rclcpp::Time last_map_pose_time_{0, 0, RCL_ROS_TIME};
+
+  /// Per-tick baselines for the wheel-vs-map comparison.
+  bool have_wheel_baseline_{false};
+  double last_wheel_total_{0.0};
+  bool have_map_baseline_{false};
+  double last_map_baseline_x_{0.0};
+  double last_map_baseline_y_{0.0};
+  bool have_dig_tick_{false};
+  rclcpp::Time last_dig_tick_{0, 0, RCL_ROS_TIME};
   rclcpp::Subscription<mowgli_interfaces::msg::GnssStatus>::SharedPtr sub_gnss_status_;
   rclcpp::Subscription<mowgli_interfaces::msg::HighLevelStatus>::SharedPtr sub_hl_status_;
 
@@ -2704,6 +3021,7 @@ private:
   // Blade motor state (updated from LlBladeStatus packets)
   bool blade_active_{false};
   float blade_rpm_{0.0f};
+  rclcpp::Time blade_status_time_{0, 0, RCL_ROS_TIME};
   float blade_temperature_{0.0f};
   float blade_esc_current_{0.0f};
   uint8_t last_reset_cause_{RESET_CAUSE_UNKNOWN};

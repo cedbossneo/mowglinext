@@ -29,6 +29,15 @@ type CoveragePath struct {
 	Path                      nav.Path                       `json:"path"`
 }
 
+// DigEvent matches mowgli_interfaces/msg/DigEvent.
+type DigEvent struct {
+	Header                    geometry.Header                `json:"header"`
+	Position                  geometry.Point                 `json:"position"`
+	WheelDistance             float64                        `json:"wheel_distance"`
+	MapDistance               float64                        `json:"map_distance"`
+	PositionSigma             float64                        `json:"position_sigma"`
+}
+
 // DockCalibrationStatus matches mowgli_interfaces/msg/DockCalibrationStatus.
 type DockCalibrationStatus struct {
 	Phase                     uint8                          `json:"phase"`
@@ -187,6 +196,7 @@ type Status struct {
 	MowerEscCurrent           float32                        `json:"mower_esc_current"`
 	MowerMotorTemperature     float32                        `json:"mower_motor_temperature"`
 	MowerMotorRpm             float32                        `json:"mower_motor_rpm"`
+	BladeStatusStamp          geometry.Stamp                 `json:"blade_status_stamp"`
 	FirmwareVersion           string                         `json:"firmware_version"`
 	FirmwareProtocolVersion   uint8                          `json:"firmware_protocol_version"`
 	FirmwareCompatible        bool                           `json:"firmware_compatible"`

@@ -137,7 +137,11 @@
     "confirm": "Confirm",
     "cancel": "Cancel",
     "restartMowgli": "Restart Mowgli",
-    "restartMowgliConfirm": "This will restart the MowgliNext container.",
+    "restartMowgliConfirm": "This restarts the entire Mowgli stack (ROS2, GPS, LiDAR, and this web GUI) — like the mowgli-restart command. The page will disconnect briefly and reload automatically when the GUI is back.",
+    "restartingStackTitle": "Restarting Mowgli…",
+    "restartingStackBody": "Restarting the whole stack. This page will reconnect and reload automatically when the GUI is back.",
+    "rebootingPiTitle": "Rebooting the Raspberry Pi…",
+    "rebootingPiBody": "The Raspberry Pi is rebooting. This page will reconnect and reload automatically when it's back (this can take a minute or two).",
     "advanced": "Advanced",
     "restartBoard": "Restart the board (STM32)",
     "restartBoardConfirm": "Resets the STM32 firmware (NVIC_SystemReset). Use it to unstick a frozen board — e.g. the IMU returning NaN. The motors/blade stop during the reset (~1 s).",
@@ -1372,6 +1376,17 @@
     "stopManual": "Stop",
     "manualMow": "Manual Mow",
     "more": "More"
+  },
+  "resetMowingProgress": {
+    "action": "Reset mowing progress",
+    "confirmTitle": "Reset saved mowing progress?",
+    "confirmBody": "This permanently clears the saved coverage progress for the current map.",
+    "confirmHint": "The mower will not start, and your mapped areas will not be deleted.",
+    "confirmAction": "Reset progress",
+    "cancel": "Cancel",
+    "success": "Mowing progress was reset",
+    "error": "Could not reset mowing progress",
+    "unknownError": "An unknown error occurred"
   },
   "mapToolbarMobile": {
     "actionFailed": "Action failed",
@@ -2880,7 +2895,7 @@
     "restart": "Restart",
     "stop": "Stop",
     "start": "Start",
-    "searchPlaceholder": "Search logs...",
+    "searchPlaceholder": "Search logs…",
     "levelErrors": "Errors",
     "levelWarnings": "Warnings",
     "levelInfo": "Info",
@@ -2939,6 +2954,10 @@
     "errorOccurred": "An error occured"
   },
   "settingsSections": {
+    "appearance": {
+      "label": "Appearance",
+      "description": "Visual richness and energy use on this device"
+    },
     "hardware": {
       "label": "Hardware",
       "description": "Robot model, wheels, chassis, and blade dimensions"
@@ -3007,6 +3026,23 @@
       "drivePidUpdateFailed": "Settings saved, but live drive-PID update failed",
       "drivePidUpdateFailedDescription": "Restart ROS2 to apply the new drive-motor PID gains.",
       "saveFailed": "Failed to save settings"
+    }
+  },
+  "displayMode": {
+    "title": "Display mode",
+    "description": "Choose the balance of visual richness, responsiveness, and energy use for this browser.",
+    "reducedMotion": "Your system's reduced-motion setting always limits non-essential motion.",
+    "visual": {
+      "label": "Visual",
+      "description": "Richer glass surfaces and subtle ambient feedback."
+    },
+    "balanced": {
+      "label": "Balanced",
+      "description": "The intended Mowgli look with efficient default rendering."
+    },
+    "efficient": {
+      "label": "Efficient",
+      "description": "Lower compositing and conservative visual update rates."
     }
   },
   "ntripProviders": {

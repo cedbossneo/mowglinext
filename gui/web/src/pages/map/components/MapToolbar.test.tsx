@@ -21,6 +21,7 @@ describe('MapToolbar', () => {
         useSatellite: true,
         mowingAreas: [],
         stateName: 'IDLE',
+        highLevelState: 1,
         emergency: false,
         onEditMap: vi.fn(),
         onToggleSatellite: vi.fn(),
@@ -30,6 +31,7 @@ describe('MapToolbar', () => {
         onRestoreMap: vi.fn(),
         onDownloadGeoJSON: vi.fn(),
         onImportOpenMower: vi.fn(),
+        onResetMowingProgress: vi.fn(),
         onMowArea: vi.fn().mockResolvedValue(undefined),
         onStart: vi.fn().mockResolvedValue(undefined),
         onHome: vi.fn().mockResolvedValue(undefined),
@@ -91,6 +93,28 @@ describe('MapToolbar', () => {
         await user.click(screen.getByText(en.mapToolbar.more));
         expect(screen.getByText(en.mapToolbar.backupMap)).toBeInTheDocument();
         expect(screen.getByText(en.mapToolbar.restoreMap)).toBeInTheDocument();
+    });
+
+    it('offers Reset Mowing Progress whenever the mower is not active', async () => {
+        const user = userEvent.setup();
+        render(<MapToolbar {...defaultProps} highLevelState={1} />);
+        await user.click(screen.getByText(en.mapToolbar.more));
+
+        const resetItem = screen.getByText(en.resetMowingProgress.action);
+        expect(resetItem).toBeInTheDocument();
+        await user.click(resetItem);
+        expect(defaultProps.onResetMowingProgress).toHaveBeenCalledOnce();
+    });
+
+    it('disables Reset Mowing Progress while an autonomous mission is active', async () => {
+        const user = userEvent.setup();
+        render(<MapToolbar {...defaultProps} highLevelState={2} stateName="MOWING" />);
+        await user.click(screen.getByText(en.mapToolbar.more));
+
+        const resetItem = screen.getByText(en.resetMowingProgress.action);
+        expect(resetItem.closest('[role="menuitem"]')).toHaveAttribute('aria-disabled', 'true');
+        await user.click(resetItem);
+        expect(defaultProps.onResetMowingProgress).not.toHaveBeenCalled();
     });
 
     it('shows Download GeoJSON in More dropdown', async () => {

@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,8 @@
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
 #include "mowgli_behavior/coverage_persistence.hpp"
+#include "mowgli_behavior/localization_health.hpp"
+#include "mowgli_behavior/status_snapshot.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
@@ -41,9 +44,10 @@
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "nav2_msgs/action/undock_robot.hpp"
 #include "nav2_msgs/msg/collision_monitor_state.hpp"
-#include "sensor_msgs/msg/laser_scan.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -212,6 +216,44 @@ private:
                                                    context_->lethal_boundary_violation = msg->data;
                                                  });
 
+    // Localization-quality gate feed for LocalizationGuard, latched into
+    // context_->localization_degraded.
+    //
+    // The signal is GNSS SOLUTION QUALITY from the typed /gps/status contract
+    // — NOT the fused marginal covariance. fusion_graph deliberately releases
+    // the X constraint during pivots (pivot_wheel_sigma_x) and slip (adaptive
+    // noise gain), so its σ_xy swings to >1.8 m while the receiver holds
+    // RTK-Fixed at 1.4 cm; keying on it made the guard satisfiable ONLY while
+    // parked and livelocked mowing at 0 %. See localization_health.hpp for the
+    // full derivation and the 2026-08-20 field trace.
+    //
+    // σ_xy is still watched as a deliberately generous DIVERGENCE BACKSTOP
+    // (default 5 m), which no pivot can reach — that covers the localizer
+    // rejecting every fix while the receiver stays healthy.
+    LocalizationHealthCfg loc_cfg;
+    loc_cfg.gnss_acc_pause_m = declare_parameter<double>("loc_gnss_acc_pause_m", 0.30);
+    loc_cfg.gnss_acc_resume_m = declare_parameter<double>("loc_gnss_acc_resume_m", 0.15);
+    loc_cfg.gnss_stale_s = declare_parameter<double>("loc_gnss_stale_s", 5.0);
+    loc_cfg.gnss_pause_persist_s = declare_parameter<double>("loc_sigma_pause_persist_s", 3.0);
+    loc_cfg.gnss_resume_persist_s = declare_parameter<double>("loc_sigma_resume_persist_s", 2.0);
+    loc_cfg.sigma_backstop_pause_m = declare_parameter<double>("loc_sigma_pause_m", 5.0);
+    loc_cfg.sigma_backstop_resume_m = declare_parameter<double>("loc_sigma_resume_m", 2.0);
+    loc_cfg.sigma_backstop_persist_s =
+        declare_parameter<double>("loc_sigma_backstop_persist_s", 10.0);
+    loc_monitor_ = LocalizationHealthMonitor(loc_cfg);
+
+    fused_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        "/odometry/filtered_map",
+        rclcpp::QoS(5),
+        [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
+        {
+          const double sigma =
+              std::sqrt(std::max({msg->pose.covariance[0], msg->pose.covariance[7], 0.0}));
+          std::lock_guard<std::mutex> lock(context_->context_mutex);
+          loc_obs_.fused_sigma_xy_m = sigma;
+          updateLocalizationHealthLocked();
+        });
+
     // GPS position for heading calibration during undock. RTK/fix-state comes
     // from /gps/status so covariance fallout on /gps/fix does not masquerade
     // as "no RTK fix" in the behavior tree.
@@ -304,6 +346,18 @@ private:
         {
           std::lock_guard<std::mutex> lock(context_->context_mutex);
           has_authoritative_gnss_status_ = true;
+
+          // LocalizationGuard feed: the receiver's own view of solution
+          // quality. horizontal_accuracy_m is only trusted when the message's
+          // value_flags say it carries a live value; otherwise rtk_mode
+          // decides (see LocalizationHealthMonitor::Update).
+          loc_obs_.gnss_seen = true;
+          loc_obs_.gnss_stamp_s = get_clock()->now().seconds();
+          loc_obs_.rtk_mode = static_cast<mowgli_behavior::RtkMode>(msg->rtk_mode);
+          const auto acc = mowgli_interfaces::gnss_status_utils::HorizontalAccuracyMeters(*msg);
+          loc_obs_.gnss_accuracy_m = acc ? static_cast<double>(*acc) : -1.0;
+          updateLocalizationHealthLocked();
+
           context_->gps_fix_type = mowgli_interfaces::gnss_status_utils::BehaviorTreeFixType(*msg);
           context_->gps_quality = mowgli_interfaces::gnss_status_utils::NormalizedQuality(*msg);
 
@@ -496,6 +550,38 @@ private:
     RCLCPP_DEBUG(get_logger(), "~/clear_coverage_resume service + resume-available signal created");
   }
 
+  // Fold the latest observation into the LocalizationGuard latch and log
+  // transitions. Caller MUST hold context_->context_mutex — both the
+  // /gps/status and /odometry/filtered_map callbacks take it before writing
+  // loc_obs_, so the monitor sees a consistent snapshot.
+  void updateLocalizationHealthLocked()
+  {
+    const double now_s = get_clock()->now().seconds();
+    const bool was_degraded = context_->localization_degraded;
+    const bool degraded = loc_monitor_.Update(now_s, loc_obs_);
+    if (degraded == was_degraded)
+      return;
+
+    context_->localization_degraded = degraded;
+    if (degraded)
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Localization degraded (%s: GNSS acc %.3f m, rtk_mode %u, fused σ_xy %.2f m) — "
+                  "pausing blade-on mowing.",
+                  LocalizationFaultName(loc_monitor_.fault()),
+                  loc_obs_.gnss_accuracy_m,
+                  static_cast<unsigned>(loc_obs_.rtk_mode),
+                  loc_obs_.fused_sigma_xy_m);
+    }
+    else
+    {
+      RCLCPP_INFO(get_logger(),
+                  "Localization recovered (GNSS acc %.3f m, rtk_mode %u) — resuming.",
+                  loc_obs_.gnss_accuracy_m,
+                  static_cast<unsigned>(loc_obs_.rtk_mode));
+    }
+  }
+
   // Re-publish the last HighLevelStatus at a steady cadence. PublishHighLevelStatus
   // is a SyncActionNode that only fires on tree transitions, so during a
   // multi-minute FollowStrip the topic would otherwise go silent for the whole
@@ -513,6 +599,15 @@ private:
                                                  });
   }
 
+  // Re-publish the last state identity with the LIVE context fields folded in.
+  // Publishing the cached message verbatim froze everything the operator
+  // watches for as long as the tree sat in a transition-free branch: the
+  // low-battery charge hold publishes "CHARGING" once and then loops on a 30 s
+  // wait, so the GUI battery gauge stayed pinned at the percent captured at
+  // dock contact for the whole charge (observed 2026-08-23: 46.03 % while the
+  // pack actually climbed 25.84 V → 26.42 V), and a multi-minute FollowStrip
+  // froze the mowing progress the same way. Only state/state_name/sub_state_name
+  // are genuinely tree-owned; see status_snapshot.hpp.
   void republishHighLevelStatus()
   {
     std::lock_guard<std::mutex> lock(context_->context_mutex);
@@ -520,7 +615,8 @@ private:
     {
       return;
     }
-    context_->high_level_status_pub->publish(context_->last_high_level_status);
+    context_->high_level_status_pub->publish(
+        withLiveStatusFields(context_->last_high_level_status, *context_));
   }
 
   // Publish whether a coverage session can be resumed (a persisted resume cursor
@@ -839,6 +935,11 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr replan_needed_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr boundary_violation_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr lethal_boundary_violation_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr fused_odom_sub_;
+  // LocalizationGuard state. Both feeds write loc_obs_ under
+  // context_->context_mutex and then call updateLocalizationHealthLocked().
+  LocalizationHealthMonitor loc_monitor_{};
+  LocalizationObservation loc_obs_{};
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr gps_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::GnssStatus>::SharedPtr gnss_status_sub_;
   rclcpp::Subscription<nav2_msgs::msg::CollisionMonitorState>::SharedPtr collision_monitor_sub_;

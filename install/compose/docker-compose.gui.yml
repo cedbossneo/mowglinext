@@ -11,6 +11,10 @@ services:
       project: mowglinext
       app: gui
     network_mode: host
+    # pid: host lets the GUI backend enter host init's namespaces (nsenter -t 1)
+    # to run the host's `systemctl reboot`/`poweroff` for the Restart/Shutdown Pi
+    # power-menu actions. Without it a container can't power-cycle its host.
+    pid: host
     privileged: true
     environment:
       FOXGLOVE_URL: ws://localhost:8765

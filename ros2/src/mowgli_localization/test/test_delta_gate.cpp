@@ -157,7 +157,7 @@ TEST(DeltaGate, AcceptedSampleClearsCandidateRun)
   const double truth = -41.0 * kRad;
   g.update(-160.0 * kRad, 0.1);  // one rejected sample → starts a candidate run
   g.update(-160.0 * kRad, 0.2);  // consistent, but window not elapsed
-  g.update(truth, 0.3);          // back within band → ACCEPTED, run cleared
+  g.update(truth, 0.3);  // back within band → ACCEPTED, run cleared
   // Now a fresh far sample must be treated as a first rejection, not near-window.
   EXPECT_EQ(g.update(-160.0 * kRad, 0.4), DeltaGateAction::REJECTED);
   // ...and it should NOT immediately re-seed on the very next tick.
