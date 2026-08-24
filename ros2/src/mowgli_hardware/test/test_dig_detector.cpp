@@ -321,3 +321,48 @@ TEST(DigDetector, OldSigmaThresholdWouldHaveMissedTheFieldDig)
   EXPECT_EQ(RunDigging(cfg, st, 9.0, 0.14, 0.1, 0.01), mh::DigAction::kNone)
       << "documents the miss the new threshold fixes";
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trust-signal selection (DigTrustSigma)
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(DigTrustSigma, RtkFixedWithValidAccuracyIsTrusted)
+{
+  EXPECT_NEAR(mh::DigTrustSigma(true, true, true, 0.014), 0.014, 1e-12);
+}
+
+TEST(DigTrustSigma, AnythingMissingSuppresses)
+{
+  const double inf = std::numeric_limits<double>::infinity();
+  EXPECT_EQ(mh::DigTrustSigma(false, true, true, 0.014), inf) << "stale /gps/status";
+  EXPECT_EQ(mh::DigTrustSigma(true, false, true, 0.014), inf) << "not RTK-Fixed";
+  EXPECT_EQ(mh::DigTrustSigma(true, true, false, 0.014), inf) << "no accuracy in message";
+  EXPECT_EQ(mh::DigTrustSigma(true, true, true, -1.0), inf) << "negative accuracy";
+}
+
+// RTK-Float reports decimetres to metres; the detector must stand down there.
+TEST(DigTrustSigma, FloatAccuracyExceedsTheGate)
+{
+  mh::DigDetectorCfg cfg;
+  mh::DigDetectorState st;
+  const double float_acc = mh::DigTrustSigma(true, true, true, 0.45);
+  EXPECT_GT(float_acc, cfg.max_pos_sigma);
+  EXPECT_EQ(RunDigging(cfg, st, 9.0, float_acc, 0.1, 0.0), mh::DigAction::kNone);
+}
+
+// The measurement that moved the gate off the graph marginal. Sampled over 90 s
+// of live RTK-Fixed mowing on 2026-08-24, fusion_graph's published position
+// sigma had p50 0.574 m while the receiver reported 0.014 m and FTC tracked to
+// 8-16 mm. Feeding the graph value blocks; feeding the receiver value detects.
+TEST(DigTrustSigma, GraphMarginalWouldBlockWhereReceiverAccuracyDoesNot)
+{
+  mh::DigDetectorCfg cfg;
+
+  mh::DigDetectorState st_graph;
+  EXPECT_EQ(RunDigging(cfg, st_graph, 9.0, 0.574, 0.1, 0.01), mh::DigAction::kNone)
+      << "graph marginal p50 — this is why the gate moved off it";
+
+  mh::DigDetectorState st_gnss;
+  EXPECT_EQ(RunDigging(cfg, st_gnss, 9.0, 0.014, 0.1, 0.01), mh::DigAction::kDig)
+      << "receiver accuracy at the same instant";
+}

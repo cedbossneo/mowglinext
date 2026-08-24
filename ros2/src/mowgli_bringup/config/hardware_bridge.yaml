@@ -51,15 +51,16 @@ hardware_bridge:
     # Above this fused-pose 1-sigma the detector STANDS DOWN: in RTK-Float the
     # map pose cannot tell slip from GNSS noise, and a false positive
     # hard-stops a healthy robot mid-mow.
-    # This is the MAJOR AXIS of the position ellipse, and it is a property of
-    # the FACTOR GRAPH, not of the GNSS receiver: the latest node is usually
-    # held only by wheel/gyro between-factors, so its along-track marginal is
-    # wheel_sigma_x (0.05 nominal, ~0.09 inflated in the field) however good
-    # RTK is. 0.10 was set from the receiver's ~3 mm RTK-Fixed figure and sat
-    # on top of that noise floor, so the gate flickered and the evidence
-    # window reset constantly. Measured 2026-08-24: 0.05-0.14 m under clean
-    # RTK-Fixed, metres under Float.
-    dig_max_pos_sigma: 0.25
+    # Fed from the RECEIVER's horizontal accuracy under a confirmed RTK-Fixed
+    # solution, NOT the factor graph's marginal. The graph value was tried and
+    # does not work at any threshold: sampled over 90 s of live RTK-Fixed
+    # mowing (2026-08-24) it had p50 0.574 m / max 1.391 m while the receiver
+    # reported 0.014 m and FTC tracked to 8-16 mm. A 0.25 m gate blocked 57.6 %
+    # of ticks and 0.40 m still blocked 56.4 %. Under RTK-Fixed the receiver
+    # reports ~0.014 m, so 0.10 passes comfortably; under Float it reports
+    # decimetres to metres and the detector stands down.
+    dig_max_pos_sigma: 0.10
+    dig_gnss_timeout_s: 2.0    # /gps/status older than this = stand down [s]
     # Above this MEASURED (gyro) yaw rate the robot is turning and the
     # wheel-vs-map comparison proves nothing — the encoders measure arc while
     # the map measures chord, and the graph's own estimate degrades through a
