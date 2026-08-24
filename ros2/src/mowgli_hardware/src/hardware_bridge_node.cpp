@@ -51,6 +51,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -666,7 +667,9 @@ private:
     // Above this fused-pose sigma the detector stands down entirely: under
     // RTK-Float the map pose cannot distinguish slip from GNSS noise, and a
     // false dig would hard-stop a perfectly healthy robot mid-mow.
-    dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.10);
+    dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.25);
+    dig_cfg_.max_yaw_rate = declare_parameter<double>("dig_max_yaw_rate", 0.20);
+    dig_gyro_timeout_s_ = declare_parameter<double>("dig_gyro_timeout_s", 0.5);
     dig_escape_cfg_.reverse_speed = declare_parameter<double>("dig_reverse_speed", 0.12);
     dig_escape_cfg_.reverse_dist = declare_parameter<double>("dig_reverse_dist", 0.30);
     dig_escape_cfg_.timeout_s = declare_parameter<double>("dig_reverse_timeout_s", 4.0);
@@ -1752,6 +1755,15 @@ private:
     msg.angular_velocity.y = gy;
     msg.angular_velocity.z = gz;
 
+    // Latch the calibrated gyro yaw rate for the dig detector's turn
+    // exclusion. It MUST be this signal and not a wheel-derived yaw rate —
+    // see dig_detector.hpp: a one-wheel slip produces a large WHEEL yaw rate
+    // while the chassis does not rotate at all, so a wheel-based exclusion
+    // would suppress exactly the dig it exists to catch.
+    last_gyro_yaw_rate_ = gz;
+    last_gyro_time_ = now();
+    have_gyro_ = true;
+
     // Magnetometer data is ignored — uncalibrated on metal robot chassis,
     // gives ~229° error vs real heading. dock_pose_yaw is a map-frame ENU
     // yaw, set by the GUI "Set Docking Point" calibration or the undock
@@ -2596,9 +2608,20 @@ private:
     last_map_pose_y_ = msg->pose.pose.position.y;
     // Worst axis of the position block; the detector compares a scalar
     // distance so the larger sigma is the honest one to gate on.
+    // MAJOR AXIS of the xy covariance ellipse, not max(var_xx, var_yy).
+    // fusion_graph's marginal is strongly anisotropic (non-holonomic wheel
+    // factor: sigma_x 0.05 vs sigma_y 0.005), so once that matrix is
+    // published in the map frame the diagonal alone is heading-dependent —
+    // it swings between the minor and major axis as the robot turns, making
+    // the trust gate flicker for reasons that have nothing to do with how
+    // well we know where we are. The major axis is frame-invariant.
     const double var_xx = msg->pose.covariance[0];
     const double var_yy = msg->pose.covariance[7];
-    last_map_sigma_ = std::sqrt(std::max(var_xx, var_yy));
+    const double var_xy = 0.5 * (msg->pose.covariance[1] + msg->pose.covariance[6]);
+    const double mean = 0.5 * (var_xx + var_yy);
+    const double diff = 0.5 * (var_xx - var_yy);
+    const double radicand = std::max(0.0, diff * diff + var_xy * var_xy);
+    last_map_sigma_ = std::sqrt(std::max(0.0, mean + std::sqrt(radicand)));
     last_map_pose_time_ = now();
     have_map_pose_ = true;
   }
@@ -2704,8 +2727,16 @@ private:
         have_cmd_vel_ && (tick_now - last_cmd_vel_time_).seconds() < dig_cmd_timeout_s_;
     const double cmd_vx = cmd_fresh ? last_cmd_vx_ : 0.0;
 
-    const DigVerdict verdict =
-        DigDecide(dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, last_map_sigma_, dt);
+    // A stale gyro means the turn exclusion cannot be evaluated. Report a
+    // yaw rate above any plausible threshold so DigDecide stands down rather
+    // than comparing wheels to map through an unknown rotation.
+    const bool gyro_fresh =
+        have_gyro_ && (tick_now - last_gyro_time_).seconds() < dig_gyro_timeout_s_;
+    const double yaw_rate =
+        gyro_fresh ? last_gyro_yaw_rate_ : std::numeric_limits<double>::infinity();
+
+    const DigVerdict verdict = DigDecide(
+        dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, last_map_sigma_, yaw_rate, dt);
 
     if (verdict.action != DigAction::kDig)
     {
@@ -2865,6 +2896,13 @@ private:
   double last_map_pose_y_{0.0};
   double last_map_sigma_{0.0};
   rclcpp::Time last_map_pose_time_{0, 0, RCL_ROS_TIME};
+
+  /// Calibrated gyro yaw rate, for the dig detector's turn exclusion. Gyro,
+  /// never wheels — see dig_detector.hpp.
+  bool have_gyro_{false};
+  double last_gyro_yaw_rate_{0.0};
+  rclcpp::Time last_gyro_time_{0, 0, RCL_ROS_TIME};
+  double dig_gyro_timeout_s_{0.5};
 
   /// Per-tick baselines for the wheel-vs-map comparison.
   bool have_wheel_baseline_{false};
