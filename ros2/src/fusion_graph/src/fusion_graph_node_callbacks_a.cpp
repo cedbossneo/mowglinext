@@ -16,6 +16,7 @@
 #include <tf2/exceptions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#include "fusion_graph/dr_slip_veto.hpp"
 #include "fusion_graph/fusion_graph_node.hpp"
 #include "fusion_graph/fusion_graph_node_util.hpp"
 #include "fusion_graph/rtk_wrongfix_gate.hpp"
@@ -71,9 +72,8 @@ void FusionGraphNode::OnImu(sensor_msgs::msg::Imu::ConstSharedPtr msg)
       // this sample; yaw still integrates from the gyro, which is the
       // honest source during a slipping pivot. Without this the odom
       // frame accumulates the fictitious forward motion unbounded.
-      const bool dr_slip = std::abs(wheel_wz_ - gz) > dr_slip_wheel_min_rad_per_s_ &&
-                           std::abs(gz) < dr_slip_gyro_max_rad_per_s_ &&
-                           std::abs(wheel_wz_) > dr_slip_wheel_min_rad_per_s_;
+      const bool dr_slip =
+          DrSlipVetoed(wheel_wz_, gz, dr_slip_wheel_min_rad_per_s_, dr_slip_gyro_max_rad_per_s_);
       const double vx_eff = dr_slip ? 0.0 : wheel_vx_;
       {
         // tf_state_mu_: dr_* is read concurrently by TfBroadcastLoop.

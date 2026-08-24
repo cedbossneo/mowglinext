@@ -99,6 +99,15 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   // the docked pose 11.5 cm + 53° over a dwell — field 2026-06-10). σ small so
   // the dock prior dominates xy; yaw σ from dock_pose_yaw_sigma_rad.
   dock_reanchor_sigma_xy_m_ = declare_parameter<double>("dock_reanchor_sigma_xy_m", 0.03);
+  // Dead-reckoning slip veto thresholds (see header + dr_slip_veto.hpp).
+  // dr_slip_wheel_min_rad_per_s MUST stay above the 1-tick quantization floor
+  // of the wheel-derived yaw rate, or the veto fires on encoder rounding
+  // during ordinary straight driving (issue #488).
+  dr_slip_gyro_max_rad_per_s_ =
+      declare_parameter<double>("dr_slip_gyro_max_rad_per_s", dr_slip_gyro_max_rad_per_s_);
+  dr_slip_wheel_min_rad_per_s_ =
+      declare_parameter<double>("dr_slip_wheel_min_rad_per_s", dr_slip_wheel_min_rad_per_s_);
+
   // Dock-approach pose stabilisation (see header). During the final graceful
   // approach, drop COG yaw + reject RTK-float epochs so the dock controller
   // gets a stable target instead of a flickering pose.
