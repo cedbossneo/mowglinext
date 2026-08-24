@@ -1488,32 +1488,55 @@ BT::NodeStatus GetNextUnmowedArea::onStart()
   // thread-only.
   ctx->coverage_all_complete = false;
 
-  // Honor a one-shot user-selected target area (set by ~/start_in_area).
-  // We start the iteration from the requested index AND clip max_areas_ to
-  // (target + 1) so the BT mows just that area and exits MowingSequence,
-  // instead of rolling over to the next area. The optional is consumed
-  // here so subsequent COMMAND_START runs use the normal ordering.
+  // Honor a user-selected target area (set by ~/start_in_area). Deliberately
+  // two-stage:
+  //
+  //  (1) ctx->target_area_index is the ONE-SHOT *request*. Consuming it here
+  //      latches the index into ctx->single_area_target and — exactly once per
+  //      request — erases that area's stale completed/attempted flags.
+  //  (2) ctx->single_area_target is SESSION state, honoured on EVERY onStart().
+  //
+  // The clip cannot live in this node's members alone: onStart() resets them
+  // and runs again every time the BT re-enters MowingSequence — including
+  // immediately after the targeted area completes. With the constraint held
+  // only in the consumed optional, that second entry started from area 0 and
+  // the robot rolled over into an area the operator never selected (field log
+  // 2026-08-24: "mowing only area 1" … 56 min later "area 0 selected", no
+  // targeted-run line). Now the second entry re-applies the clip, the skip
+  // loop below finds the target already completed, and the run ends via
+  // coverage_all_complete → MOWING_COMPLETE → dock.
   if (ctx->target_area_index.has_value())
   {
     const int target = *ctx->target_area_index;
     if (target >= 0)
     {
-      current_area_idx_ = static_cast<uint32_t>(target);
-      max_areas_ = current_area_idx_ + 1;
+      ctx->single_area_target = static_cast<uint32_t>(target);
       // Explicit single-area re-mow: clear any stale completed/attempted flag
       // for THIS target so the skip loop below cannot advance past it. Without
       // this, re-selecting an area already mown this session (sets are only
       // cleared by EndSession) makes the skip loop overshoot max_areas_ →
       // "all areas completed" → FAILURE → the requested area never mows.
-      // Guarded to the explicit-target path only, so normal COMMAND_START
-      // iteration still honors completed/attempted skipping.
-      ctx->completed_areas.erase(current_area_idx_);
-      ctx->attempted_areas.erase(current_area_idx_);
-      RCLCPP_INFO(ctx->node->get_logger(),
-                  "GetNextUnmowedArea: targeted run — mowing only area %u (single-area mode)",
-                  current_area_idx_);
+      // Tied to the ONE-SHOT request (not to single_area_target) on purpose:
+      // repeating the erase on every onStart() would wipe the completion the
+      // targeted area just earned and re-mow it forever. Guarded to the
+      // explicit-target path, so normal COMMAND_START iteration still honors
+      // completed/attempted skipping.
+      ctx->completed_areas.erase(*ctx->single_area_target);
+      ctx->attempted_areas.erase(*ctx->single_area_target);
     }
     ctx->target_area_index.reset();
+  }
+
+  // Apply the session-scoped clip: start the iteration at the requested index
+  // AND clip max_areas_ to (target + 1) so the BT mows just that area and then
+  // exits MowingSequence instead of rolling over to the next area.
+  if (ctx->single_area_target.has_value())
+  {
+    current_area_idx_ = *ctx->single_area_target;
+    max_areas_ = current_area_idx_ + 1;
+    RCLCPP_INFO(ctx->node->get_logger(),
+                "GetNextUnmowedArea: targeted run — mowing only area %u (single-area mode)",
+                current_area_idx_);
   }
 
   // Skip any area that has already burned its attempt budget this
@@ -1534,8 +1557,21 @@ BT::NodeStatus GetNextUnmowedArea::onStart()
   }
   if (current_area_idx_ >= max_areas_)
   {
-    RCLCPP_INFO(ctx->node->get_logger(),
-                "GetNextUnmowedArea: all areas already completed/attempted this session");
+    if (ctx->single_area_target.has_value())
+    {
+      // The targeted area is done (or gave up). This is the CLEAN exit of a
+      // targeted run: coverage_all_complete routes the tree to
+      // MOWING_COMPLETE + dock, not to COVERAGE_FAILED_DOCKING.
+      RCLCPP_INFO(ctx->node->get_logger(),
+                  "GetNextUnmowedArea: targeted area %u finished — ending the run "
+                  "(no roll-over to other areas)",
+                  *ctx->single_area_target);
+    }
+    else
+    {
+      RCLCPP_INFO(ctx->node->get_logger(),
+                  "GetNextUnmowedArea: all areas already completed/attempted this session");
+    }
     ctx->coverage_all_complete = true;  // genuine completion → MOWING_COMPLETE
     return BT::NodeStatus::FAILURE;
   }

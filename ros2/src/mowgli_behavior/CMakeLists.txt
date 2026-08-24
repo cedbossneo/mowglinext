@@ -226,10 +226,16 @@ if(BUILD_TESTING)
   # real in-process get_mowing_area service returning a nav-only area + a mowing
   # area and ticks GetNextUnmowedArea to confirm the nav-only zone is never
   # selected for coverage.
+  # Also covers targeted runs (~/start_in_area): "mow only area N" is session
+  # state, so the run must not roll over into another area when the BT re-enters
+  # MowingSequence after the target completes. status_nodes/status_snapshot are
+  # linked in for the real EndSession node (the session boundary that clears it).
   ament_add_gtest(test_get_next_unmowed_area
     test/test_get_next_unmowed_area.cpp
     src/coverage_nodes.cpp
     src/coverage_persistence.cpp
+    src/status_nodes.cpp
+    src/status_snapshot.cpp
   )
 
   target_include_directories(test_get_next_unmowed_area PUBLIC

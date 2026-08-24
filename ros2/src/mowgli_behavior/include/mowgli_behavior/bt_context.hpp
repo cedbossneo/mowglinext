@@ -78,7 +78,8 @@ struct BTContext
   /// BT condition/action nodes.  Use std::lock_guard for RAII locking.
   ///
   /// Does NOT cover the coverage-tracking fields below (command state +
-  /// swath-completion model: target_area_index, attempted_areas,
+  /// swath-completion model: target_area_index, single_area_target,
+  /// attempted_areas,
   /// area_attempt_count, area_last_coverage, area_completed_swaths,
   /// area_swath_count, area_resume_pose_index, area_path_pose_count,
   /// area_plan_fingerprint, completed_areas, coverage_all_complete). Those
@@ -111,12 +112,31 @@ struct BTContext
   /// COMMAND_RESET_EMERGENCY=254, …).
   uint8_t current_command{0};
 
-  /// Set by ~/start_in_area service to request mowing a single, specific
-  /// area instead of iterating all areas. Consumed (and reset) by
-  /// GetNextUnmowedArea on its first call within a mowing run; once the
-  /// requested area is complete, the BT exits MowingSequence and docks
-  /// rather than rolling over to other areas.
+  /// Set by the ~/start_in_area service to REQUEST mowing a single, specific
+  /// area instead of iterating all areas. This is the one-shot *request*:
+  /// GetNextUnmowedArea consumes it on the next onStart() and latches the
+  /// index into single_area_target (below), which is what actually constrains
+  /// the run. Consuming it exactly once matters — it is also what triggers
+  /// the completed/attempted erase for an explicit re-mow.
   std::optional<int> target_area_index;
+
+  /// SESSION-scoped "single-area mode": the area index a targeted run
+  /// (~/start_in_area) is clipped to. Every GetNextUnmowedArea::onStart()
+  /// honours it, so the constraint survives the BT re-entering
+  /// MowingSequence after the targeted area finishes.
+  ///
+  /// It exists because the clip used to live ONLY in GetNextUnmowedArea's
+  /// own members (current_area_idx_ / max_areas_), which onStart() resets on
+  /// every entry, while target_area_index was consumed on the FIRST entry —
+  /// so the second entry had no memory of the request and iterated from area
+  /// 0. Field log 2026-08-24: "targeted run — mowing only area 1", ~56 min
+  /// later "area 0 selected" with no targeted-run line, i.e. the robot rolled
+  /// over into an area the operator never asked for.
+  ///
+  /// Cleared at the session boundary by EndSession, and by a plain
+  /// COMMAND_START (see clearSingleAreaMode) so the next full-lawn run
+  /// iterates normally.
+  std::optional<uint32_t> single_area_target;
 
   /// Areas already dispatched to PlanCoverageArea+FollowStrip in the
   /// current session. GetNextUnmowedArea skips any index in this set
@@ -598,5 +618,29 @@ struct BTContext
   // -----------------------------------------------------------------------
   rclcpp::Node::SharedPtr helper_node;
 };
+
+/// Drop any "mow only this area" constraint, so the next GetNextUnmowedArea
+/// run iterates every area normally.
+///
+/// Two callers, two reasons, and BOTH are needed:
+///   * EndSession — the real session boundary, alongside every other
+///     per-session set (attempted_areas, completed_areas, …). This is the
+///     normal path: a targeted run finishes its area, docks, EndSession runs.
+///   * the ~/high_level_control handler on a plain COMMAND_START — a mowing
+///     session does NOT always end with EndSession (a low-battery dock or an
+///     emergency deliberately keeps the session alive so mowing auto-resumes),
+///     so a stale single-area clip could otherwise still be latched when the
+///     operator presses the ordinary "Start" button and expects the whole
+///     lawn. The GUI's "mow this area" button calls ~/start_in_area, which
+///     sets current_command itself and never goes through that handler, so
+///     clearing there cannot cancel a targeted request.
+/// Also drops an unconsumed target_area_index: a request that was never
+/// picked up (e.g. start_in_area during an emergency) must not silently
+/// hijack a later plain start.
+inline void clearSingleAreaMode(BTContext& ctx)
+{
+  ctx.single_area_target.reset();
+  ctx.target_area_index.reset();
+}
 
 }  // namespace mowgli_behavior

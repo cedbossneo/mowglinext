@@ -566,6 +566,19 @@ private:
           {
             std::lock_guard<std::mutex> lock(context_->context_mutex);
             context_->current_command = cmd;
+            // A plain COMMAND_START means "mow the lawn", so it must cancel any
+            // single-area clip still latched from an earlier ~/start_in_area run.
+            // EndSession normally clears it, but a session can legitimately stay
+            // alive without one (low-battery dock + auto-resume, emergency), and
+            // the clip is session state by design — it has to survive
+            // GetNextUnmowedArea re-entering after the targeted area finishes.
+            // Safe to do here: the GUI's "mow this area" button calls
+            // ~/start_in_area, which sets current_command itself and never
+            // reaches this handler, so this cannot cancel a targeted request.
+            if (cmd == HighLevelControl::Request::COMMAND_START)
+            {
+              clearSingleAreaMode(*context_);
+            }
           }
           resp->success = true;
         });
@@ -573,9 +586,12 @@ private:
     RCLCPP_DEBUG(get_logger(), "~/high_level_control service server created");
 
     // ~/start_in_area: GUI hook for "mow this specific area only".
-    // Pre-loads target_area_index for the next GetNextUnmowedArea call,
-    // then issues COMMAND_START so MowingSequence picks it up. The BT
-    // exits after that single area is done (no roll-over to other areas).
+    // Pre-loads target_area_index for the next GetNextUnmowedArea call, then
+    // issues COMMAND_START so MowingSequence picks it up. GetNextUnmowedArea
+    // consumes that request once and latches it into
+    // BTContext::single_area_target, which constrains the run for as long as
+    // the session lasts — so the BT exits after that single area is done (no
+    // roll-over to other areas) even though it re-enters MowingSequence.
     using StartInArea = mowgli_interfaces::srv::StartInArea;
     start_in_area_srv_ = create_service<StartInArea>(
         "~/start_in_area",

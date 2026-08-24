@@ -210,6 +210,12 @@ BT::NodeStatus EndSession::tick()
   ctx->area_path_pose_count.clear();
   ctx->area_plan_fingerprint.clear();
   ctx->completed_areas.clear();
+  // Drop any "mow only area N" constraint from a targeted run (~/start_in_area)
+  // at the same boundary as every other per-session set, so the next plain
+  // COMMAND_START mows the whole lawn again. The clip is session state (it must
+  // survive GetNextUnmowedArea re-entering after the targeted area finishes, or
+  // the run rolls over into the next area), so THIS is where it dies.
+  clearSingleAreaMode(*ctx);
   // Remove the on-disk resume snapshot too: this is a real session boundary, so
   // the next COMMAND_START must start fresh rather than resume a finished (or
   // aborted-and-docked) session from the persisted cursor.
