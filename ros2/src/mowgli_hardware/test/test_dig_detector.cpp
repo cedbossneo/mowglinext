@@ -4,6 +4,8 @@
 // Unit tests for the wheel-slip "digging" detector and its bounded
 // reverse-escape budget. Pure logic, no ROS — mirrors test_ftc_stall.cpp.
 
+#include <limits>
+
 #include "mowgli_hardware/dig_detector.hpp"
 #include <gtest/gtest.h>
 
@@ -15,13 +17,14 @@ namespace
 mh::DigAction RunGoodTraction(const mh::DigDetectorCfg& cfg,
                               mh::DigDetectorState& st,
                               double seconds,
-                              double dt = 0.1)
+                              double dt = 0.1,
+                              double yaw_rate = 0.0)
 {
   mh::DigAction last = mh::DigAction::kNone;
   for (double t = 0.0; t < seconds; t += dt)
   {
     // 0.3 m/s commanded, 0.03 m per 0.1 s tick on BOTH wheel and map.
-    last = mh::DigDecide(cfg, st, 0.3, 0.03, 0.03, 0.003, dt).action;
+    last = mh::DigDecide(cfg, st, 0.3, 0.03, 0.03, 0.003, yaw_rate, dt).action;
   }
   return last;
 }
@@ -31,12 +34,13 @@ mh::DigAction RunDigging(const mh::DigDetectorCfg& cfg,
                          mh::DigDetectorState& st,
                          double seconds,
                          double pos_sigma = 0.003,
-                         double dt = 0.1)
+                         double dt = 0.1,
+                         double yaw_rate = 0.0)
 {
   mh::DigAction last = mh::DigAction::kNone;
   for (double t = 0.0; t < seconds; t += dt)
   {
-    last = mh::DigDecide(cfg, st, 0.3, 0.03, 0.001, pos_sigma, dt).action;
+    last = mh::DigDecide(cfg, st, 0.3, 0.03, 0.001, pos_sigma, yaw_rate, dt).action;
     if (last == mh::DigAction::kDig)
     {
       break;
@@ -91,7 +95,7 @@ TEST(DigDetector, StationaryRobotNeverTrips)
   // Not commanded to move: no wheel travel, no map travel.
   for (int i = 0; i < 100; ++i)
   {
-    EXPECT_EQ(mh::DigDecide(cfg, st, 0.0, 0.0, 0.0, 0.003, 0.1).action, mh::DigAction::kNone);
+    EXPECT_EQ(mh::DigDecide(cfg, st, 0.0, 0.0, 0.0, 0.003, 0.0, 0.1).action, mh::DigAction::kNone);
   }
 }
 
@@ -104,7 +108,7 @@ TEST(DigDetector, SlowLegitimateCreepIsNotADig)
   mh::DigAction last = mh::DigAction::kNone;
   for (int i = 0; i < 100; ++i)
   {
-    last = mh::DigDecide(cfg, st, 0.06, 0.005, 0.005, 0.003, 0.1).action;
+    last = mh::DigDecide(cfg, st, 0.06, 0.005, 0.005, 0.003, 0.0, 0.1).action;
   }
   EXPECT_EQ(last, mh::DigAction::kNone);
 }
@@ -119,7 +123,7 @@ TEST(DigDetector, BlockedChassisWithNoWheelTravelIsNotOurCase)
   mh::DigAction last = mh::DigAction::kNone;
   for (int i = 0; i < 100; ++i)
   {
-    last = mh::DigDecide(cfg, st, 0.3, 0.0, 0.0, 0.003, 0.1).action;
+    last = mh::DigDecide(cfg, st, 0.3, 0.0, 0.0, 0.003, 0.0, 0.1).action;
   }
   EXPECT_EQ(last, mh::DigAction::kNone);
 }
@@ -218,7 +222,7 @@ TEST(DigDetector, VerdictCarriesEvidenceAfterWindowReset)
   mh::DigVerdict v;
   for (int i = 0; i < 100; ++i)
   {
-    v = mh::DigDecide(cfg, st, 0.3, 0.03, 0.001, 0.003, 0.1);
+    v = mh::DigDecide(cfg, st, 0.3, 0.03, 0.001, 0.003, 0.0, 0.1);
     if (v.action == mh::DigAction::kDig)
     {
       break;
@@ -229,4 +233,91 @@ TEST(DigDetector, VerdictCarriesEvidenceAfterWindowReset)
   EXPECT_GT(v.wheel_dist, cfg.min_wheel_dist) << "evidence must survive the reset";
   EXPECT_LT(v.map_dist, v.wheel_dist * cfg.progress_fraction);
   EXPECT_EQ(st.wheel_dist, 0.0) << "window itself is reset for the next pass";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Turn exclusion
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(DigDetector, TurningSuppressesDetection)
+{
+  mh::DigDetectorCfg cfg;
+  mh::DigDetectorState st;
+
+  // A swath U-turn at connector_turn_radius 0.18 m and 0.2 m/s is ~1.1 rad/s.
+  // The wheel-vs-map ratio collapses there on a perfectly healthy robot
+  // (arc vs chord, plus the graph's own estimate degrading), so it must not
+  // be read as a dig.
+  EXPECT_EQ(RunDigging(cfg, st, 10.0, 0.003, 0.1, 1.1), mh::DigAction::kNone);
+}
+
+TEST(DigDetector, StaleGyroSuppressesDetection)
+{
+  mh::DigDetectorCfg cfg;
+  mh::DigDetectorState st;
+
+  // The bridge passes infinity when the gyro is stale: the turn exclusion
+  // cannot be evaluated, so stand down rather than guess.
+  EXPECT_EQ(RunDigging(cfg, st, 10.0, 0.003, 0.1, std::numeric_limits<double>::infinity()),
+            mh::DigAction::kNone);
+
+  mh::DigDetectorState st_nan;
+  EXPECT_EQ(RunDigging(cfg, st_nan, 10.0, 0.003, 0.1, std::numeric_limits<double>::quiet_NaN()),
+            mh::DigAction::kNone);
+}
+
+TEST(DigDetector, GentleCurveStillDetects)
+{
+  mh::DigDetectorCfg cfg;
+  mh::DigDetectorState st;
+
+  // Coverage straights carry a little yaw correction. Below max_yaw_rate the
+  // detector must stay armed, or a dig on a slightly curving swath is missed.
+  EXPECT_EQ(RunDigging(cfg, st, 10.0, 0.003, 0.1, 0.15), mh::DigAction::kDig);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: the dig recorded on the robot, 2026-08-24 09:48:23 UTC
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Left encoder ran 889 ticks (3.17 m) while the right ran 50 (0.18 m) over
+// 9 s; the chassis neither translated nor rotated (FTC's error vector was
+// frozen at lat=0.551 lon=0.835 ang=-41.2 deg for the whole window, and the
+// gyro read ~0). Mean wheel travel is therefore ~1.68 m of phantom advance.
+// Nothing fired at the time. This pins that it now does.
+TEST(DigDetector, FieldRecordedOneWheelSlipIsDetected)
+{
+  mh::DigDetectorCfg cfg;
+  mh::DigDetectorState st;
+
+  // 1.68 m of claimed travel over 9 s => 0.0187 m per 0.1 s tick, chassis
+  // static, gyro ~0 because only ONE wheel was spinning.
+  constexpr double kWheelStep = 0.0187;
+  constexpr double kMapStep = 0.0;
+  constexpr double kGyro = 0.01;  // chassis not rotating
+  constexpr double kSigma = 0.09;  // measured baseline major axis, RTK-Fixed
+
+  mh::DigAction last = mh::DigAction::kNone;
+  for (double t = 0.0; t < 9.0; t += 0.1)
+  {
+    last = mh::DigDecide(cfg, st, 0.2, kWheelStep, kMapStep, kSigma, kGyro, 0.1).action;
+    if (last == mh::DigAction::kDig)
+    {
+      break;
+    }
+  }
+  EXPECT_EQ(last, mh::DigAction::kDig) << "the 2026-08-24 one-wheel dig must trip the detector";
+}
+
+// The same event, gated by the OLD 0.10 m sigma threshold, did not fire —
+// the measured baseline major axis (0.05-0.14 m) straddles it. Pins why the
+// threshold moved.
+TEST(DigDetector, OldSigmaThresholdWouldHaveMissedTheFieldDig)
+{
+  mh::DigDetectorCfg cfg;
+  cfg.max_pos_sigma = 0.10;  // the pre-fix value
+  mh::DigDetectorState st;
+
+  EXPECT_EQ(RunDigging(cfg, st, 9.0, 0.14, 0.1, 0.01), mh::DigAction::kNone)
+      << "documents the miss the new threshold fixes";
 }

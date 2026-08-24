@@ -31,13 +31,43 @@
 // this header makes.
 //
 // ── Trust gating ────────────────────────────────────────────────────────────
-// The comparison is only as good as the fused pose. Under RTK-Fixed the
-// position sigma is ~3 mm and a 0.3 m discrepancy is overwhelming evidence;
-// under RTK-Float it can be metres and the same discrepancy proves nothing.
-// So a sigma above max_pos_sigma SUPPRESSES detection (and resets the
-// window) rather than guessing. This deliberately makes the detector
-// self-disabling exactly when it would otherwise false-fire — the firmware
-// backstop still covers the blocked-wheel case throughout.
+// The comparison is only as good as the fused pose, so a sigma above
+// max_pos_sigma SUPPRESSES detection (and resets the window) rather than
+// guessing. This deliberately makes the detector self-disabling exactly when
+// it would otherwise false-fire — the firmware backstop still covers the
+// blocked-wheel case throughout.
+//
+// The sigma to gate on is the MAJOR AXIS of the position ellipse, which is
+// frame-invariant. It is NOT the GNSS receiver's own sigma: this pose comes
+// out of a factor graph whose latest node is usually connected only by wheel
+// and gyro between-factors, so its along-track marginal is the wheel
+// between-factor's sigma_x (0.05 m nominal, adaptively inflated to ~0.09 m in
+// the field) no matter how good RTK is. An earlier threshold of 0.10 m was
+// set from the receiver's ~3 mm RTK-Fixed figure and therefore sat directly
+// on top of that noise floor, so the gate flickered open and shut and the
+// window reset constantly — the detector never reached a decision on a
+// straight. Measured on 2026-08-24: baseline major axis 0.05-0.14 m under
+// clean RTK-Fixed, metres under RTK-Float. 0.25 m passes the former and still
+// stands down for the latter.
+//
+// ── Turn exclusion (and why it MUST read the gyro) ──────────────────────────
+// While the robot is turning, "encoders claim X, the map says less than X" is
+// not evidence of a dig. Two effects produce it on a healthy robot: the
+// encoders measure arc length while the map measures the chord, and — far
+// larger in practice — fusion_graph's own estimate degrades through a
+// turn-around (measured 2026-08-24: the published position sigma spikes from
+// a ~0.05-0.09 m baseline to 1-3 m at every swath U-turn, and the wheel-vs-map
+// ratio drops to 0.2-0.3 with the robot tracking perfectly well). Before this
+// exclusion existed the sigma gate was the only thing suppressing those, which
+// is why it could not simply be loosened to let genuine digs through.
+//
+// The yaw rate MUST come from the GYRO, never from a wheel-derived yaw. The
+// dig recorded on 2026-08-24 was a ONE-WHEEL slip: the left encoder ran 889
+// ticks (3.17 m) while the right ran 50, so the WHEEL yaw rate was enormous
+// while the gyro read ~0 and the chassis did not rotate at all. A wheel-based
+// turn exclusion would have stood down for exactly the event it exists to
+// catch. The gyro is ~0 for both a straight-line dig and a one-wheel dig, and
+// large only when the chassis genuinely rotates.
 //
 // Only ever REDUCES commanded motion, and the escape only ever commands
 // REVERSE, bounded in both distance and time.
@@ -68,7 +98,13 @@ struct DigDetectorCfg
   /// Latch when map travel is below this fraction of encoder travel.
   double progress_fraction = 0.35;
   /// Max fused-pose 1-sigma position uncertainty to trust the comparison [m].
-  double max_pos_sigma = 0.10;
+  /// This is the MAJOR AXIS of the position ellipse (frame-invariant), not
+  /// the larger diagonal entry — see the trust-gating note above.
+  double max_pos_sigma = 0.25;
+  /// Above this measured yaw rate the robot is turning and the wheel-vs-map
+  /// comparison is not evidence of anything — see the turn-exclusion note
+  /// above [rad/s].
+  double max_yaw_rate = 0.20;
 };
 
 enum class DigAction
@@ -106,7 +142,8 @@ inline void DigResetWindow(DigDetectorState& st)
 /// @param cmd_speed  commanded forward speed this tick [m/s]
 /// @param wheel_step encoder-derived distance travelled since last tick [m]
 /// @param map_step   fused-pose (GNSS-anchored) distance since last tick [m]
-/// @param pos_sigma  fused-pose 1-sigma position uncertainty [m]
+/// @param pos_sigma  fused-pose 1-sigma position uncertainty, major axis [m]
+/// @param yaw_rate   MEASURED (gyro) yaw rate [rad/s] — never wheel-derived
 /// @param dt         tick duration [s]
 inline DigVerdict DigDecide(const DigDetectorCfg& cfg,
                             DigDetectorState& st,
@@ -114,6 +151,7 @@ inline DigVerdict DigDecide(const DigDetectorCfg& cfg,
                             double wheel_step,
                             double map_step,
                             double pos_sigma,
+                            double yaw_rate,
                             double dt)
 {
   if (!cfg.enabled || dt <= 0.0)
@@ -123,6 +161,14 @@ inline DigVerdict DigDecide(const DigDetectorCfg& cfg,
 
   // Can't trust the only wheel-independent signal we have -> stand down.
   if (!(pos_sigma <= cfg.max_pos_sigma))  // NaN-safe: NaN sigma suppresses too
+  {
+    DigResetWindow(st);
+    return {};
+  }
+
+  // Turning -> arc-vs-chord and a degraded fused estimate both shrink the
+  // ratio on a perfectly healthy robot. Stand down. NaN suppresses too.
+  if (!(std::abs(yaw_rate) <= cfg.max_yaw_rate))
   {
     DigResetWindow(st);
     return {};
