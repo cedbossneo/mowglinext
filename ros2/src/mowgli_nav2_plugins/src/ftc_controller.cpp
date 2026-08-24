@@ -657,51 +657,60 @@ void FTCController::setPlan(const nav_msgs::msg::Path& path)
   // Starting at 0 makes the two consistent again.
   //
   // snap_to_nearest_on_set_plan restores the old behaviour if a site needs it.
+  //
+  // NOTE: this block chooses the START INDEX ONLY. Everything after it —
+  // PID/derivative/stall reset, the tail-duplication the state machine's
+  // `size() - 2` arithmetic depends on, the latched plan publish, and the
+  // <3-pose termination guard — is SHARED and must run on BOTH paths. An
+  // earlier revision returned early from the default branch and skipped all of
+  // it, which leaked integrator windup from an aborted strip into the next
+  // strip's first tick and transitioned the state machine one segment early.
+  // Do not reintroduce an early return here.
   if (!config_.snap_to_nearest_on_set_plan)
   {
+    // current_index_ is already 0 from the reset above.
     RCLCPP_INFO(logger_,
                 "FTCController: setPlan with %zu points, starting at idx=0.",
                 global_plan_.size());
-    last_time_ = clock_->now();
-    current_movement_speed_ = config_.speed_slow;
-    return;
   }
-
-  try
+  else
   {
-    const auto base_to_map = tf_buffer_->lookupTransform("map",
-                                                         "base_link",
-                                                         tf2::TimePointZero,
-                                                         tf2::durationFromSec(0.5));
-    const double rx = base_to_map.transform.translation.x;
-    const double ry = base_to_map.transform.translation.y;
-
-    std::vector<std::pair<double, double>> xy;
-    xy.reserve(global_plan_.size());
-    for (const auto& p : global_plan_)
+    try
     {
-      xy.emplace_back(p.pose.position.x, p.pose.position.y);
-    }
-    current_index_ = static_cast<uint32_t>(ChooseStartIndex(true, xy, rx, ry));
+      const auto base_to_map = tf_buffer_->lookupTransform("map",
+                                                           "base_link",
+                                                           tf2::TimePointZero,
+                                                           tf2::durationFromSec(0.5));
+      const double rx = base_to_map.transform.translation.x;
+      const double ry = base_to_map.transform.translation.y;
 
-    const double bdx = global_plan_[current_index_].pose.position.x - rx;
-    const double bdy = global_plan_[current_index_].pose.position.y - ry;
-    const double best_dist = std::hypot(bdx, bdy);
-    RCLCPP_INFO(logger_,
-                "FTCController: setPlan with %zu points, starting at idx=%u (%.2fm from robot at "
-                "%.2f,%.2f).",
-                global_plan_.size(),
-                current_index_,
-                best_dist,
-                rx,
-                ry);
-  }
-  catch (const tf2::TransformException& ex)
-  {
-    RCLCPP_WARN(logger_,
-                "FTCController: TF lookup in setPlan failed (%s), starting from idx=0.",
-                ex.what());
-    current_index_ = 0;
+      std::vector<std::pair<double, double>> xy;
+      xy.reserve(global_plan_.size());
+      for (const auto& p : global_plan_)
+      {
+        xy.emplace_back(p.pose.position.x, p.pose.position.y);
+      }
+      current_index_ = static_cast<uint32_t>(ChooseStartIndex(true, xy, rx, ry));
+
+      const double bdx = global_plan_[current_index_].pose.position.x - rx;
+      const double bdy = global_plan_[current_index_].pose.position.y - ry;
+      const double best_dist = std::hypot(bdx, bdy);
+      RCLCPP_INFO(logger_,
+                  "FTCController: setPlan with %zu points, starting at idx=%u (%.2fm from robot "
+                  "at %.2f,%.2f).",
+                  global_plan_.size(),
+                  current_index_,
+                  best_dist,
+                  rx,
+                  ry);
+    }
+    catch (const tf2::TransformException& ex)
+    {
+      RCLCPP_WARN(logger_,
+                  "FTCController: TF lookup in setPlan failed (%s), starting from idx=0.",
+                  ex.what());
+      current_index_ = 0;
+    }
   }
 
   last_time_ = clock_->now();
