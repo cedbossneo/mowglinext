@@ -19,6 +19,7 @@
 #include <cmath>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <nav2_core/controller_exceptions.hpp>
@@ -29,6 +30,7 @@
 #include <tf2_ros/transform_listener.hpp>
 
 #include "mowgli_nav2_plugins/ftc_stall.hpp"
+#include "mowgli_nav2_plugins/ftc_start_index.hpp"
 #include "mowgli_nav2_plugins/obstacle_deviation.hpp"
 
 namespace mowgli_nav2_plugins
@@ -209,6 +211,9 @@ void FTCController::declareParameters(const rclcpp_lifecycle::LifecycleNode::Sha
 
   // Options
   config_.forward_only = declare_bool("forward_only", true);
+  // Legacy nearest-point snap in setPlan. OFF by default: on closed headland
+  // rings it could skip the entire ring (see setPlan).
+  config_.snap_to_nearest_on_set_plan = declare_bool("snap_to_nearest_on_set_plan", false);
   config_.debug_pid = declare_bool("debug_pid", false);
   config_.debug_obstacle = declare_bool("debug_obstacle", false);
 
@@ -628,8 +633,40 @@ void FTCController::setPlan(const nav_msgs::msg::Path& path)
   current_index_ = 0;
   current_progress_ = 0.0;
 
-  // Find the nearest path point to the robot's current position so we don't
-  // start from index 0 when the robot is far from the path start.
+  // Start at the BEGINNING of a freshly dispatched plan.
+  //
+  // This used to run an UNBOUNDED nearest-point search over the whole plan and
+  // begin tracking wherever that landed. On coverage headland rings — which are
+  // CLOSED, start == end to the millimetre — index 0 and index N-1 are the SAME
+  // POINT, so the search is genuinely ambiguous and floating-point noise decides
+  // which end wins. When the last index won, FTC drove three poses, reported the
+  // goal reached, and FollowStrip recorded the ring as MOWED. Observed on the
+  // robot on both 2026-08-24 runs:
+  //
+  //     new path with 436 poses, start=(1.95,9.50), end=(1.95,9.50)
+  //     setPlan with 436 points, starting at idx=432   -> 99 % of the ring skipped
+  //     setPlan with 805 points, starting at idx=372   -> 46 % skipped
+  //
+  // and both were then logged "reached 99-100 % of path - treating as MOWED".
+  // Un-mowed ground marked done, with skipped_swaths still reading 0.
+  //
+  // Resume is not this function's job and never was: FollowStrip already owns it
+  // by trimming the path at its resume cursor BEFORE dispatch, and it decides
+  // whether to transit blade-off first by measuring to poses.front() — index 0.
+  // Snapping to a different index here silently disagreed with that decision.
+  // Starting at 0 makes the two consistent again.
+  //
+  // snap_to_nearest_on_set_plan restores the old behaviour if a site needs it.
+  if (!config_.snap_to_nearest_on_set_plan)
+  {
+    RCLCPP_INFO(logger_,
+                "FTCController: setPlan with %zu points, starting at idx=0.",
+                global_plan_.size());
+    last_time_ = clock_->now();
+    current_movement_speed_ = config_.speed_slow;
+    return;
+  }
+
   try
   {
     const auto base_to_map = tf_buffer_->lookupTransform("map",
@@ -638,19 +675,18 @@ void FTCController::setPlan(const nav_msgs::msg::Path& path)
                                                          tf2::durationFromSec(0.5));
     const double rx = base_to_map.transform.translation.x;
     const double ry = base_to_map.transform.translation.y;
-    double best_dist = std::numeric_limits<double>::max();
-    for (uint32_t i = 0; i < global_plan_.size(); ++i)
+
+    std::vector<std::pair<double, double>> xy;
+    xy.reserve(global_plan_.size());
+    for (const auto& p : global_plan_)
     {
-      const double dx = global_plan_[i].pose.position.x - rx;
-      const double dy = global_plan_[i].pose.position.y - ry;
-      const double d = dx * dx + dy * dy;
-      if (d < best_dist)
-      {
-        best_dist = d;
-        current_index_ = i;
-      }
+      xy.emplace_back(p.pose.position.x, p.pose.position.y);
     }
-    best_dist = std::sqrt(best_dist);
+    current_index_ = static_cast<uint32_t>(ChooseStartIndex(true, xy, rx, ry));
+
+    const double bdx = global_plan_[current_index_].pose.position.x - rx;
+    const double bdy = global_plan_[current_index_].pose.position.y - ry;
+    const double best_dist = std::hypot(bdx, bdy);
     RCLCPP_INFO(logger_,
                 "FTCController: setPlan with %zu points, starting at idx=%u (%.2fm from robot at "
                 "%.2f,%.2f).",

@@ -405,6 +405,10 @@ private:
 
     // Options
     bool forward_only{true};
+    /// Legacy: snap to the nearest plan point in setPlan instead of starting at
+    /// index 0. OFF by default — on a CLOSED headland ring (start == end) the
+    /// snap is ambiguous and could skip the whole ring. See setPlan.
+    bool snap_to_nearest_on_set_plan{false};
     bool debug_pid{false};
     bool debug_obstacle{false};
 
