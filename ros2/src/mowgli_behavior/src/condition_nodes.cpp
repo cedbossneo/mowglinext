@@ -878,4 +878,31 @@ BT::NodeStatus IsCollisionStopSustained::tick()
   return BT::NodeStatus::FAILURE;
 }
 
+// ---------------------------------------------------------------------------
+// IsCoverageStartBlocked
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsCoverageStartBlocked::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+
+  // Consume: one blocked pass fires the recovery branch exactly once.
+  // Not guarded by context_mutex — coverage_start_blocked is written by
+  // FollowStrip from the BT tick itself, on the same MutuallyExclusive callback
+  // group (see the thread-safety comment in bt_context.hpp).
+  if (!ctx->coverage_start_blocked)
+  {
+    return BT::NodeStatus::FAILURE;
+  }
+  ctx->coverage_start_blocked = false;
+
+  RCLCPP_WARN(ctx->node->get_logger(),
+              "IsCoverageStartBlocked: the last coverage pass was refused from the robot's own "
+              "pose (START_OCCUPIED on every sub-path, 0 swaths mowed) — running the non-motion "
+              "recovery (stop, clear costmaps, wait) before retrying. NOTE: clearing the costmaps "
+              "only helps if the lethal cell came from a TRANSIENT obstacle reading; a keepout "
+              "zone is a static costmap FILTER and survives the clear");
+  return BT::NodeStatus::SUCCESS;
+}
+
 }  // namespace mowgli_behavior

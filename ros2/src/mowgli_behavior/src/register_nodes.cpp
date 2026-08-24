@@ -53,6 +53,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<WasRecentlyInCollisionStop>("WasRecentlyInCollisionStop");
   factory.registerNodeType<IsScanStale>("IsScanStale");
   factory.registerNodeType<IsCollisionStopSustained>("IsCollisionStopSustained");
+  factory.registerNodeType<IsCoverageStartBlocked>("IsCoverageStartBlocked");
 
   // Action nodes
   factory.registerNodeType<SetMowerEnabled>("SetMowerEnabled");

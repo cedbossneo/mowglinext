@@ -253,6 +253,44 @@ if(BUILD_TESTING)
     action_msgs
   )
 
+  # ---- test_start_occupied_retry ----
+  # Regression for issue #487: one occupied start pose forfeited a whole field.
+  # Covers the pure transit-failure classifier (nav2 error_code + error_msg
+  # fallback), the consume-once IsCoverageStartBlocked condition, and a
+  # STRUCTURAL check that main_tree.xml still carries the non-motion recovery
+  # branch (clear costmaps + retry) and still commands no escape motion.
+  ament_add_gtest(test_start_occupied_retry
+    test/test_start_occupied_retry.cpp
+    src/condition_nodes.cpp
+  )
+
+  target_include_directories(test_start_occupied_retry PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
+  # The structural half reads the real tree from the source tree.
+  target_compile_definitions(test_start_occupied_retry PRIVATE
+    MOWGLI_MAIN_TREE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/trees/main_tree.xml"
+  )
+
+  ament_target_dependencies(test_start_occupied_retry
+    rclcpp
+    rclcpp_action
+    behaviortree_cpp
+    mowgli_interfaces
+    nav2_msgs
+    nav_msgs
+    geometry_msgs
+    std_msgs
+    std_srvs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+    rcl_interfaces
+    action_msgs
+  )
+
   # Round-trip + staleness coverage for the disk-backed resume state (issue #334:
   # coverage must resume after a full process/container restart, not just an
   # in-RAM BT halt).

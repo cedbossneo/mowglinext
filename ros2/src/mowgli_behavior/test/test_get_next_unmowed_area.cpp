@@ -221,3 +221,72 @@ TEST_F(GetNextUnmowedAreaTest, SelectsMowingAreaAtIndexZero)
   EXPECT_EQ(selected, 0u);
   EXPECT_EQ(ctx->current_area, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Issue #487 — a START_OCCUPIED pass must not retire the area.
+//
+// FollowStrip sets ctx->start_blocked_area when a whole pass ended with every
+// blade-off sub-path transit refused because the ROBOT'S OWN pose is a lethal
+// or keepout cell and ZERO swaths were mowed. Such a pass never had a chance to
+// make progress; charging it to the no-progress retirement counter is what
+// forfeited a mowable field at 0 % coverage on 2026-08-24.
+// ---------------------------------------------------------------------------
+
+// Before the fix, kMaxAreaAttempts (5) consecutive zero-progress dispatches
+// retired the area. With the exemption, five start-blocked dispatches all still
+// select the area.
+TEST_F(GetNextUnmowedAreaTest, StartBlockedPassesDoNotBurnTheNoProgressBudget)
+{
+  areas[0] = {"lawn", /*is_navigation_area=*/false};
+  waitForService();
+
+  for (uint32_t attempt = 0; attempt < BTContext::kMaxAreaAttempts; ++attempt)
+  {
+    // Simulate the previous FollowStrip pass ending start-pose-blocked.
+    ctx->start_blocked_area = 0u;
+    auto tree = makeTree(/*max_areas=*/5);
+    EXPECT_EQ(tickToCompletion(tree), BT::NodeStatus::SUCCESS)
+        << "dispatch " << attempt << " must still select the area";
+    EXPECT_EQ(ctx->current_area, 0) << "dispatch " << attempt;
+  }
+  EXPECT_EQ(ctx->attempted_areas.count(0u), 0u)
+      << "a run of START_OCCUPIED passes must not retire a mowable area (#487)";
+}
+
+// ...but the exemption is BOUNDED. A robot genuinely parked on a lethal cell
+// forever must still give up and dock rather than loop.
+TEST_F(GetNextUnmowedAreaTest, StartBlockedExemptionIsBoundedSoTheAreaStillRetires)
+{
+  areas[0] = {"lawn", /*is_navigation_area=*/false};
+  waitForService();
+
+  const uint32_t kMaxDispatches =
+      BTContext::kMaxStartBlockedAttempts + BTContext::kMaxAreaAttempts + 2;
+  bool retired = false;
+  for (uint32_t attempt = 0; attempt < kMaxDispatches && !retired; ++attempt)
+  {
+    ctx->start_blocked_area = 0u;
+    auto tree = makeTree(/*max_areas=*/5);
+    tickToCompletion(tree);
+    retired = ctx->attempted_areas.count(0u) > 0;
+  }
+  EXPECT_TRUE(retired) << "the start-blocked exemption must be bounded — an area the robot can "
+                          "never plan from has to retire so the session can dock";
+}
+
+// The flag describes ONE finished pass and is consumed by the dispatch that
+// reads it, so a single blocked pass buys exactly one exemption.
+TEST_F(GetNextUnmowedAreaTest, StartBlockedFlagIsConsumedByOneDispatch)
+{
+  areas[0] = {"lawn", /*is_navigation_area=*/false};
+  waitForService();
+
+  ctx->start_blocked_area = 0u;
+  auto tree = makeTree(/*max_areas=*/5);
+  ASSERT_EQ(tickToCompletion(tree), BT::NodeStatus::SUCCESS);
+
+  EXPECT_FALSE(ctx->start_blocked_area.has_value());
+  EXPECT_EQ(ctx->area_start_blocked_count[0u], 1u);
+  EXPECT_EQ(ctx->area_attempt_count[0u], 0u)
+      << "the exempted dispatch must not have advanced the no-progress counter";
+}

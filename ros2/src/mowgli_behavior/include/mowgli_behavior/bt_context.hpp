@@ -140,6 +140,40 @@ struct BTContext
   static constexpr float kAreaProgressEpsilonPct = 0.5f;
 
   // -----------------------------------------------------------------------
+  // Start-pose-blocked passes (issue #487)
+  // -----------------------------------------------------------------------
+  /// Set by FollowStrip when a whole pass ended with EVERY sub-path skipped
+  /// because Nav2's planner refused to plan from the ROBOT'S OWN pose
+  /// (ComputePathToPose START_OCCUPIED) and ZERO swaths were mowed. That is a
+  /// property of where the robot is STANDING, not of the field: the area is
+  /// perfectly mowable from one metre away. Observed 2026-08-24 — the robot
+  /// undocked into the inflated keepout of a 0.25 m obstacle circle and
+  /// forfeited a whole field at 0 % coverage.
+  ///
+  /// Two consumers, deliberately split:
+  ///   * IsCoverageStartBlocked (condition node) CONSUMES this bool, so the
+  ///     coverage subtree can run a non-motion recovery (stop, clear costmaps,
+  ///     wait) and re-tick FollowStrip;
+  ///   * GetNextUnmowedArea reads `start_blocked_area` to keep the pass from
+  ///     burning the no-progress retirement budget (see below).
+  /// Cleared by EndSession.
+  bool coverage_start_blocked{false};
+  /// Area index whose most recent FollowStrip pass ended start-pose-blocked.
+  /// Consumed (reset) by the next GetNextUnmowedArea dispatch of that area.
+  std::optional<uint32_t> start_blocked_area;
+  /// Per-area count of dispatches that were EXEMPTED from the no-progress
+  /// retirement counter because the previous pass was start-pose-blocked.
+  /// Bounded by kMaxStartBlockedAttempts so a robot that is genuinely parked on
+  /// a lethal cell forever still retires the area and docks — the exemption buys
+  /// a real second chance, it does not create an infinite loop. Cleared by
+  /// EndSession.
+  std::map<uint32_t, uint32_t> area_start_blocked_count;
+  /// Maximum start-pose-blocked dispatches exempted from area_attempt_count per
+  /// area. Worst case an area gets kMaxStartBlockedAttempts + kMaxAreaAttempts
+  /// dispatches before retirement.
+  static constexpr uint32_t kMaxStartBlockedAttempts = 3;
+
+  // -----------------------------------------------------------------------
   // Swath-completion model (replaces the mow_progress cell grid)
   // -----------------------------------------------------------------------
   /// Indices of swaths already mowed for each area, in the deterministic F2C

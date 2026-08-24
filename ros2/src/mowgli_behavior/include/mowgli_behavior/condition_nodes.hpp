@@ -782,4 +782,47 @@ public:
   BT::NodeStatus tick() override;
 };
 
+// ---------------------------------------------------------------------------
+// IsCoverageStartBlocked
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS when the FollowStrip pass that just failed did so because
+/// the ROBOT'S OWN POSE is a cell nav2 refuses to plan from (every blade-off
+/// sub-path transit came back START_OCCUPIED and zero swaths were mowed).
+/// FAILURE otherwise.
+///
+/// Field problem this solves (issue #487, 2026-08-24): the robot undocked into
+/// the inflated keepout around a 0.25 m obstacle circle. SmacPlanner2D has no
+/// start tolerance, so all 26 plan calls answered "Start occupied", FollowStrip
+/// skipped all four sub-paths in a row, and the whole field was declared
+/// unmowable at 0 % coverage. The area was perfectly mowable — a second attempt
+/// 13 minutes later completed it at 100 %.
+///
+/// CONSUMING condition: it clears ctx->coverage_start_blocked on read, so the
+/// recovery branch fires exactly once per blocked pass and a later, unrelated
+/// FollowStrip failure cannot re-trigger it. (ctx->start_blocked_area is a
+/// SEPARATE field with a separate consumer — GetNextUnmowedArea — so this read
+/// does not disturb the retirement-budget exemption.)
+///
+/// Deliberately does NOT command any motion. After an undock the robot REVERSED
+/// into the blocked spot, so a reverse escape drives deeper, while mid-mow it
+/// arrived driving forward and a reverse retraces known-good ground. Choosing
+/// between those on a machine with blades is a maintainer decision, not
+/// something this node guesses — see issue #487.
+class IsCoverageStartBlocked : public BT::ConditionNode
+{
+public:
+  IsCoverageStartBlocked(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
 }  // namespace mowgli_behavior
