@@ -162,8 +162,17 @@ constexpr double kSwathStep = 0.10;  // m between poses on a straight swath
 // a straight blind connector or a sub-path split, at or above which the summary
 // is logged at WARN instead of INFO. 25 % is a judgement call, not a measured
 // threshold: below it the odd un-fittable join is normal on a concave field,
-// above it the plan is mostly NOT being joined by real turn-around arcs, which
-// is exactly the regression a raised min_turning_radius would cause.
+// above it the plan is mostly NOT being joined by real turn-around arcs.
+//
+// Expect this to WARN on every plan at the shipped defaults. The first
+// measurement this counter ever produced was ~97 % fallback (1 arc in 32 joins)
+// on a hole-free convex field, and that is the BASELINE, not a regression: the
+// headland apron beyond the swath ends (num_headland_passes * operation_width =
+// 0.32 m) is narrower than the omega turn-around's forward extent (~0.43 m at
+// connector_turn_radius 0.18, swath spacing 0.16), so no radius in the shrink
+// range fits. The WARN is kept rather than tuned away because a swath end that
+// is a straight join with a sharp corner instead of a tangent arc is exactly the
+// lawn-carving defect #499 is about — see ConnectorStats in coverage_planning.hpp.
 constexpr double kConnectorFallbackWarnPct = 25.0;
 // One format string, two severities — keeps the WARN and INFO variants from
 // drifting apart. A macro rather than a `constexpr const char*` so it expands to
@@ -175,10 +184,12 @@ constexpr double kConnectorFallbackWarnPct = 25.0;
 // makes clang-format 18 (what CI pins) and clang-format 22 (what the local
 // pre-push hook runs) disagree about the backslash column, so the two rewrite
 // each other forever.
-#define MOWGLI_CONNECTOR_STATS_FMT                                            \
-  "PlanCoverage connectors: %zu join(s): %zu turn-around arc, %zu straight "  \
-  "fallback (driven blade-on), %zu split (blade-off transit); fallback rate " \
-  "%.1f%% at connector_turn_radius=%.2f min_turning_radius=%.2f"
+#define MOWGLI_CONNECTOR_STATS_FMT                                             \
+  "PlanCoverage connectors: %zu join(s): %zu turn-around arc, %zu straight "   \
+  "fallback (driven blade-on), %zu split (blade-off transit); fallback rate "  \
+  "%.1f%% at connector_turn_radius=%.2f min_turning_radius=%.2f. A high rate " \
+  "is the headland apron (num_headland_passes x operation_width) being "       \
+  "narrower than the turn-around's forward extent, not the radii"
 
 // Build the F2C cell from the goal's outer boundary + obstacle holes.
 // F2C wants closed rings (first == last); the BT passes open rings.

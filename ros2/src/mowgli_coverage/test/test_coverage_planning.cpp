@@ -2125,87 +2125,197 @@ TEST(CoveragePlanning, DegenerateRecordedRingSanitizedToFullCoverage)
 // changing min_turning_radius / connector_turn_radius: raising the floor makes
 // buildConnector's shrink search give up sooner and fall through to a straight
 // blind connector, and nothing else in the plan or the logs distinguishes that
-// from a healthy turn-around arc. These tests pin the accounting itself, not
-// any particular radius — a radius change is expected to MOVE these numbers,
-// which is the entire point of having them.
+// from a healthy turn-around arc.
+//
+// WHAT THE COUNTER MEASURED, once it existed (2026-08-24, this PR): on the
+// SHIPPED coverage geometry — num_headland_passes = 2, op_width = tool_width −
+// swath_overlap, connector_turn_radius 0.18, min_turning_radius 0.15 — only
+// 1 join in 32 gets a real turn-around arc. The other 31 are straight blind
+// connectors. That is not a regression and not an artefact of the synthetic
+// field; it is the baseline, and it is geometric (see the apron test below).
+//
+// These tests therefore pin the MECHANISM that decides an arc from a straight
+// join — the width of the mowed headland apron beyond the swath ends, measured
+// against the forward extent of the turn-around — rather than any one radius or
+// any one fallback percentage. A radius change is expected to MOVE the raw
+// counts, which is the entire point of having them.
+
+// Shared plan geometry for the connector-outcome tests. Everything except the
+// ring count and the radii is held at the SHIPPED configuration so the numbers
+// these tests report are the numbers the robot actually plans with:
+// mowgli_robot.yaml tool_width 0.18 − swath_overlap 0.02 = op_width 0.16,
+// chassis_safety_inset 0.20, num_headland_passes 2.
+namespace
+{
+constexpr double kStatsOpWidth = 0.16;
+constexpr double kStatsHeadland = 0.18;
+constexpr double kStatsInset = 0.20;
+constexpr double kStatsMinSwath = 0.15;
+constexpr double kStatsTurnRadius = 0.18;
+constexpr double kStatsMinTurnRadius = 0.15;
+constexpr double kStatsStep = 0.03;
+constexpr int kShippedHeadlandPasses = 2;  // mowgli_robot.yaml num_headland_passes
+
+// Plan a 6 m square with `rings` perimeter passes, then join it exactly the way
+// coverage_server does — bounded by connector_clearance_boundary, not the looser
+// safe_boundary — and return how every join resolved.
+mowgli_coverage::ConnectorStats connectorOutcomes(
+    int rings, double op_width, double headland, double turn_radius, double min_turn_radius)
+{
+  const f2c::types::Cell cell = makeSquare(6.0);
+  const auto plan =
+      planBoustrophedon(cell, op_width, headland, rings, kStatsInset, -1.0, kStatsMinSwath);
+  EXPECT_FALSE(plan.rings.empty()) << "test geometry planned no perimeter rings";
+  const auto& connector_boundary = plan.connector_clearance_boundary.size() >= 3
+                                       ? plan.connector_clearance_boundary
+                                       : plan.safe_boundary;
+  mowgli_coverage::ConnectorStats stats;
+  (void)buildContinuousSubPaths(
+      plan, connector_boundary, turn_radius, min_turn_radius, kStatsStep, &stats);
+  return stats;
+}
+}  // namespace
 
 // The three outcomes partition every attempted join. If this ever fails, the
 // fallback rate derived from them is meaningless.
 TEST(CoverageConnectorStats, OutcomesPartitionAttemptedJoins)
 {
-  constexpr double kOpWidth = 0.16;
-  constexpr double kHeadland = 0.18;
-  constexpr double kInset = 0.15;
-  constexpr double kMinSwath = 0.15;
-  constexpr double kTurnRadius = 0.18;
-  constexpr double kMinTurnRadius = 0.15;
-  constexpr double kStep = 0.03;
+  const auto stats = connectorOutcomes(
+      kShippedHeadlandPasses, kStatsOpWidth, kStatsHeadland, kStatsTurnRadius, kStatsMinTurnRadius);
 
-  const f2c::types::Cell cell = makeSquare(6.0);
-  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, kInset, -1.0, kMinSwath);
-  ASSERT_FALSE(plan.rings.empty());
-
-  mowgli_coverage::ConnectorStats stats;
-  const auto subs =
-      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep, &stats);
-
-  ASSERT_FALSE(subs.empty());
   EXPECT_GT(stats.attempted, 0u) << "a multi-segment plan must attempt connectors";
   EXPECT_EQ(stats.attempted, stats.arc + stats.straight_kept + stats.split)
       << "arc/straight_kept/split must partition attempted — the fallback rate "
          "derived from them is otherwise nonsense";
 }
 
-// A hole-free convex field is the easy case: real turn-around arcs should fit at
-// nearly every join. This is the baseline a raised min_turning_radius would be
-// measured against — it pins "arcs dominate today", not a specific radius.
-TEST(CoverageConnectorStats, ConvexFieldIsJoinedMostlyByArcs)
+// Counter sanity on a case whose outcome is hand-checkable, so a stuck
+// classifier cannot masquerade as a planner result. With the swath spacing at
+// or above twice the turn radius (0.50 >= 2 * 0.18) the turn-around is a plain
+// RSR U-turn: quarter circle, straight, quarter circle. Its forward extent past
+// the swath end is exactly the turn radius, 0.18 m, and the single 0.50 m
+// headland pass leaves 0.50 m of mowed apron there. An arc MUST fit at every
+// join, so anything other than a clean sweep is a counting bug.
+TEST(CoverageConnectorStats, EveryJoinIsAnArcWhenSpacingExceedsTwiceTheTurnRadius)
 {
-  constexpr double kOpWidth = 0.16;
-  constexpr double kHeadland = 0.18;
-  constexpr double kInset = 0.15;
-  constexpr double kMinSwath = 0.15;
-  constexpr double kTurnRadius = 0.18;
-  constexpr double kMinTurnRadius = 0.15;
-  constexpr double kStep = 0.03;
+  constexpr double kWideSpacing = 0.50;  // >= 2 * kStatsTurnRadius
+  const auto stats =
+      connectorOutcomes(1, kWideSpacing, kWideSpacing, kStatsTurnRadius, kStatsMinTurnRadius);
 
-  const f2c::types::Cell cell = makeSquare(6.0);
-  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, kInset, -1.0, kMinSwath);
-  ASSERT_FALSE(plan.rings.empty());
+  ASSERT_GT(stats.attempted, 5u) << "need several joins for this to mean anything";
+  EXPECT_EQ(stats.arc, stats.attempted)
+      << "only " << stats.arc << "/" << stats.attempted
+      << " joins got an arc where a plain U-turn provably fits (spacing " << kWideSpacing
+      << " m >= 2 x turn radius " << kStatsTurnRadius << " m, apron " << kWideSpacing
+      << " m > extent " << kStatsTurnRadius
+      << " m) — the classifier or the connector search is broken, not the geometry";
+}
 
-  mowgli_coverage::ConnectorStats stats;
-  (void)
-      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep, &stats);
+// THE #499 FINDING. What decides an arc from a straight blind connector at a
+// swath end is the width of the mowed HEADLAND APRON beyond the swath ends, not
+// the turn radius.
+//
+// When the swath spacing d is below 2R the turn-around cannot be a half circle;
+// Dubins has to emit an omega (RLR/LRL) loop, whose forward extent past the
+// swath end is roughly sqrt(4R^2 - (R + d/2)^2) + R — about 0.43 m at R = 0.18,
+// d = 0.16. The apron available is num_headland_passes * op_width, so the
+// shipped two passes give 0.32 m and the omega does not fit: buildConnector
+// exhausts its shrink search and falls through to the straight connector. Widen
+// the apron and the same search, at the same radii, succeeds almost everywhere.
+//
+// If this test starts failing on the narrow arm, swath-end joins have started
+// getting real arcs — that is the desired outcome, not a regression: re-measure
+// and update issue #499 rather than relaxing the bound.
+TEST(CoverageConnectorStats, SwathEndArcsAreDecidedByTheHeadlandApronNotTheRadius)
+{
+  constexpr int kWideHeadlandPasses = 8;  // 8 * 0.16 = 1.28 m of apron
 
-  ASSERT_GT(stats.attempted, 0u);
-  const double arc_share = static_cast<double>(stats.arc) / static_cast<double>(stats.attempted);
-  EXPECT_GT(arc_share, 0.5) << "only " << stats.arc << "/" << stats.attempted
-                            << " joins got a real turn-around arc on a hole-free convex "
-                               "field — the connector search is failing where it should "
-                               "succeed";
+  const auto narrow = connectorOutcomes(
+      kShippedHeadlandPasses, kStatsOpWidth, kStatsHeadland, kStatsTurnRadius, kStatsMinTurnRadius);
+  const auto wide = connectorOutcomes(
+      kWideHeadlandPasses, kStatsOpWidth, kStatsHeadland, kStatsTurnRadius, kStatsMinTurnRadius);
+
+  ASSERT_GT(narrow.attempted, 10u);
+  ASSERT_GT(wide.attempted, 10u);
+  const double narrow_arc_share =
+      static_cast<double>(narrow.arc) / static_cast<double>(narrow.attempted);
+  const double wide_arc_share = static_cast<double>(wide.arc) / static_cast<double>(wide.attempted);
+
+  // Shipped apron: the omega does not fit, so almost every join is straight.
+  EXPECT_LT(narrow_arc_share, 0.2)
+      << "shipped geometry (" << kShippedHeadlandPasses << " headland passes, " << kStatsOpWidth
+      << " m apron/pass) now gets arcs at " << narrow.arc << "/" << narrow.attempted
+      << " joins. Swath-end turns are no longer straight blind connectors — "
+         "re-measure and update issue #499 instead of relaxing this bound";
+  // Wide apron: the SAME search at the SAME radii fits an arc nearly everywhere,
+  // which is what proves the radius is not the binding constraint.
+  EXPECT_GT(wide_arc_share, 0.8) << "with a " << kWideHeadlandPasses * kStatsOpWidth
+                                 << " m apron only " << wide.arc << "/" << wide.attempted
+                                 << " joins got an arc — the connector search itself has regressed";
+
+  // The straight fallbacks stay inside the connector-clearance envelope, so they
+  // are driven blade-on: the shipped plan is one continuous sub-path, NOT a
+  // fragmented one. This separates "no arc" (quality) from "no drivable
+  // connector" (extra blade-off transits), which are very different costs.
+  EXPECT_EQ(narrow.split, 0u)
+      << narrow.split << " join(s) had no drivable connector at all on a hole-free convex field";
+}
+
+// The trade issue #499 feared — that raising min_turning_radius buys fewer
+// carving arcs at the price of many more straight blind connectors — is not
+// present at the shipped headland apron, because there are almost no arcs left
+// to lose. Raising the floor from 0.15 m (below the 0.1625 m half-track) to
+// 0.25 m, with the ceiling raised alongside it so the shrink search still has
+// somewhere to start, moves at most one join and creates no sub-path split.
+//
+// This does not say what the radius SHOULD be — that decision is the
+// maintainer's. It says the fallback rate is not the argument against changing
+// it, which is the opposite of what #499 assumed.
+TEST(CoverageConnectorStats, RaisingTheTurnRadiusFloorBarelyMovesTheFallbackRate)
+{
+  constexpr double kCeiling = 0.30;  // >= both floors, so the search starts identically
+  constexpr double kRaisedFloor = 0.25;  // clears the 0.1625 m half-track
+
+  const auto low = connectorOutcomes(
+      kShippedHeadlandPasses, kStatsOpWidth, kStatsHeadland, kCeiling, kStatsMinTurnRadius);
+  const auto high = connectorOutcomes(
+      kShippedHeadlandPasses, kStatsOpWidth, kStatsHeadland, kCeiling, kRaisedFloor);
+
+  ASSERT_EQ(low.attempted, high.attempted) << "the two arms must plan the same joins";
+  ASSERT_GT(low.attempted, 10u);
+
+  const std::size_t low_fallbacks = low.straight_kept + low.split;
+  const std::size_t high_fallbacks = high.straight_kept + high.split;
+  ASSERT_GE(high_fallbacks, low_fallbacks) << "a higher floor cannot fit MORE arcs";
+  EXPECT_LE(high_fallbacks - low_fallbacks, 2u)
+      << "raising min_turning_radius " << kStatsMinTurnRadius << " -> " << kRaisedFloor
+      << " m turned " << (high_fallbacks - low_fallbacks) << " of " << low.attempted
+      << " joins into straight fallbacks (" << low.arc << " -> " << high.arc
+      << " arcs). The fallback trade #499 assumed is now real — re-open that "
+         "trade-off before choosing a radius";
+  EXPECT_EQ(high.split, 0u) << "a higher floor must not fragment a hole-free field into "
+                            << high.split << " blade-off transit(s)";
 }
 
 // The counter is opt-in: every existing caller passes no stats pointer, so the
 // nullptr path must stay safe and must not change the plan.
 TEST(CoverageConnectorStats, NullStatsPointerIsSafeAndChangesNothing)
 {
-  constexpr double kOpWidth = 0.16;
-  constexpr double kHeadland = 0.18;
-  constexpr double kInset = 0.15;
-  constexpr double kMinSwath = 0.15;
-  constexpr double kTurnRadius = 0.18;
-  constexpr double kMinTurnRadius = 0.15;
-  constexpr double kStep = 0.03;
-
   const f2c::types::Cell cell = makeSquare(6.0);
-  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, kInset, -1.0, kMinSwath);
+  const auto plan = planBoustrophedon(cell,
+                                      kStatsOpWidth,
+                                      kStatsHeadland,
+                                      kShippedHeadlandPasses,
+                                      kStatsInset,
+                                      -1.0,
+                                      kStatsMinSwath);
   ASSERT_FALSE(plan.rings.empty());
 
-  const auto without =
-      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep);
+  const auto without = buildContinuousSubPaths(
+      plan, plan.safe_boundary, kStatsTurnRadius, kStatsMinTurnRadius, kStatsStep);
   mowgli_coverage::ConnectorStats stats;
-  const auto with =
-      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep, &stats);
+  const auto with = buildContinuousSubPaths(
+      plan, plan.safe_boundary, kStatsTurnRadius, kStatsMinTurnRadius, kStatsStep, &stats);
 
   ASSERT_EQ(without.size(), with.size()) << "collecting stats changed the sub-path split";
   for (std::size_t i = 0; i < without.size(); ++i)

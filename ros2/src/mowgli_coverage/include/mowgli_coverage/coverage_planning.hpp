@@ -189,14 +189,33 @@ BoustrophedonPlan planBoustrophedon(const f2c::types::Cell& field_cell,
 // buildConnector's radius-shrink search. Pure visibility — populating it
 // changes no decision.
 //
-// WHY THIS EXISTS (issue #499): the swath-end turn radius is the lever on the
-// "violent turns dig the lawn" failure, but raising `min_turning_radius` is a
-// TRADE, not a free win — it is the FLOOR of buildConnector's shrink loop, so
-// raising it makes the search give up sooner and fall through to the straight
-// blind connector. Until that fallback rate is a NUMBER, nobody can tell a
-// radius change that fixed the turns from one that quietly replaced arcs with
-// straight joins (or, worse, with sub-path splits the robot has to bridge
-// blade-off). This counter is the prerequisite measurement, not the fix.
+// WHY THIS EXISTS (issue #499): the swath-end turn radius was believed to be
+// the lever on the "violent turns dig the lawn" failure, and raising
+// `min_turning_radius` was believed to be a TRADE rather than a free win — it
+// is the FLOOR of buildConnector's shrink loop, so raising it should make the
+// search give up sooner and fall through to the straight blind connector.
+// Nobody could tell a radius change that fixed the turns from one that quietly
+// replaced arcs with straight joins, so this counter shipped first as the
+// prerequisite measurement.
+//
+// WHAT IT MEASURED (2026-08-24, the first plan it ever counted): on the SHIPPED
+// geometry — num_headland_passes 2, op_width = tool_width - swath_overlap,
+// connector_turn_radius 0.18, min_turning_radius 0.15 — only 1 join in 32 gets
+// an arc. The other 31 are already straight blind connectors, and raising the
+// floor to 0.25 m moves exactly one more. So the fallback TRADE above is not
+// what constrains the radius, and the swath-end turns being carved are NOT
+// too-tight Dubins arcs: there is no arc there to be tight.
+//
+// The binding constraint is the mowed HEADLAND APRON beyond the swath ends. At
+// swath spacing d < 2R the turn-around must be an omega (RLR/LRL) loop whose
+// forward extent past the swath end is ~sqrt(4R^2 - (R + d/2)^2) + R (~0.43 m
+// at R = 0.18, d = 0.16), while the apron is num_headland_passes * op_width
+// (0.32 m as shipped). Nothing in [min_turn_radius, turn_radius] fits, so
+// buildConnector falls through; roundSharpCorners then cannot fillet the
+// resulting 90 degree corners either, because the fillet's tangent length is
+// floored at min_turn_radius (0.15 m) while the connector it must be trimmed
+// into is only op_width (0.16 m) long. The path handed to FTC at a swath end is
+// therefore a sharp corner, not an arc. See the CoverageConnectorStats tests.
 //
 // The three outcomes are mutually exclusive and sum to `attempted`:
 struct ConnectorStats
@@ -217,8 +236,9 @@ struct ConnectorStats
   // No drivable connector at all (empty, or a straight fallback that left the
   // boundary / crossed a hole). The sub-path is BROKEN here and FollowStrip
   // bridges the gap with a blade-off Nav2 transit. This is the expensive
-  // outcome — un-mowed transit time — and the one a too-high min_turn_radius
-  // would inflate.
+  // outcome — un-mowed transit time. A too-high min_turn_radius was expected to
+  // inflate it; measured on a hole-free field it stays at zero, because the
+  // straight fallbacks all verify in-bounds and are driven blade-on.
   std::size_t split = 0;
 };
 
