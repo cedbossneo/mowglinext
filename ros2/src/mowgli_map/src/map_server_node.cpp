@@ -34,6 +34,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/bool.hpp>
 
+#include "mowgli_map/internal_helpers.hpp"
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_core/GridMapMath.hpp>
 #include <grid_map_core/iterators/CircleIterator.hpp>
@@ -56,13 +57,18 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
   map_size_y_ = declare_parameter<double>("map_size_y", 20.0);
   map_frame_ = declare_parameter<std::string>("map_frame", "map");
   tool_width_ = declare_parameter<double>("tool_width", 0.18);
-  // Wheel-slip dig auto-keepout (see on_dig_event). Default size is one
-  // tool width: wide enough that coverage's next swath plans around the
-  // churned patch rather than clipping its edge, small enough that a single
-  // bad patch doesn't carve a hole out of the lawn the robot will never
-  // revisit. Resolved after tool_width_ so it can default from it.
+  // Wheel-slip dig keepout (see on_dig_event). The keepout is stamped as a
+  // PENDING proposal - live in the mask for this session, never written to
+  // areas.dat until the operator accepts it.
+  //
+  // Size: it used to default to one tool width (0.18 m), which is NARROWER
+  // THAN THE CHASSIS (0.60 m x 0.40 m footprint). Issue #500 recorded the
+  // consequence: 3 dig latches in 18.4 s within 0.13 m - the escape reverses
+  // and the controller drives the body straight back over a keepout the body
+  // does not fit around. Default is now kDefaultDigKeepoutSizeM, one chassis
+  // length, so routing around the patch actually clears it.
   dig_obstacle_enabled_ = declare_parameter<bool>("dig_obstacle_enabled", true);
-  dig_obstacle_size_ = declare_parameter<double>("dig_obstacle_size", tool_width_);
+  dig_obstacle_size_ = declare_parameter<double>("dig_obstacle_size", kDefaultDigKeepoutSizeM);
   yaw_convergence_threshold_rad_ =
       declare_parameter<double>("yaw_convergence_threshold_rad", 0.00873);  // 0.5°
   yaw_convergence_window_s_ = declare_parameter<double>("yaw_convergence_window_s", 5.0);
@@ -381,10 +387,12 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
 
   // ── Wheel-slip dig reports (hardware_bridge_node) ─────────────────────
   // The bridge detects the robot digging a hole (wheels turning, GNSS pose
-  // not moving), hard-stops and reverses out. We turn that location into a
-  // permanent keepout so the next coverage pass routes around it instead of
-  // driving back into the same patch. TRANSIENT_LOCAL matches the bridge's
-  // publisher so a dig that happened while we were restarting still lands.
+  // not moving), hard-stops and reverses out. We stamp a PENDING keepout at
+  // that location so the next coverage pass routes around it instead of
+  // driving back into the same patch; making it permanent is the operator's
+  // call (~/promote_obstacle{pending_id}). TRANSIENT_LOCAL matches the
+  // bridge's publisher so a dig that happened while we were restarting
+  // still lands.
   if (dig_obstacle_enabled_)
   {
     dig_event_sub_ = create_subscription<mowgli_interfaces::msg::DigEvent>(
@@ -402,6 +410,14 @@ MapServerNode::MapServerNode(const rclcpp::NodeOptions& options)
              mowgli_interfaces::srv::PromoteObstacle::Response::SharedPtr res)
       {
         on_promote_obstacle(req, res);
+      });
+
+  discard_obstacle_srv_ = create_service<mowgli_interfaces::srv::ClearObstacle>(
+      "~/discard_obstacle",
+      [this](const mowgli_interfaces::srv::ClearObstacle::Request::SharedPtr req,
+             mowgli_interfaces::srv::ClearObstacle::Response::SharedPtr res)
+      {
+        on_discard_obstacle(req, res);
       });
 
   // Dock pose: single source of truth is mowgli_robot.yaml. Calibration
