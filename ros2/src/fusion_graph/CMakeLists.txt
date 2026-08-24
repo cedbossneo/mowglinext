@@ -147,6 +147,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_factors fusion_graph_core)
 
+  ament_add_gtest(test_covariance_frame
+    test/test_covariance_frame.cpp
+  )
+  target_link_libraries(test_covariance_frame fusion_graph_core)
+
   ament_add_gtest(test_persistence
     test/test_persistence.cpp
   )
