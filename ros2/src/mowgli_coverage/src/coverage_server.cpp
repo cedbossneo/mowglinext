@@ -158,6 +158,39 @@ namespace
 
 constexpr double kSwathStep = 0.10;  // m between poses on a straight swath
 
+// Connector-outcome reporting (issue #499). Share of segment joins resolved by
+// a straight blind connector or a sub-path split, at or above which the summary
+// is logged at WARN instead of INFO. 25 % is a judgement call, not a measured
+// threshold: below it the odd un-fittable join is normal on a concave field,
+// above it the plan is mostly NOT being joined by real turn-around arcs.
+//
+// Expect this to WARN on every plan at the shipped defaults. The first
+// measurement this counter ever produced was ~97 % fallback (1 arc in 32 joins)
+// on a hole-free convex field, and that is the BASELINE, not a regression: the
+// headland apron beyond the swath ends (num_headland_passes * operation_width =
+// 0.32 m) is narrower than the omega turn-around's forward extent (~0.43 m at
+// connector_turn_radius 0.18, swath spacing 0.16), so no radius in the shrink
+// range fits. The WARN is kept rather than tuned away because a swath end that
+// is a straight join with a sharp corner instead of a tangent arc is exactly the
+// lawn-carving defect #499 is about — see ConnectorStats in coverage_planning.hpp.
+constexpr double kConnectorFallbackWarnPct = 25.0;
+// One format string, two severities — keeps the WARN and INFO variants from
+// drifting apart. A macro rather than a `constexpr const char*` so it expands to
+// a string LITERAL at each RCLCPP_* call site: the logging macros carry a
+// printf-style format attribute, so a non-literal format argument both loses the
+// compiler's argument-type checking and warns under -Wformat-nonliteral.
+//
+// ASCII-only on purpose: a non-ASCII character inside a line-continued macro
+// makes clang-format 18 (what CI pins) and clang-format 22 (what the local
+// pre-push hook runs) disagree about the backslash column, so the two rewrite
+// each other forever.
+#define MOWGLI_CONNECTOR_STATS_FMT                                             \
+  "PlanCoverage connectors: %zu join(s): %zu turn-around arc, %zu straight "   \
+  "fallback (driven blade-on), %zu split (blade-off transit); fallback rate "  \
+  "%.1f%% at connector_turn_radius=%.2f min_turning_radius=%.2f. A high rate " \
+  "is the headland apron (num_headland_passes x operation_width) being "       \
+  "narrower than the turn-around's forward extent, not the radii"
+
 // Build the F2C cell from the goal's outer boundary + obstacle holes.
 // F2C wants closed rings (first == last); the BT passes open rings.
 // obstacle_margin (m) grows each HOLE outward at ingestion (bufferRingOutward)
@@ -574,8 +607,16 @@ void CoverageServer::planCoverage()
     // routes around the obstacle (issue #333). full_path is their concatenation
     // (GUI viz); drivable_subpaths is what the BT follows.
     const auto t_subpaths0 = now();
-    const auto subpaths = buildContinuousSubPaths(
-        plan, connector_boundary, connector_turn_radius, min_turning_radius, kConnectorStep);
+    // connector_stats is pure visibility (issue #499): it records how each
+    // segment join resolved — a real turn-around arc, a straight blind
+    // connector driven blade-on, or a sub-path split. See ConnectorStats.
+    mowgli_coverage::ConnectorStats connector_stats;
+    const auto subpaths = buildContinuousSubPaths(plan,
+                                                  connector_boundary,
+                                                  connector_turn_radius,
+                                                  min_turning_radius,
+                                                  kConnectorStep,
+                                                  &connector_stats);
     const double subpaths_ms = 1e3 * (now() - t_subpaths0).seconds();
 
     result->full_path.header = header;
@@ -680,6 +721,45 @@ void CoverageServer::planCoverage()
                 subpaths_ms,
                 verify_ms,
                 result->full_path.poses.size());
+    // Connector outcome breakdown (issue #499). This is the measurement that has
+    // to exist BEFORE anyone changes min_turning_radius / connector_turn_radius:
+    // raising the floor makes buildConnector's shrink search give up sooner, and
+    // without this line a radius change that traded real turn-around arcs for
+    // straight joins (or for blade-off splits) looks identical in every other
+    // log. Logged at WARN once the fallback share is material so an operator
+    // A/B'ing a radius sees it without turning on debug logging.
+    if (connector_stats.attempted > 0)
+    {
+      const std::size_t fallbacks = connector_stats.straight_kept + connector_stats.split;
+      const double fallback_pct =
+          100.0 * static_cast<double>(fallbacks) / static_cast<double>(connector_stats.attempted);
+      // Same text either way; only the severity changes, so a routine plan stays
+      // at INFO and a plan that is mostly straight joins is impossible to miss.
+      if (fallback_pct >= kConnectorFallbackWarnPct)
+      {
+        RCLCPP_WARN(get_logger(),
+                    MOWGLI_CONNECTOR_STATS_FMT,
+                    connector_stats.attempted,
+                    connector_stats.arc,
+                    connector_stats.straight_kept,
+                    connector_stats.split,
+                    fallback_pct,
+                    connector_turn_radius,
+                    min_turning_radius);
+      }
+      else
+      {
+        RCLCPP_INFO(get_logger(),
+                    MOWGLI_CONNECTOR_STATS_FMT,
+                    connector_stats.attempted,
+                    connector_stats.arc,
+                    connector_stats.straight_kept,
+                    connector_stats.split,
+                    fallback_pct,
+                    connector_turn_radius,
+                    min_turning_radius);
+      }
+    }
     if (result->drivable_subpaths.size() > 1)
     {
       RCLCPP_INFO(get_logger(),

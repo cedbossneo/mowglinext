@@ -1339,7 +1339,8 @@ std::vector<std::vector<std::pair<double, double>>> buildContinuousSubPaths(
     const std::vector<std::pair<double, double>>& boundary,
     double turn_radius,
     double min_turn_radius,
-    double step)
+    double step,
+    ConnectorStats* stats)
 {
   // Flatten the plan into ordered drivable segments (densified polylines),
   // rings first (outermost → inner) then the swaths.
@@ -1610,6 +1611,28 @@ std::vector<std::vector<std::pair<double, double>>> buildContinuousSubPaths(
         conn_safe =
             !conn.empty() &&
             (!fallback || (allInside(conn, boundary) && clearOfHoles(conn, plan.safe_holes)));
+        // Pure accounting of how this join resolved (issue #499) — see
+        // ConnectorStats. Deliberately AFTER conn_safe so the classification
+        // reflects what is actually driven, not just whether buildConnector
+        // reached its straight-connector last resort: a straight fallback that
+        // verifies in-bounds is driven blade-on, one that does not becomes a
+        // sub-path split. Changes no decision.
+        if (stats != nullptr)
+        {
+          ++stats->attempted;
+          if (!conn_safe)
+          {
+            ++stats->split;
+          }
+          else if (fallback)
+          {
+            ++stats->straight_kept;
+          }
+          else
+          {
+            ++stats->arc;
+          }
+        }
         if (conn_safe)
         {
           // conn is start-inclusive (== path.back()) / goal-exclusive; drop the
