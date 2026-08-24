@@ -35,6 +35,7 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
 
+#include "fusion_graph/dr_slip_veto.hpp"
 #include "fusion_graph/graph_manager.hpp"
 #include "fusion_graph/pose_extrapolator.hpp"
 #include "fusion_graph/scan_matcher.hpp"
@@ -185,8 +186,24 @@ private:
   //   dr_slip_wheel_min_rad_per_s: wheel must claim a real yaw rate
   // The disagreement itself is |wheel_wz_ - gz|, gated by the two
   // above so a normal coordinated turn (both agree) is never vetoed.
-  double dr_slip_gyro_max_rad_per_s_ = 0.15;
-  double dr_slip_wheel_min_rad_per_s_ = 0.15;
+  //
+  // dr_slip_wheel_min_rad_per_s MUST stay above the quantization floor of
+  // wheel_wz_ — see dr_slip_veto.hpp for the derivation. /wheel_odom derives
+  // the wheel yaw rate from a tick DIFFERENCE over one 50-67 ms aggregation
+  // window, so one tick of left/right asymmetry already reads 0.166-0.219
+  // rad/s. The original 0.15 sat BELOW that floor: during a slow straight
+  // drive the gyro reads ~0 and a single tick of encoder rounding was
+  // indistinguishable from a skating pivot, so the veto fired on 32-45 % of
+  // windows and zeroed that fraction of the translation. odom→base_footprint
+  // under-reported travel by ~25-30 %, and Nav2's BackUp — which measures
+  // odom-frame displacement — drove 2.1 m for a 1.50 m undock command
+  // (issue #488). 0.44 rad/s clears the 2-LSB floor; the skating pivot this
+  // veto exists for runs 1-3 rad/s, so the margin costs no sensitivity.
+  // Both are ROS parameters (dr_slip_gyro_max_rad_per_s /
+  // dr_slip_wheel_min_rad_per_s) so a robot with a different
+  // ticks_per_meter, wheel_track or aggregation window can re-floor them.
+  double dr_slip_gyro_max_rad_per_s_ = kDrSlipGyroMaxDefaultRadPerS;
+  double dr_slip_wheel_min_rad_per_s_ = kDrSlipWheelMinDefaultRadPerS;
 
   // GPS antenna radial offset from base_link, hypot(lever_arm_x,
   // lever_arm_y). Used by the RTK wrong-fix gate in OnGnss to

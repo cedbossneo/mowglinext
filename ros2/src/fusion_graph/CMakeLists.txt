@@ -192,6 +192,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_yaw_gates fusion_graph_core)
 
+  ament_add_gtest(test_dr_slip_veto
+    test/test_dr_slip_veto.cpp
+  )
+  target_link_libraries(test_dr_slip_veto fusion_graph_core)
+
   ament_add_gtest(test_rtk_wrongfix_gate
     test/test_rtk_wrongfix_gate.cpp
   )
