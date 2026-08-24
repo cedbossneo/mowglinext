@@ -2118,3 +2118,99 @@ TEST(CoveragePlanning, DegenerateRecordedRingSanitizedToFullCoverage)
       << "swaths span only " << swath_span << " m of the field's " << field_span
       << " m x-extent — coverage is still partial";
 }
+
+// ── ConnectorStats (issue #499) ───────────────────────────────────────────────
+//
+// The connector-outcome counter is the prerequisite measurement for ever
+// changing min_turning_radius / connector_turn_radius: raising the floor makes
+// buildConnector's shrink search give up sooner and fall through to a straight
+// blind connector, and nothing else in the plan or the logs distinguishes that
+// from a healthy turn-around arc. These tests pin the accounting itself, not
+// any particular radius — a radius change is expected to MOVE these numbers,
+// which is the entire point of having them.
+
+// The three outcomes partition every attempted join. If this ever fails, the
+// fallback rate derived from them is meaningless.
+TEST(CoverageConnectorStats, OutcomesPartitionAttemptedJoins)
+{
+  constexpr double kOpWidth = 0.16;
+  constexpr double kHeadland = 0.18;
+  constexpr double kInset = 0.15;
+  constexpr double kMinSwath = 0.15;
+  constexpr double kTurnRadius = 0.18;
+  constexpr double kMinTurnRadius = 0.15;
+  constexpr double kStep = 0.03;
+
+  const f2c::types::Cell cell = makeSquare(6.0);
+  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, kInset, -1.0, kMinSwath);
+  ASSERT_FALSE(plan.rings.empty());
+
+  mowgli_coverage::ConnectorStats stats;
+  const auto subs =
+      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep, &stats);
+
+  ASSERT_FALSE(subs.empty());
+  EXPECT_GT(stats.attempted, 0u) << "a multi-segment plan must attempt connectors";
+  EXPECT_EQ(stats.attempted, stats.arc + stats.straight_kept + stats.split)
+      << "arc/straight_kept/split must partition attempted — the fallback rate "
+         "derived from them is otherwise nonsense";
+}
+
+// A hole-free convex field is the easy case: real turn-around arcs should fit at
+// nearly every join. This is the baseline a raised min_turning_radius would be
+// measured against — it pins "arcs dominate today", not a specific radius.
+TEST(CoverageConnectorStats, ConvexFieldIsJoinedMostlyByArcs)
+{
+  constexpr double kOpWidth = 0.16;
+  constexpr double kHeadland = 0.18;
+  constexpr double kInset = 0.15;
+  constexpr double kMinSwath = 0.15;
+  constexpr double kTurnRadius = 0.18;
+  constexpr double kMinTurnRadius = 0.15;
+  constexpr double kStep = 0.03;
+
+  const f2c::types::Cell cell = makeSquare(6.0);
+  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, kInset, -1.0, kMinSwath);
+  ASSERT_FALSE(plan.rings.empty());
+
+  mowgli_coverage::ConnectorStats stats;
+  (void)
+      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep, &stats);
+
+  ASSERT_GT(stats.attempted, 0u);
+  const double arc_share = static_cast<double>(stats.arc) / static_cast<double>(stats.attempted);
+  EXPECT_GT(arc_share, 0.5) << "only " << stats.arc << "/" << stats.attempted
+                            << " joins got a real turn-around arc on a hole-free convex "
+                               "field — the connector search is failing where it should "
+                               "succeed";
+}
+
+// The counter is opt-in: every existing caller passes no stats pointer, so the
+// nullptr path must stay safe and must not change the plan.
+TEST(CoverageConnectorStats, NullStatsPointerIsSafeAndChangesNothing)
+{
+  constexpr double kOpWidth = 0.16;
+  constexpr double kHeadland = 0.18;
+  constexpr double kInset = 0.15;
+  constexpr double kMinSwath = 0.15;
+  constexpr double kTurnRadius = 0.18;
+  constexpr double kMinTurnRadius = 0.15;
+  constexpr double kStep = 0.03;
+
+  const f2c::types::Cell cell = makeSquare(6.0);
+  const auto plan = planBoustrophedon(cell, kOpWidth, kHeadland, 0, kInset, -1.0, kMinSwath);
+  ASSERT_FALSE(plan.rings.empty());
+
+  const auto without =
+      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep);
+  mowgli_coverage::ConnectorStats stats;
+  const auto with =
+      buildContinuousSubPaths(plan, plan.safe_boundary, kTurnRadius, kMinTurnRadius, kStep, &stats);
+
+  ASSERT_EQ(without.size(), with.size()) << "collecting stats changed the sub-path split";
+  for (std::size_t i = 0; i < without.size(); ++i)
+  {
+    EXPECT_EQ(without[i].size(), with[i].size())
+        << "collecting stats changed sub-path " << i << "'s pose count";
+  }
+}

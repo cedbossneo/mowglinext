@@ -185,6 +185,43 @@ BoustrophedonPlan planBoustrophedon(const f2c::types::Cell& field_cell,
                                     int ring_direction = 0,
                                     double min_turn_radius = 0.15);
 
+// Per-plan accounting of how every segment-to-segment join was resolved by
+// buildConnector's radius-shrink search. Pure visibility — populating it
+// changes no decision.
+//
+// WHY THIS EXISTS (issue #499): the swath-end turn radius is the lever on the
+// "violent turns dig the lawn" failure, but raising `min_turning_radius` is a
+// TRADE, not a free win — it is the FLOOR of buildConnector's shrink loop, so
+// raising it makes the search give up sooner and fall through to the straight
+// blind connector. Until that fallback rate is a NUMBER, nobody can tell a
+// radius change that fixed the turns from one that quietly replaced arcs with
+// straight joins (or, worse, with sub-path splits the robot has to bridge
+// blade-off). This counter is the prerequisite measurement, not the fix.
+//
+// The three outcomes are mutually exclusive and sum to `attempted`:
+struct ConnectorStats
+{
+  // Segment-to-segment joins where a connector was attempted (== segments - 1
+  // in the common single-sub-path case).
+  std::size_t attempted = 0;
+  // A real forward Dubins turn-around arc fitted at some radius in
+  // [min_turn_radius, turn_radius] and stayed in-bounds + clear of holes. This
+  // is the healthy outcome.
+  std::size_t arc = 0;
+  // The shrink loop found NO in-bounds arc, so buildConnector returned its
+  // straight blind connector — but that straight join happened to stay inside
+  // the boundary and clear of every hole, so it is DRIVEN BLADE-ON as part of
+  // the sub-path. Cheap in coverage terms, but it hands the controller a
+  // heading discontinuity instead of a tangent arc.
+  std::size_t straight_kept = 0;
+  // No drivable connector at all (empty, or a straight fallback that left the
+  // boundary / crossed a hole). The sub-path is BROKEN here and FollowStrip
+  // bridges the gap with a blade-off Nav2 transit. This is the expensive
+  // outcome — un-mowed transit time — and the one a too-high min_turn_radius
+  // would inflate.
+  std::size_t split = 0;
+};
+
 // Flatten a BoustrophedonPlan into ONE continuous, cusp-free, in-bounds
 // polyline so an MPPI-class sampling controller can track it without the
 // bimodal dither/spin it does at sharp ~180° reversals.
@@ -259,7 +296,8 @@ std::vector<std::vector<std::pair<double, double>>> buildContinuousSubPaths(
     const std::vector<std::pair<double, double>>& boundary,
     double turn_radius,
     double min_turn_radius,
-    double step);
+    double step,
+    ConnectorStats* stats = nullptr);
 
 // 2-D point-in-polygon (ray casting) against `ring`, a list of (x, y)
 // vertices. Open or closed ring; winding-independent. Used by the server to
