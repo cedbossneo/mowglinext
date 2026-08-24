@@ -2658,8 +2658,7 @@ private:
   void dig_invalidate_baselines()
   {
     have_wheel_baseline_ = false;
-    have_map_baseline_ = false;
-    DigResetWindow(dig_state_);
+    DigResetWindow(dig_state_);  // also drops the window's map anchor
   }
 
   void dig_monitor_tick()
@@ -2717,7 +2716,7 @@ private:
       return;
     }
 
-    const double wheel_total = odometry_publisher_.travelled();
+    const double wheel_total = odometry_publisher_.tyre_travelled();
     const double wheel_step = have_wheel_baseline_ ? (wheel_total - last_wheel_total_) : 0.0;
     last_wheel_total_ = wheel_total;
     have_wheel_baseline_ = true;
@@ -2731,13 +2730,6 @@ private:
       dig_invalidate_baselines();
       return;
     }
-
-    const double map_step = have_map_baseline_ ? std::hypot(last_map_pose_x_ - last_map_baseline_x_,
-                                                            last_map_pose_y_ - last_map_baseline_y_)
-                                               : 0.0;
-    last_map_baseline_x_ = last_map_pose_x_;
-    last_map_baseline_y_ = last_map_pose_y_;
-    have_map_baseline_ = true;
 
     // Treat a command that has stopped arriving as no command at all.
     const bool cmd_fresh =
@@ -2757,8 +2749,19 @@ private:
     const double trust_sigma =
         DigTrustSigma(gnss_fresh, dig_gnss_rtk_fixed_, dig_gnss_acc_m_ >= 0.0, dig_gnss_acc_m_);
 
-    const DigVerdict verdict =
-        DigDecide(dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, trust_sigma, yaw_rate, dt);
+    // The map side goes in as a POSITION: DigDecide measures net displacement
+    // across the window from its own anchor. Feeding it per-tick steps summed
+    // a path length that grew with estimator wander and with the monitor rate
+    // — see dig_detector.hpp.
+    const DigVerdict verdict = DigDecide(dig_cfg_,
+                                         dig_state_,
+                                         cmd_vx,
+                                         wheel_step,
+                                         last_map_pose_x_,
+                                         last_map_pose_y_,
+                                         trust_sigma,
+                                         yaw_rate,
+                                         dt);
 
     if (verdict.action != DigAction::kDig)
     {
@@ -2951,12 +2954,11 @@ private:
   rclcpp::Time last_gyro_time_{0, 0, RCL_ROS_TIME};
   double dig_gyro_timeout_s_{0.5};
 
-  /// Per-tick baselines for the wheel-vs-map comparison.
+  /// Per-tick baseline for the wheel side. The map side needs no baseline
+  /// here — DigDecide anchors it once per window and measures net
+  /// displacement from that anchor.
   bool have_wheel_baseline_{false};
   double last_wheel_total_{0.0};
-  bool have_map_baseline_{false};
-  double last_map_baseline_x_{0.0};
-  double last_map_baseline_y_{0.0};
   bool have_dig_tick_{false};
   rclcpp::Time last_dig_tick_{0, 0, RCL_ROS_TIME};
   rclcpp::Subscription<mowgli_interfaces::msg::GnssStatus>::SharedPtr sub_gnss_status_;
