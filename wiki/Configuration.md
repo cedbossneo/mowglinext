@@ -800,7 +800,9 @@ The legacy EKF (`ekf_map_node`) and `fusion_graph_node` are **mutually exclusive
 |---|---|---|
 | `node_period_s` | 0.1 | Graph node creation cadence (10 Hz). |
 | `stationary_node_period_s` | 5.0 | Throttled node period when motion is below the stationary threshold — bounds graph growth on the dock. |
-| `wheel_sigma_x / sigma_y / sigma_theta` | 0.05 / 0.005 / 0.01 | Body-frame between-factor noise. `sigma_y` ≪ `sigma_x` enforces non-holonomic motion. |
+| `wheel_sigma_x_per_sqrt_m / wheel_sigma_y_per_sqrt_m` | 0.05 / 0.005 | Body-frame between-factor **translational** noise, in m/√m. The sigma applied to a node is `k · √(step_m + wheel_creep_speed_mps · dt)` — variance grows with the distance the step covered, so the accumulated uncertainty tracks distance travelled and is invariant to `node_period_s` (issue #491). `sigma_y` ≪ `sigma_x` still enforces non-holonomic motion: both scale by the same `√d`. At 1 m of travel per node these reproduce the old fixed per-node 0.05 / 0.005 m. |
+| `wheel_creep_speed_mps` | 0.04 | Floor on the noise distance above, as a creep *speed*: motion the encoders may have missed (towed, lifted, both wheels skating). Expressed as a distance so the floor stays cadence-invariant. |
+| `wheel_sigma_theta` | 0.01 | Yaw between-factor noise, still a **per-node** sigma — used only when no gyro sample arrived for the tick. |
 | `gyro_sigma_theta` | 0.005 | Yaw between-factor noise from `/imu/data`. |
 | `gps_sigma_floor` | 0.003 | Lower bound for the GPS XY noise (3 mm) — prevents over-trusting RTK-Fixed reports with under-estimated covariance. |
 | `cov_update_every_n` | 10 | Skip-rate for the marginal covariance recompute (the diagonals on `/odometry/filtered_map`). |
