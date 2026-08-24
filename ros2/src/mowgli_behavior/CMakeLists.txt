@@ -574,6 +574,17 @@ if(BUILD_TESTING)
     $<INSTALL_INTERFACE:include>
   )
 
+  # Pure dock-alignment math (header-only): the along/cross-track decomposition
+  # logged at claimed contact, and the per-undock dock_pose_yaw drift check.
+  ament_add_gtest(test_dock_alignment
+    test/test_dock_alignment.cpp
+  )
+
+  target_include_directories(test_dock_alignment PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
 endif()
 
 ament_package()
