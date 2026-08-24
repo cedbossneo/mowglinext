@@ -77,3 +77,22 @@ def test_e2e_tracks_the_published_full_coverage_plan():
     assert '"/coverage/full_plan"' in behavior_source
     assert '"/coverage/full_plan"' in e2e_source
     assert '"/coverage_planner_node/coverage_path"' not in e2e_source
+
+
+def test_simulation_reset_preserves_persisted_area_geometry():
+    repo_root = Path(__file__).resolve().parents[4]
+    reset_source = (
+        repo_root / 'docker' / 'reset-simulation-run-state.sh'
+    ).read_text()
+
+    for generated_file in (
+        'fusion_graph.graph',
+        'fusion_graph.keyframes',
+        'fusion_graph.meta',
+        'fusion_graph.scans',
+        'coverage_resume.txt',
+    ):
+        assert f'/ros2_ws/maps/{generated_file}' in reset_source
+
+    assert '/ros2_ws/maps/areas.dat' not in reset_source
+    assert '/ros2_ws/maps/*' not in reset_source
