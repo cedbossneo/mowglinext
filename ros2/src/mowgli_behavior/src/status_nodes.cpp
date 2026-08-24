@@ -190,6 +190,14 @@ BT::NodeStatus EndSession::tick()
   ctx->coverage_start_blocked = false;
   ctx->start_blocked_area.reset();
   ctx->area_start_blocked_count.clear();
+  // SAFETY (issue #487 escape motion): disarm the escape and forget the
+  // last-motion direction at the session boundary. A token or a direction that
+  // survived into the next session would describe a pose the robot may no
+  // longer be standing in — the escape must re-derive both from the new
+  // session's own evidence or stand down.
+  ctx->start_blocked_escape_armed = false;
+  ctx->last_motion_valid = false;
+  ctx->last_motion_cmd_vx = 0.0;
   // Swath-completion model (replaces the cell coverage grid): clear the
   // per-area completed-swath sets, swath counts, and the completed-area set so
   // the next COMMAND_START re-plans and re-mows every area from swath 0.

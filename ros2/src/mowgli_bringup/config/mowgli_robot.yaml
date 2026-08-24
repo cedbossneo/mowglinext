@@ -458,6 +458,42 @@ mowgli:
     # Lift/tilt emergency is handled by firmware (STM32), not ROS2
 
     # -----------------------------------------------------------------
+    # Start-pose escape (issue #487) — SAFETY-CRITICAL, PHYSICAL MOTION
+    # -----------------------------------------------------------------
+    # When every blade-off sub-path transit of a coverage pass is refused by
+    # the Nav2 planner with START_OCCUPIED and nothing was mowed, the robot is
+    # STANDING on a lethal/keepout cell and no plan exists from there. Clearing
+    # the costmaps does not help — a keepout is a static costmap FILTER — so
+    # the BT nudges the robot off the cell with a short, bounded, open-loop
+    # move in the direction OPPOSITE the last motion it was commanded to make.
+    # That one signal gets both field cases right: after an undock the robot
+    # REVERSED into the spot, so the escape drives forward; mid-mow it arrived
+    # driving forward, so the escape reverses onto known-good ground.
+    #
+    # The blade is switched off AND verified off first, and the command is
+    # published on /cmd_vel_nav, so it passes through collision_monitor and the
+    # LOWEST-priority twist_mux lane exactly like every other autonomous
+    # motion. The STM32 remains the sole emergency-stop authority.
+    #
+    # If the direction is unknown, stale or ~zero, NOTHING is commanded and the
+    # recovery falls back to clear-costmaps-and-retry, then retire + dock.
+    # Set start_blocked_escape_enabled: false to keep that non-motion behaviour
+    # permanently. See mowgli_behavior/start_blocked_escape.hpp.
+    start_blocked_escape_enabled: true
+    start_blocked_escape_speed: 0.10        # m/s — below mowing (0.20) and undock (0.16)
+    start_blocked_escape_distance: 0.40     # m — distance budget (hard ceiling 0.60 in code)
+    start_blocked_escape_timeout_s: 6.0     # s — hard time bound; ends the move even if the
+                                            # wheels are not turning (0.40/0.10 = 4.0 s nominal)
+    start_blocked_escape_min_signal_speed: 0.03   # m/s — below this a command is "not moving"
+    # How old the direction signal may be (s). It must outlast a whole failed
+    # coverage pass (the 2026-08-24 event burned 26 planning calls between the
+    # undock and the recovery), or the escape always stands down and never
+    # fires. Too SHORT is fail-safe (no motion, pre-#487 behaviour); too LONG
+    # risks acting on a direction that no longer describes how the robot
+    # arrived. Tune from a field log rather than by guesswork.
+    start_blocked_escape_signal_max_age_s: 90.0
+
+    # -----------------------------------------------------------------
     # Obstacles (GUI: Settings → Obstacles)
     # -----------------------------------------------------------------
     # How far the robot may deviate laterally from its path to skirt an
