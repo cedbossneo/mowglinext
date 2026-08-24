@@ -177,6 +177,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_adaptive_noise fusion_graph_core)
 
+  ament_add_gtest(test_wheel_sigma_scaling
+    test/test_wheel_sigma_scaling.cpp
+  )
+  target_link_libraries(test_wheel_sigma_scaling fusion_graph_core)
+
   ament_add_gtest(test_pose_extrapolator
     test/test_pose_extrapolator.cpp
   )

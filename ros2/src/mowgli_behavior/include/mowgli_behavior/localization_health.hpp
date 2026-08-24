@@ -40,6 +40,14 @@
 // drops to stationary_node_period_s = 5 s and GPS pins every node, so σ
 // settles at ~0.05 m, below the old 0.08 m resume threshold.
 //
+// UPDATE 2026-08-24 (issue #491): the "plain driving" half of that arithmetic
+// has since been fixed — the wheel between-factor's translational sigma is now
+// a distance-scaled random walk instead of a per-node constant, so the same
+// window contributes centimetres rather than decimetres. The PIVOT half is
+// unchanged and deliberate: pivot_wheel_sigma_x stays a per-node absolute
+// release, so the marginal still balloons on every PRE_ROTATE. This guard must
+// therefore keep off the fused covariance regardless.
+//
 // The guard was therefore ONLY satisfiable while stopped, and FTC opens every
 // strip with a PRE_ROTATE pivot. Field 2026-08-20 (robot on RTK-Fixed at
 // hacc 0.014 m throughout): degrade at σ 0.57/0.74/0.81/0.92/0.99/1.07/1.38/

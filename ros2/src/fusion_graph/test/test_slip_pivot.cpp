@@ -35,8 +35,8 @@ fg::GraphParams MakeParams()
   // still fed at kDt=0.1 s per tick — node_period only gates the MINIMUM node
   // spacing, so one node is created per Tick as before).
   gp.node_period_s = fg::kTunedNodePeriodS;  // 0.04
-  gp.wheel_sigma_x = 0.05;
-  gp.wheel_sigma_y = 0.005;
+  gp.wheel_sigma_x_per_sqrt_m = 0.05;
+  gp.wheel_sigma_y_per_sqrt_m = 0.005;
   gp.wheel_sigma_theta = 0.01;
   gp.gyro_sigma_theta = 0.005;
   gp.stationary_thresh_xy_m = 1.0e-3;
