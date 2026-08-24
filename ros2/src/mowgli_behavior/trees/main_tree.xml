@@ -749,6 +749,50 @@
                           <PublishHighLevelStatus state="2" state_name="MOWING"/>
                           <FollowStrip/>
                         </Sequence>
+                        <!-- Start-pose blocked recovery (issue #487).
+                             Every blade-off sub-path transit was refused by
+                             the Nav2 planner with START_OCCUPIED and NOTHING
+                             was mowed: the robot is STANDING on a lethal or
+                             keepout cell (2026-08-24: it undocked into the
+                             inflated keepout of a 0.25 m obstacle circle), so
+                             no plan exists from here regardless of the goal.
+                             That is NOT an unmowable field — a second attempt
+                             13 min later mowed the same area to 100 %.
+
+                             Non-motion recovery only: stop, clear the
+                             costmaps, wait for a fresh update, then bubble up
+                             FAILURE so FollowStripRetry re-ticks FollowStrip.
+                             Be honest about the clear: it only helps when the
+                             lethal cell came from a TRANSIENT obstacle_layer
+                             reading. A keepout zone is a static costmap
+                             FILTER — ClearEntireCostmap does not touch it, so
+                             the retry from an unchanged pose will fail again
+                             and GetNextUnmowedArea's bounded exemption
+                             (kMaxStartBlockedAttempts) eventually retires the
+                             area rather than looping.
+
+                             Deliberately commands NO escape motion: after an
+                             undock the robot REVERSED into the spot, so
+                             reversing again drives deeper, whereas mid-mow it
+                             arrived driving forward and reversing retraces
+                             known-good ground. Picking a direction on a
+                             machine with blades is a maintainer decision —
+                             see the options proposed on issue #487.
+
+                             Placed FIRST in MowOrRecover because
+                             IsCoverageStartBlocked is an exact, consumed
+                             signal, while IsObstacleStuck below would also
+                             match a robot that has simply not moved. -->
+                        <Sequence name="StartPoseBlockedRetry">
+                          <IsCoverageStartBlocked/>
+                          <PublishHighLevelStatus state="2"
+                                                  state_name="START_POSE_BLOCKED"/>
+                          <SetMowerEnabled enabled="false"/>
+                          <StopMoving/>
+                          <ClearCostmap/>
+                          <WaitForDuration duration_sec="2.0"/>
+                          <AlwaysFailure/>
+                        </Sequence>
                         <!-- Obstacle wedge recovery: BackUp + ClearCostmap
                              then bubble up FAILURE so RetryUntilSuccessful
                              re-ticks FollowStrip, which resumes at the

@@ -183,6 +183,13 @@ BT::NodeStatus EndSession::tick()
   // (coverage reset / re-mow) is wrongly judged "no progress" and pushed
   // toward premature give-up at kMaxAreaAttempts.
   ctx->area_last_coverage.clear();
+  // Start-pose-blocked bookkeeping (issue #487) is per-session too: the next
+  // COMMAND_START must get a fresh exemption budget, and a stale
+  // start_blocked_area would make the first dispatch of the new session skip
+  // the no-progress counter for a pass that never happened.
+  ctx->coverage_start_blocked = false;
+  ctx->start_blocked_area.reset();
+  ctx->area_start_blocked_count.clear();
   // Swath-completion model (replaces the cell coverage grid): clear the
   // per-area completed-swath sets, swath counts, and the completed-area set so
   // the next COMMAND_START re-plans and re-mows every area from swath 0.

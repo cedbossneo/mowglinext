@@ -901,6 +901,9 @@ private:
       context_->attempted_areas.clear();
       context_->area_attempt_count.clear();
       context_->area_last_coverage.clear();
+      context_->coverage_start_blocked = false;
+      context_->start_blocked_area.reset();
+      context_->area_start_blocked_count.clear();
       clearCoverageResumeState(*context_);
       RCLCPP_INFO(get_logger(),
                   "Cleared coverage resume state on request — next start begins fresh");
