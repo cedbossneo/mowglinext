@@ -79,8 +79,8 @@ struct BTContext
   ///
   /// Does NOT cover the coverage-tracking fields below (command state +
   /// swath-completion model: target_area_index, single_area_target,
-  /// attempted_areas,
-  /// area_attempt_count, area_last_coverage, area_completed_swaths,
+  /// attempted_areas, area_attempt_count, area_last_coverage,
+  /// area_completed_swaths,
   /// area_swath_count, area_resume_pose_index, area_path_pose_count,
   /// area_plan_fingerprint, completed_areas, coverage_all_complete). Those
   /// are mutated ONLY from this node's own BT action-node callbacks
