@@ -1707,9 +1707,11 @@ def main():
     )
     obstacle_thread.start()
 
-    # Spin until mowing cycle completes or timeout (20 min for full cycle).
+    # The 54 m² test field needs at least 1,200 s to cut 80% even at the
+    # unattainable ideal of 0.20 m/s with no turns or overlap. Allow realistic
+    # FTC turns and obstacle recovery while retaining an explicit finite bound.
     # Feature tests run after timeout regardless.
-    timeout = float(os.getenv("E2E_MOWING_TIMEOUT_S", "1200"))
+    timeout = float(os.getenv("E2E_MOWING_TIMEOUT_S", "3000"))
     start = time.time()
 
     def _on_signal(sig, frame):

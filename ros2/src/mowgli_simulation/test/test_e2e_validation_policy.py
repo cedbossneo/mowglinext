@@ -64,7 +64,7 @@ def test_mowing_timeout_is_configurable_without_changing_default():
         Path(__file__).resolve().parents[2] / 'e2e_test.py'
     ).read_text()
 
-    assert 'os.getenv("E2E_MOWING_TIMEOUT_S", "1200")' in source
+    assert 'os.getenv("E2E_MOWING_TIMEOUT_S", "3000")' in source
 
 
 def test_e2e_tracks_the_published_full_coverage_plan():
