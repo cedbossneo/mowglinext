@@ -37,18 +37,34 @@
 // it would otherwise false-fire — the firmware backstop still covers the
 // blocked-wheel case throughout.
 //
-// The sigma to gate on is the MAJOR AXIS of the position ellipse, which is
-// frame-invariant. It is NOT the GNSS receiver's own sigma: this pose comes
-// out of a factor graph whose latest node is usually connected only by wheel
-// and gyro between-factors, so its along-track marginal is the wheel
-// between-factor's sigma_x (0.05 m nominal, adaptively inflated to ~0.09 m in
-// the field) no matter how good RTK is. An earlier threshold of 0.10 m was
-// set from the receiver's ~3 mm RTK-Fixed figure and therefore sat directly
-// on top of that noise floor, so the gate flickered open and shut and the
-// window reset constantly — the detector never reached a decision on a
-// straight. Measured on 2026-08-24: baseline major axis 0.05-0.14 m under
-// clean RTK-Fixed, metres under RTK-Float. 0.25 m passes the former and still
-// stands down for the latter.
+// The sigma to gate on is the RECEIVER's reported horizontal accuracy under a
+// confirmed RTK-Fixed solution, NOT the factor graph's own marginal.
+//
+// This was measured the hard way. The graph's marginal was tried first (major
+// axis of the Pose2 position ellipse) and it does not work at ANY threshold,
+// because it does not describe the robot's actual position quality. Sampled
+// over 90 s of live mowing on 2026-08-24, RTK-Fixed throughout:
+//
+//     fusion_graph published sigma   p50 0.574 m   p90 0.957 m   max 1.391 m
+//     GNSS horizontal_accuracy_m     0.014 m
+//     FTC cross-track error          0.008 - 0.016 m
+//
+// The graph reports metre-level uncertainty while the receiver reports 14 mm
+// and the controller demonstrably tracks to the centimetre. Threshold sweeps
+// over the same sample confirm there is no usable setting: 0.25 m blocks
+// 57.6 % of ticks, 0.40 m still blocks 56.4 %, and only ~1.0 m gets blocking
+// into single digits — by which point the gate is meaningless, since a dig is
+// itself only a ~0.2 m discrepancy per window. (The marginal is also erratic
+// rather than merely large: consecutive ~1 Hz refreshes were observed swinging
+// var_xx 0.0077 -> 5.55 while the robot tracked a path perfectly.)
+//
+// So the trust gate reads /gps/status. The REFERENCE for the comparison is
+// unchanged and remains the GNSS-anchored fused pose — only the question "is
+// that pose currently trustworthy?" moved onto a signal that answers it
+// honestly. Under RTK-Fixed the receiver reports ~0.014 m, so a 0.10 m
+// threshold passes comfortably; under RTK-Float it reports decimetres to
+// metres and the detector stands down, which is the property Invariant 16
+// requires.
 //
 // ── Turn exclusion (and why it MUST read the gyro) ──────────────────────────
 // While the robot is turning, "encoders claim X, the map says less than X" is
@@ -76,6 +92,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace mowgli_hardware
 {
@@ -97,15 +114,31 @@ struct DigDetectorCfg
   double min_wheel_dist = 0.15;
   /// Latch when map travel is below this fraction of encoder travel.
   double progress_fraction = 0.35;
-  /// Max fused-pose 1-sigma position uncertainty to trust the comparison [m].
-  /// This is the MAJOR AXIS of the position ellipse (frame-invariant), not
-  /// the larger diagonal entry — see the trust-gating note above.
-  double max_pos_sigma = 0.25;
+  /// Max position uncertainty to trust the comparison [m]. Fed from the GNSS
+  /// receiver's reported horizontal accuracy under a confirmed RTK-Fixed
+  /// solution — NOT the factor graph's marginal, which is unusable for this
+  /// (see the trust-gating note above).
+  double max_pos_sigma = 0.10;
   /// Above this measured yaw rate the robot is turning and the wheel-vs-map
   /// comparison is not evidence of anything — see the turn-exclusion note
   /// above [rad/s].
   double max_yaw_rate = 0.20;
 };
+
+/// Position uncertainty the trust gate should use, or +infinity when it cannot
+/// be established — which makes DigDecide stand down rather than guess.
+///
+/// Deliberately demands ALL of: a fresh /gps/status, a confirmed RTK-Fixed
+/// solution, and a receiver accuracy value the message actually carries
+/// (value_flags). Anything less and we do not know how good the pose is.
+inline double DigTrustSigma(bool gnss_fresh, bool rtk_fixed, bool accuracy_valid, double accuracy_m)
+{
+  if (!gnss_fresh || !rtk_fixed || !accuracy_valid || !(accuracy_m >= 0.0))
+  {
+    return std::numeric_limits<double>::infinity();
+  }
+  return accuracy_m;
+}
 
 enum class DigAction
 {
@@ -142,7 +175,8 @@ inline void DigResetWindow(DigDetectorState& st)
 /// @param cmd_speed  commanded forward speed this tick [m/s]
 /// @param wheel_step encoder-derived distance travelled since last tick [m]
 /// @param map_step   fused-pose (GNSS-anchored) distance since last tick [m]
-/// @param pos_sigma  fused-pose 1-sigma position uncertainty, major axis [m]
+/// @param pos_sigma  trusted 1-sigma position uncertainty [m], from
+///                   DigTrustSigma — infinity when it cannot be established
 /// @param yaw_rate   MEASURED (gyro) yaw rate [rad/s] — never wheel-derived
 /// @param dt         tick duration [s]
 inline DigVerdict DigDecide(const DigDetectorCfg& cfg,

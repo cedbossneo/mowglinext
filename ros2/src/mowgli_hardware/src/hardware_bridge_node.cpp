@@ -667,7 +667,8 @@ private:
     // Above this fused-pose sigma the detector stands down entirely: under
     // RTK-Float the map pose cannot distinguish slip from GNSS noise, and a
     // false dig would hard-stop a perfectly healthy robot mid-mow.
-    dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.25);
+    dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.10);
+    dig_gnss_timeout_s_ = declare_parameter<double>("dig_gnss_timeout_s", 2.0);
     dig_cfg_.max_yaw_rate = declare_parameter<double>("dig_max_yaw_rate", 0.20);
     dig_gyro_timeout_s_ = declare_parameter<double>("dig_gyro_timeout_s", 0.5);
     dig_escape_cfg_.reverse_speed = declare_parameter<double>("dig_reverse_speed", 0.12);
@@ -746,6 +747,14 @@ private:
         [this](mowgli_interfaces::msg::GnssStatus::ConstSharedPtr msg)
         {
           gps_quality_ = mowgli_interfaces::gnss_status_utils::HardwareQualityPercent(*msg);
+
+          // Trust signal for the dig detector. The receiver's own accuracy
+          // figure, NOT the factor graph's marginal — see dig_detector.hpp.
+          const auto acc = mowgli_interfaces::gnss_status_utils::HorizontalAccuracyMeters(*msg);
+          dig_gnss_acc_m_ = acc ? static_cast<double>(*acc) : -1.0;
+          dig_gnss_rtk_fixed_ = mowgli_interfaces::gnss_status_utils::BehaviorTreeRtkFixed(*msg);
+          dig_gnss_time_ = now();
+          have_dig_gnss_ = true;
         });
 
     // Mirror the behavior tree's high-level state to the firmware so it
@@ -2735,8 +2744,13 @@ private:
     const double yaw_rate =
         gyro_fresh ? last_gyro_yaw_rate_ : std::numeric_limits<double>::infinity();
 
-    const DigVerdict verdict = DigDecide(
-        dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, last_map_sigma_, yaw_rate, dt);
+    const bool gnss_fresh =
+        have_dig_gnss_ && (tick_now - dig_gnss_time_).seconds() < dig_gnss_timeout_s_;
+    const double trust_sigma =
+        DigTrustSigma(gnss_fresh, dig_gnss_rtk_fixed_, dig_gnss_acc_m_ >= 0.0, dig_gnss_acc_m_);
+
+    const DigVerdict verdict =
+        DigDecide(dig_cfg_, dig_state_, cmd_vx, wheel_step, map_step, trust_sigma, yaw_rate, dt);
 
     if (verdict.action != DigAction::kDig)
     {
@@ -2750,11 +2764,13 @@ private:
   {
     RCLCPP_WARN(get_logger(),
                 "DIG DETECTED at map (%.2f, %.2f): encoders claimed %.2f m but the fused "
-                "pose moved %.2f m (sigma %.3f m). Hard stop + bounded reverse.",
+                "pose moved %.2f m (GNSS sigma %.3f m, graph sigma %.3f m). "
+                "Hard stop + bounded reverse.",
                 last_map_pose_x_,
                 last_map_pose_y_,
                 verdict.wheel_dist,
                 verdict.map_dist,
+                dig_gnss_acc_m_,
                 last_map_sigma_);
 
     // 1. Hard stop, immediately and on the wire — not a request to whichever
@@ -2786,7 +2802,8 @@ private:
     msg.position.z = 0.0;
     msg.wheel_distance = verdict.wheel_dist;
     msg.map_distance = verdict.map_dist;
-    msg.position_sigma = last_map_sigma_;
+    // The uncertainty the gate actually trusted, not the graph's marginal.
+    msg.position_sigma = static_cast<float>(dig_gnss_acc_m_);
     pub_dig_event_->publish(msg);
   }
 
@@ -2896,6 +2913,15 @@ private:
   double last_map_pose_y_{0.0};
   double last_map_sigma_{0.0};
   rclcpp::Time last_map_pose_time_{0, 0, RCL_ROS_TIME};
+
+  /// Receiver-reported position quality, for the dig detector's trust gate.
+  /// The factor graph's own marginal is NOT usable for this — see
+  /// dig_detector.hpp.
+  bool have_dig_gnss_{false};
+  bool dig_gnss_rtk_fixed_{false};
+  double dig_gnss_acc_m_{-1.0};
+  rclcpp::Time dig_gnss_time_{0, 0, RCL_ROS_TIME};
+  double dig_gnss_timeout_s_{2.0};
 
   /// Calibrated gyro yaw rate, for the dig detector's turn exclusion. Gyro,
   /// never wheels — see dig_detector.hpp.
