@@ -15,8 +15,6 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <string>
 
@@ -42,6 +40,15 @@ namespace mowgli_behavior
 //     undocked into the inflated keepout around a 0.25 m obstacle circle and
 //     SmacPlanner2D answered "Start occupied" to all 26 planning calls.
 //
+// CLASSIFICATION IS ERROR-CODE-ONLY. The nav2 result's error_msg is NEVER
+// parsed. Matching the planner's wording would break silently on any nav2
+// upgrade that rewords the exception, and a wrong "start blocked" verdict
+// suppresses the "area not mowable" path — so an honest kUnknown (which skips
+// the swath exactly as the code did before #487) is preferred over a fragile
+// text match. classifyTransitFailure() still ACCEPTS the message so call sites
+// can pass the whole result through one place and so a regression test can
+// assert it is ignored; it does not read it.
+//
 // Where the code comes from (verified against the nav2 version in use, Kilted):
 //   * nav2_msgs/action/NavigateToPose.action has `uint16 error_code` +
 //     `string error_msg` in its RESULT (only NONE/UNKNOWN/
@@ -56,19 +63,23 @@ namespace mowgli_behavior
 //     ComputePathToPose::Result::START_OCCUPIED (205) reaches the
 //     NavigateToPose result verbatim.
 //
-// The message fallback exists because that propagation is configuration-
-// dependent (a robot whose bt_navigator drops "compute_path" from
-// error_code_name_prefixes, or a tree that omits error_code_id, reports
-// UNKNOWN). nav2_smac_planner throws nav2_core::StartOccupied("Start occupied")
-// and planner_server puts that text in error_msg either way, so matching it is
-// a strictly additional signal — never the only one.
+// DEPLOYMENT CAVEAT (documented, deliberately not papered over): that
+// propagation is configuration-dependent. A bt_navigator whose
+// `error_code_name_prefixes` omits "compute_path", or a navigate_to_pose tree
+// whose ComputePathToPose omits `error_code_id`, reports UNKNOWN instead of 205.
+// On such a robot every START_OCCUPIED refusal classifies as kUnknown, the
+// start-blocked recovery never fires, and FollowStrip behaves exactly as it did
+// before #487 — the swath is skipped and the area can still be declared
+// unmowable. The fix there is to restore the error-code plumbing, not to guess
+// from the message text.
 // ---------------------------------------------------------------------------
 
 /// What made a blade-off NavigateToPose transit fail.
 enum class TransitFailure : uint8_t
 {
-  /// No result was available to classify (result never arrived, or the goal was
-  /// rejected before it ever ran).
+  /// No usable error code: the result never arrived, the goal was rejected
+  /// before it ever ran, or nav2 reported its UNKNOWN placeholder because the
+  /// sub-action's code did not propagate (see the deployment caveat above).
   kUnknown = 0,
   /// The planner refused because the ROBOT'S CURRENT CELL is lethal. Retrying
   /// from the same pose is futile — every goal fails identically.
@@ -82,7 +93,7 @@ enum class TransitFailure : uint8_t
   kTimeout,
   /// TF was unavailable/late.
   kTfError,
-  /// A real error code that is none of the above.
+  /// A real, defined error code that is none of the above.
   kOther,
 };
 
@@ -110,35 +121,14 @@ inline const char* transitFailureName(TransitFailure kind)
   }
 }
 
-namespace detail
-{
-
-/// ASCII-lowercase copy — the planner's message casing is not part of any API
-/// contract, so the substring fallback must not depend on it.
-inline std::string asciiLower(const std::string& s)
-{
-  std::string out = s;
-  std::transform(out.begin(),
-                 out.end(),
-                 out.begin(),
-                 [](unsigned char c)
-                 {
-                   return static_cast<char>(std::tolower(c));
-                 });
-  return out;
-}
-
-}  // namespace detail
-
-/// Classify a NavigateToPose result. `error_code` / `error_msg` are the fields
-/// of nav2_msgs::action::NavigateToPose::Result. Pure — unit-testable without
-/// ROS running.
+/// Classify a NavigateToPose result from its `error_code` ALONE. Pure —
+/// unit-testable without ROS running.
 ///
-/// The numeric code wins when it is one nav2 actually defines; the message text
-/// is only consulted when the code carries no information (0 = NONE, or the
-/// NavigateToPose-level UNKNOWN placeholder), which is exactly the case where
-/// the sub-action code failed to propagate.
-inline TransitFailure classifyTransitFailure(uint16_t error_code, const std::string& error_msg)
+/// `error_msg` is accepted but NEVER read (see the error-code-only rationale
+/// above). NONE and either action's UNKNOWN placeholder map to kUnknown; any
+/// other defined-but-unmapped code maps to kOther.
+inline TransitFailure classifyTransitFailure(uint16_t error_code,
+                                             const std::string& /*error_msg*/ = std::string{})
 {
   using ComputePath = nav2_msgs::action::ComputePathToPose::Result;
   using Navigate = nav2_msgs::action::NavigateToPose::Result;
@@ -155,6 +145,9 @@ inline TransitFailure classifyTransitFailure(uint16_t error_code, const std::str
       return TransitFailure::kTimeout;
     case ComputePath::TF_ERROR:
       return TransitFailure::kTfError;
+    case ComputePath::NONE:  // == Navigate::NONE == 0
+    case ComputePath::UNKNOWN:
+      return TransitFailure::kUnknown;
     default:
       break;
   }
@@ -166,24 +159,7 @@ inline TransitFailure classifyTransitFailure(uint16_t error_code, const std::str
   {
     return TransitFailure::kTfError;
   }
-
-  // No usable code — fall back to the planner's own words. Only the
-  // start-occupied phrase is matched: it is the one condition whose handling
-  // differs, and nav2_smac_planner's exception text ("Start occupied") is
-  // stable across the supported versions.
-  const bool code_is_uninformative = (error_code == ComputePath::NONE) ||
-                                     (error_code == Navigate::UNKNOWN) ||
-                                     (error_code == ComputePath::UNKNOWN);
-  if (code_is_uninformative && !error_msg.empty())
-  {
-    const std::string lowered = detail::asciiLower(error_msg);
-    if (lowered.find("start occupied") != std::string::npos)
-    {
-      return TransitFailure::kStartOccupied;
-    }
-  }
-
-  if (error_code == ComputePath::NONE)
+  if (error_code == Navigate::UNKNOWN)
   {
     return TransitFailure::kUnknown;
   }

@@ -30,7 +30,9 @@
  * Three things are pinned here:
  *   1. classifyTransitFailure() tells a START_OCCUPIED refusal (about the
  *      ROBOT'S pose) apart from every other transit failure (about the GOAL),
- *      from the nav2 error_code and, as a fallback, the planner's error_msg.
+ *      from the nav2 error_code ALONE — the planner's error_msg is never
+ *      parsed, so a nav2 upgrade that rewords the exception degrades to an
+ *      honest UNKNOWN rather than silently misclassifying.
  *   2. IsCoverageStartBlocked consumes the flag exactly once, so the recovery
  *      branch cannot re-fire on an unrelated later failure.
  *   3. main_tree.xml still carries the non-motion recovery branch (clear the
@@ -79,17 +81,24 @@ TEST(TransitFailureClassification, StartOccupiedErrorCodeIsRecognised)
   EXPECT_STREQ(transitFailureName(kind), "START_OCCUPIED");
 }
 
-// A robot whose bt_navigator drops "compute_path" from error_code_name_prefixes
-// (or a tree without error_code_id) reports UNKNOWN. nav2_smac_planner still
-// throws nav2_core::StartOccupied("Start occupied") and planner_server still
-// puts that text in error_msg, so the message is a second, independent signal.
-TEST(TransitFailureClassification, StartOccupiedMessageIsRecognisedWithoutACode)
+// Classification is ERROR-CODE-ONLY. A robot whose bt_navigator drops
+// "compute_path" from error_code_name_prefixes (or a tree without
+// error_code_id) reports UNKNOWN, and the planner's wording in error_msg must
+// NOT be used to recover the verdict: matching text would break silently on a
+// nav2 upgrade that rewords the exception. An honest kUnknown skips the swath
+// exactly as the pre-#487 code did. This test is the guard against anyone
+// re-adding a message fallback.
+TEST(TransitFailureClassification, StartOccupiedMessageWithoutACodeIsUnknown)
 {
-  EXPECT_TRUE(isStartPoseBlocked(classifyTransitFailure(
+  const auto kind = classifyTransitFailure(
       Navigate::UNKNOWN,
-      "GridBasedplugin failed to plan from (4.47, 4.70) to (2.07, 9.54): \"Start occupied\"")));
-  // Casing is not part of any API contract.
-  EXPECT_TRUE(isStartPoseBlocked(classifyTransitFailure(ComputePath::NONE, "START OCCUPIED")));
+      "GridBasedplugin failed to plan from (4.47, 4.70) to (2.07, 9.54): \"Start occupied\"");
+  EXPECT_EQ(kind, TransitFailure::kUnknown);
+  EXPECT_FALSE(isStartPoseBlocked(kind));
+
+  const auto no_code = classifyTransitFailure(ComputePath::NONE, "START OCCUPIED");
+  EXPECT_EQ(no_code, TransitFailure::kUnknown);
+  EXPECT_FALSE(isStartPoseBlocked(no_code));
 }
 
 // The whole point of the change: a failure about the GOAL must stay an ordinary
@@ -128,14 +137,10 @@ TEST(TransitFailureClassification, UnrelatedCodeIsOther)
   EXPECT_FALSE(isStartPoseBlocked(kind));
 }
 
-// A goal-side code must win over an incidental message match, so a planner that
-// mentions the phrase while reporting something else cannot suppress the
-// unmowable verdict.
-TEST(TransitFailureClassification, ExplicitCodeWinsOverTheMessageFallback)
-{
-  EXPECT_EQ(classifyTransitFailure(ComputePath::NO_VALID_PATH, "start occupied earlier, then..."),
-            TransitFailure::kNoValidPath);
-}
+// (ExplicitCodeWinsOverTheMessageFallback was dropped: with the message
+// fallback gone there is no fallback for a code to win over, and the "message
+// text is ignored" property is already pinned by
+// StartOccupiedMessageWithoutACodeIsUnknown above.)
 
 // ---------------------------------------------------------------------------
 // 2. IsCoverageStartBlocked — consumed exactly once.
