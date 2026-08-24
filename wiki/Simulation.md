@@ -2,6 +2,12 @@
 
 This guide explains how to run the Mowgli ROS2 system in Gazebo Harmonic simulation using Docker containers for testing and development without physical hardware.
 
+> **Maintainer note:** this guide is operator-facing and still describes the
+> Gazebo-era stack. For the Webots sim's ODE quirks and load-bearing
+> workarounds — read this before editing worlds, PROTOs, or
+> `kinematic_drive.py` — see
+> [`docs/WEBOTS_SIM.md`](https://github.com/mowglinext/mowglinext/blob/dev/docs/WEBOTS_SIM.md).
+
 ## Overview
 
 The simulation provides:

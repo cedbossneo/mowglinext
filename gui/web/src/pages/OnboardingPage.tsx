@@ -22,7 +22,7 @@ import { useImuYawCalibration } from "../hooks/useImuYawCalibration.ts";
 import { useFirmwareStatus } from "../hooks/useFirmwareStatus.ts";
 import { GnssStatusConstants } from "../types/ros.ts";
 import { CompassOutlined } from "@ant-design/icons";
-import { deriveGpsStatus, gnssReceiverLabel } from "../utils/gpsStatus.ts";
+import { deriveGpsStatus, gnssReceiverLabel, isGnssFixType } from "../utils/gpsStatus.ts";
 import { ReadinessStep } from "../components/onboarding/ReadinessStep.tsx";
 import {
     STEP_FIRMWARE, STEP_NTRIP, STEP_GPS, STEP_DATUM,
@@ -587,9 +587,9 @@ const DatumStep: React.FC<DatumStepProps> = ({ values, onChange, gpsRestarting, 
 
     const gnssStatus = useGnssStatus();
     const fixType = gnssStatus.fix_type ?? GnssStatusConstants.FIX_TYPE_NO_FIX;
-    const isRtkFixed = fixType === GnssStatusConstants.FIX_TYPE_RTK_FIXED;
-    const isRtkFloat = fixType === GnssStatusConstants.FIX_TYPE_RTK_FLOAT;
-    const isPlainFix = fixType === GnssStatusConstants.FIX_TYPE_GPS_FIX;
+    const isRtkFixed = isGnssFixType(fixType, GnssStatusConstants.FIX_TYPE_RTK_FIXED);
+    const isRtkFloat = isGnssFixType(fixType, GnssStatusConstants.FIX_TYPE_RTK_FLOAT);
+    const isPlainFix = isGnssFixType(fixType, GnssStatusConstants.FIX_TYPE_GPS_FIX);
     const fixLabel = isRtkFixed ? "RTK FIX" : isRtkFloat ? "RTK FLOAT" : isPlainFix ? "GPS FIX" : t("onboardingPage.noFix");
 
     const setDatumFromGps = async () => {

@@ -807,17 +807,338 @@ TEST(CoveragePlanning, TooSmallFieldGivesEmptyPlan)
   EXPECT_TRUE(plan.swaths.empty());
 }
 
-// num_headland_passes override forces the ring count.
+// num_headland_passes is a THREE-WAY sentinel (#429). This pins the two LEGACY
+// meanings — they must survive the "disable the rings" change untouched:
+//   > 0  forces exactly that ring count
+//   == 0 AUTO = ceil(headland_width / op_width), floored at 1
 TEST(CoveragePlanning, HeadlandPassOverride)
 {
-  const auto plan = planBoustrophedon(makeSquare(4.0),
-                                      0.16,
+  const auto forced = planBoustrophedon(makeSquare(4.0),
+                                        0.16,
+                                        0.18,
+                                        /*passes=*/3,
+                                        0.08,
+                                        -1.0,
+                                        0.15);
+  EXPECT_EQ(forced.rings.size(), 3u);
+
+  // AUTO (0) still floors at 1 ring: headland 0.18 / op_width 0.16 → ceil = 2,
+  // and even a sub-op_width headland must yield at least one perimeter ring.
+  const auto automatic = planBoustrophedon(makeSquare(4.0),
+                                           0.16,
+                                           0.18,
+                                           /*passes=*/0,
+                                           0.08,
+                                           -1.0,
+                                           0.15);
+  EXPECT_GE(automatic.rings.size(), 1u) << "passes=0 must keep meaning AUTO, floored at 1 ring";
+}
+
+// #429: a NEGATIVE num_headland_passes disables the ring stage entirely — the
+// serpentine swaths become the outermost driven pass. Regression guard for the
+// FLOOR on the rings-off field offset: field_offset is
+// max(0, chassis_safety_inset - op_width/2) with the rings off, so at inset 0
+// it is 0 and the planning cell is the recorded polygon. Removing the floor
+// (i.e. letting the expression go negative the way the rings-on branch
+// deliberately does, so ring 0 can ride ON the line) would EXPAND the planning
+// cell, and since F2C clips swaths exactly to it every swath END would land
+// ~0.08 m PAST the recorded line — where the robot meets the boundary head-on,
+// a direction chassis_safety_inset has never modelled.
+TEST(CoveragePlanning, HeadlandPassesDisabledYieldsNoRings)
+{
+  constexpr double kSize = 4.0;
+  constexpr double kOpWidth = 0.16;
+  const auto plan = planBoustrophedon(makeSquare(kSize),
+                                      kOpWidth,
                                       0.18,
-                                      /*passes=*/3,
-                                      0.08,
+                                      /*passes=*/-1,
+                                      /*chassis_safety_inset=*/0.0,
                                       -1.0,
                                       0.15);
-  EXPECT_EQ(plan.rings.size(), 3u);
+  EXPECT_TRUE(plan.rings.empty()) << "negative num_headland_passes must plan ZERO rings";
+  ASSERT_GE(plan.swaths.size(), 5u) << "no serpentine swaths planned with the rings off";
+
+  const auto boundary = squareRing(kSize);
+  // Swath ends ride ON the line by design (inset 0); allow only densification /
+  // buffer noise outside it. 0.01 m << the 0.08 m (op_width/2) breach the bug
+  // would produce.
+  constexpr double kOnLineTolM = 0.01;
+  for (const auto& s : plan.swaths)
+  {
+    for (const auto& pt : {s.first, s.second})
+    {
+      if (!pointInRing(pt.first, pt.second, boundary))
+      {
+        EXPECT_LE(distanceToRing(pt.first, pt.second, boundary), kOnLineTolM)
+            << "swath endpoint (" << pt.first << ", " << pt.second
+            << ") sits past the recorded boundary — the ring-0 field offset was applied "
+               "with no ring 0 (#429)";
+      }
+    }
+  }
+}
+
+// Smallest distance from the recorded ring to the MIDPOINT of any swath. A
+// swath midpoint is far from both swath ends, so its nearest ring edge is the
+// one PARALLEL to the sweep — i.e. this measures the LATERAL placement of the
+// outermost swath centerline, independently of where the ends are clipped.
+double minSwathMidDistance(
+    const std::vector<std::pair<std::pair<double, double>, std::pair<double, double>>>& swaths,
+    const std::vector<std::pair<double, double>>& ring)
+{
+  double best = std::numeric_limits<double>::max();
+  for (const auto& s : swaths)
+  {
+    const double mx = 0.5 * (s.first.first + s.second.first);
+    const double my = 0.5 * (s.first.second + s.second.second);
+    best = std::min(best, distanceToRing(mx, my, ring));
+  }
+  return best;
+}
+
+// Smallest distance from the recorded ring to any swath ENDPOINT (the
+// LONGITUDINAL contact: F2C clips every sweep line to the planning cell, so the
+// ends land on the cell edge).
+double minSwathEndDistance(
+    const std::vector<std::pair<std::pair<double, double>, std::pair<double, double>>>& swaths,
+    const std::vector<std::pair<double, double>>& ring)
+{
+  double best = std::numeric_limits<double>::max();
+  for (const auto& s : swaths)
+  {
+    for (const auto& pt : {s.first, s.second})
+    {
+      best = std::min(best, distanceToRing(pt.first, pt.second, ring));
+    }
+  }
+  return best;
+}
+
+// EXPERIMENT PIN (settles the swath-placement question in CI, against the REAL
+// Fields2Cover v3 these tests link): BruteForce places the OUTERMOST swath
+// centerline exactly op_width/2 inside the planning cell — upstream
+// `SwathGeneratorBase::getSwathsDistribution` does `sx[0] = 0.5 * cov_width`
+// measured from the rotated cell's bbox edge, the SAME convention
+// `ConstHL::generateHeadlandSwaths` uses for ring 0 (`buffer(-w * (i + 0.5))`).
+// The entire field_offset derivation rests on this being true for BOTH
+// generators. If an F2C bump ever changed it (a flush-to-edge distribution, or
+// an END_OVERLAP swath appended in front of sx[0]), this fails loudly instead of
+// silently biasing every swath by op_width/2.
+//
+// Measured directly: chassis_safety_inset == op_width/2 makes field_offset 0, so
+// the planning cell IS the recorded square.
+TEST(CoveragePlanning, F2cPlacesOutermostSwathHalfOpWidthInsideThePlanningCell)
+{
+  constexpr double kSize = 6.0;
+  constexpr double kOpWidth = 0.16;
+
+  const auto plan = planBoustrophedon(makeSquare(kSize),
+                                      kOpWidth,
+                                      0.18,
+                                      /*passes=*/-1,
+                                      /*chassis_safety_inset=*/kOpWidth / 2.0,
+                                      -1.0,
+                                      0.15);
+  ASSERT_TRUE(plan.rings.empty());
+  ASSERT_GE(plan.swaths.size(), 5u) << "no serpentine swaths planned";
+
+  const auto boundary = squareRing(kSize);
+  EXPECT_NEAR(minSwathMidDistance(plan.swaths, boundary), kOpWidth / 2.0, 0.01)
+      << "F2C no longer places the outermost swath centerline op_width/2 inside the planning "
+         "cell — the field_offset derivation in planBoustrophedon is invalidated";
+}
+
+// #429 GEOMETRY CONTRACT with the rings OFF. chassis_safety_inset means "how far
+// inside the recorded line the OUTERMOST DRIVEN PASS's centerline sits". With no
+// rings the outermost driven pass is the outermost SWATH, and F2C insets it by
+// op_width/2 exactly as it insets ring 0 (see the experiment pin above), so the
+// −op_width/2 field offset applies in BOTH branches:
+//   outermost swath CENTERLINE  → kInset from the recorded line (lateral)
+//   swath ENDS (clipped to the planning cell) → kInset − op_width/2 (longitudinal)
+// The pre-fix code dropped the term with the rings off, which pushed BOTH out by
+// op_width/2 — so "no perimeter rings" mowed 8 cm FURTHER from the edge than 2
+// rings did, the opposite of what the setting promises.
+TEST(CoveragePlanning, HeadlandDisabledPlacesOutermostSwathAtChassisInset)
+{
+  constexpr double kSize = 6.0;
+  constexpr double kOpWidth = 0.16;
+  constexpr double kInset = 0.20;  // = robot_width/2 for the 0.40 m chassis
+  constexpr double kSlack = 0.02;  // densification / GEOS buffer noise
+
+  const auto plan = planBoustrophedon(makeSquare(kSize),
+                                      kOpWidth,
+                                      0.18,
+                                      /*passes=*/-1,
+                                      kInset,
+                                      -1.0,
+                                      0.15);
+  EXPECT_TRUE(plan.rings.empty());
+  ASSERT_FALSE(plan.swaths.empty()) << "no swaths planned with rings off + a 0.20 m inset";
+
+  const auto boundary = squareRing(kSize);
+  for (const auto& s : plan.swaths)
+  {
+    for (const auto& pt : {s.first, s.second})
+    {
+      ASSERT_TRUE(pointInRing(pt.first, pt.second, boundary))
+          << "swath endpoint (" << pt.first << ", " << pt.second << ") is outside the boundary";
+    }
+  }
+
+  EXPECT_NEAR(minSwathMidDistance(plan.swaths, boundary), kInset, kSlack)
+      << "the outermost swath centerline must sit chassis_safety_inset inside the recorded line "
+         "with the rings off (pre-fix it sat kInset + op_width/2 = 0.28 m in)";
+  EXPECT_NEAR(minSwathEndDistance(plan.swaths, boundary), kInset - kOpWidth / 2.0, kSlack)
+      << "swath ENDS are clipped to the planning cell, which is eroded by "
+         "(chassis_safety_inset - op_width/2)";
+}
+
+// #429 the operator-visible claim, pinned: choosing "None" must not leave a
+// WIDER uncut border than the rings it replaces. Both modes are measured by the
+// same yardstick — the distance from the recorded line to the outermost DRIVEN
+// centerline (ring 0 with the rings on, the outermost swath with them off),
+// which is what the cut edge is offset from by the same op_width/2 either way.
+// Pre-fix: 0.20 m (rings on) vs 0.28 m (rings off) → the feature made it worse.
+TEST(CoveragePlanning, HeadlandDisabledBorderNoWorseThanRingsOn)
+{
+  constexpr double kSize = 6.0;
+  constexpr double kOpWidth = 0.16;
+  constexpr double kInset = 0.20;
+  const auto boundary = squareRing(kSize);
+
+  const auto with_rings = planBoustrophedon(makeSquare(kSize),
+                                            kOpWidth,
+                                            0.18,
+                                            /*passes=*/2,
+                                            kInset,
+                                            -1.0,
+                                            0.15);
+  ASSERT_FALSE(with_rings.rings.empty()) << "no rings planned with passes=2";
+  double rings_on_outermost = std::numeric_limits<double>::max();
+  for (const auto& ring : with_rings.rings)
+  {
+    for (const auto& p : ring)
+    {
+      rings_on_outermost =
+          std::min(rings_on_outermost, distanceToRing(p.first, p.second, boundary));
+    }
+  }
+
+  // Sanity-pin the yardstick itself so a failure below names the right cause:
+  // with the rings ON, ring 0's centerline sits chassis_safety_inset in.
+  EXPECT_NEAR(rings_on_outermost, kInset, 0.02)
+      << "ring 0 no longer sits chassis_safety_inset inside the recorded line — the "
+         "rings-off comparison below is measured against a moved baseline";
+
+  const auto no_rings = planBoustrophedon(makeSquare(kSize),
+                                          kOpWidth,
+                                          0.18,
+                                          /*passes=*/-1,
+                                          kInset,
+                                          -1.0,
+                                          0.15);
+  ASSERT_TRUE(no_rings.rings.empty());
+  ASSERT_FALSE(no_rings.swaths.empty());
+  const double rings_off_outermost = minSwathMidDistance(no_rings.swaths, boundary);
+
+  EXPECT_LE(rings_off_outermost, rings_on_outermost + 0.01)
+      << "with the rings OFF the outermost driven pass sits " << rings_off_outermost
+      << " m inside the recorded line vs " << rings_on_outermost
+      << " m with 2 rings — choosing \"None\" would leave a WIDER uncut border than the "
+         "perimeter loop it removes (#429)";
+}
+
+// #429: with the rings off the connector clearance ring is safe_boundary
+// EXACTLY — no outward expansion. An earlier revision expanded it by 0.03 m,
+// which let a turn-around connector centerline ride 3 cm past the recorded line
+// while staying invisible to the server's 0.05 m verify slack, eroding the
+// keep-inside contract that is the SHIPPED mode (chassis_safety_inset 0.20 ==
+// robot_width/2). On-edge swath ends are accepted by allInside()'s 1 mm
+// tolerance instead — see HeadlandDisabledIsOneSubPath for the no-fragmentation
+// half of that argument.
+TEST(CoveragePlanning, HeadlandDisabledClearanceRingIsExactlySafeBoundary)
+{
+  constexpr double kSize = 6.0;
+  constexpr double kOpWidth = 0.16;
+  constexpr double kInset = 0.20;
+
+  const auto plan = planBoustrophedon(makeSquare(kSize),
+                                      kOpWidth,
+                                      0.18,
+                                      /*passes=*/-1,
+                                      kInset,
+                                      -1.0,
+                                      0.15);
+  ASSERT_TRUE(plan.rings.empty());
+  ASSERT_GE(plan.safe_boundary.size(), 3u);
+  ASSERT_EQ(plan.connector_clearance_boundary.size(), plan.safe_boundary.size())
+      << "the clearance ring must be safe_boundary itself with the rings off";
+  for (std::size_t i = 0; i < plan.safe_boundary.size(); ++i)
+  {
+    EXPECT_NEAR(plan.connector_clearance_boundary[i].first, plan.safe_boundary[i].first, 1e-9);
+    EXPECT_NEAR(plan.connector_clearance_boundary[i].second, plan.safe_boundary[i].second, 1e-9);
+  }
+
+  // And it never pokes outside the recorded polygon.
+  const auto boundary = squareRing(kSize);
+  for (const auto& p : plan.connector_clearance_boundary)
+  {
+    EXPECT_TRUE(pointInRing(p.first, p.second, boundary))
+        << "clearance-ring vertex (" << p.first << ", " << p.second
+        << ") is outside the recorded boundary — the outward expansion is back";
+  }
+}
+
+// #429 companion to TooSmallFieldGivesEmptyPlan: disabling the rings must not
+// let a too-small field through the too-small guard, nor emit geometry outside
+// the recorded boundary.
+TEST(CoveragePlanning, HeadlandDisabledTinyFieldStillGivesEmptyPlan)
+{
+  // (a) An inset that leaves a field narrower than one swath must yield no
+  // geometry at all — the server then reports failure. (0.4 m square, inset
+  // 0.25 → planning cell 0.4 − 2*(0.25 − 0.08) = 0.06 m, well under the 0.16 m
+  // swath spacing.)
+  const auto consumed = planBoustrophedon(makeSquare(0.4),
+                                          0.16,
+                                          0.18,
+                                          /*passes=*/-1,
+                                          /*chassis_safety_inset=*/0.25,
+                                          -1.0,
+                                          0.15);
+  EXPECT_TRUE(consumed.rings.empty()) << "rings are disabled, so there can never be any";
+  EXPECT_TRUE(consumed.swaths.empty()) << "a fully-consumed field must yield no swaths";
+
+  // (b) A field the inset merely SHRINKS: with the rings off, a short swath is
+  // legitimate coverage rather than a degenerate plan — but nothing it emits
+  // may escape the recorded boundary. At inset == op_width/2 the field offset
+  // floors to 0, so the swath ENDS land exactly ON the recorded line; allow
+  // that (pointInRing resolves on-edge poses inconsistently) but nothing past
+  // it. This is the case that would break if the rings-off offset were allowed
+  // to go NEGATIVE: the planning field would be EXPANDED and the ends would sit
+  // ~0.08 m outside the polygon.
+  constexpr double kSize = 0.4;
+  constexpr double kOnLineTolM = 0.01;
+  const auto tiny = planBoustrophedon(makeSquare(kSize),
+                                      0.16,
+                                      0.18,
+                                      /*passes=*/-1,
+                                      /*chassis_safety_inset=*/0.08,
+                                      -1.0,
+                                      0.15);
+  EXPECT_TRUE(tiny.rings.empty());
+  const auto boundary = squareRing(kSize);
+  for (const auto& s : tiny.swaths)
+  {
+    for (const auto& pt : {s.first, s.second})
+    {
+      if (!pointInRing(pt.first, pt.second, boundary))
+      {
+        EXPECT_LE(distanceToRing(pt.first, pt.second, boundary), kOnLineTolM)
+            << "swath endpoint (" << pt.first << ", " << pt.second
+            << ") escaped the recorded boundary on a shrunken field (#429)";
+      }
+    }
+  }
 }
 
 // OPT-IN keep-inside: the coverage server does NOT floor the inset (it clamps
@@ -1060,6 +1381,74 @@ TEST(CoverageContinuousPath, OutermostRingStaysInsideClearanceRingOnTheLine)
       << out_of_bounds
       << " continuous-path pose(s) outside the outermost-ring clearance ring (worst " << worst
       << " m past it) — the connector/ring geometry escaped the safety inset (#388)";
+}
+
+// #429 REGRESSION: with the headland rings DISABLED the swath ENDS are the
+// outermost driven geometry and sit exactly ON safe_boundary, which is also the
+// connector clearance ring. If connector_clearance_boundary were still built by
+// eroding op_width/2 inward, buildConnector's allInside() would reject every
+// U-turn arc AND the straight fallback → conn_safe false → the sub-path SPLIT at
+// every U-turn, i.e. one blade-off Nav2 transit per swath on a hole-free field.
+// The clearance ring is safe_boundary EXACTLY (no outward expansion — that would
+// let a connector centerline cross the recorded line); what keeps the on-edge
+// ends acceptable is allInside()'s 1 mm kOnEdgeTolM tolerance, since pointInRing
+// is a strict-`>` crossing test that resolves on-edge poses inconsistently.
+//
+// With no mowed apron beyond the swath ends most U-turn ARCS legitimately do not
+// fit, so buildConnector falls back to a straight pivot-through join — that is
+// the intended, documented behaviour of "None" and it still passes allInside, so
+// this asserts the hole-free field yields exactly ONE sub-path and that no pose
+// escapes the clearance ring by more than the server's verify slack.
+TEST(CoverageContinuousPath, HeadlandDisabledIsOneSubPath)
+{
+  constexpr double kOpWidth = 0.16;
+  constexpr double kHeadland = 0.18;
+  constexpr double kMinSwath = 0.15;
+  constexpr double kInset = 0.0;
+  constexpr double kTurnRadius = 0.18;
+  constexpr double kMinTurnRadius = 0.15;
+  constexpr double kStep = 0.03;
+  constexpr double kBoundarySlack = 0.05;  // == coverage_server.cpp kBoundarySlackM
+
+  const auto plan = planBoustrophedon(makeSquare(6.0),
+                                      kOpWidth,
+                                      kHeadland,
+                                      /*passes=*/-1,
+                                      kInset,
+                                      -1.0,
+                                      kMinSwath,
+                                      0,
+                                      kMinTurnRadius);
+  ASSERT_TRUE(plan.rings.empty());
+  ASSERT_FALSE(plan.swaths.empty()) << "no swaths planned";
+  ASSERT_GE(plan.connector_clearance_boundary.size(), 3u)
+      << "connector_clearance_boundary not populated with the rings off";
+  const std::vector<std::pair<double, double>>& clearance = plan.connector_clearance_boundary;
+
+  const auto subs = buildContinuousSubPaths(plan, clearance, kTurnRadius, kMinTurnRadius, kStep);
+  EXPECT_EQ(subs.size(), 1u)
+      << "a hole-free field must stay ONE sub-path with the headland rings off — " << subs.size()
+      << " sub-paths means a blade-off Nav2 transit per U-turn (#429)";
+
+  std::size_t out_of_bounds = 0;
+  double worst = 0.0;
+  for (const auto& sub : subs)
+  {
+    for (const auto& p : sub)
+    {
+      if (!pointInRing(p.first, p.second, clearance))
+      {
+        const double d = distanceToRing(p.first, p.second, clearance);
+        worst = std::max(worst, d);
+        if (d > kBoundarySlack)
+        {
+          ++out_of_bounds;
+        }
+      }
+    }
+  }
+  EXPECT_EQ(out_of_bounds, 0u) << out_of_bounds << " pose(s) more than " << kBoundarySlack
+                               << " m outside the clearance ring (worst " << worst << " m)";
 }
 
 // Headland-on-the-line: with chassis_safety_inset = 0 (the new default) the

@@ -2062,7 +2062,7 @@ This lets costmap, collision_monitor, fusion_graph (when enabled), and every oth
 | fusion_graph Config | src/fusion_graph/config/fusion_graph.yaml | Factor-graph tuning: node cadence, wheel/gyro/GPS sigmas, lever-arm, COG/mag gates, iSAM2 + LiDAR knobs |
 | Nav2 Config | src/mowgli_bringup/config/nav2_params_base.yaml (+ lidar/no_lidar overlays) | Planner, controller, costmap tuning |
 | Behavior Tree | src/mowgli_behavior/trees/main_tree.xml | High-level state machine and sequencing |
-| Coverage Config | src/mowgli_bringup/config/mowgli_robot.yaml | Coverage parameters (path_spacing, mow_angle_offset_deg, tool_width) |
+| Coverage Config | src/mowgli_bringup/config/mowgli_robot.yaml | Coverage parameters (tool_width, mow_angle_deg, swath_overlap, num_headland_passes) |
 | Gazebo Worlds | src/mowgli_simulation/worlds/ | garden.sdf (realistic), empty_garden.sdf (testing) |
 
 **Testing Workflow:**

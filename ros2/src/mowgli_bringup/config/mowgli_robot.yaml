@@ -256,7 +256,15 @@ mowgli:
     # -----------------------------------------------------------------
     # Mowing
     # -----------------------------------------------------------------
-    mowing_enabled: true           # enable blade motor during mowing
+    # mowing_enabled: read by hardware_bridge_node, which gates blade ENABLE
+    # requests at /hardware_bridge/mower_control — the merged chokepoint every
+    # caller (BT SetMowerEnabled, FollowStrip, the GUI blade button) goes
+    # through. false = DRY RUN: the robot mows the full path with the blade
+    # never spinning. NOT a safety interlock — the STM32 firmware remains the
+    # sole blade safety authority and a DISABLE always passes through
+    # (mowgli_hardware/blade_gate.hpp). Read at startup: takes effect on the
+    # next ROS2 container restart.
+    mowing_enabled: true
     mowing_speed: 0.2              # m/s during coverage paths (field-validated comfortable cut speed)
     transit_speed: 0.2             # m/s during point-to-point navigation (→ RPP desired_linear_vel)
     # mow_angle_deg: swath direction. -1 (or any negative) = AUTO — the coverage
@@ -279,6 +287,26 @@ mowgli:
     # num_headland_passes: 0 = auto (= ceil(headland_width / tool_width)).
     # >0 forces exactly that many concentric perimeter rings, e.g. 1 for a
     # single perimeter pass, 2 for double, regardless of headland_width.
+    # -1 (or any negative) = NONE — no perimeter rings at all (#429). The
+    # back-and-forth swaths become the outermost driven pass. Three distances,
+    # easy to conflate — at the defaults below (chassis_safety_inset 0.20,
+    # op_width = tool_width − swath_overlap = 0.16):
+    #   * outermost swath CENTERLINE = chassis_safety_inset (0.20 m) inside the
+    #     recorded boundary — exactly the line ring 0 would have driven, because
+    #     F2C insets the outermost swath by op_width/2 the same way it insets
+    #     ring 0 (swath_generator_base.cpp sx[0] = 0.5*cov_width).
+    #   * uncut LATERAL band = 0.20 − 0.08 = ~0.12 m, the same band the rings
+    #     leave. Sideways, NONE does not mow closer to the edge, nor further.
+    #   * swath ENDS also land on that ~0.12 m line, because F2C clips each
+    #     sweep line to the planning cell. With rings on the ends sit far deeper
+    #     (the rings absorb that band), so at a ROW END the robot noses ~8 cm
+    #     closer to the boundary than it ever does with rings on. That is the
+    #     cost of having no apron, and it is head-on rather than parallel, where
+    #     chassis_safety_inset's half-chassis-width reasoning does not apply.
+    # Side effect: with no mowed apron beyond the swath ends, row-end U-turns
+    # degrade to straight pivot-through corners instead of smooth arcs.
+    # FIELD TEST OWED before trusting NONE on a real lawn (#429).
+    # Read once at coverage_server startup — takes effect on the next ROS2 restart.
     num_headland_passes: 2         # 2026-07-23: field-validated default (was 0=auto)
     # mow_direction: perimeter/headland travel winding (issue #335). 0 = planner
     # default (F2C natural), 1 = clockwise, 2 = counter-clockwise. Set it so a
@@ -420,8 +448,13 @@ mowgli:
     # -----------------------------------------------------------------
     # Safety
     # -----------------------------------------------------------------
-    motor_temp_high_c: 80.0        # stop blade if motor exceeds
-    motor_temp_low_c: 40.0         # resume blade below this
+    # NOTE: motor_temp_high_c / motor_temp_low_c were REMOVED — no node ever
+    # read them and NO firmware thermal cutoff exists (adc.c only measures
+    # blade_temperature and cpp_main.cpp only reports it, so the GUI's old
+    # "Stop Above / Resume Below" card promised a cutoff that lives in no layer
+    # of the stack). Temperature is a DIAGNOSTICS surface only: see
+    # motor_temp_warn_c / motor_temp_error_c in
+    # mowgli_monitoring/config/diagnostics.yaml (WARN/ERROR levels, no action).
     # Lift/tilt emergency is handled by firmware (STM32), not ROS2
 
     # -----------------------------------------------------------------

@@ -485,6 +485,43 @@ def test_docking_controller_aligned_across_variants() -> None:
     )
 
 
+def test_docking_max_retries_and_battery_status_present() -> None:
+    """docking_server.max_retries and simple_charging_dock.use_battery_status are
+    INJECTED at launch from mowgli_robot.yaml (dock_max_retries /
+    dock_use_charger_detection, issue #195). navigation.launch.py writes them
+    into the MERGED doc, so both keys must exist in both merged variants — and,
+    per Invariant 8, they must live in the shared BASE with NEITHER overlay
+    redefining them (an overlay copy would win the deep-merge for one variant
+    only, silently splitting the two configs' docking behaviour).
+    """
+    for name, params in (("lidar", _load_params()), ("no_lidar", _load_no_lidar_params())):
+        ds = params["docking_server"]["ros__parameters"]
+        assert "max_retries" in ds, f"{name}: docking_server.max_retries missing"
+        assert isinstance(ds["max_retries"], int) and ds["max_retries"] >= 0, (
+            f"{name}: docking_server.max_retries={ds['max_retries']!r} must be a non-negative int"
+        )
+        scd = ds["simple_charging_dock"]
+        assert "use_battery_status" in scd, (
+            f"{name}: simple_charging_dock.use_battery_status missing"
+        )
+        assert isinstance(scd["use_battery_status"], bool), (
+            f"{name}: simple_charging_dock.use_battery_status must be a bool"
+        )
+
+    base = _load_yaml("nav2_params_base.yaml")["docking_server"]["ros__parameters"]
+    assert "max_retries" in base and "use_battery_status" in base["simple_charging_dock"], (
+        "both keys must be defined in the SHARED base (nav2_params_base.yaml)"
+    )
+    for overlay in ("nav2_params_lidar.yaml", "nav2_params_no_lidar.yaml"):
+        ov = (_load_yaml(overlay).get("docking_server") or {}).get("ros__parameters") or {}
+        assert "max_retries" not in ov, (
+            f"{overlay} redefines docking_server.max_retries — it belongs in the base only"
+        )
+        assert "use_battery_status" not in (ov.get("simple_charging_dock") or {}), (
+            f"{overlay} redefines simple_charging_dock.use_battery_status — base only"
+        )
+
+
 def test_docking_v_linear_min_above_firmware_deadband() -> None:
     """hardware_bridge zeros |vx| < 0.15, so the dock crawl floor must EXCEED it
     or the final approach is zeroed and the robot stops short of the cradle.
@@ -519,6 +556,24 @@ def test_coverage_server_geometry_aligned_across_variants() -> None:
             f"coverage_server.{k} differs across variants: "
             f"lidar={lp.get(k)} vs no_lidar={np_.get(k)}"
         )
+
+
+def test_coverage_server_num_headland_passes_sentinel_range() -> None:
+    """num_headland_passes is a THREE-WAY sentinel (issue #429):
+    <0 = NONE (no perimeter rings — the swaths mow to the boundary),
+    0 = AUTO (ceil(default_headland_width / operation_width), min 1),
+    >0 = exactly that many rings.
+
+    The value must therefore stay an int in [-1, 5]: nothing clamps it on the
+    way through navigation.launch.py, so a stray large/negative value would
+    silently reshape every plan.
+    """
+    for name, params in (("lidar", _load_params()), ("no_lidar", _load_no_lidar_params())):
+        n = params["coverage_server"]["ros__parameters"]["num_headland_passes"]
+        assert isinstance(n, int) and not isinstance(n, bool), (
+            f"{name}: num_headland_passes must be an int, got {type(n).__name__}"
+        )
+        assert -1 <= n <= 5, f"{name}: num_headland_passes={n} outside the [-1, 5] sentinel range"
 
 
 def test_coverage_server_has_no_turn_planning_knobs() -> None:
