@@ -72,7 +72,14 @@ from nav2_common.launch import RewrittenYaml
 # with the selected lidar/no-lidar overlay — one tested recursive-merge
 # implementation instead of a per-file copy that can drift.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from robot_config_util import DEFAULT_TOOL_WIDTH_M, deep_merge, load_robot_params  # noqa: E402
+from robot_config_util import (  # noqa: E402
+    DEFAULT_TOOL_WIDTH_M,
+    DEFAULT_WHEEL_TRACK_M,
+    check_turn_geometry,
+    deep_merge,
+    derive_turn_speed,
+    load_robot_params,
+)
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -374,6 +381,16 @@ def generate_launch_description() -> LaunchDescription:
     # Injected into coverage_server.connector_turn_radius; operator-tunable via
     # mowgli_robot.yaml (raise toward 0.30 if the tighter turns hesitate).
     connector_turn_radius = 0.18
+    # wheel_track: centre-to-centre wheel distance. NOT injected into anything
+    # here — it is read so the turn-geometry check below can compare the planned
+    # turn radii against the HALF-track. Must match the firmware WHEEL_BASE that
+    # does the actual differential-drive IK (left = vx - wz*track/2).
+    wheel_track = DEFAULT_WHEEL_TRACK_M
+    # turn_speed_ratio: FollowCoveragePath.speed_slow as a fraction of
+    # mowing_speed. See the mowgli_robot.yaml template for the rationale
+    # (issue #499 — speed_slow used to be static, so turns ran FASTER than the
+    # straights whenever the operator lowered mowing_speed).
+    turn_speed_ratio = 0.8
     # Fallback if progress_timeout_sec is absent from the resolved robot config
     # (normally the mowgli_robot.yaml template supplies it — default 30.0, see
     # #396). Kept equal to that default so the effective timeout is one number.
@@ -547,6 +564,8 @@ def generate_launch_description() -> LaunchDescription:
             "num_headland_passes", num_headland_passes))
         mow_direction = int(rt_rp.get("mow_direction", mow_direction))
         swath_overlap = float(rt_rp.get("swath_overlap", swath_overlap))
+        wheel_track = float(rt_rp.get("wheel_track", wheel_track))
+        turn_speed_ratio = float(rt_rp.get("turn_speed_ratio", turn_speed_ratio))
         min_turning_radius = float(rt_rp.get(
             "min_turning_radius", min_turning_radius))
         connector_turn_radius = float(rt_rp.get(
@@ -724,6 +743,45 @@ def generate_launch_description() -> LaunchDescription:
         if mowing_speed > ftc_speed_cap:
             fcp["max_cmd_vel_speed"] = mowing_speed
 
+        # ── Turn speed: derived from mowing_speed, not static (issue #499) ──
+        #
+        # speed_slow is FTC's carrot target wherever the path BENDS — every
+        # swath-end turn-around arc and every headland corner fillet. It used to
+        # be a STATIC value in nav2_params_base.yaml while speed_fast tracked the
+        # operator's mowing_speed, so lowering mowing_speed made the TURNS faster
+        # than the straights: backwards everywhere, and worst exactly where the
+        # robot carves the lawn. The arithmetic and both clamp rationales live in
+        # robot_config_util.derive_turn_speed — pure and unit-tested, because this
+        # launch file imports launch/launch_ros and cannot be imported outside a
+        # sourced ROS2 install.
+        turn_speed, turn_speed_warnings = derive_turn_speed(
+            mowing_speed, turn_speed_ratio, float(fcp.get("min_speed_mps", 0.15)))
+        for line in turn_speed_warnings:
+            print(line)
+        fcp["speed_slow"] = turn_speed
+
+        # Effective turn radii — the CLAMPED values actually injected into
+        # coverage_server further down. Computed here so the geometry check below
+        # reports the numbers the planner really receives, not the raw yaml values
+        # it would have clamped away. Clamp to the tuned [0.10, 0.50] band
+        # (sub-0.10 loops are untrackable, >0.50 bulges out of bounds);
+        # connector_turn_radius is additionally held at or above the floor —
+        # buildConnector floors it anyway, but the injected pair stays coherent.
+        eff_min_turn_radius = min(0.50, max(0.10, min_turning_radius))
+        eff_connector_turn_radius = min(
+            0.50, max(eff_min_turn_radius, connector_turn_radius))
+
+        # ── Turn-geometry sanity check (issue #499) ─────────────────────────
+        # WARN-only by design — see check_turn_geometry for why hard-failing here
+        # would brick every existing robot's navigation stack rather than protect
+        # it. wheel_track comes from the robot config, never a literal.
+        for line in check_turn_geometry(eff_min_turn_radius,
+                                        eff_connector_turn_radius,
+                                        wheel_track,
+                                        turn_speed,
+                                        float(fcp.get("max_cmd_vel_ang", 0.8))):
+            print(line)
+
         # Obstacle-avoidance knobs (GUI: Settings → Obstacles).
         # max_obstacle_avoidance_distance historically only reached
         # map_server.bypass_max_length (full_system.launch.py) while FTC's
@@ -863,13 +921,11 @@ def generate_launch_description() -> LaunchDescription:
         # Hard floor on the continuous path's turn-around / fillet arcs so no
         # turn is ever tighter than the robot can track (clamp to the tuned
         # [0.10, 0.50] band; sub-0.10 loops are untrackable, >0.50 bulges OOB).
-        cov_params["min_turning_radius"] = min(0.50, max(0.10, min_turning_radius))
+        cov_params["min_turning_radius"] = eff_min_turn_radius
         # Nominal turn-around radius for the continuous path (compact U vs big
-        # teardrop). Clamp to a sane band and never below the trackable floor:
-        # buildConnector floors it at min_turning_radius anyway, but keep the
-        # injected value coherent.
-        cov_params["connector_turn_radius"] = min(
-            0.50, max(min(0.50, max(0.10, min_turning_radius)), connector_turn_radius))
+        # teardrop). Clamped alongside the floor above (eff_min_turn_radius) so the
+        # geometry check and the injected value can never describe different plans.
+        cov_params["connector_turn_radius"] = eff_connector_turn_radius
 
         tmp = tempfile.NamedTemporaryFile(
             mode="w", prefix="mowgli_nav2_", suffix=".yaml", delete=False)

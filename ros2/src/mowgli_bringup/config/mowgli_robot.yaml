@@ -267,6 +267,29 @@ mowgli:
     mowing_enabled: true
     mowing_speed: 0.2              # m/s during coverage paths (field-validated comfortable cut speed)
     transit_speed: 0.2             # m/s during point-to-point navigation (→ RPP desired_linear_vel)
+    # turn_speed_ratio: the coverage controller's speed THROUGH a bend, as a
+    # fraction of mowing_speed. Injected at launch as
+    # FollowCoveragePath.speed_slow = clamp(mowing_speed * turn_speed_ratio,
+    # min_speed_mps, mowing_speed) — see navigation.launch.py.
+    #
+    # WHY IT EXISTS (issue #499): speed_slow used to be a STATIC 0.16 in
+    # nav2_params_base.yaml while speed_fast tracked the operator's mowing_speed.
+    # An operator who lowered mowing_speed to 0.15 therefore ended up driving the
+    # swath-end TURNS 7 % FASTER than the straights — exactly backwards, and
+    # exactly where the robot carves the lawn. Deriving it from mowing_speed
+    # makes the speed slider apply to turns too, and (with a ratio <= 1) makes a
+    # turn never faster than a straight.
+    #
+    # 0.8 reproduces the historical 0.16 / 0.20 pair, so this is a no-op for a
+    # robot on the default mowing_speed. LOWER it to take heat out of swath-end
+    # turns: wheel speeds in a bend scale linearly with it (v_outer =
+    # v*(1 + track/2R)), so 0.6 removes ~25 % of the peak outer-wheel speed.
+    # It does NOT change the inner/outer wheel RATIO — that is set by the turn
+    # RADIUS against the half-track and is speed-independent (issue #499).
+    # Clamped to (0, 1.0] at launch; the effective speed is additionally floored
+    # at FollowCoveragePath.min_speed_mps, below which FTC's own floor would
+    # override it anyway (and the wheels stall under the firmware deadband).
+    turn_speed_ratio: 0.8
     # mow_angle_deg: swath direction. -1 (or any negative) = AUTO — the coverage
     # server picks the swath-count-minimising angle (F2C NSwath). 0..179 forces a
     # fixed swath angle in degrees. Flows to the BT (behavior_tree_node blackboard)

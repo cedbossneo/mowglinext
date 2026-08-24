@@ -170,10 +170,15 @@ constexpr double kConnectorFallbackWarnPct = 25.0;
 // a string LITERAL at each RCLCPP_* call site: the logging macros carry a
 // printf-style format attribute, so a non-literal format argument both loses the
 // compiler's argument-type checking and warns under -Wformat-nonliteral.
-#define MOWGLI_CONNECTOR_STATS_FMT                                                       \
-  "PlanCoverage connectors: %zu join(s) — %zu turn-around arc, %zu straight fallback " \
-  "(driven blade-on), %zu split (blade-off transit); fallback rate %.1f%% at "           \
-  "connector_turn_radius=%.2f min_turning_radius=%.2f"
+//
+// ASCII-only on purpose: a non-ASCII character inside a line-continued macro
+// makes clang-format 18 (what CI pins) and clang-format 22 (what the local
+// pre-push hook runs) disagree about the backslash column, so the two rewrite
+// each other forever.
+#define MOWGLI_CONNECTOR_STATS_FMT                                            \
+  "PlanCoverage connectors: %zu join(s): %zu turn-around arc, %zu straight "  \
+  "fallback (driven blade-on), %zu split (blade-off transit); fallback rate " \
+  "%.1f%% at connector_turn_radius=%.2f min_turning_radius=%.2f"
 
 // Build the F2C cell from the goal's outer boundary + obstacle holes.
 // F2C wants closed rings (first == last); the BT passes open rings.

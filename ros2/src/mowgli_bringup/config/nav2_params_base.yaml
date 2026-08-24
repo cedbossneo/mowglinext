@@ -337,13 +337,23 @@ controller_server:
     # F2C route as one continuous goal — FTC tracks it; no per-swath feeding.
     FollowCoveragePath:
       plugin: "mowgli_nav2_plugins/FTCController"
-      # Carrot speed. speed_fast is overridden at launch by mowing_speed.
+      # Carrot speed. BOTH are overridden at launch (navigation.launch.py):
+      #   speed_fast = mowing_speed
+      #   speed_slow = clamp(mowing_speed * turn_speed_ratio,
+      #                      min_speed_mps, mowing_speed)
+      # Editing the literals below therefore does NOT change the running robot —
+      # change mowing_speed / turn_speed_ratio in mowgli_robot.yaml instead.
       speed_fast: 0.20
       speed_fast_threshold: 0.5
       speed_fast_threshold_angle: 10.0
-      # 0.16 kept conservative. The host clamp is now the RUNTIME param
-      # min_linear_vel (hardware_bridge_node.cpp, default 0.05 — not the old
-      # kMinLinVel=0.15), so this MAY be lowered.
+      # speed_slow is FTC's target wherever the path BENDS — every swath-end
+      # turn-around arc and every headland corner fillet. It used to be a STATIC
+      # 0.16 while speed_fast tracked the operator's mowing_speed, so an operator
+      # on mowing_speed=0.15 drove the TURNS 7 % FASTER than the straights —
+      # backwards everywhere, and worst exactly where the robot carves the lawn
+      # (issue #499). It is now derived; this literal is the fallback for a
+      # launch that cannot read the robot config, and 0.16 == 0.8 x the 0.20
+      # above, so the derived value reproduces it for a default robot.
       speed_slow: 0.16
       speed_angular: 45.0
       acceleration: 0.2
