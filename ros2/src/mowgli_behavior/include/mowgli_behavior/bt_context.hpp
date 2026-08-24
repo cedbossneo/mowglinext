@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/point32.hpp"
+#include "mowgli_behavior/start_blocked_escape.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
 #include "mowgli_interfaces/msg/power.hpp"
@@ -56,6 +57,13 @@ struct BTContext
   // -----------------------------------------------------------------------
 
   mowgli_interfaces::msg::Status latest_status;
+  /// Arrival time of the most recent /hardware_bridge/status message.
+  /// Default-constructed = none has ever arrived, so latest_status is all
+  /// zeroes and describes nothing. EscapeStartBlocked (issue #487) needs this:
+  /// `mow_enabled == false` on a message that stopped arriving minutes ago is
+  /// NOT a verified blade-off, and the escape must stand down rather than drive
+  /// on an unverified blade state.
+  std::chrono::steady_clock::time_point last_status_time{};
   mowgli_interfaces::msg::Emergency latest_emergency;
   mowgli_interfaces::msg::Power latest_power;
 
@@ -172,6 +180,65 @@ struct BTContext
   /// area. Worst case an area gets kMaxStartBlockedAttempts + kMaxAreaAttempts
   /// dispatches before retirement.
   static constexpr uint32_t kMaxStartBlockedAttempts = 3;
+
+  // -----------------------------------------------------------------------
+  // Start-pose escape motion (issue #487, follow-up to the above)
+  // -----------------------------------------------------------------------
+  //
+  // SAFETY: these three fields are the entire gate on the only new PHYSICAL
+  // MOTION in the #487 workstream. Read mowgli_behavior/start_blocked_escape.hpp
+  // before touching any of them.
+
+  /// Arming token for EscapeStartBlocked, set by IsCoverageStartBlocked at the
+  /// moment it CONSUMES a confirmed start-pose-blocked pass, and consumed in
+  /// turn by EscapeStartBlocked.
+  ///
+  /// A separate token rather than a second read of coverage_start_blocked
+  /// because that bool is already consumed by the condition node one step
+  /// earlier in the same sequence. Keeping the arming explicit means the escape
+  /// node can refuse to move when it is ticked from anywhere else in the tree,
+  /// so the XML placement is not the only thing standing between a tree edit
+  /// and an unexpected drive command.
+  bool start_blocked_escape_armed{false};
+  /// When the token above was armed. A token older than
+  /// kStartBlockedEscapeArmMaxAgeSec is refused: the escape follows the blocked
+  /// pass immediately in the same branch, so a stale arming means the tree took
+  /// a path nobody modelled.
+  std::chrono::steady_clock::time_point start_blocked_escape_armed_time{};
+  static constexpr double kStartBlockedEscapeArmMaxAgeSec = 30.0;
+
+  /// Escape bounds + stand-down thresholds, loaded from ROS parameters at
+  /// startup and already passed through SanitizeEscapeCfg.
+  StartBlockedEscapeCfg start_blocked_escape_cfg{};
+
+  // -----------------------------------------------------------------------
+  // Last commanded motion (direction source for the escape above)
+  // -----------------------------------------------------------------------
+  //
+  // Updated from twist_mux's MERGED output (/cmd_vel) — i.e. what actually
+  // reached the wheels, across every motion lane (coverage, transit, docking,
+  // undock BackUp, teleop). A single controller's lane would miss the undock
+  // case, which is exactly the case #487 reported.
+
+  /// Last commanded forward velocity whose magnitude exceeded the escape's
+  /// min_signal_speed deadband [m/s]. Sign is what matters: it says which way
+  /// the robot was travelling when it last actually moved, and therefore which
+  /// way it arrived at wherever it is standing now.
+  double last_motion_cmd_vx{0.0};
+  /// False until such a command has been seen at least once. Cleared by
+  /// EndSession so a signal from a previous session can never steer an escape.
+  bool last_motion_valid{false};
+  /// Arrival time of that command.
+  std::chrono::steady_clock::time_point last_motion_time{};
+  /// While now() is before this instant the tracker IGNORES /cmd_vel samples.
+  /// EscapeStartBlocked keeps it bumped for the duration of its own manoeuvre
+  /// plus a short hold-off, because the escape's own commands are not an
+  /// ARRIVAL: letting them become "the last motion" would make a second escape
+  /// on the next blocked pass drive straight back into the cell the first one
+  /// left. The hold-off also covers the round trip through collision_monitor
+  /// and twist_mux, so a command published on the final escape tick cannot be
+  /// recorded after the node has finished.
+  std::chrono::steady_clock::time_point last_motion_suppress_until{};
 
   // -----------------------------------------------------------------------
   // Swath-completion model (replaces the mow_progress cell grid)

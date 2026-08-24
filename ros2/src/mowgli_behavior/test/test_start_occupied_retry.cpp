@@ -35,9 +35,11 @@
  *      honest UNKNOWN rather than silently misclassifying.
  *   2. IsCoverageStartBlocked consumes the flag exactly once, so the recovery
  *      branch cannot re-fire on an unrelated later failure.
- *   3. main_tree.xml still carries the non-motion recovery branch (clear the
- *      costmaps, wait, retry) and still commands NO escape motion — the
- *      escape-direction decision is deliberately left to the maintainer.
+ *   3. main_tree.xml still carries the recovery branch (clear the costmaps,
+ *      wait, retry) and that its ONLY motion primitive is the bounded,
+ *      direction-aware EscapeStartBlocked, ordered after the blade-off + stop
+ *      and before the costmap clear. The escape itself is unit-tested
+ *      separately and without ROS in test_start_blocked_escape.cpp.
  */
 
 #include <fstream>
@@ -219,6 +221,28 @@ TEST_F(StartBlockedConditionTest, DoesNotConsumeTheAreaRetirementExemption)
   EXPECT_EQ(*ctx->start_blocked_area, 0u);
 }
 
+// SAFETY (issue #487 escape motion): this condition node is the SOLE writer of
+// the escape's arming token. A pass that was not start-blocked must leave the
+// escape disarmed, so the motion provably cannot fire on any other failure.
+TEST_F(StartBlockedConditionTest, DoesNotArmTheEscapeWhenNoPassWasStartBlocked)
+{
+  ASSERT_FALSE(ctx->start_blocked_escape_armed);
+  auto tree = makeTree();
+  ASSERT_EQ(tree.tickOnce(), BT::NodeStatus::FAILURE);
+  EXPECT_FALSE(ctx->start_blocked_escape_armed)
+      << "the escape motion must stay disarmed unless a CONFIRMED start-blocked pass fired";
+}
+
+TEST_F(StartBlockedConditionTest, ArmsTheEscapeOnAConfirmedBlockedPass)
+{
+  ctx->coverage_start_blocked = true;
+  auto tree = makeTree();
+  ASSERT_EQ(tree.tickOnce(), BT::NodeStatus::SUCCESS);
+  EXPECT_TRUE(ctx->start_blocked_escape_armed);
+  EXPECT_NE(ctx->start_blocked_escape_armed_time.time_since_epoch().count(), 0)
+      << "the arming must be timestamped so a stale token can be refused";
+}
+
 // ---------------------------------------------------------------------------
 // 3. main_tree.xml still carries the NON-MOTION recovery branch.
 // ---------------------------------------------------------------------------
@@ -268,21 +292,57 @@ TEST(StartBlockedTreeStructure, RecoveryBranchExistsAndRetriesInsteadOfGivingUp)
       << "the branch must bubble up FAILURE so FollowStripRetry re-ticks FollowStrip";
 }
 
-// SAFETY: this robot has blades and the escape direction is genuinely ambiguous
-// (after an undock it REVERSED into the blocked spot, so reversing again drives
-// deeper). The recovery must stay non-motion until a maintainer picks a
-// strategy — see issue #487.
-TEST(StartBlockedTreeStructure, RecoveryBranchCommandsNoMotion)
+// SAFETY: the recovery branch is allowed EXACTLY ONE motion primitive — the
+// bounded, direction-aware EscapeStartBlocked (issue #487, option B, chosen by
+// the maintainer after this branch originally shipped motionless). Nothing
+// else. This test used to assert the branch commanded no motion at all; it was
+// updated deliberately when the escape was added, and it still forbids every
+// UNBOUNDED alternative that was considered and rejected:
+//
+//   * <BackUp> — fixed direction. Correct mid-mow, WRONG right after an undock,
+//     which is the reported case: the robot reversed into the blocked cell, so
+//     reversing again drives it deeper.
+//   * <Spin> — sweeps the chassis through cells we know even less about while
+//     standing on a lethal one.
+//   * <NavigateToPose> — needs a plan, and "no plan exists from here" is the
+//     entire failure being recovered from.
+TEST(StartBlockedTreeStructure, RecoveryBranchMotionIsOnlyTheBoundedEscape)
 {
   const std::string branch = ExtractStartBlockedBranch(ReadMainTree());
   ASSERT_FALSE(branch.empty());
   EXPECT_EQ(branch.find("<BackUp"), std::string::npos)
-      << "no reverse escape may be added without a maintainer decision (#487)";
+      << "a fixed-direction BackUp drives DEEPER after an undock (#487)";
   EXPECT_EQ(branch.find("<Spin"), std::string::npos)
-      << "no spin escape may be added without a maintainer decision (#487)";
+      << "no spin escape — see the rejected options on #487";
   EXPECT_EQ(branch.find("<NavigateToPose"), std::string::npos)
-      << "no drive-out escape may be added without a maintainer decision (#487)";
+      << "no drive-out escape: there is no plan from this pose, which is the bug";
+  EXPECT_NE(branch.find("<EscapeStartBlocked/>"), std::string::npos)
+      << "the bounded, direction-aware escape must be present (#487 option B)";
   EXPECT_NE(branch.find("<SetMowerEnabled enabled=\"false\"/>"), std::string::npos)
       << "the blade must be OFF while the robot sits blocked";
   EXPECT_NE(branch.find("<StopMoving/>"), std::string::npos);
+}
+
+// Ordering is a safety property, not cosmetics: the blade must be commanded off
+// and the robot brought to a stop BEFORE any escape command is issued, and the
+// costmaps must be cleared AFTER the robot has moved so the retry plans from
+// the pose it actually ended up in.
+TEST(StartBlockedTreeStructure, EscapeRunsAfterBladeOffAndStopAndBeforeTheClear)
+{
+  const std::string branch = ExtractStartBlockedBranch(ReadMainTree());
+  ASSERT_FALSE(branch.empty());
+
+  const auto blade_off = branch.find("<SetMowerEnabled enabled=\"false\"/>");
+  const auto stop = branch.find("<StopMoving/>");
+  const auto escape = branch.find("<EscapeStartBlocked/>");
+  const auto clear = branch.find("<ClearCostmap/>");
+
+  ASSERT_NE(blade_off, std::string::npos);
+  ASSERT_NE(stop, std::string::npos);
+  ASSERT_NE(escape, std::string::npos);
+  ASSERT_NE(clear, std::string::npos);
+
+  EXPECT_LT(blade_off, escape) << "the blade must be commanded off before the robot moves";
+  EXPECT_LT(stop, escape) << "the robot must be stopped before the escape takes the wire";
+  EXPECT_LT(escape, clear) << "clear the costmaps AFTER the escape, at the new pose";
 }

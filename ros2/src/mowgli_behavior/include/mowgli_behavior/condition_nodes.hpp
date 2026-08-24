@@ -804,11 +804,13 @@ public:
 /// SEPARATE field with a separate consumer — GetNextUnmowedArea — so this read
 /// does not disturb the retirement-budget exemption.)
 ///
-/// Deliberately does NOT command any motion. After an undock the robot REVERSED
-/// into the blocked spot, so a reverse escape drives deeper, while mid-mow it
-/// arrived driving forward and a reverse retraces known-good ground. Choosing
-/// between those on a machine with blades is a maintainer decision, not
-/// something this node guesses — see issue #487.
+/// SAFETY: this node also ARMS the bounded escape motion
+/// (ctx->start_blocked_escape_armed, consumed by EscapeStartBlocked). It is the
+/// ONLY place that token is set, which is what makes the escape provably unable
+/// to fire on any other failure. See mowgli_behavior/start_blocked_escape.hpp
+/// for the bounds and the stand-down conditions; arming is not itself a
+/// commitment to move — every stand-down there degrades to the non-motion
+/// recovery this node originally shipped with.
 class IsCoverageStartBlocked : public BT::ConditionNode
 {
 public:

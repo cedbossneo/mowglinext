@@ -771,13 +771,27 @@
                              (kMaxStartBlockedAttempts) eventually retires the
                              area rather than looping.
 
-                             Deliberately commands NO escape motion: after an
-                             undock the robot REVERSED into the spot, so
-                             reversing again drives deeper, whereas mid-mow it
-                             arrived driving forward and reversing retraces
-                             known-good ground. Picking a direction on a
-                             machine with blades is a maintainer decision —
-                             see the options proposed on issue #487.
+                             SAFETY — the escape motion (issue #487
+                             follow-up, option B): EscapeStartBlocked nudges
+                             the robot OPPOSITE the last motion it was actually
+                             commanded to make, bounded to
+                             start_blocked_escape_distance (0.40 m default) AND
+                             start_blocked_escape_timeout_s (6 s default). That
+                             one signal gets both field cases right: after an
+                             undock the robot REVERSED into the spot, so the
+                             escape drives FORWARD; mid-mow it arrived driving
+                             forward, so the escape REVERSES onto ground it
+                             occupied seconds ago. If the direction is unknown,
+                             stale or ~zero it commands NOTHING and this branch
+                             behaves exactly as it did before the motion
+                             existed. The blade is switched off AND verified
+                             off first, and the command is published on
+                             /cmd_vel_nav so it passes through
+                             collision_monitor and the LOWEST-priority
+                             twist_mux lane like every other autonomous
+                             motion — teleop and the emergency lane override it
+                             instantly, and the STM32 remains the sole
+                             emergency-stop authority.
 
                              Placed FIRST in MowOrRecover because
                              IsCoverageStartBlocked is an exact, consumed
@@ -789,6 +803,7 @@
                                                   state_name="START_POSE_BLOCKED"/>
                           <SetMowerEnabled enabled="false"/>
                           <StopMoving/>
+                          <EscapeStartBlocked/>
                           <ClearCostmap/>
                           <WaitForDuration duration_sec="2.0"/>
                           <AlwaysFailure/>

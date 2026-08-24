@@ -284,6 +284,44 @@ def generate_launch_description() -> LaunchDescription:
             # the critical-battery handler uses to return to IDLE after a
             # recharge; it must exceed battery_critical_percent (the node
             # clamps it if not).
+            # Start-pose escape (issue #487) — SAFETY-CRITICAL: this is the
+            # only new PHYSICAL MOTION in the start-occupied workstream. A
+            # short, bounded, open-loop nudge OPPOSITE the last commanded
+            # motion, fired only on a confirmed START_OCCUPIED-with-zero-
+            # progress coverage pass, with the blade verified off, routed
+            # through collision_monitor and the lowest twist_mux lane.
+            # Defaults live in the in-package template mowgli_robot.yaml
+            # (invariant 15); the fallbacks here must match it.
+            {
+                "start_blocked_escape_enabled": bool(
+                    robot_params.get("start_blocked_escape_enabled", True)
+                )
+            },
+            {
+                "start_blocked_escape_speed": float(
+                    robot_params.get("start_blocked_escape_speed", 0.10)
+                )
+            },
+            {
+                "start_blocked_escape_distance": float(
+                    robot_params.get("start_blocked_escape_distance", 0.40)
+                )
+            },
+            {
+                "start_blocked_escape_timeout_s": float(
+                    robot_params.get("start_blocked_escape_timeout_s", 6.0)
+                )
+            },
+            {
+                "start_blocked_escape_min_signal_speed": float(
+                    robot_params.get("start_blocked_escape_min_signal_speed", 0.03)
+                )
+            },
+            {
+                "start_blocked_escape_signal_max_age_s": float(
+                    robot_params.get("start_blocked_escape_signal_max_age_s", 90.0)
+                )
+            },
             {"battery_full_voltage": float(robot_params.get("battery_full_voltage", 28.0))},
             {"battery_empty_voltage": float(robot_params.get("battery_empty_voltage", 24.0))},
             {"battery_critical_voltage": float(robot_params.get("battery_critical_voltage", 0.0))},

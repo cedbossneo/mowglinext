@@ -17,6 +17,7 @@
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
 #include "mowgli_behavior/docking_nodes.hpp"
+#include "mowgli_behavior/escape_nodes.hpp"
 #include "mowgli_behavior/navigation_nodes.hpp"
 #include "mowgli_behavior/recording_nodes.hpp"
 #include "mowgli_behavior/status_nodes.hpp"
@@ -59,6 +60,10 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<SetMowerEnabled>("SetMowerEnabled");
   factory.registerNodeType<StopMoving>("StopMoving");
   factory.registerNodeType<ClearCostmap>("ClearCostmap");
+  // SAFETY: bounded open-loop escape off a START_OCCUPIED start pose (#487).
+  // Only fires behind IsCoverageStartBlocked's arming token — see
+  // mowgli_behavior/start_blocked_escape.hpp.
+  factory.registerNodeType<EscapeStartBlocked>("EscapeStartBlocked");
   factory.registerNodeType<SetNav2Lifecycle>("SetNav2Lifecycle");
   factory.registerNodeType<PublishHighLevelStatus>("PublishHighLevelStatus");
   factory.registerNodeType<WaitForDuration>("WaitForDuration");

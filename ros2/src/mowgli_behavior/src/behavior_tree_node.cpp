@@ -26,12 +26,14 @@
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "behaviortree_cpp/behavior_tree.h"
 #include "behaviortree_cpp/loggers/bt_cout_logger.h"
+#include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_behavior/action_nodes.hpp"
 #include "mowgli_behavior/battery_filter.hpp"
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
 #include "mowgli_behavior/coverage_persistence.hpp"
+#include "mowgli_behavior/escape_nodes.hpp"
 #include "mowgli_behavior/localization_health.hpp"
 #include "mowgli_behavior/status_snapshot.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
@@ -145,7 +147,47 @@ private:
                                     {
                                       std::lock_guard<std::mutex> lock(context_->context_mutex);
                                       context_->latest_status = *msg;
+                                      // Arrival time, so a consumer can tell a
+                                      // live blade state from a dead stream
+                                      // (issue #487 escape motion).
+                                      context_->last_status_time = std::chrono::steady_clock::now();
                                     });
+
+    // Last commanded MOTION direction, from twist_mux's MERGED output — the
+    // direction source for the #487 start-pose escape.
+    //
+    // /cmd_vel is what actually reached the wheels across EVERY motion lane
+    // (coverage, blade-off transit, docking, the undock BackUp, teleop). A
+    // single controller's lane would miss the undock, which is exactly the case
+    // #487 reported: the robot REVERSED into the blocked cell, so the escape
+    // must drive forward.
+    //
+    // Only the SIGN is used, and only commands above the escape's deadband are
+    // recorded — a zero or near-zero command is not an arrival. Samples inside
+    // last_motion_suppress_until are ignored so the escape's own commands can
+    // never become "the last motion" (that would make a second escape undo the
+    // first).
+    cmd_vel_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
+        "/cmd_vel",
+        rclcpp::QoS(10),
+        [this](geometry_msgs::msg::TwistStamped::ConstSharedPtr msg)
+        {
+          std::lock_guard<std::mutex> lock(context_->context_mutex);
+          const auto now = std::chrono::steady_clock::now();
+          if (context_->last_motion_suppress_until.time_since_epoch().count() != 0 &&
+              now < context_->last_motion_suppress_until)
+          {
+            return;
+          }
+          const double vx = msg->twist.linear.x;
+          if (std::abs(vx) < context_->start_blocked_escape_cfg.min_signal_speed)
+          {
+            return;
+          }
+          context_->last_motion_cmd_vx = vx;
+          context_->last_motion_valid = true;
+          context_->last_motion_time = now;
+        });
 
     emergency_sub_ =
         create_subscription<Emergency>("/hardware_bridge/emergency",
@@ -250,6 +292,39 @@ private:
     loc_cfg.sigma_backstop_persist_s =
         declare_parameter<double>("loc_sigma_backstop_persist_s", 10.0);
     loc_monitor_ = LocalizationHealthMonitor(loc_cfg);
+
+    // ------------------------------------------------------------------
+    // Start-pose escape motion (issue #487)
+    // ------------------------------------------------------------------
+    // SAFETY: this configures the ONLY new physical motion in the #487
+    // workstream — a bounded open-loop nudge off a cell Nav2 refuses to plan
+    // from, fired only on a confirmed START_OCCUPIED-with-zero-progress pass.
+    // Read mowgli_behavior/start_blocked_escape.hpp before changing a default.
+    // Defaults live in the IN-PACKAGE template mowgli_bringup/config/
+    // mowgli_robot.yaml (CLAUDE.md invariant 15) and are forwarded here by
+    // full_system.launch.py; the values below are only the compile-time
+    // fallbacks for a node launched without them.
+    StartBlockedEscapeCfg escape_cfg;
+    escape_cfg.enabled = declare_parameter<bool>("start_blocked_escape_enabled", true);
+    escape_cfg.speed = declare_parameter<double>("start_blocked_escape_speed", 0.10);
+    escape_cfg.distance = declare_parameter<double>("start_blocked_escape_distance", 0.40);
+    escape_cfg.timeout_s = declare_parameter<double>("start_blocked_escape_timeout_s", 6.0);
+    escape_cfg.min_signal_speed =
+        declare_parameter<double>("start_blocked_escape_min_signal_speed", 0.03);
+    escape_cfg.signal_max_age_s =
+        declare_parameter<double>("start_blocked_escape_signal_max_age_s", 90.0);
+    // Clamp to the compiled ceilings HERE, so nothing downstream ever sees an
+    // out-of-envelope value even if the YAML is wrong.
+    context_->start_blocked_escape_cfg = SanitizeEscapeCfg(escape_cfg);
+    RCLCPP_INFO(get_logger(),
+                "Start-pose escape (#487): %s, %.2f m/s, bounded to %.2f m / %.1f s; direction "
+                "signal deadband %.3f m/s, max age %.0f s",
+                context_->start_blocked_escape_cfg.enabled ? "ENABLED" : "disabled",
+                context_->start_blocked_escape_cfg.speed,
+                context_->start_blocked_escape_cfg.distance,
+                context_->start_blocked_escape_cfg.timeout_s,
+                context_->start_blocked_escape_cfg.min_signal_speed,
+                context_->start_blocked_escape_cfg.signal_max_age_s);
 
     fused_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         "/odometry/filtered_map",
@@ -904,6 +979,8 @@ private:
       context_->coverage_start_blocked = false;
       context_->start_blocked_area.reset();
       context_->area_start_blocked_count.clear();
+      // Disarm the #487 escape motion too — see EndSession for why.
+      context_->start_blocked_escape_armed = false;
       clearCoverageResumeState(*context_);
       RCLCPP_INFO(get_logger(),
                   "Cleared coverage resume state on request — next start begins fresh");
@@ -943,6 +1020,8 @@ private:
   // Subscribers
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr status_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::Emergency>::SharedPtr emergency_sub_;
+  /// Merged twist_mux output — direction source for the #487 escape.
+  rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_vel_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::Power>::SharedPtr power_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr replan_needed_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr boundary_violation_sub_;

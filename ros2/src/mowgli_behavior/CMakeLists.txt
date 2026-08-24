@@ -46,6 +46,7 @@ add_executable(behavior_tree_node
   src/condition_nodes.cpp
   src/navigation_nodes.cpp
   src/docking_nodes.cpp
+  src/escape_nodes.cpp
   src/calibration_nodes.cpp
   src/status_nodes.cpp
   src/status_snapshot.cpp
@@ -440,6 +441,21 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_detour_resume
     geometry_msgs
     mowgli_interfaces
+  )
+
+  # ---- test_start_blocked_escape ----
+  # SAFETY-CRITICAL (issue #487): the ONLY new physical motion in the
+  # start-occupied workstream. Pure header, no ROS — pins the two field cases
+  # (post-undock drives FORWARD, mid-mow drives REVERSE), every stand-down
+  # (unknown / stale / ~zero direction, blade not verified off, missing
+  # start-blocked signal), both bounds, and the compiled ceilings.
+  ament_add_gtest(test_start_blocked_escape
+    test/test_start_blocked_escape.cpp
+  )
+
+  target_include_directories(test_start_blocked_escape PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
   )
 
   # ---- test_localization_health ----

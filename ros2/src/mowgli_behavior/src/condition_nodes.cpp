@@ -896,12 +896,21 @@ BT::NodeStatus IsCoverageStartBlocked::tick()
   }
   ctx->coverage_start_blocked = false;
 
+  // ARM the bounded escape motion (issue #487 follow-up). This is the ONLY
+  // place the token is set, so the escape provably cannot fire on any failure
+  // other than a confirmed START_OCCUPIED-with-zero-progress pass.
+  // EscapeStartBlocked consumes it, and refuses a token older than
+  // kStartBlockedEscapeArmMaxAgeSec.
+  ctx->start_blocked_escape_armed = true;
+  ctx->start_blocked_escape_armed_time = std::chrono::steady_clock::now();
+
   RCLCPP_WARN(ctx->node->get_logger(),
               "IsCoverageStartBlocked: the last coverage pass was refused from the robot's own "
-              "pose (START_OCCUPIED on every sub-path, 0 swaths mowed) — running the non-motion "
-              "recovery (stop, clear costmaps, wait) before retrying. NOTE: clearing the costmaps "
-              "only helps if the lethal cell came from a TRANSIENT obstacle reading; a keepout "
-              "zone is a static costmap FILTER and survives the clear");
+              "pose (START_OCCUPIED on every sub-path, 0 swaths mowed) — running the recovery "
+              "(stop, blade off, bounded escape nudge, clear costmaps, wait) before retrying. "
+              "NOTE: clearing the costmaps only helps if the lethal cell came from a TRANSIENT "
+              "obstacle reading; a keepout zone is a static costmap FILTER and survives the "
+              "clear, which is why the escape motion exists");
   return BT::NodeStatus::SUCCESS;
 }
 
