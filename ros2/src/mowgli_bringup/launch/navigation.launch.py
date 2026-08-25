@@ -63,7 +63,6 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParameter
-from launch_ros.parameter_descriptions import ParameterValue
 from nav2_common.launch import RewrittenYaml
 
 # Shared robot-config loader (sibling module installed alongside this launch
@@ -226,15 +225,6 @@ def generate_launch_description() -> LaunchDescription:
         "fusion_graph_node_period_s",
         default_value=_early_fusion_graph_period,
         description="fusion_graph factor-graph node cadence (seconds). Default read from mowgli_robot.yaml; hardware fallback 0.04 = 25 Hz, recommended 0.1 = 10 Hz on Pi. Sim default 0.02 = 50 Hz.",
-    )
-    scan_confirmation_frames_arg = DeclareLaunchArgument(
-        "scan_confirmation_frames",
-        default_value="1",
-        description=(
-            "Consecutive compatible LiDAR observations required before publishing "
-            "a return to costmaps/collision_monitor. Hardware default 1; SIM uses "
-            "3 to reject Webots Supervisor pose-update ghosts."
-        ),
     )
 
     # ------------------------------------------------------------------
@@ -1215,10 +1205,6 @@ def generate_launch_description() -> LaunchDescription:
              "chassis_blank_range": 0.55,
              "dock_blank_range": 0.70,
              "post_undock_blank_sec": 5.0,
-             "scan_confirmation_frames": ParameterValue(
-                 LaunchConfiguration("scan_confirmation_frames"),
-                 value_type=int,
-             ),
              # Ground-filter geometry from mowgli_robot.yaml. lidar_mount_yaw
              # (~π on the 180°-rotated mount) is essential — without it the
              # gravity projection's front/back sign inverts on a slope and
@@ -1292,7 +1278,6 @@ def generate_launch_description() -> LaunchDescription:
             cog_stationary_seed_rate_hz_arg,
             fusion_graph_tf_lead_arg,
             fusion_graph_node_period_arg,
-            scan_confirmation_frames_arg,
             # Localization helpers + fusion_graph_node (single localizer
             # for both map→odom AND odom→base_footprint; ekf_odom_node
             # was removed 2026-05-18).

@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "mowgli_localization/scan_temporal_filter.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 
 // Expose the static helpers without dragging in rclcpp at link time.
@@ -177,48 +176,6 @@ TEST(CostmapScanFilter, ThresholdBoundaryIsExclusive)
   auto in = make_scan({0.70f});
   auto out = mowgli_localization::filter_scan_for_test(in, 0.70, true);
   EXPECT_FLOAT_EQ(out.ranges[0], 0.70f);
-}
-
-TEST(CostmapScanFilterTemporal, SuppressesFirstAndUnconfirmedReturns)
-{
-  mowgli_localization::ScanConfirmationState state;
-  auto first = make_scan({1.0f, std::numeric_limits<float>::infinity(), 2.0f});
-  auto confirmed = mowgli_localization::confirm_scan_returns(first, 2, 0.1, 0.2, state);
-  EXPECT_FALSE(std::isfinite(confirmed.ranges[0]));
-  EXPECT_FALSE(std::isfinite(confirmed.ranges[2]));
-
-  auto second = make_scan(
-      {std::numeric_limits<float>::infinity(), 1.0f, std::numeric_limits<float>::infinity()});
-  confirmed = mowgli_localization::confirm_scan_returns(second, 2, 1.6, 0.2, state);
-  EXPECT_FLOAT_EQ(confirmed.ranges[1], 1.0f);
-}
-
-TEST(CostmapScanFilterTemporal, RejectsSingleFrameGhostButKeepsMovingObstacle)
-{
-  mowgli_localization::ScanConfirmationState state;
-  const float inf = std::numeric_limits<float>::infinity();
-  auto previous = make_scan({inf, 1.00f, inf, inf, inf});
-  auto current = make_scan({inf, inf, 1.08f, inf, 0.90f});
-
-  mowgli_localization::confirm_scan_returns(previous, 2, 0.9, 0.20, state);
-  const auto confirmed = mowgli_localization::confirm_scan_returns(current, 2, 0.9, 0.20, state);
-  EXPECT_FLOAT_EQ(confirmed.ranges[2], 1.08f);
-  EXPECT_FALSE(std::isfinite(confirmed.ranges[4]));
-}
-
-TEST(CostmapScanFilterTemporal, RequiresConfiguredConsecutiveFrames)
-{
-  mowgli_localization::ScanConfirmationState state;
-  auto first = make_scan({1.0f});
-  auto second = make_scan({1.02f});
-  auto third = make_scan({1.04f});
-
-  EXPECT_FALSE(std::isfinite(
-      mowgli_localization::confirm_scan_returns(first, 3, 0.1, 0.2, state).ranges[0]));
-  EXPECT_FALSE(std::isfinite(
-      mowgli_localization::confirm_scan_returns(second, 3, 0.1, 0.2, state).ranges[0]));
-  EXPECT_FLOAT_EQ(mowgli_localization::confirm_scan_returns(third, 3, 0.1, 0.2, state).ranges[0],
-                  1.04f);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
