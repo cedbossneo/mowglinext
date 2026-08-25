@@ -65,3 +65,15 @@ def test_mowing_timeout_is_configurable_without_changing_default():
     ).read_text()
 
     assert 'os.getenv("E2E_MOWING_TIMEOUT_S", "1200")' in source
+
+
+def test_e2e_tracks_the_published_full_coverage_plan():
+    source_root = Path(__file__).resolve().parents[2]
+    e2e_source = (source_root / 'e2e_test.py').read_text()
+    behavior_source = (
+        source_root / 'mowgli_behavior' / 'src' / 'coverage_nodes.cpp'
+    ).read_text()
+
+    assert '"/coverage/full_plan"' in behavior_source
+    assert '"/coverage/full_plan"' in e2e_source
+    assert '"/coverage_planner_node/coverage_path"' not in e2e_source

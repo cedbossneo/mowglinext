@@ -213,7 +213,7 @@ class E2ETestNode(Node):
         )
         self.create_subscription(
             Path,
-            "/coverage_planner_node/coverage_path",
+            "/coverage/full_plan",
             self._on_coverage_path,
             transient_qos,
         )

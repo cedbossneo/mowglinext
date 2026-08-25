@@ -478,47 +478,6 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
-    # Sim actuation model — inserts the per-wheel firmware motor model
-    # (firmware_wheel_model.hpp: inverse kinematics, two per-wheel PIs,
-    # per-wheel PWM stiction, forward kinematics) between the nav command
-    # (/cmd_vel) and the Webots wheels (/cmd_vel_wheels), so the sim
-    # reproduces the per-wheel PWM stiction the ideal diff_drive cannot.
-    # Set deadband_enabled:=false for an ideal-actuation baseline.
-    # Wheel-model gains mirror firmware/stm32/ros_usbnode/{include/board.h,
-    # src/ros/ros_custom/cpp_main.cpp} and MUST stay in lockstep with
-    # mowgli_simulation/kinematic_drive.py's identical Python copy.
-    #
-    # 2026-07-17 Option C (task #34): this used to ALSO insert a host-side
-    # angular-rate PI (Option B, task #24) ahead of the per-wheel model —
-    # that stage is removed. wz now passes straight through, matching
-    # hardware_bridge's new behaviour (the yaw-rate loop moved into
-    # firmware, task #33).
-    # ------------------------------------------------------------------
-    sim_actuation_node = Node(
-        package="mowgli_simulation",
-        executable="sim_actuation_node",
-        name="sim_actuation",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "deadband_enabled": True,
-                "wheel_separation": 0.325,
-                "firmware_max_mps": 0.5,
-                "firmware_pwm_per_mps": 300.0,
-                "firmware_pwm_max": 255.0,
-                "firmware_deadband_pwm_static": 40.0,
-                "firmware_deadband_pwm_kinetic": 30.0,
-                "firmware_pi_kp_pwm_per_mps": 30.0,
-                "firmware_pi_ki_pwm_per_mps_s": 5000.0,
-                "firmware_pi_int_max_pwm": 100.0,
-                "firmware_pi_hold_thresh_mps": 0.02,
-                "min_linear_vel": 0.05,
-            }
-        ],
-    )
-
-    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -539,7 +498,6 @@ def generate_launch_description() -> LaunchDescription:
             twist_mux_node,
             sim_wheel_slip_node,
             sim_imu_noise_node,
-            sim_actuation_node,
             behavior_tree_node,
             map_server_node,
             obstacle_tracker_node,

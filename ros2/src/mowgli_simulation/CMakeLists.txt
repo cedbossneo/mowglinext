@@ -132,6 +132,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_ground_truth_publisher
     test/test_ground_truth_publisher.py
   )
+  ament_add_pytest_test(test_webots_controller_remaps
+    test/test_webots_controller_remaps.py
+  )
 
   # ---- test_firmware_wheel_model ----
   # firmware_wheel_model.hpp is header-only and ROS-free; no ROS deps needed.
