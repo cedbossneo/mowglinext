@@ -3,6 +3,8 @@
 
 from pathlib import Path
 
+import yaml
+
 
 def test_kinematic_drive_publishes_simulator_pose_truth() -> None:
     source = (
@@ -60,3 +62,27 @@ def test_full_sim_gyro_uses_authoritative_achievable_twist() -> None:
 
     assert '"synthesize_from_cmd_vel": True' in launch
     assert '"cmd_vel_topic": "/cmd_vel_wheels"' in launch
+
+
+def test_full_sim_reads_datum_and_lever_arm_from_scenario_config() -> None:
+    source_root = Path(__file__).resolve().parents[2]
+    package = Path(__file__).resolve().parents[1]
+    launch = (
+        source_root
+        / 'mowgli_bringup'
+        / 'launch'
+        / 'sim_full_system.launch.py'
+    ).read_text()
+    scenario_path = (
+        package / 'config_webots' / 'mowgli_garden.yaml'
+    )
+    scenario = yaml.safe_load(scenario_path.read_text())
+
+    assert 'scenario_config' in launch
+    assert '"datum_lat": datum_lat' in launch
+    assert '"datum_lon": datum_lon' in launch
+    assert '"lever_arm_x": lever_arm_x' in launch
+    assert '"lever_arm_y": lever_arm_y' in launch
+    assert scenario['gps_reference']['latitude'] == 48.137154
+    assert scenario['gps_reference']['longitude'] == 11.576124
+    assert scenario['antenna_lever_arm'] == {'x': 0.30, 'y': 0.0}

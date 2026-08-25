@@ -55,6 +55,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+import yaml
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -66,6 +67,17 @@ def generate_launch_description() -> LaunchDescription:
     behavior_dir = get_package_share_directory("mowgli_behavior")
     map_dir = get_package_share_directory("mowgli_map")
     monitoring_dir = get_package_share_directory("mowgli_monitoring")
+    scenario_config = os.path.join(
+        simulation_dir, "config_webots", "mowgli_garden.yaml"
+    )
+    with open(scenario_config, "r", encoding="utf-8") as handle:
+        scenario = yaml.safe_load(handle) or {}
+    gps_reference = scenario["gps_reference"]
+    antenna_lever_arm = scenario["antenna_lever_arm"]
+    datum_lat = float(gps_reference["latitude"])
+    datum_lon = float(gps_reference["longitude"])
+    lever_arm_x = float(antenna_lever_arm["x"])
+    lever_arm_y = float(antenna_lever_arm["y"])
 
     # ------------------------------------------------------------------
     # Declared arguments
@@ -236,8 +248,8 @@ def generate_launch_description() -> LaunchDescription:
             # keeps the areas.dat datum stamp / datum-change migration
             # (issue #216) consistent in simulation.
             {
-                "datum_lat": 48.137154000,
-                "datum_lon": 11.576124000,
+                "datum_lat": datum_lat,
+                "datum_lon": datum_lon,
             },
         ],
     )
@@ -332,10 +344,10 @@ def generate_launch_description() -> LaunchDescription:
                 "input_topic": "/gps/fix_raw",
                 "output_topic": "/gps/fix",
                 "ground_truth_topic": "/sim/ground_truth_pose",
-                "datum_lat": 48.137154000,
-                "datum_lon": 11.576124000,
-                "lever_arm_x": 0.30,
-                "lever_arm_y": 0.0,
+                "datum_lat": datum_lat,
+                "datum_lon": datum_lon,
+                "lever_arm_x": lever_arm_x,
+                "lever_arm_y": lever_arm_y,
                 # Realistic mowing scenario: 90 s RTK-Fixed (open sky),
                 # 30 s RTK-Float (light tree cover), 10 s no-fix (dense
                 # canopy / multipath). Empty pattern → always RTK_FIXED
@@ -357,8 +369,8 @@ def generate_launch_description() -> LaunchDescription:
     #     fuses as pose0. Without this, no GPS reaches the EKF in sim
     #     and the BT cannot transition out of IDLE.
     #
-    #     Datum matches the simulator world; if you change the sim
-    #     world's lat/lon, change these too.
+    #     Datum comes from the same installed scenario config used by
+    #     map_server and the synthetic antenna source.
     # ------------------------------------------------------------------
     navsat_converter_node = Node(
         package="mowgli_localization",
@@ -368,8 +380,8 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             {
                 "use_sim_time": True,
-                "datum_lat": 48.137154000,
-                "datum_lon": 11.576124000,
+                "datum_lat": datum_lat,
+                "datum_lon": datum_lon,
             },
         ],
     )
