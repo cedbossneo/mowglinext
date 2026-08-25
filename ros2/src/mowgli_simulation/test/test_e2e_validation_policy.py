@@ -35,6 +35,27 @@ def test_required_failure_fails_e2e_process():
     assert not e2e._required_criteria_pass(criteria)
 
 
+def test_coverage_target_is_a_required_e2e_criterion():
+    source = (
+        Path(__file__).resolve().parents[2] / 'e2e_test.py'
+    ).read_text()
+
+    assert '("Area coverage >= 80%", coverage_pass, True)' in source
+
+
+def test_post_cycle_checks_wait_for_actual_docked_state():
+    source = (
+        Path(__file__).resolve().parents[2] / 'e2e_test.py'
+    ).read_text()
+
+    assert 'if state_name == "IDLE_DOCKED" and self.mowing_started:' in source
+    assert 'if self.current_is_charging:' in source
+    assert (
+        'if state_name in ("MOWING_COMPLETE", "IDLE_DOCKED") '
+        'and self.mowing_started:'
+    ) not in source
+
+
 def test_mowing_efficiency_is_one_for_exact_distance():
     assert e2e._mowing_efficiency(100.0, 100.0) == 1.0
 

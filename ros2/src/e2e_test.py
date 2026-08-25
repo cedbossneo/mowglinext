@@ -171,6 +171,7 @@ class E2ETestNode(Node):
         self.mowing_boundary = []
         self.mowing_obstacles = []
         self.current_bt_state = ""
+        self.current_is_charging = False
         self.test_complete = False
         self.mowing_cycle_complete = False
         self.mowing_started = False
@@ -278,6 +279,7 @@ class E2ETestNode(Node):
         self.metrics.swath_count = getattr(msg, "total_swaths", 0)
         self.metrics.completed_swaths = getattr(msg, "completed_swaths", 0)
         self.metrics.skipped_swaths = getattr(msg, "skipped_swaths", 0)
+        self.current_is_charging = bool(getattr(msg, "is_charging", False))
         if hasattr(msg, "current_path_index") and msg.current_path_index >= 0:
             self.metrics.current_swath_index = msg.current_path_index
 
@@ -300,9 +302,18 @@ class E2ETestNode(Node):
             # Phase transitions
             self._track_phase_transition(prev_state, state_name, t)
 
-        if state_name in ("MOWING_COMPLETE", "IDLE_DOCKED") and self.mowing_started:
-            if self.current_phase == TestPhase.DOCKING or state_name == "IDLE_DOCKED":
-                self._complete_phase(TestPhase.DOCKING, True, "Robot docked successfully")
+        if state_name == "IDLE_DOCKED" and self.mowing_started:
+            if self.current_phase == TestPhase.DOCKING:
+                if self.current_is_charging:
+                    self._complete_phase(
+                        TestPhase.DOCKING, True, "Robot docked and charging"
+                    )
+                else:
+                    self._complete_phase(
+                        TestPhase.DOCKING,
+                        False,
+                        "Docking sequence ended without charging",
+                    )
             self.mowing_cycle_complete = True
 
         # Detect reroute events from BT state
@@ -1645,7 +1656,7 @@ class E2ETestNode(Node):
             ("Stayed within boundary", boundary_pass, True),
             ("Obstacle avoidance", obstacle_pass, True),
             ("Mowing efficiency >= 0.85", efficiency_pass, False),
-            ("Area coverage >= 80%", coverage_pass, False),
+            ("Area coverage >= 80%", coverage_pass, True),
             ("Idle ratio < 20%", idle_ratio_pass, False),
             ("Path overlap < 30%", overlap_pass, False),
             ("Manual mowing mode", manual_mow_pass, True),
