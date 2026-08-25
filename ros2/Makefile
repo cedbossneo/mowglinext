@@ -95,6 +95,7 @@ e2e-test: sim-stop build
 	source /opt/ros/$(ROS_DISTRO)/setup.bash; \
 	source install/setup.bash; \
 	export DISPLAY=:99; \
+	../docker/reset-simulation-run-state.sh; \
 	SIM_LOG=/tmp/mowgli-e2e-sim.log; \
 	: > "$$SIM_LOG"; \
 	ros2 launch mowgli_bringup sim_full_system.launch.py \
@@ -125,6 +126,7 @@ e2e-test-no-lidar: sim-stop build
 	set -e; \
 	source /opt/ros/$(ROS_DISTRO)/setup.bash; \
 	source install/setup.bash; \
+	../docker/reset-simulation-run-state.sh; \
 	SIM_LOG=/tmp/mowgli-e2e-no-lidar-sim.log; \
 	: > "$$SIM_LOG"; \
 	ros2 launch mowgli_bringup sim_full_system.launch.py \

@@ -117,3 +117,10 @@ def test_simulation_reset_preserves_persisted_area_geometry():
 
     assert '/ros2_ws/maps/areas.dat' not in reset_source
     assert '/ros2_ws/maps/*' not in reset_source
+
+
+def test_self_contained_e2e_targets_reset_generated_run_state():
+    repo_root = Path(__file__).resolve().parents[4]
+    makefile = (repo_root / 'ros2' / 'Makefile').read_text()
+
+    assert makefile.count('../docker/reset-simulation-run-state.sh;') == 2

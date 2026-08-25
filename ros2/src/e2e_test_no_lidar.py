@@ -23,6 +23,7 @@ Or self-contained via: make e2e-test-no-lidar
 """
 
 import math
+import os
 import signal
 import sys
 import time
