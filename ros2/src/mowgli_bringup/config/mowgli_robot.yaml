@@ -91,6 +91,42 @@ mowgli:
     yaw_gyro_sign: 1
     # Behavior tree tuning (consumed by behavior_tree_node)
     tick_rate: 10.0
+
+    # -----------------------------------------------------------------
+    # Area recording (RecordArea — "drive the boundary" teach-in)
+    # -----------------------------------------------------------------
+    # Both of these were HARDCODED in main_tree.xml until 2026-08-25. A field
+    # recording came back with 24 vertices for a 38.13 m perimeter (~1.6 m
+    # between vertices on a hand-driven garden boundary), because BOTH limiters
+    # were set far coarser than the job needs. RecordArea also applies a fixed
+    # 0.05 m minimum spacing between consecutive kept points; that gate is the
+    # INTENDED resolution floor, and these two values exist to let it bind.
+    #
+    # area_simplification_tolerance: Douglas-Peucker tolerance in metres. DP
+    # guarantees only that the stored polygon stays WITHIN this distance of the
+    # driven path, so this IS the worst-case boundary error. It was 0.2 m —
+    # larger than tool_width (0.18 m), i.e. the saved boundary could be off by
+    # more than a full cutting swath. The useful window is [0.05, tool_width):
+    # below 0.05 m there is nothing to gain (the sampler never produces points
+    # closer than that, so a finer tolerance only preserves GNSS/steering
+    # jitter as extra vertices), and at/above tool_width the error costs a whole
+    # outermost pass. 0.05 m is both ends of that window's sweet spot:
+    # tool_width / 3, and exactly as fine as the sampled data supports.
+    area_simplification_tolerance: 0.05
+    #
+    # area_record_rate_hz: position sampling frequency. It was 2.0, which at any
+    # real driving speed put samples 0.15-0.25 m apart — so the 0.05 m gate
+    # almost never fired and the SAMPLE RATE, not the gate, was the real
+    # limiter. The gate binds when speed / rate <= 0.05; max_mps (0.5 m/s) is a
+    # hard runtime wheel-speed ceiling pushed to the STM32, so the robot cannot
+    # be driven faster than that while recording, giving 0.5 / 0.05 = 10 Hz.
+    # 10 Hz is ALSO the ceiling: RecordArea samples inside the BT tick, so
+    # tick_rate (above) caps it — a larger value here is silently ineffective
+    # and logs a warning at recording start. Raise tick_rate first if you ever
+    # want to sample faster. The per-tick cost is one TF lookup plus a distance
+    # compare; the trajectory preview republishes on its own 2 Hz clock so the
+    # GUI path message does not get rebuilt at the sampling rate.
+    area_record_rate_hz: 10.0
     # Localization-quality gate (LocalizationGuard): pause blade-on mowing
     # while ABSOLUTE POSITION is untrustworthy. Field incident 2026-08-02:
     # >60 s plain-GPS fallback (σ ≈ 1.5 m) drove the robot out of the area

@@ -35,6 +35,7 @@
 #include "mowgli_behavior/coverage_persistence.hpp"
 #include "mowgli_behavior/escape_nodes.hpp"
 #include "mowgli_behavior/localization_health.hpp"
+#include "mowgli_behavior/recording_nodes.hpp"
 #include "mowgli_behavior/status_snapshot.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
@@ -945,6 +946,26 @@ private:
     // the plan_coverage action goal (mow_angle_deg).
     const double mow_angle_deg = declare_parameter<double>("mow_angle_deg", kMowAngleAutoDeg);
     blackboard_->set("mow_angle_deg", mow_angle_deg);
+
+    // Area-recording boundary resolution — operator-tunable in
+    // mowgli_robot.yaml, previously HARDCODED in main_tree.xml (a 0.2 m
+    // Douglas-Peucker tolerance and a 2 Hz sample rate, which together gave a
+    // field recording 24 vertices for a 38 m perimeter). Pushed onto the
+    // blackboard so the XML pulls them as {area_simplification_tolerance} /
+    // {area_record_rate_hz}. See RecordArea's class comment for the derivation
+    // of both defaults.
+    const double area_simplification_tolerance =
+        declare_parameter<double>("area_simplification_tolerance",
+                                  RecordArea::kDefaultSimplificationToleranceM);
+    const double area_record_rate_hz =
+        declare_parameter<double>("area_record_rate_hz", RecordArea::kDefaultRecordRateHz);
+    blackboard_->set("area_simplification_tolerance", area_simplification_tolerance);
+    blackboard_->set("area_record_rate_hz", area_record_rate_hz);
+
+    // RecordArea samples once per BT tick at best, so it needs the tick rate to
+    // warn when a configured record rate is unachievable rather than silently
+    // sampling slower than asked.
+    blackboard_->set("bt_tick_rate", get_parameter("tick_rate").as_double());
 
     tree_ = factory_.createTreeFromFile(tree_file, blackboard_);
 

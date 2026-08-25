@@ -246,6 +246,21 @@ def generate_launch_description() -> LaunchDescription:
             # fixed swath angle in degrees. Read by PlanCoverageArea::buildGoal
             # off the BT blackboard into the plan_coverage action goal.
             {"mow_angle_deg": float(robot_params.get("mow_angle_deg", -1.0))},
+            # Area-recording boundary resolution. Both were hardcoded in
+            # main_tree.xml (0.2 m Douglas-Peucker tolerance, 2 Hz sampling),
+            # which cost a field recording all but 24 vertices of a 38 m
+            # perimeter. The tolerance must stay well under tool_width so a
+            # boundary error can never exceed one cutting swath, and the rate
+            # must be fast enough that RecordArea's 0.05 m minimum-spacing gate
+            # — not the sample rate — is the binding limiter. 10 Hz covers
+            # max_mps (0.5 m/s) and is also the BT tick_rate ceiling, above
+            # which a higher value has no effect.
+            {
+                "area_simplification_tolerance": float(
+                    robot_params.get("area_simplification_tolerance", 0.05)
+                )
+            },
+            {"area_record_rate_hz": float(robot_params.get("area_record_rate_hz", 10.0))},
             # LocalizationGuard thresholds. These were previously listed in
             # mowgli_robot.yaml but NEVER forwarded here, so the node silently
             # ran its compiled defaults and the GUI's reset-to-default had

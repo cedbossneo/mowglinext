@@ -998,8 +998,8 @@
         <!-- ============================================================
              d. Recording (COMMAND_S1 = 3 = COMMAND_RECORD_AREA)
              User drives robot along boundary. The RecordArea node
-             records positions at 2 Hz and publishes a live trajectory
-             preview. When the user presses "Finish" (command 5) the
+             samples positions at area_record_rate_hz and publishes a
+             live trajectory preview. When the user presses "Finish" (command 5) the
              trajectory is simplified with Douglas-Peucker and saved
              as a mowing area. "Cancel" (command 6) discards it.
              ============================================================ -->
@@ -1033,11 +1033,17 @@
             <IsCommand command="6"/>
           </Fallback>
           <PublishHighLevelStatus state="3" state_name="RECORDING"/>
+          <!-- simplification_tolerance / record_rate_hz come from
+               mowgli_robot.yaml via behavior_tree_node's blackboard (they were
+               hardcoded at 0.2 m / 2 Hz, which cost a field recording all but
+               24 vertices of a 38 m perimeter). min_vertices / min_area stay
+               hardcoded: they are degenerate-polygon guards, not resolution
+               knobs, and nothing sane wants them retuned. -->
           <RecordArea
-            simplification_tolerance="0.2"
+            simplification_tolerance="{area_simplification_tolerance}"
             min_vertices="3"
             min_area="1.0"
-            record_rate_hz="2.0"
+            record_rate_hz="{area_record_rate_hz}"
             is_exclusion_zone="false"/>
           <PublishHighLevelStatus state="1" state_name="RECORDING_COMPLETE"/>
           <EndSession/>
