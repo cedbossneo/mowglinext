@@ -1,8 +1,8 @@
 # Copyright 2026 Mowgli Project
 # SPDX-License-Identifier: GPL-3.0
 
-import importlib.util
 from collections import defaultdict
+import importlib.util
 import math
 from pathlib import Path
 import sys
@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 
 def _load_e2e_module():
-    path = Path(__file__).resolve().parents[2] / "e2e_test.py"
-    spec = importlib.util.spec_from_file_location("mowgli_e2e_ground_truth", path)
+    path = Path(__file__).resolve().parents[2] / 'e2e_test.py'
+    spec = importlib.util.spec_from_file_location('mowgli_e2e_ground_truth', path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -21,6 +21,7 @@ def _load_e2e_module():
 
 
 class _Logger:
+
     def info(self, _message: str) -> None:
         pass
 
@@ -44,7 +45,7 @@ def _area(module):
         ]
     )
     return SimpleNamespace(
-        name="main",
+        name='main',
         is_navigation_area=False,
         area=SimpleNamespace(points=points),
         obstacles=[obstacle],
@@ -82,14 +83,14 @@ def test_blade_sweep_marks_footprint_not_only_robot_center() -> None:
 
 def test_completion_counters_are_read_before_state_transition() -> None:
     source = (
-        Path(__file__).resolve().parents[2] / "e2e_test.py"
+        Path(__file__).resolve().parents[2] / 'e2e_test.py'
     ).read_text()
-    callback = source.split("def _on_bt_status", 1)[1].split(
-        "def _track_phase_transition", 1
+    callback = source.split('def _on_bt_status', 1)[1].split(
+        'def _track_phase_transition', 1
     )[0]
 
-    assert callback.index("self.metrics.swath_count =") < callback.index(
-        "self._track_phase_transition("
+    assert callback.index('self.metrics.swath_count =') < callback.index(
+        'self._track_phase_transition('
     )
 
 
