@@ -11,5 +11,5 @@
 	# rover-dynamic-mode branch until that fork PR merges into the 1230 branch;
 	# then re-pin the gitlink to the merge commit and restore the branch below.
 	# Revert to https://github.com/pepeuch/universal-gnss.git once upstreamed.
-	url = https://github.com/mowglinext/universal-gnss.git
-	branch = fix/rover-dynamic-mode-uav
+	url = https://github.com/Pepeuch/universal-gnss.git
+	branch = review
