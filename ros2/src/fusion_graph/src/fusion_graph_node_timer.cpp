@@ -146,8 +146,7 @@ void FusionGraphNode::OnTimer()
       // scan-matching carries dead-reckoning through the no-fix window.
       double sm_sigma_xy = res.sigma_xy;
       double sm_sigma_theta = res.sigma_theta;
-      if (scan_yield_to_rtk_ && last_rtk_fixed_stamp_ &&
-          (this->now() - *last_rtk_fixed_stamp_).seconds() < scan_yield_timeout_s_)
+      if (scan_yield_to_rtk_ && RtkFixedReceiptIsFresh(scan_yield_timeout_s_))
       {
         sm_sigma_xy = std::max(sm_sigma_xy, scan_yield_sigma_xy_);
         sm_sigma_theta = std::max(sm_sigma_theta, scan_yield_sigma_theta_);
@@ -184,8 +183,7 @@ void FusionGraphNode::OnTimer()
   // direction locked by test_factors.cpp::ScanToKeyframeComposition.
   if (use_keyframe_map_ && scan_matcher_ && curr_valid)
   {
-    const bool rtk_recent = last_rtk_fixed_stamp_ &&
-                            (this->now() - *last_rtk_fixed_stamp_).seconds() < kf_engage_age_s_;
+    const bool rtk_recent = RtkFixedReceiptIsFresh(kf_engage_age_s_);
     if (!rtk_recent)
     {
       if (auto cur = graph_->LatestSnapshot())
@@ -317,8 +315,7 @@ void FusionGraphNode::OnTimer()
     // above (Float) never both fire.
     if (use_keyframe_map_ && curr_valid && curr_scan.size() >= 10)
     {
-      const bool rtk_fresh =
-          last_rtk_fixed_stamp_ && (this->now() - *last_rtk_fixed_stamp_).seconds() < 1.0;
+      const bool rtk_fresh = RtkFixedReceiptIsFresh(1.0);
       const bool moved = !last_kf_capture_xy_ ||
                          std::hypot(out->pose.x() - last_kf_capture_xy_->x(),
                                     out->pose.y() - last_kf_capture_xy_->y()) >= kf_spacing_m_;
@@ -342,9 +339,8 @@ void FusionGraphNode::OnTimer()
     // OOM-killed the node 2026-06-09. Re-enables once the fix is stale past
     // scan_yield_timeout_s so LC still carries the no-fix (tree-cover) windows.
     const bool rtk_fixed_fresh =
-        last_rtk_fixed_stamp_ &&
-        (this->now() - *last_rtk_fixed_stamp_).seconds() < scan_yield_timeout_s_;
-    //
+        RtkFixedReceiptIsFresh(scan_yield_timeout_s_);
+
     // Rate/travel gate (issue #513): with LC enabled exactly when GPS is Float
     // or absent, the unbounded search accepted 13.7 LC/s on featureless grass
     // (3816 in 286 s of mowing), each a 5 cm factor snapping to the adjacent
@@ -352,19 +348,27 @@ void FusionGraphNode::OnTimer()
     // lc_min_interval_s AND lc_min_travel_m have accrued since the last
     // ACCEPTED LC; the accumulators are reset on accept only — see
     // loop_closure_gate.hpp for why that polarity is right here.
-    const bool lc_search_enabled = loop_closure_enabled_ && scan_matcher_ && curr_valid &&
-                                   !(lc_skip_when_rtk_fixed_ && rtk_fixed_fresh);
-    const double time_since_lc_s = last_lc_accept_stamp_
-                                       ? (this->now() - *last_lc_accept_stamp_).seconds()
-                                       : std::numeric_limits<double>::infinity();
+    const bool lc_search_enabled =
+        loop_closure_enabled_ && scan_matcher_ && curr_valid &&
+        !(lc_skip_when_rtk_fixed_ && rtk_fixed_fresh);
+
+    const double time_since_lc_s =
+        last_lc_accept_stamp_
+            ? (this->now() - *last_lc_accept_stamp_).seconds()
+            : std::numeric_limits<double>::infinity();
+
     const bool lc_gate_open =
-        lc_search_enabled && LoopClosureRateAllows(wheel_dist_since_last_lc_m_,
-                                                   time_since_lc_s,
-                                                   lc_min_travel_m_,
-                                                   lc_min_interval_s_);
+        lc_search_enabled &&
+        LoopClosureRateAllows(wheel_dist_since_last_lc_m_,
+                              time_since_lc_s,
+                              lc_min_travel_m_,
+                              lc_min_interval_s_);
+
     if (lc_search_enabled && !lc_gate_open)
       ++lc_rate_gated_;
+
     if (lc_gate_open)
+{
     {
       auto candidates = graph_->FindLoopClosureCandidates(out->node_index,
                                                           lc_max_dist_m_,
@@ -412,8 +416,7 @@ void FusionGraphNode::OnTimer()
         // no-fix (tree-cover) windows.
         double lc_sigma_xy = lc_sigma_xy_;
         double lc_sigma_theta = lc_sigma_theta_;
-        if (scan_yield_to_rtk_ && last_rtk_fixed_stamp_ &&
-            (this->now() - *last_rtk_fixed_stamp_).seconds() < scan_yield_timeout_s_)
+        if (scan_yield_to_rtk_ && RtkFixedReceiptIsFresh(scan_yield_timeout_s_))
         {
           lc_sigma_xy = std::max(lc_sigma_xy, scan_yield_sigma_xy_);
           lc_sigma_theta = std::max(lc_sigma_theta, scan_yield_sigma_theta_);

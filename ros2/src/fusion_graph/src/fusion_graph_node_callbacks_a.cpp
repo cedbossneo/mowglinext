@@ -109,6 +109,50 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
 {
   if (msg->status.status < sensor_msgs::msg::NavSatStatus::STATUS_FIX)
     return;
+
+  // The pinned Universal GNSS adapter stamps NavSatFix with the local receiver
+  // acceptance/receipt time and preserves that same stamp for timer-driven
+  // republications. It is therefore the strongest identity available on
+  // /gps/fix itself: compare provenance, never coordinates or callback time.
+  //
+  // sequence=0 deliberately selects the tracker's receipt-only compatibility
+  // mode. The stronger position_observation_sequence now crosses /gps/status
+  // for consumers that subscribe to the typed contract, but associating two
+  // independently delivered topics here would reintroduce the asynchronous
+  // pairing defect deferred to MGNSS-002.
+  const rclcpp::Time ros_now = this->now();
+  const rclcpp::Time receipt_stamp(msg->header.stamp, get_clock()->get_clock_type());
+  const auto steady_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count();
+  const auto observation_update = gnss_observation_tracker_.Observe(0,
+                                                                    receipt_stamp.nanoseconds(),
+                                                                    ros_now.nanoseconds(),
+                                                                    steady_now_ns);
+  using mowgli_interfaces::gnss_observation_freshness::ObservationUpdate;
+  if (observation_update == ObservationUpdate::kRosTimeDiscontinuity)
+  {
+    last_rtk_fixed_stamp_.reset();
+    rtk_fixed_streak_ = 0;
+    last_gps_sigma_ = -1.0;
+    last_gps_map_xy_.reset();
+    ResetRtkWrongFixAccumulators(wheel_dist_since_last_gps_m_, abs_dtheta_since_last_gps_rad_);
+    RCLCPP_WARN(get_logger(), "fusion_graph: ROS time moved backward; GNSS evidence epoch reset");
+    return;
+  }
+  if (observation_update != ObservationUpdate::kNewObservation &&
+      observation_update != ObservationUpdate::kSourceRestart)
+  {
+    if (observation_update == ObservationUpdate::kInvalidProvenance)
+    {
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           5000,
+                           "fusion_graph: GNSS receipt stamp is zero/future; sample dropped");
+    }
+    return;
+  }
+
   // First valid fix gates the dock-arrival pose seed below. Without
   // this, a robot that boots already docked could anchor on the dock
   // before GPS is ready and walk the graph over once GPS arrives.
@@ -239,10 +283,6 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
     last_gps_sigma_ = -1.0;
     return;
   }
-  // Latch the most-recent valid GPS σ for the keyframe-capture quality gate
-  // (only capture when the fix is mm-accurate). <0 means no usable σ.
-  last_gps_sigma_ = sigma;
-
   // Robust noise model on GPS — applied unconditionally now (was
   // RTK-Float only). Field measurement 2026-05-17 (gps_stability.py,
   // 10 min stationary on RTK-Fixed 100 %) showed even Fixed solutions
@@ -254,17 +294,37 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
   // session, or a slow drift that builds up to >5 cm without a
   // detectable wheel discrepancy).
   const bool rtk_fixed = msg->status.status == sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX;
-  // Track the freshness of RTK-Fixed for the scan-match yield gate. Updated
-  // even while docked (GPS factors are suppressed below, but the freshness is
-  // still the honest signal of whether absolute position is available).
-  if (rtk_fixed)
+
+  // Associate the receiver-receipt provenance with the live historical node
+  // before any current-RTK latch is changed. A delayed observation whose graph
+  // node has expired is not current localization evidence.
+  std::optional<uint64_t> measurement_node;
+  if (graph_->IsInitialized())
   {
-    last_rtk_fixed_stamp_ = this->now();
+    measurement_node = graph_->FindNodeAtOrBefore(receipt_stamp.seconds());
+    if (!measurement_node)
+    {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          5000,
+          "fusion_graph: no live graph node at/before GNSS receipt time; sample dropped");
+      return;
+    }
   }
-  // Debounce counter for keyframe capture: only capture after RTK-Fixed has
-  // held for several consecutive epochs (a single carrSoln Fixed flicker can
-  // otherwise freeze a slightly-off anchor that poisons every later match).
-  rtk_fixed_streak_ = rtk_fixed ? (rtk_fixed_streak_ + 1) : 0;
+
+  const auto commit_current_gnss_evidence = [this, rtk_fixed, receipt_stamp, sigma]()
+  {
+    // Receipt time, not callback time, is the freshness basis. Downstream gates
+    // additionally reject negative age via IsReceiptFresh.
+    if (rtk_fixed)
+    {
+      last_rtk_fixed_stamp_ = receipt_stamp;
+    }
+    // Debounce only genuinely new, accepted receiver observations.
+    rtk_fixed_streak_ = rtk_fixed ? (rtk_fixed_streak_ + 1) : 0;
+    last_gps_sigma_ = sigma;
+  };
   // During the dock approach, hold position through the RTK fixed↔float
   // per-epoch flicker: drop non-Fixed epochs entirely so the dock controller's
   // target doesn't jump between cm-accurate Fixed and dm-noisy Float (the
@@ -275,6 +335,7 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
   if (gate_float_gps_during_docking_ && !rtk_fixed && DockingApproachActive() &&
       graph_->IsInitialized())
   {
+    commit_current_gnss_evidence();
     return;
   }
   // Suppress GPS factors while the robot is on the dock.
@@ -298,6 +359,7 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
   // to bootstrap if the graph somehow becomes uninitialised.
   if (last_is_charging_valid_ && last_is_charging_)
   {
+    commit_current_gnss_evidence();
     // On the dock the dock_pose is authoritative ground truth — the dock does
     // not move. The previous approach injected a WEAK live-GPS factor here for
     // well-posedness, but a ~7 Hz stream of σ≈0.5 m factors at the live RTK
@@ -416,6 +478,8 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
                          "fusion_graph: GNSS epoch node left the live graph; sample dropped");
     return;
   }
+  commit_current_gnss_evidence();
+  seed_xy_ = gtsam::Vector2(mx, my);
   // Latch whether the most recent seed came from RTK-Fixed so the next
   // graph initialization can use a tight prior matching that quality.
   // Stale once seeded but TrySeedInitialPose only fires once per

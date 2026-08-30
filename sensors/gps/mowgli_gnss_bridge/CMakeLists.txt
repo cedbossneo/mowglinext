@@ -88,6 +88,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
   ament_add_gtest(test_universal_gnss_topic_bridge
     test/test_universal_gnss_topic_bridge.cpp
   )
@@ -100,6 +101,11 @@ if(BUILD_TESTING)
     universal_gnss_ros2
     diagnostic_msgs
     rtcm_msgs
+  )
+
+  ament_add_pytest_test(test_python_bridge
+    test/test_python_bridge.py
+    TIMEOUT 30
   )
 endif()
 

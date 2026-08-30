@@ -1,28 +1,31 @@
 # MowgliNext GNSS Downstream Audit
 
-> Final audit-only report. It was updated progressively during the audit so the
-> work remained recoverable after an editor/container failure.
+> Final audit report and remediation ledger. Phase A implementation status is
+> recorded separately from the original findings so open consumers are not
+> accidentally presented as fixed.
 
 ## Executive summary
 
 Audit status: **complete**.
 
-The hard pre-flight passed. The top-level checkout is clean on
-`audit/gnss-downstream`, and the Universal GNSS submodule is clean and pinned to
-`45fe44a031520f9dfe4bfc07fd515952d1a1ea88`.
+The hard pre-flight passed: the top-level checkout was clean on
+`audit/gnss-downstream`, and the Universal GNSS submodule was clean and pinned
+to `45fe44a031520f9dfe4bfc07fd515952d1a1ea88` before Phase A edits began.
 
-The main revalidated chain so far is that Universal GNSS now distinguishes a
-new receiver position observation from a timer-driven republication using
-`position_observation_sequence`, but MowgliNext's public `GnssStatus` contract
-does not contain that field. Both bridge implementations therefore discard it.
-FusionGraph consumes only `/gps/fix` and consequently treats eligible cached
-NavSatFix republications as new constraints and new RTK-Fixed freshness/streak
-evidence. Several `/gps/status` consumers independently refresh liveness from
-callback arrival although the bridge preserves the receiver-receipt provenance
-stamp; those consumers can remain healthy indefinitely while Universal GNSS
-continues publishing a cached status after physical observations stop.
+The audit found that Universal GNSS distinguishes a new receiver observation
+from timer-driven republication using `position_observation_sequence`, while
+MowgliNext discarded that identity and several consumers treated callback
+arrival as physical acquisition.
 
-Final result: **11 confirmed findings — 0 P0, 6 P1, 5 P2, 0 P3**. The P1 set is
+Phase A now preserves the upstream sequence and receipt stamp through both
+public bridges. FusionGraph continues to consume only `/gps/fix`, but uses its
+pinned-contract receiver-receipt stamp to reject cached, delayed-duplicate,
+zero/future, and old-clock-epoch publications before factor insertion or RTK
+freshness/streak changes. Behavior, dig trust, the hardware lock indication,
+and monitoring still use their old callback/delivery freshness logic and remain
+open.
+
+Original audit result: **11 confirmed findings — 0 P0, 6 P1, 5 P2, 0 P3**. The P1 set is
 the FusionGraph duplicate-observation path, behavior safety-health liveness,
 dig-event trust, UM980 moving-rover configuration regression, ineffective
 Unicore correction-age policy, and the supported 1 Hz COG dead zone. The P2 set
@@ -37,7 +40,22 @@ independent configuration regressions show that upgrading the pinned submodule
 also removed Mowgli-specific receiver behavior without removing its GUI/startup
 contract.
 
-No production code has been changed.
+Phase A changes production code only for the public contract, both bridges,
+FusionGraph deduplication/freshness, and the shared freshness primitive.
+
+## Phase A remediation status
+
+Implemented 2026-08-30 as the first narrow fix batch:
+
+| Finding | Phase A state | Result |
+|---|---|---|
+| MGNSS-001 | **FIXED** | Public sequence preserved; FusionGraph receipt-provenance deduplication occurs before all factor/RTK evidence effects; all RTK-current gates reject negative age. |
+| MGNSS-003 | **ENABLED FOR NEXT PHASE — OPEN** | Behavior can now consume public sequence and shared freshness policy, but still refreshes health/debounce from callback `now()`. |
+| MGNSS-004 | **ENABLED FOR NEXT PHASE — OPEN** | Hardware dig trust can now consume the shared contract, but its callback-time freshness was not changed. |
+| MGNSS-006 | **ENABLED FOR NEXT PHASE — OPEN** | Lock indication can now identify new/stale observations, but quality expiry was not implemented. |
+| MGNSS-007 | **ENABLED FOR NEXT PHASE — OPEN** | Monitoring has the reusable receipt/monotonic policy available, but still monitors `/gps/fix` callback delivery. |
+
+MGNSS-002, 005, 008, 009, 010, and 011 were intentionally untouched.
 
 ## Baselines
 
@@ -52,12 +70,20 @@ No production code has been changed.
 | Universal GNSS worktree | clean |
 | Legacy comparison commit | `4bf5d0a291816285ef96f7fba56b623136ab8f41`, available locally |
 
-### Audit constraints
+### Original audit constraints
 
 - Mode: audit only.
 - Allowed modified file: `MOWGLINEXT_GNSS_AUDIT.md` only.
 - No production fixes, refactors, commits, or pushes.
 - Builds/tests must run as the normal project user, never as root.
+
+### Phase A implementation constraints
+
+- Mode: narrow fix + test.
+- Universal GNSS remains read-only at the pinned commit.
+- No UM980, correction-age, COG, NTRIP/RTCM projection, backend/UI, or unrelated
+  consumer fix is included.
+- No commit or push.
 
 ## GNSS data-flow map
 
@@ -70,7 +96,7 @@ physical receiver
        -> /gps/fix                         (receipt stamp, while runtime state is fresh)
        -> /diagnostics
   -> mowgli_gnss_bridge
-       -> /gps/status                      (receipt stamp preserved; sequence lost)
+       -> /gps/status                      (receipt stamp + sequence preserved)
        -> /rtcm
   -> FusionGraph / GTSAM                  (/gps/fix directly)
   -> cog_to_imu                           (/gps/fix -> /imu/cog_heading)
@@ -107,10 +133,10 @@ typed status continues to be published from the current cached runtime state.
 | Contract | Upstream behavior | Current downstream result | Status |
 |---|---|---|---|
 | Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves the stamp in public `header.stamp`; some consumers ignore it and record callback `now()`. | violated by multiple consumers |
-| Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status has no sequence, both bridges discard it, and no Mowgli consumer references it. | violated |
-| Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph factor count, RTK streak, and RTK freshness depend on NavSatFix callback/publication cadence. | violated |
+| Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status appends the sequence and both bridges copy it verbatim. FusionGraph deduplicates its fix-only path by the preserved receipt stamp; status consumers have not yet adopted the sequence. | boundary fixed; consumer adoption incomplete |
+| Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph now ignores receipt-identical republications before factor/latch effects. Behavior, hardware, and monitoring still derive freshness from delivery callbacks. | FusionGraph fixed; other consumers open |
 | SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks, so core clears survive. The GUI diagnostic merge ORs old diagnostic-derived correction flags/values back into the current sample. | core preserved; correction projection violated |
-| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Multiple Mowgli liveness decisions subtract ROS `now()` from callback-recorded ROS time and do not reject negative age. | violated |
+| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy now separates ROS provenance age from monotonic delivery and rejects negative age; FusionGraph uses it. Other audited consumers have not adopted it. | policy/FusionGraph fixed; other consumers open |
 | Correction states | Transport, accepted response, valid flow, semantic health, and receiver RTK solution are distinct. | Public projection derives one stream enum from a cached forwarding diagnostic; setup readiness passes on `ACTIVE` without semantic validity. | violated |
 | RTCM semantics | 1005/1006 are static-base data, MSM is dynamic correction data, and 1230 is optional for normal RTK health. | The UI shows 1230 availability only as detail; no downstream health/readiness gate was found that requires it. Dynamic correction health is nevertheless collapsed with forwarding activity. | 1230 preserved; flow/health violated |
 | Source/station ownership | Reconnect or source/station change must invalidate incompatible stale state. | Bridge diagnostics entries have no source incarnation or expiry and prefer old NTRIP entries over receiver entries. | violated |
@@ -127,7 +153,8 @@ Final classification:
 
 ## Findings summary
 
-Final count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
+Original audit count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
+After Phase A: **1 fixed, 10 open**.
 
 P1 denotes a high-impact loss of a primary localization/safety function or a
 configuration regression with field-proven RTK consequences. P2 denotes a
@@ -136,13 +163,13 @@ or readiness error without the same immediate primary-path impact.
 
 | ID | Title | Severity | Classification | Evidence state |
 |---|---|---:|---|---|
-| MGNSS-001 | Observation identity is lost, so FusionGraph reuses cached fixes as fresh factors/evidence | P1 | confirmed integration bug | static injection proof; missing regression coverage |
+| MGNSS-001 | Observation identity is lost, so FusionGraph reuses cached fixes as fresh factors/evidence | P1 | **fixed in Phase A** | public bridge + receipt-only FusionGraph regressions |
 | MGNSS-002 | NavSat projection pairs each fix with an unbounded, asynchronously cached typed status | P2 | confirmed integration bug | deterministic publication/order proof; missing regression coverage |
-| MGNSS-003 | Behavior localization-health freshness follows cached status callback arrival | P1 | confirmed bug | static safety-gate proof; existing test models topic silence only |
-| MGNSS-004 | Dig-event GNSS trust follows cached status callback arrival | P1 | confirmed bug | static physical-action path proof; helper test assumes freshness |
+| MGNSS-003 | Behavior localization-health freshness follows cached status callback arrival | P1 | confirmed bug; Phase A prerequisite available | consumer remains callback-time based |
+| MGNSS-004 | Dig-event GNSS trust follows cached status callback arrival | P1 | confirmed bug; Phase A prerequisite available | consumer remains callback-time based |
 | MGNSS-005 | UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade | P1 | confirmed integration regression | exact legacy/current/API/startup delta |
-| MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | confirmed bug | end-to-end bridge-to-firmware proof |
-| MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | confirmed bug | static liveness proof; upstream bound characterized |
+| MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | confirmed bug; Phase A prerequisite available | consumer expiry remains open |
+| MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | confirmed bug; Phase A prerequisite available | consumer remains delivery-time based |
 | MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | confirmed bug | backend cache and frontend lifecycle proof |
 | MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | confirmed integration bug | bridge, upstream state, and readiness proof |
 | MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | confirmed integration regression | exact legacy/current/default and inert-setting delta |
@@ -155,21 +182,26 @@ was found independently by the full downstream trace.
 
 ### MGNSS-001 — Observation identity is lost, so FusionGraph reuses cached fixes as fresh factors/evidence
 
-Status: confirmed from source; no downstream regression test covers it.
+Status: **FIXED in Phase A**.
 
 - Upstream contract: `gnss_ros2/msg/GnssStatus.msg` documents receipt provenance
   at lines 55-58 and observation sequence at lines 59-62.
-- Boundary: `ros2/src/mowgli_interfaces/msg/GnssStatus.msg` has no observation
-  sequence. The C++ bridge `onStatus()` copies the receipt stamp and all public
-  quality fields at `sensors/gps/mowgli_gnss_bridge/src/universal_gnss_topic_bridge.cpp:315`
-  but cannot copy the sequence. The Python fallback does the same at
-  `sensors/gps/universal_gnss_topic_bridge.py:233`.
-- Consumer: FusionGraph subscribes only to `/gps/fix` at
-  `fusion_graph_node_setup_comms.cpp:114`. Every eligible callback updates
-  `last_rtk_fixed_stamp_` using callback `now()` and increments
-  `rtk_fixed_streak_` at `fusion_graph_node_callbacks_a.cpp:252-263`, then queues
-  a factor at line 362.
-- Injection proof: `GraphManager::QueueGnss()` overwrites the one pending slot,
+- Phase A boundary fix: `ros2/src/mowgli_interfaces/msg/GnssStatus.msg` now
+  exposes `position_observation_sequence` without reordering existing fields.
+  The C++ and Python production bridges copy both the upstream receipt stamp and
+  sequence verbatim. Cached publications therefore retain one identity, while
+  identical-position genuine observations with a new upstream sequence remain
+  distinguishable on the public status contract.
+- Phase A consumer fix: FusionGraph still subscribes only to `/gps/fix`, so its
+  available stable identity is the preserved receipt stamp. A shared
+  `ObservationTracker` gate now runs at the start of `OnGnss()`, before datum,
+  wrong-fix, RTK freshness/streak, map-mode, and factor side effects. A cached or
+  delayed duplicate is rejected; the same coordinates with a later receipt are
+  accepted. Fixed freshness is committed from the accepted receipt stamp, not
+  callback `now()`, and only after the observation reaches an intentional
+  accepted path (including the documented dock/charge paths or a successful
+  queue insertion).
+- Original injection proof: `GraphManager::QueueGnss()` overwrites the one pending slot,
   and each graph tick adds that pending `GnssLeverArmFactor` and clears it
   (`graph_manager.cpp:161-170`, `graph_manager_node.cpp:398-420,548`). Thus a
   cached fix published on multiple graph intervals becomes multiple independent
@@ -179,25 +211,27 @@ Status: confirmed from source; no downstream regression test covers it.
   freshness window, so factor duplication is bounded when acquisition stops;
   within that window, a low-acquisition/high-publication profile can still add
   many copies of one physical observation.
-- Secondary decisions: the callback-derived RTK time/streak controls scan-match
+- Before Phase A, the callback-derived RTK time/streak controlled scan-match
   yield, keyframe-map engagement/capture, loop-closure suppression, and COG yaw
   acceptance/recovery. A delayed fixed callback updates those latches before a
   future/evicted measurement timestamp is rejected.
-- These callback latches use ROS time. Pause/rewind or a future callback stamp
-  can keep Fixed-recent predicates true because negative age is not rejected,
-  even while wall-timer graph activity continues.
+- Phase A clock policy: receipt freshness rejects zero, future, and negative-age
+  provenance. A ROS-time rewind resets the Fusion GNSS observation epoch and RTK
+  latches fail closed. Monotonic delivery liveness is tracked separately from
+  observation freshness so cached callbacks cannot extend physical freshness.
 - Violated invariant: publication/callback count must not substitute for new
   position-observation identity.
 - Concrete consequence: the graph overweights one physical fix, and localization
   mode gates remain in RTK-Fixed policy according to ROS publication/backlog
   cadence rather than receiver acquisition.
-- Existing coverage: timestamp-to-historical-node tests exist; no sequence,
-  duplicate-republication, low-acquisition/high-publication, or late-message
-  freshness-gate test was found.
-- Remediation direction: preserve observation identity in the public contract
-  and associate status/fix atomically or by stamp+sequence; deduplicate before
-  factor insertion and update freshness/streak only after accepting a genuinely
-  new observation with valid age.
+- Phase A regression coverage verifies exact C++/Python bridge agreement,
+  repeated cached sequence preservation, distinct identical-position
+  observations, one Fusion acceptance/streak update for a repeated receipt, the
+  next receipt, delayed duplicates, receiver-sequence restart, receiver silence,
+  future stamps, negative age, and ROS-time rewind. The Fusion test exercises
+  the same shared tracker used by the callback before its side effects.
+- Residual boundary: atomic `/gps/fix` to `/gps/status` association remains
+  MGNSS-002 and was intentionally not claimed as fixed in this phase.
 
 ### MGNSS-002 — NavSat projection pairs each fix with an unbounded, asynchronously cached typed status
 
@@ -229,7 +263,8 @@ Status: confirmed from source as P2; no ordering regression test covers it.
 
 ### MGNSS-003 — Behavior localization-health freshness follows cached status callback arrival
 
-Status: confirmed from source; no cached-republication/clock regression covers it.
+Status: **OPEN; enabled for the next phase by the public sequence and shared
+freshness policy**.
 
 - `BehaviorTreeNode::on_gnss_status()` records `get_clock()->now()` on every
   public status callback and passes that callback time to `LocalizationHealth`,
@@ -254,7 +289,8 @@ Status: confirmed from source; no cached-republication/clock regression covers i
 
 ### MGNSS-004 — Dig-event GNSS trust follows cached status callback arrival
 
-Status: confirmed from source; the existing helper test does not derive freshness.
+Status: **OPEN; enabled for the next phase by the public sequence and shared
+freshness policy**.
 
 - The hardware bridge caches accuracy/Fixed state and assigns
   `dig_gnss_time_ = now()` on every `/gps/status` callback
@@ -296,7 +332,8 @@ Status: confirmed against the legacy fork and current integration.
 
 ### MGNSS-006 — GPS-lock indication does not age receiver observation provenance
 
-Status: confirmed end to end from ROS status cache to firmware indication.
+Status: **OPEN; enabled for the next phase by the public sequence and shared
+freshness policy**.
 
 - The hardware bridge overwrites `gps_quality_` on each status callback and
   never ages or clears it (`hardware_bridge_node.cpp:749-766,947-954,2046-2068`).
@@ -312,7 +349,8 @@ Status: confirmed end to end from ROS status cache to firmware indication.
 
 ### MGNSS-007 — Monitoring reports cached fix delivery as fresh observation health
 
-Status: confirmed from source; no observation-provenance monitoring test exists.
+Status: **OPEN; enabled for the next phase by the public sequence and shared
+freshness policy**.
 
 - `mowgli_monitoring` subscribes to `/gps/fix`; `on_gps()` records callback
   `now()`, and `check_gps()` computes health from that callback age
@@ -442,17 +480,18 @@ and the supported-rate configuration.
 
 Required regression additions:
 
-- Public bridge propagation of `position_observation_sequence` and identical
-  consecutive genuine observations.
-- Cached status/fix republication versus new acquisition in every downstream
-  liveness and factor-insertion consumer.
+- Cached status/fix republication versus new acquisition in the still-open
+  behavior, hardware, monitoring, projection, backend, and GUI consumers.
 - Fixed -> Float -> no-fix and reverse transitions with adversarial cross-topic
   ordering.
 - Explicit SET/OMIT/CLEAR invalidation of accuracy, DOP, heading, baseline, and
   satellite fields through the bridge and every cache.
 - ROS time zero, pause, backward/forward jump, negative/future age, and rosbag
-  replay for behavior, hardware, monitoring, and FusionGraph.
-- GNSS queue backlog and late fixed message after its graph node has expired.
+  replay for behavior, hardware, and monitoring. Phase A covers FusionGraph's
+  future/negative-age/rewind gate but not every replay-mode interaction.
+- Unique GNSS queue backlog and late fixed messages after their graph nodes have
+  expired. Phase A covers delayed duplicates and the existing historical-node
+  timestamp suite remains green.
 - COG output at every supported acquisition rate, independently varied ROS
   publication rate, cached duplicate stamps, and stationary-latch clock jumps.
 - NTRIP connected without valid RTCM, malformed/zero-cell MSM, caster restart,
@@ -482,13 +521,15 @@ artifacts under `/tmp`):
 | Pinned Universal GNSS standalone CMake/CTest suite | **PASS — 61/61** | Confirms the audited upstream core/protocol/driver/transport/NTRIP/tool baseline, including current Unicore profile and framed transport behavior. It does not exercise MowgliNext's public bridge or consumers. |
 | `universal_gnss_ros2` isolated colcon build | **PASS — 1/1 package** | Confirms the exact pinned ROS adapter/node sources build against ROS 2 Kilted. Only CMake deprecation warnings were emitted. |
 | `universal_gnss_ros2` isolated colcon tests | **PASS — 93/93 assertions, 0 failures/errors/skips** | Six test executables passed, including receiver freshness/sequence behavior, NTRIP cached-status rejection, diagnostic projection, replay, and adapters. This reinforces that the audited contract exists upstream. |
+| Phase A isolated colcon build: `mowgli_interfaces`, `fusion_graph`, `mowgli_gnss_bridge` | **PASS — 3/3 packages** | Confirms the public message addition, both bridge implementations, shared freshness policy, and FusionGraph integration compile together. Only pre-existing CMake/Eigen/NodeOptions warnings were emitted. |
+| Phase A FusionGraph GNSS tests | **PASS — 11/11 tests** | Existing historical-timestamp tests (6) plus new observation-identity/freshness tests (5): cached receipt, next receipt, delayed duplicate, sequence restart, receiver silence, future/negative age, and ROS rewind. |
+| Phase A bridge tests | **PASS — 5/5 tests** | C++ tests (3) and Python tests (2) agree on exact stamp/sequence propagation, cached sequence reuse, and a new sequence for an identical genuine position. |
 
-The bridge, downstream ROS packages, frontend, Go provider, and installer
+The remaining downstream ROS packages, frontend, Go provider, and installer
 matrices were not rerun after the user's quota-prioritization instruction. The
-recovered pre-audit baseline reported bridge functional 2/2, installer GNSS
-matrix 18/18, frontend GNSS tests 57/57, and Go provider tests green; those
-historical results are not treated as fresh validation and do not cover the
-adversarial gaps above.
+recovered pre-audit baseline reported installer GNSS matrix 18/18, frontend GNSS
+tests 57/57, and Go provider tests green; those historical results are not
+treated as fresh validation and do not cover the adversarial gaps above.
 
 ## Adversarial scenario coverage
 
@@ -543,10 +584,11 @@ hardware LED/dig trust, monitoring, backend, and GUI side by side while testing:
 
 Final dependency order:
 
-1. Preserve receiver observation identity and bounded provenance/freshness in
-   the public contract; define an atomic status/fix association policy.
-2. Deduplicate FusionGraph factors and move all current-RTK gates to accepted,
-   genuinely new, age-valid observations; fix NavSat/status pairing.
+1. **Phase A complete for the public identity contract and shared freshness
+   primitive.** Define the still-open atomic status/fix association policy
+   (MGNSS-002).
+2. **Phase A complete for FusionGraph receipt-identity deduplication and RTK
+   gating.** Fix the still-open NavSat/status pairing.
 3. Make COG interval handling honor all supported acquisition rates and test it
    independently of publication cadence.
 4. Restore/replace the UM980 moving-rover policy and make correction-age settings
@@ -558,14 +600,53 @@ Findings sharing the observation-identity/public-contract root should be fixed
 and regression-tested together even where this report retains separate IDs for
 independent consumer consequences.
 
-## Final repository cross-check
+## Audit-era repository cross-check
 
-Expected final state, verified after report completion:
+Before Phase A, the completed audit was on branch `audit/gnss-downstream` at
+top-level HEAD `bc8b1de3`, with Universal GNSS clean at
+`45fe44a031520f9dfe4bfc07fd515952d1a1ea88` and only the audit report present as
+an audit deliverable. Phase A intentionally changes the narrow production and
+test files recorded above; no submodule content, commit, or remote is changed.
 
-- branch remains `audit/gnss-downstream`;
-- top-level HEAD remains `bc8b1de3`;
-- Universal GNSS remains clean at
-  `45fe44a031520f9dfe4bfc07fd515952d1a1ea88`;
-- the only top-level worktree change is the untracked
-  `MOWGLINEXT_GNSS_AUDIT.md`;
-- no production file, submodule content, commit, or remote was changed.
+## Phase A final repository cross-check
+
+- Branch: `audit/gnss-downstream`.
+- Top-level HEAD: `880dd4f28cc3`; Codex created no commit and performed no push.
+- Universal GNSS gitlink/HEAD: exact required
+  `45fe44a031520f9dfe4bfc07fd515952d1a1ea88`, clean (leading blank marker from
+  `git submodule status`). The unrelated `opennav_coverage` submodule is also at
+  its recorded clean gitlink.
+- `git diff --check`: **PASS**.
+- ROS2 C++ formatting: `clang-format -n -Werror
+  -style=file:ros2/.clang-format` and the repository-preferred
+  `git clang-format --diff origin/main` check both **PASS** for every touched
+  ROS2 C++ source/header. The bridge C++ files retain their pre-existing local
+  style, leaving a one-line production change plus focused test additions.
+- `git diff --stat`: 13 tracked files changed, 352 insertions, 144 deletions.
+  Git excludes the three untracked new files (380 lines total) from this
+  statistic.
+- `git status --short`: 13 tracked modified files and three untracked new files,
+  exactly (the tracked paths also match `git diff --name-status`):
+
+```text
+ M MOWGLINEXT_GNSS_AUDIT.md
+ M ros2/src/fusion_graph/CMakeLists.txt
+ M ros2/src/fusion_graph/include/fusion_graph/fusion_graph_node.hpp
+ M ros2/src/fusion_graph/src/fusion_graph_node_callbacks_a.cpp
+ M ros2/src/fusion_graph/src/fusion_graph_node_callbacks_b.cpp
+ M ros2/src/fusion_graph/src/fusion_graph_node_setup_comms.cpp
+ M ros2/src/fusion_graph/src/fusion_graph_node_timer.cpp
+ M ros2/src/mowgli_interfaces/msg/GnssStatus.msg
+ M sensors/gps/mowgli_gnss_bridge/CMakeLists.txt
+ M sensors/gps/mowgli_gnss_bridge/package.xml
+ M sensors/gps/mowgli_gnss_bridge/src/universal_gnss_topic_bridge.cpp
+ M sensors/gps/mowgli_gnss_bridge/test/test_universal_gnss_topic_bridge.cpp
+ M sensors/gps/universal_gnss_topic_bridge.py
+?? ros2/src/fusion_graph/test/test_gnss_observation_freshness.cpp
+?? ros2/src/mowgli_interfaces/include/mowgli_interfaces/gnss_observation_freshness.hpp
+?? sensors/gps/mowgli_gnss_bridge/test/test_python_bridge.py
+```
+
+All changed and new files are owned by the normal project user `ubuntu`; build
+artifacts remain under `/tmp`. Universal GNSS content, forbidden Phase A scopes,
+and remotes were not modified.
