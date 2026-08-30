@@ -45,4 +45,16 @@ describe("UniversalGnssAdvancedSettings", () => {
         expect(onChangeSpy).toHaveBeenCalledWith("gnss_signal_group", "3 ");
         expect(onChangeSpy).toHaveBeenLastCalledWith("gnss_signal_group", "3 6");
     });
+
+    it("renders optional correction-age inputs with 1..1800 bounds and no synthesized values", () => {
+        renderSignalGroupField();
+
+        const timeoutInputs = screen.getAllByRole("spinbutton");
+        expect(timeoutInputs).toHaveLength(2);
+        for (const input of timeoutInputs) {
+            expect(input).toHaveAttribute("aria-valuemin", "1");
+            expect(input).toHaveAttribute("aria-valuemax", "1800");
+            expect(input).toHaveValue("");
+        }
+    });
 });

@@ -353,13 +353,17 @@
         },
         "gnss_unicore_rtk_timeout_s": {
           "type": "integer",
+          "minimum": 1,
+          "maximum": 1800,
           "title": "Unicore RTK Timeout",
-          "description": "Optional Unicore-specific expert override in seconds."
+          "description": "Optional Unicore receiver CONFIG correction-age override in seconds (1-1800). Leave unset to use the Universal GNSS rover-profile default of 120 seconds."
         },
         "gnss_unicore_dgps_timeout_s": {
           "type": "integer",
+          "minimum": 1,
+          "maximum": 1800,
           "title": "Unicore DGPS Timeout",
-          "description": "Optional Unicore-specific expert override in seconds."
+          "description": "Optional Unicore receiver CONFIG correction-age override in seconds (1-1800). Leave unset to use the Universal GNSS rover-profile default of 300 seconds."
         },
         "gps_wait_after_undock_sec": {
           "type": "number",

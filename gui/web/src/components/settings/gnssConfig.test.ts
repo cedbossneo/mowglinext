@@ -92,6 +92,25 @@ describe("gnssConfig", () => {
         );
     });
 
+    it("keeps Unicore correction-age controls optional and bounded by the receiver range", () => {
+        for (const key of [
+            "gnss_unicore_rtk_timeout_s",
+            "gnss_unicore_dgps_timeout_s",
+        ]) {
+            expect(GNSS_ACTION_SETTINGS_KEYS).toContain(key);
+            const field = GNSS_ADVANCED_SETTINGS_BY_FAMILY.unicore?.fields.find(
+                (candidate) => candidate.key === key,
+            );
+            expect(field?.kind).toBe("number");
+            if (field?.kind !== "number") {
+                throw new Error(`expected number field for ${key}`);
+            }
+            expect(field.min).toBe(1);
+            expect(field.max).toBe(1800);
+            expect(field).not.toHaveProperty("default");
+        }
+    });
+
     it("persists an optional execution-baud override separately from runtime/config baud", () => {
         expect(GNSS_ACTION_SETTINGS_KEYS).toContain("gnss_execution_baud");
         expect(GNSS_EXECUTION_BAUD_OPTIONS.map((option) => option.value)).toEqual([

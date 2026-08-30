@@ -149,6 +149,7 @@ export const UniversalGnssAdvancedSettings: React.FC<Props> = ({
                                         onChange={(value) => onChange(field.key, value)}
                                         placeholder={field.placeholder ? t(field.placeholder) : field.placeholder}
                                         min={field.min}
+                                        max={field.max}
                                         step={field.step}
                                         addonAfter={field.addonAfter}
                                         style={{ width: "100%" }}

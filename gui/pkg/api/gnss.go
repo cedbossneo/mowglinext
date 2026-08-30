@@ -38,22 +38,24 @@ var allowedGNSSBauds = map[string]bool{
 }
 
 type gnssSavedConfig struct {
-	ConfigPath     string
-	RuntimeEnvPath string
-	ExistingYAML   map[string]any
-	NodeMappings   map[string]string
-	Flat           map[string]any
-	ReceiverFamily string
-	SerialDevice   string
-	RuntimeBaud    string
-	ConfigBaud     string
-	ExecutionBaud  string
-	Profile        string
-	SignalProfile  string
-	SignalGroup      string
-	ReceiverModel    string
-	RoverDynamicMode string
-	ProfileRateHz    string
+	ConfigPath          string
+	RuntimeEnvPath      string
+	ExistingYAML        map[string]any
+	NodeMappings        map[string]string
+	Flat                map[string]any
+	ReceiverFamily      string
+	SerialDevice        string
+	RuntimeBaud         string
+	ConfigBaud          string
+	ExecutionBaud       string
+	Profile             string
+	SignalProfile       string
+	SignalGroup         string
+	ReceiverModel       string
+	RoverDynamicMode    string
+	UnicoreRtkTimeoutS  string
+	UnicoreDgpsTimeoutS string
+	ProfileRateHz       string
 }
 
 type GNSSCommandExecution struct {
@@ -511,6 +513,7 @@ func buildGNSSPlanCommand(cfg gnssSavedConfig) []string {
 	if shouldPassGNSSRoverDynamicMode(cfg) {
 		command = append(command, "--rover-dynamic-mode", cfg.RoverDynamicMode)
 	}
+	command = appendGNSSUnicoreCorrectionAgeTimeoutOverrides(command, cfg)
 	command = append(command, cfg.ReceiverFamily, cfg.Profile)
 	return command
 }
@@ -556,6 +559,7 @@ func buildGNSSApplyCommand(cfg gnssSavedConfig, profile string) []string {
 	if shouldPassGNSSRoverDynamicMode(cfg) {
 		command = append(command, "--rover-dynamic-mode", cfg.RoverDynamicMode)
 	}
+	command = appendGNSSUnicoreCorrectionAgeTimeoutOverrides(command, cfg)
 
 	return command
 }
@@ -569,6 +573,19 @@ func shouldPassGNSSSignalGroup(cfg gnssSavedConfig) bool {
 // profile pick its per-model default (UM980 -> MODE ROVER UAV, issue #395).
 func shouldPassGNSSRoverDynamicMode(cfg gnssSavedConfig) bool {
 	return cfg.ReceiverFamily == "unicore" && strings.TrimSpace(cfg.RoverDynamicMode) != ""
+}
+
+func appendGNSSUnicoreCorrectionAgeTimeoutOverrides(command []string, cfg gnssSavedConfig) []string {
+	if cfg.ReceiverFamily != "unicore" {
+		return command
+	}
+	if cfg.UnicoreRtkTimeoutS != "" {
+		command = append(command, "--rtk-timeout-s", cfg.UnicoreRtkTimeoutS)
+	}
+	if cfg.UnicoreDgpsTimeoutS != "" {
+		command = append(command, "--dgps-timeout-s", cfg.UnicoreDgpsTimeoutS)
+	}
+	return command
 }
 
 func buildGNSSProbeBaudCandidates(cfg gnssSavedConfig) []string {
@@ -660,31 +677,43 @@ func loadSavedGNSSConfig(dbProvider pkgtypes.IDBProvider) (gnssSavedConfig, erro
 		return gnssSavedConfig{}, err
 	}
 	signalGroup := ""
+	unicoreRtkTimeoutS := ""
+	unicoreDgpsTimeoutS := ""
 	if receiverFamily == "unicore" {
 		var err error
 		signalGroup, err = validateGNSSSignalGroup(doc.Flat["gnss_signal_group"])
 		if err != nil {
 			return gnssSavedConfig{}, err
 		}
+		unicoreRtkTimeoutS, err = normalizeOptionalGnssUnicoreCorrectionAgeTimeout(doc.Flat["gnss_unicore_rtk_timeout_s"], "gnss_unicore_rtk_timeout_s")
+		if err != nil {
+			return gnssSavedConfig{}, err
+		}
+		unicoreDgpsTimeoutS, err = normalizeOptionalGnssUnicoreCorrectionAgeTimeout(doc.Flat["gnss_unicore_dgps_timeout_s"], "gnss_unicore_dgps_timeout_s")
+		if err != nil {
+			return gnssSavedConfig{}, err
+		}
 	}
 
 	return gnssSavedConfig{
-		ConfigPath:     doc.ConfigPath,
-		RuntimeEnvPath: doc.RuntimeEnvPath,
-		ExistingYAML:   doc.ExistingYAML,
-		NodeMappings:   doc.NodeMappings,
-		Flat:           doc.Flat,
-		ReceiverFamily: receiverFamily,
-		SerialDevice:   serialDevice,
-		RuntimeBaud:    runtimeBaud,
-		ConfigBaud:     configBaud,
-		ExecutionBaud:  executionBaud,
-		Profile:        profile,
-		SignalProfile:  normalizeGnssSignalProfile(doc.Flat["gnss_signal_profile"], "balanced"),
-		SignalGroup:      signalGroup,
-		ReceiverModel:    normalizeGnssReceiverModel(doc.Flat["gnss_receiver_model"]),
-		RoverDynamicMode: normalizeGnssRoverDynamicMode(doc.Flat["gnss_rover_dynamic_mode"]),
-		ProfileRateHz:    rateHz,
+		ConfigPath:          doc.ConfigPath,
+		RuntimeEnvPath:      doc.RuntimeEnvPath,
+		ExistingYAML:        doc.ExistingYAML,
+		NodeMappings:        doc.NodeMappings,
+		Flat:                doc.Flat,
+		ReceiverFamily:      receiverFamily,
+		SerialDevice:        serialDevice,
+		RuntimeBaud:         runtimeBaud,
+		ConfigBaud:          configBaud,
+		ExecutionBaud:       executionBaud,
+		Profile:             profile,
+		SignalProfile:       normalizeGnssSignalProfile(doc.Flat["gnss_signal_profile"], "balanced"),
+		SignalGroup:         signalGroup,
+		ReceiverModel:       normalizeGnssReceiverModel(doc.Flat["gnss_receiver_model"]),
+		RoverDynamicMode:    normalizeGnssRoverDynamicMode(doc.Flat["gnss_rover_dynamic_mode"]),
+		UnicoreRtkTimeoutS:  unicoreRtkTimeoutS,
+		UnicoreDgpsTimeoutS: unicoreDgpsTimeoutS,
+		ProfileRateHz:       rateHz,
 	}, nil
 }
 
