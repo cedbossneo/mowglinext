@@ -126,6 +126,7 @@ ament_target_dependencies(cog_to_imu
   nav_msgs
   geometry_msgs
   sensor_msgs
+  mowgli_interfaces
 )
 
 target_link_libraries(cog_to_imu yaml-cpp)
@@ -299,6 +300,16 @@ if(BUILD_TESTING)
 
   target_include_directories(test_cog_yaw_math PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+
+  ament_add_gtest(test_cog_observation_timing
+    test/test_cog_observation_timing.cpp
+  )
+  target_include_directories(test_cog_observation_timing PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_cog_observation_timing
+    mowgli_interfaces
   )
 
   # ---- test_costmap_scan_filter ----
