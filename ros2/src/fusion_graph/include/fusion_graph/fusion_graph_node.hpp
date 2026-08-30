@@ -41,6 +41,7 @@
 #include "fusion_graph/scan_matcher.hpp"
 #include <Eigen/Core>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <mowgli_interfaces/gnss_observation_freshness.hpp>
 #include <mowgli_interfaces/msg/high_level_status.hpp>
 #include <mowgli_interfaces/msg/status.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -98,6 +99,9 @@ private:
 
   // Try to seed X_0. Returns true once initialization succeeded.
   bool TrySeedInitialPose();
+  // RTK freshness is based on receiver-receipt provenance in ROS time.
+  // Negative age (future stamp / clock rewind) is always not fresh.
+  bool RtkFixedReceiptIsFresh(double maximum_age_s) const;
 
   // Publish TF map->odom and /odometry/filtered_map.
   void PublishOutputs(const TickOutput& out);
@@ -578,8 +582,9 @@ private:
   // GraphStats.gps_rejects_wrongfix).
   //
   // wheel_dist_since_last_gps_m_ accumulates |wheel translation|
-  // between consecutive OnGnss calls; reset to 0 in OnGnss after
-  // the check.
+  // between consecutive genuine observations; cached republications return
+  // before this state is touched.
+  mowgli_interfaces::gnss_observation_freshness::ObservationTracker gnss_observation_tracker_;
   std::optional<gtsam::Vector2> last_gps_map_xy_;
   double wheel_dist_since_last_gps_m_ = 0.0;
   // GPS jump (m) above which the sample is rejected as a wrong-fix (motion-

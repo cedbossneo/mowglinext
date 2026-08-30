@@ -145,8 +145,7 @@ void FusionGraphNode::OnTimer()
       // scan-matching carries dead-reckoning through the no-fix window.
       double sm_sigma_xy = res.sigma_xy;
       double sm_sigma_theta = res.sigma_theta;
-      if (scan_yield_to_rtk_ && last_rtk_fixed_stamp_ &&
-          (this->now() - *last_rtk_fixed_stamp_).seconds() < scan_yield_timeout_s_)
+      if (scan_yield_to_rtk_ && RtkFixedReceiptIsFresh(scan_yield_timeout_s_))
       {
         sm_sigma_xy = std::max(sm_sigma_xy, scan_yield_sigma_xy_);
         sm_sigma_theta = std::max(sm_sigma_theta, scan_yield_sigma_theta_);
@@ -183,8 +182,7 @@ void FusionGraphNode::OnTimer()
   // direction locked by test_factors.cpp::ScanToKeyframeComposition.
   if (use_keyframe_map_ && scan_matcher_ && curr_valid)
   {
-    const bool rtk_recent = last_rtk_fixed_stamp_ &&
-                            (this->now() - *last_rtk_fixed_stamp_).seconds() < kf_engage_age_s_;
+    const bool rtk_recent = RtkFixedReceiptIsFresh(kf_engage_age_s_);
     if (!rtk_recent)
     {
       if (auto cur = graph_->LatestSnapshot())
@@ -316,8 +314,7 @@ void FusionGraphNode::OnTimer()
     // above (Float) never both fire.
     if (use_keyframe_map_ && curr_valid && curr_scan.size() >= 10)
     {
-      const bool rtk_fresh =
-          last_rtk_fixed_stamp_ && (this->now() - *last_rtk_fixed_stamp_).seconds() < 1.0;
+      const bool rtk_fresh = RtkFixedReceiptIsFresh(1.0);
       const bool moved = !last_kf_capture_xy_ ||
                          std::hypot(out->pose.x() - last_kf_capture_xy_->x(),
                                     out->pose.y() - last_kf_capture_xy_->y()) >= kf_spacing_m_;
@@ -340,9 +337,7 @@ void FusionGraphNode::OnTimer()
     // ~no information — an unbounded leak over a long stationary dwell that
     // OOM-killed the node 2026-06-09. Re-enables once the fix is stale past
     // scan_yield_timeout_s so LC still carries the no-fix (tree-cover) windows.
-    const bool rtk_fixed_fresh =
-        last_rtk_fixed_stamp_ &&
-        (this->now() - *last_rtk_fixed_stamp_).seconds() < scan_yield_timeout_s_;
+    const bool rtk_fixed_fresh = RtkFixedReceiptIsFresh(scan_yield_timeout_s_);
     if (loop_closure_enabled_ && scan_matcher_ && curr_valid &&
         !(lc_skip_when_rtk_fixed_ && rtk_fixed_fresh))
     {
@@ -392,8 +387,7 @@ void FusionGraphNode::OnTimer()
         // no-fix (tree-cover) windows.
         double lc_sigma_xy = lc_sigma_xy_;
         double lc_sigma_theta = lc_sigma_theta_;
-        if (scan_yield_to_rtk_ && last_rtk_fixed_stamp_ &&
-            (this->now() - *last_rtk_fixed_stamp_).seconds() < scan_yield_timeout_s_)
+        if (scan_yield_to_rtk_ && RtkFixedReceiptIsFresh(scan_yield_timeout_s_))
         {
           lc_sigma_xy = std::max(lc_sigma_xy, scan_yield_sigma_xy_);
           lc_sigma_theta = std::max(lc_sigma_theta, scan_yield_sigma_theta_);

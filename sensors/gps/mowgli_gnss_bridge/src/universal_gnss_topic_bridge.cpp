@@ -317,6 +317,7 @@ void UniversalGnssTopicBridge::onStatus(const UniversalGnssStatus & msg)
   PublicGnssStatus public_msg;
   public_msg.header.stamp = msg.stamp;
   public_msg.header.frame_id = frame_id_;
+  public_msg.position_observation_sequence = msg.position_observation_sequence;
   public_msg.backend = backend_;
   public_msg.receiver_vendor = receiver_vendor_;
 

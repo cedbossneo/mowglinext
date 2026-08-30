@@ -234,6 +234,7 @@ class UniversalGnssTopicBridge(Node):
         public_msg = PublicGnssStatus()
         public_msg.header.stamp = msg.stamp
         public_msg.header.frame_id = self._frame_id
+        public_msg.position_observation_sequence = msg.position_observation_sequence
         public_msg.backend = self._backend
         public_msg.receiver_vendor = self._receiver_vendor
 

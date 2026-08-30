@@ -118,3 +118,13 @@ uint16 msm_summary_satellite_count
 uint16 msm_summary_signal_count
 uint16 msm_summary_cell_count
 float32 msm_summary_age_s
+
+# Identity of the receiver position observation represented by this sample.
+# Copied verbatim from Universal GNSS:
+# - advances only for a genuinely accepted position observation
+# - remains unchanged for timer-driven cached republication
+# - may be 0 only for legacy/non-Universal producers
+#
+# Kept at the end of the message to preserve existing field ordering as far as
+# ROS interface evolution permits.
+uint64 position_observation_sequence
