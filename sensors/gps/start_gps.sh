@@ -375,6 +375,31 @@ resolve_rover_dynamic_mode() {
   printf '%s\n' "${GNSS_ROVER_DYNAMIC_MODE:-}"
 }
 
+# Optional expert overrides for the receiver CONFIG correction-age windows.
+# Empty means no CLI override: Universal GNSS remains the sole owner of the
+# rover profile's 120 s RTK / 300 s DGPS defaults.
+resolve_unicore_rtk_timeout_s() {
+  local yaml_timeout
+  yaml_timeout="$(parse_yaml_any gnss_unicore_rtk_timeout_s)"
+  if [ -n "$yaml_timeout" ]; then
+    printf '%s\n' "$yaml_timeout"
+    return 0
+  fi
+
+  printf '%s\n' "${GNSS_UNICORE_RTK_TIMEOUT_S:-}"
+}
+
+resolve_unicore_dgps_timeout_s() {
+  local yaml_timeout
+  yaml_timeout="$(parse_yaml_any gnss_unicore_dgps_timeout_s)"
+  if [ -n "$yaml_timeout" ]; then
+    printf '%s\n' "$yaml_timeout"
+    return 0
+  fi
+
+  printf '%s\n' "${GNSS_UNICORE_DGPS_TIMEOUT_S:-}"
+}
+
 print_command() {
   local label="$1"
   shift
@@ -455,6 +480,8 @@ signal_profile="$(resolve_signal_profile)"
 receiver_model="$(resolve_receiver_model)"
 signal_group="$(resolve_signal_group)"
 rover_dynamic_mode="$(resolve_rover_dynamic_mode)"
+unicore_rtk_timeout_s="$(resolve_unicore_rtk_timeout_s)"
+unicore_dgps_timeout_s="$(resolve_unicore_dgps_timeout_s)"
 
 if [ "$transport" = "serial" ] && [ ! -e "$serial_device" ]; then
   echo "[start_gps.sh] ERROR: selected GNSS serial device does not exist: ${serial_device}"
@@ -488,6 +515,12 @@ if [ -n "$signal_group" ]; then
 fi
 if [ -n "$rover_dynamic_mode" ]; then
   config_apply_cmd+=(--rover-dynamic-mode "$rover_dynamic_mode")
+fi
+if [ "$receiver_family" = "unicore" ] && [ -n "$unicore_rtk_timeout_s" ]; then
+  config_apply_cmd+=(--rtk-timeout-s "$unicore_rtk_timeout_s")
+fi
+if [ "$receiver_family" = "unicore" ] && [ -n "$unicore_dgps_timeout_s" ]; then
+  config_apply_cmd+=(--dgps-timeout-s "$unicore_dgps_timeout_s")
 fi
 
 # Apply the receiver profile synchronously (serial transport only). A failure is

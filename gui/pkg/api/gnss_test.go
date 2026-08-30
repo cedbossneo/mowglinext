@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	pkgtypes "github.com/mowglinext/mowglinext/pkg/types"
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/gin-gonic/gin"
+	pkgtypes "github.com/mowglinext/mowglinext/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,6 +159,15 @@ func defaultGNSSYAMLWithSignalGroup(serialDevice string, receiverFamily string, 
 		return base
 	}
 	return base + "    gnss_signal_group: \"" + signalGroup + "\"\n"
+}
+
+func commandFlagValue(command []string, flag string) (string, bool) {
+	for index := 0; index+1 < len(command); index++ {
+		if command[index] == flag {
+			return command[index+1], true
+		}
+	}
+	return "", false
 }
 
 func newGNSSTestDB(t *testing.T, yamlContent string) (*pkgtypes.MockDBProvider, string) {
@@ -635,6 +644,151 @@ func TestBuildGNSSCommands_SkipSignalGroupWhenEmpty(t *testing.T) {
 
 	assert.NotContains(t, buildGNSSPlanCommand(cfg), "--signal-group")
 	assert.NotContains(t, buildGNSSApplyCommand(cfg, "rover_high_precision"), "--signal-group")
+}
+
+func TestBuildGNSSCommands_ForwardOptionalRoverPolicyOverrides(t *testing.T) {
+	base := gnssSavedConfig{
+		ReceiverFamily: "unicore",
+		SerialDevice:   "/dev/ttyUSB7",
+		RuntimeBaud:    "921600",
+		ConfigBaud:     "921600",
+		ExecutionBaud:  gnssBaudAuto,
+		Profile:        "rover_high_precision",
+		ProfileRateHz:  "10",
+	}
+
+	for _, build := range []struct {
+		name string
+		fn   func(gnssSavedConfig) []string
+	}{
+		{name: "plan", fn: buildGNSSPlanCommand},
+		{name: "apply", fn: func(cfg gnssSavedConfig) []string {
+			return buildGNSSApplyCommand(cfg, "rover_high_precision")
+		}},
+	} {
+		t.Run(build.name, func(t *testing.T) {
+			command := build.fn(base)
+			assert.NotContains(t, command, "--rover-dynamic-mode")
+			assert.NotContains(t, command, "--rtk-timeout-s")
+			assert.NotContains(t, command, "--dgps-timeout-s")
+
+			for _, mode := range []string{"uav", "survey_mow", "rover"} {
+				cfg := base
+				cfg.RoverDynamicMode = mode
+				value, ok := commandFlagValue(build.fn(cfg), "--rover-dynamic-mode")
+				assert.True(t, ok)
+				assert.Equal(t, mode, value)
+			}
+
+			rtkOnly := base
+			rtkOnly.UnicoreRtkTimeoutS = "45"
+			command = build.fn(rtkOnly)
+			value, ok := commandFlagValue(command, "--rtk-timeout-s")
+			assert.True(t, ok)
+			assert.Equal(t, "45", value)
+			assert.NotContains(t, command, "--dgps-timeout-s")
+
+			dgpsOnly := base
+			dgpsOnly.UnicoreDgpsTimeoutS = "90"
+			command = build.fn(dgpsOnly)
+			value, ok = commandFlagValue(command, "--dgps-timeout-s")
+			assert.True(t, ok)
+			assert.Equal(t, "90", value)
+			assert.NotContains(t, command, "--rtk-timeout-s")
+
+			both := base
+			both.UnicoreRtkTimeoutS = "60"
+			both.UnicoreDgpsTimeoutS = "120"
+			command = build.fn(both)
+			rtk, hasRtk := commandFlagValue(command, "--rtk-timeout-s")
+			dgps, hasDgps := commandFlagValue(command, "--dgps-timeout-s")
+			assert.True(t, hasRtk)
+			assert.True(t, hasDgps)
+			assert.Equal(t, "60", rtk)
+			assert.Equal(t, "120", dgps)
+
+			unrelated := both
+			unrelated.ReceiverFamily = "ublox"
+			unrelated.RoverDynamicMode = "uav"
+			command = build.fn(unrelated)
+			assert.NotContains(t, command, "--rover-dynamic-mode")
+			assert.NotContains(t, command, "--rtk-timeout-s")
+			assert.NotContains(t, command, "--dgps-timeout-s")
+		})
+	}
+}
+
+func TestGNSSPlanAndApply_PropagateSavedRoverPolicyOverrides(t *testing.T) {
+	yaml := defaultGNSSYAMLWithModel(
+		"/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+		"unicore",
+		"rover_high_precision",
+		"UM980",
+	) +
+		"    gnss_rover_dynamic_mode: survey_mow\n" +
+		"    gnss_unicore_rtk_timeout_s: 45\n" +
+		"    gnss_unicore_dgps_timeout_s: 90\n"
+
+	for _, action := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{name: "plan", path: "/api/settings/gnss/plan"},
+		{name: "apply", path: "/api/settings/gnss/apply", body: `{"confirm":true}`},
+	} {
+		t.Run(action.name, func(t *testing.T) {
+			db, _ := newGNSSTestDB(t, yaml)
+			docker := defaultMockDocker()
+			docker.runResults = []pkgtypes.ContainerRunResult{{ExitCode: 0, Stdout: `{"status":"ok","warnings":[]}`}}
+			router := setupGNSSRouter(db, docker)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", action.path, strings.NewReader(action.body))
+			if action.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Len(t, docker.runSpecs, 1)
+			command := docker.runSpecs[0].Cmd
+			mode, hasMode := commandFlagValue(command, "--rover-dynamic-mode")
+			rtk, hasRtk := commandFlagValue(command, "--rtk-timeout-s")
+			dgps, hasDgps := commandFlagValue(command, "--dgps-timeout-s")
+			assert.True(t, hasMode)
+			assert.True(t, hasRtk)
+			assert.True(t, hasDgps)
+			assert.Equal(t, "survey_mow", mode)
+			assert.Equal(t, "45", rtk)
+			assert.Equal(t, "90", dgps)
+		})
+	}
+}
+
+func TestGNSSPlan_RejectsInvalidSavedCorrectionAgeTimeouts(t *testing.T) {
+	for _, timeoutLine := range []string{
+		"    gnss_unicore_rtk_timeout_s: 0\n",
+		"    gnss_unicore_rtk_timeout_s: 1801\n",
+		"    gnss_unicore_dgps_timeout_s: 1.5\n",
+		"    gnss_unicore_dgps_timeout_s: invalid\n",
+	} {
+		db, _ := newGNSSTestDB(t, defaultGNSSYAML(
+			"/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0",
+			"unicore",
+			"rover_high_precision",
+		)+timeoutLine)
+		docker := defaultMockDocker()
+		router := setupGNSSRouter(db, docker)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/api/settings/gnss/plan", nil)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "expected a whole number in 1..1800 seconds")
+		assert.Empty(t, docker.runSpecs)
+	}
 }
 
 func TestGNSSPlan_RejectsCollapsedSignalGroupBeforeCommandGeneration(t *testing.T) {

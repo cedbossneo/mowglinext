@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mowglinext/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"github.com/mowglinext/mowglinext/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -634,6 +634,41 @@ func normalizeGnssSignalGroup(value any) string {
 	replaced := strings.NewReplacer(",", " ", "/", " ").Replace(stringValue(value, ""))
 	fields := strings.Fields(replaced)
 	return strings.Join(fields, " ")
+}
+
+const (
+	gnssUnicoreCorrectionAgeTimeoutMinS = 1
+	gnssUnicoreCorrectionAgeTimeoutMaxS = 1800
+)
+
+func normalizeOptionalGnssUnicoreCorrectionAgeTimeout(value any, key string) (string, error) {
+	text := strings.TrimSpace(fmt.Sprintf("%v", value))
+	if value == nil || text == "" || text == "<nil>" {
+		return "", nil
+	}
+
+	timeout, err := strconv.ParseUint(text, 10, 16)
+	if err != nil || timeout < gnssUnicoreCorrectionAgeTimeoutMinS || timeout > gnssUnicoreCorrectionAgeTimeoutMaxS {
+		return "", fmt.Errorf("invalid %s %q: expected a whole number in %d..%d seconds", key, text, gnssUnicoreCorrectionAgeTimeoutMinS, gnssUnicoreCorrectionAgeTimeoutMaxS)
+	}
+
+	return strconv.FormatUint(timeout, 10), nil
+}
+
+func normalizeGnssUnicoreCorrectionAgeTimeoutSettings(flat map[string]any) error {
+	for _, key := range []string{"gnss_unicore_rtk_timeout_s", "gnss_unicore_dgps_timeout_s"} {
+		normalized, err := normalizeOptionalGnssUnicoreCorrectionAgeTimeout(flat[key], key)
+		if err != nil {
+			return err
+		}
+		if normalized == "" {
+			delete(flat, key)
+			continue
+		}
+		timeout, _ := strconv.Atoi(normalized)
+		flat[key] = timeout
+	}
+	return nil
 }
 
 func firstValue(flat map[string]any, keys ...string) any {
@@ -1390,6 +1425,10 @@ func PostSettingsYAML(r *gin.RouterGroup, dbProvider types.IDBProvider) gin.IRou
 			} else {
 				existing[key] = value
 			}
+		}
+		if err := normalizeGnssUnicoreCorrectionAgeTimeoutSettings(existing); err != nil {
+			c.JSON(400, ErrorResponse{Error: err.Error()})
+			return
 		}
 		applyUniversalGnssCompatibility(existing, defaults)
 		gnssEnvUpdates := gnssRuntimeEnvFallbackFromFlat(existing, defaults)

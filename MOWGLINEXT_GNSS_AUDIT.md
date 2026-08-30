@@ -1,7 +1,7 @@
 # MowgliNext GNSS Downstream Audit
 
-> Final audit report and remediation ledger. Phase A, Phase B, Phase C, and
-> Phase D implementation status is recorded separately from the original
+> Final audit report and remediation ledger. Phase A, Phase B, Phase C, Phase D,
+> and Phase E implementation status is recorded separately from the original
 > findings so open consumers are not accidentally presented as fixed.
 
 ## Executive summary
@@ -17,6 +17,10 @@ Phase C started from clean HEAD `1c586082`, containing the committed Phase A
 and Phase B changes, again with the exact clean pinned submodule.
 Phase D started from clean HEAD `97c75ebe`, containing committed Phases A-C,
 again on the exact clean pinned Universal GNSS baseline.
+Phase E validation resumed from parent HEAD
+`a14cf585cd8626ceb54aec592e07eaafed2b7e07`, with transferred Universal GNSS
+changes still based on the exact pinned gitlink
+`45fe44a031520f9dfe4bfc07fd515952d1a1ea88` and no submodule or parent commit.
 
 The audit found that Universal GNSS distinguishes a new receiver observation
 from timer-driven republication using `position_observation_sequence`, while
@@ -55,6 +59,14 @@ cached callback liveness from physical observation freshness. In all four,
 cached delivery cannot refresh authority, invalid/future provenance fails
 closed, and ROS/monotonic epoch rewinds isolate old semantic state.
 
+Phase E restores the field-proven Unicore rover policy at receiver configuration
+boundaries. UM980 now defaults to `MODE ROVER UAV`; UM960, UM982, and UB9A0
+retain `MODE ROVER SURVEY MOW`; the guarded generic fallback remains
+`MODE ROVER`. Optional expert overrides for rover dynamic mode and the bounded
+RTK/DGPS correction-age windows flow through Universal GNSS PLAN/APPLY, the Go
+API, settings persistence, web controls, and startup. The defaults are RTK
+120 s and DGPS 300 s, while `RTK RELIABILITY 3 1` remains unchanged.
+
 Original audit result: **11 confirmed findings — 0 P0, 6 P1, 5 P2, 0 P3**. The P1 set is
 the FusionGraph duplicate-observation path, behavior safety-health liveness,
 dig-event trust, UM980 moving-rover configuration regression, ineffective
@@ -70,14 +82,15 @@ independent configuration regressions show that upgrading the pinned submodule
 also removed Mowgli-specific receiver behavior without removing its GUI/startup
 contract.
 
-Phases A through D change production code only for the public contract, both
+Phases A through E change production code only for the public contract, both
 bridges, FusionGraph deduplication/freshness, the shared freshness primitive,
 the NavSat projection association targeted by MGNSS-002, and COG timing targeted
-by MGNSS-011, plus the four local consumers targeted by MGNSS-003/004/006/007.
+by MGNSS-011, the four local consumers targeted by MGNSS-003/004/006/007, and
+the receiver-configuration boundaries targeted by MGNSS-005/010.
 
-Current remediation result: **7 fixed, 4 open**. The remaining findings are
-exactly MGNSS-005, MGNSS-008, MGNSS-009, and MGNSS-010. Historical audit totals
-and severities remain unchanged.
+Current remediation result: **9 fixed, 2 open**. The remaining findings are
+exactly MGNSS-008 and MGNSS-009. Historical audit totals and severities remain
+unchanged.
 
 ## Phase A remediation status
 
@@ -133,6 +146,22 @@ Cached publications update delivery liveness only. Invalid/future provenance,
 ROS/monotonic rewind, and receipt-only source rewind fail closed. Thirty-two new
 deterministic cases cover the required consumer and cross-cutting matrix; all
 three affected package builds and their complete GTest suites pass.
+
+## Phase E remediation status
+
+Implemented and validated 2026-08-30 as one receiver-configuration remediation
+batch:
+
+| Finding | Phase E state | Result |
+|---|---|---|
+| MGNSS-005 | **FIXED** | Universal GNSS restores the model-aware UM980 UAV default, preserves the established Survey Mow and guarded generic defaults, and accepts explicit rover dynamic-mode overrides through PLAN/APPLY, the Go API, and startup. |
+| MGNSS-010 | **FIXED** | Universal GNSS restores RTK 120 s / DGPS 300 s while preserving reliability 3 1; optional 1..1800 s expert overrides are validated and wired through schema, persistence, web controls, Go PLAN/APPLY, and startup. |
+
+Focused isolated tests cover the model defaults, explicit overrides, timeout
+bounds, PLAN/APPLY equivalence, saved-settings propagation, omitted-setting
+behavior, and startup ordering. No historical frame writer, RTCM forwarding,
+NTRIP/correction-health logic, or GLONASS-1230 requirement was ported. MGNSS-008
+and MGNSS-009 remain out of scope and open.
 
 ## Baselines
 
@@ -241,14 +270,15 @@ Final classification:
 
 | Legacy behavior/change | Audited baseline | MowgliNext dependency | Classification |
 |---|---|---|---|
-| `--rover-dynamic-mode`; UM980 default `MODE ROVER UAV` | Removed; current Unicore rover profile emits `MODE ROVER SURVEY MOW`. | Startup script and GUI plan/apply still conditionally pass the removed flag; GUI still exposes Auto/UAV/Survey/Rover and describes UAV as the UM980 default. | **DOWNSTREAM DEPENDENCY / CONFIRMED REGRESSION** |
-| Unicore correction-age windows (legacy RTK 120 s, DGPS 300 s) | Current profile uses RTK 10 s, DGPS 600 s. | MowgliNext exposes timeout fields, but the saved-config parser, Go plan/apply path, and startup script do not read or pass them. | **DOWNSTREAM DEPENDENCY / CONFIRMED REGRESSION** |
+| `--rover-dynamic-mode`; UM980 default `MODE ROVER UAV` | Phase E restores the model-aware UAV default and portable override while preserving established Survey Mow/generic behavior. | Startup and Go plan/apply pass only explicit overrides; Auto uses the restored model-aware default. | **RESTORED IN PHASE E** |
+| Unicore correction-age windows (legacy RTK 120 s, DGPS 300 s) | Phase E restores RTK 120 s and DGPS 300 s while preserving `RTK RELIABILITY 3 1`. | Optional bounded expert settings now flow through schema/UI, persistence, Go plan/apply, startup, and Universal GNSS. | **RESTORED IN PHASE E** |
 | Whole-frame RTCM forwarding | Current baseline has a bounded pending-frame FIFO and retries partial/EAGAIN writes without truncating the accepted frame. | No downstream dependency found. | **EQUIVALENT IN NEW BASELINE** |
 
 ## Findings summary
 
 Original audit count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
-After Phase D: **7 fixed, 4 open**.
+After Phase E: **9 fixed, 2 open**. The remaining findings are exactly
+MGNSS-008 and MGNSS-009.
 
 P1 denotes a high-impact loss of a primary localization/safety function or a
 configuration regression with field-proven RTK consequences. P2 denotes a
@@ -261,12 +291,12 @@ or readiness error without the same immediate primary-path impact.
 | MGNSS-002 | NavSat projection pairs each fix with an unbounded, asynchronously cached typed status | P2 | **fixed in Phase B** | exact bounded association + 18 focused regressions + NavSat-only launch regression |
 | MGNSS-003 | Behavior localization-health freshness follows cached status callback arrival | P1 | **fixed in Phase D** | shared receipt+sequence/steady deadline + behavior safety-boundary regressions |
 | MGNSS-004 | Dig-event GNSS trust follows cached status callback arrival | P1 | **fixed in Phase D** | shared receipt+sequence/steady deadline + stale-anchor regressions |
-| MGNSS-005 | UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade | P1 | confirmed integration regression | exact legacy/current/API/startup delta |
+| MGNSS-005 | UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade | P1 | **fixed in Phase E** | model-aware defaults + PLAN/APPLY/API/startup regressions |
 | MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | **fixed in Phase D** | shared hardware verdict expires quality to established LED-off value |
 | MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | **fixed in Phase D** | receipt-only physical freshness + separate delivery-liveness regressions |
 | MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | confirmed bug | backend cache and frontend lifecycle proof |
 | MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | confirmed integration bug | bridge, upstream state, and readiness proof |
-| MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | confirmed integration regression | exact legacy/current/default and inert-setting delta |
+| MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | **fixed in Phase E** | restored defaults + bounded end-to-end override regressions |
 | MGNSS-011 | Supported 1 Hz fixes can never produce COG heading | P1 | **fixed in Phase C** | physical-rate-derived timing + 19 focused regressions + 15 historical COG tests |
 
 This is not a forced reproduction of the recovered 10-finding count: MGNSS-011
@@ -453,7 +483,7 @@ Phase D resolution:
 
 ### MGNSS-005 — UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade
 
-Status: confirmed against the legacy fork and current integration.
+Status: **FIXED IN PHASE E**.
 
 - Legacy commit `7343753` made UM980 Auto select `MODE ROVER UAV` after field
   evidence that `SURVEY MOW` could remain Float for hours while moving, and
@@ -472,6 +502,13 @@ Status: confirmed against the legacy fork and current integration.
 - Remediation direction: restore an audited model-aware moving-rover policy in
   the current API, remove stale flags, make apply failure visible/fatal for the
   requested configuration, and test the emitted UM980 command plan.
+- Phase E result: Universal GNSS now defaults UM980 to `MODE ROVER UAV`, retains
+  Survey Mow for UM960/UM982/UB9A0 and the guarded generic Rover fallback, and
+  accepts explicit `uav`, `survey_mow`, or `rover` overrides through both PLAN
+  and APPLY. MowgliNext's existing GUI/startup selection is preserved and the
+  Go and shell paths forward an override only when explicitly configured.
+- Focused profile, planner, apply-equivalence, Go command, saved-config, and
+  startup-order regressions all pass.
 
 ### MGNSS-006 — GPS-lock indication does not age receiver observation provenance
 
@@ -602,7 +639,7 @@ optional information rather than as a normal-RTK failure.
 
 ### MGNSS-010 — Field-proven Unicore correction-age policy was lost and exposed settings are not applied
 
-Status: confirmed against the legacy fork and current integration.
+Status: **FIXED IN PHASE E**.
 
 - Legacy commit `a6d3cf3` changed the field policy to 120 s RTK and 300 s DGPS:
   its recorded rationale says a 10 s correction interruption repeatedly tears
@@ -621,6 +658,12 @@ Status: confirmed against the legacy fork and current integration.
 - Remediation direction: establish one documented default policy, wire both
   values end to end with range/unit validation, expose the effective receiver
   command, and regression-test default and overridden plans.
+- Phase E result: the Unicore rover profile emits RTK 120 s and DGPS 300 s by
+  default, retains `CONFIG RTK RELIABILITY 3 1`, and accepts optional independent
+  RTK/DGPS overrides in the documented `1..1800` second range.
+- Schema/UI bounds, settings normalization, saved-config Go PLAN/APPLY commands,
+  startup dry-run behavior, Universal GNSS plan/apply equivalence, defaults,
+  overrides, and rejection boundaries are covered by passing regressions.
 
 ### MGNSS-011 — Supported 1 Hz fixes can never produce COG heading
 
@@ -812,9 +855,9 @@ Final dependency order:
 1. **Phases A through D complete:** public observation identity, FusionGraph,
    bounded NavSat/status association, COG timing, behavior health, dig trust,
    the lock LED, and localization monitoring are provenance-aware and tested.
-2. Fix MGNSS-005 and MGNSS-010 together at receiver configuration boundaries:
-   restore/replace UM980 moving-rover policy and make correction-age settings
-   effective and verifiably applied.
+2. **Phase E complete:** MGNSS-005 and MGNSS-010 are fixed together at receiver
+   configuration boundaries with model-aware rover policy and effective,
+   validated correction-age settings.
 3. Fix MGNSS-009 by defining correction semantic health, expiry, and source/
    station incarnation ownership; then fix MGNSS-008 by carrying bounded
    validity and disconnect invalidation through the backend/browser lifecycle.

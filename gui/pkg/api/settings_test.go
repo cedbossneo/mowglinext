@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mowglinext/mowglinext/pkg/types"
 	"github.com/gin-gonic/gin"
+	"github.com/mowglinext/mowglinext/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -768,6 +769,51 @@ func TestApplyUniversalGnssCompatibility_DeletesEmptyNormalizedReceiverModel(t *
 	assert.False(t, exists)
 }
 
+func TestNormalizeGnssUnicoreCorrectionAgeTimeoutSettings(t *testing.T) {
+	flat := map[string]any{
+		"gnss_unicore_rtk_timeout_s":  "0045",
+		"gnss_unicore_dgps_timeout_s": float64(300),
+	}
+
+	require.NoError(t, normalizeGnssUnicoreCorrectionAgeTimeoutSettings(flat))
+	assert.Equal(t, 45, flat["gnss_unicore_rtk_timeout_s"])
+	assert.Equal(t, 300, flat["gnss_unicore_dgps_timeout_s"])
+
+	for _, value := range []any{0, 1801, 1.5, "invalid", -1} {
+		t.Run(fmt.Sprintf("reject_%v", value), func(t *testing.T) {
+			candidate := map[string]any{"gnss_unicore_rtk_timeout_s": value}
+			err := normalizeGnssUnicoreCorrectionAgeTimeoutSettings(candidate)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "expected a whole number in 1..1800 seconds")
+		})
+	}
+}
+
+func TestPostSettingsYAML_RejectsInvalidGnssUnicoreCorrectionAgeTimeout(t *testing.T) {
+	yamlFile := createTempYAMLFile(t, "")
+	envFile := createTempConfigFile(t, "")
+	chdirToGuiRoot(t)
+	resetSchemaCache()
+	t.Cleanup(resetSchemaCache)
+
+	db := types.NewMockDBProvider()
+	db.Set("system.mower.yamlConfigFile", []byte(yamlFile))
+	db.Set("system.mower.runtimeEnvFile", []byte(envFile))
+	router := setupSettingsRouter(db)
+
+	body, _ := json.Marshal(map[string]any{"gnss_unicore_dgps_timeout_s": 1801})
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/settings/yaml", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "expected a whole number in 1..1800 seconds")
+	content, err := os.ReadFile(yamlFile)
+	require.NoError(t, err)
+	assert.Empty(t, content)
+}
+
 func TestPostSettingsYAML_DoesNotMaterializeAbsentGnssDefaults(t *testing.T) {
 	// Use the real schema so this proves the fix against the actual schema
 	// defaults, not a test stub.
@@ -811,6 +857,8 @@ func TestPostSettingsYAML_DoesNotMaterializeAbsentGnssDefaults(t *testing.T) {
 		"gnss_profile",
 		"gnss_signal_profile",
 		"gnss_profile_rate_hz",
+		"gnss_unicore_rtk_timeout_s",
+		"gnss_unicore_dgps_timeout_s",
 	} {
 		assert.NotContainsf(t, string(content), key, "expected %s to stay out of the installed config", key)
 	}

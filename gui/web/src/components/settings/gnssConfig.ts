@@ -154,6 +154,7 @@ export type GnssNumberFieldDefinition = {
     tooltip: string;
     placeholder?: string;
     min?: number;
+    max?: number;
     step?: number;
     addonAfter?: string;
     helpText?: string;
@@ -226,7 +227,8 @@ export const GNSS_ADVANCED_SETTINGS_BY_FAMILY: Record<string, GnssReceiverAdvanc
                 key: "gnss_unicore_rtk_timeout_s",
                 label: "gnssConfig.unicore.rtkTimeout.label",
                 tooltip: "gnssConfig.unicore.rtkTimeout.tooltip",
-                min: 0,
+                min: 1,
+                max: 1800,
                 step: 1,
                 addonAfter: "s",
             },
@@ -235,7 +237,8 @@ export const GNSS_ADVANCED_SETTINGS_BY_FAMILY: Record<string, GnssReceiverAdvanc
                 key: "gnss_unicore_dgps_timeout_s",
                 label: "gnssConfig.unicore.dgpsTimeout.label",
                 tooltip: "gnssConfig.unicore.dgpsTimeout.tooltip",
-                min: 0,
+                min: 1,
+                max: 1800,
                 step: 1,
                 addonAfter: "s",
             },
