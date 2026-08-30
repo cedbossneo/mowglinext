@@ -510,6 +510,11 @@ def generate_launch_description() -> LaunchDescription:
     declination_deg = 1.5
     min_horizontal_uT = 5.0
     mag_yaw_variance = 0.0027
+    # Physical receiver observation cadence, not the ROS publication cadence.
+    # The same gnss_profile_rate_hz value configures the receiver profile in
+    # start_gps.sh; pass it to cog_to_imu so its receipt-gap policy has one
+    # source of truth.
+    physical_gnss_observation_rate_hz = 5.0
     runtime_robot_config = "/ros2_ws/config/mowgli_robot.yaml"
     # Merged params: in-package template defaults with the installed sparse
     # config layered on top. Every rt_rp.get(key, <fallback>) below therefore
@@ -558,6 +563,12 @@ def generate_launch_description() -> LaunchDescription:
         declination_deg = float(rt_rp.get("declination_deg", declination_deg))
         min_horizontal_uT = float(rt_rp.get("min_horizontal_uT", min_horizontal_uT))
         mag_yaw_variance = float(rt_rp.get("mag_yaw_variance", mag_yaw_variance))
+        physical_gnss_observation_rate_hz = float(
+            rt_rp.get(
+                "gnss_profile_rate_hz",
+                physical_gnss_observation_rate_hz,
+            )
+        )
         tool_width = float(rt_rp.get("tool_width", tool_width))
         headland_width = float(rt_rp.get("headland_width", headland_width))
         num_headland_passes = int(rt_rp.get(
@@ -1107,6 +1118,7 @@ def generate_launch_description() -> LaunchDescription:
              "enable_mag_cal": enable_mag_cal,
              "mag_calibration_path": mag_cal_path,
              "stationary_seed_rate_hz": cog_stationary_rate,
+             "physical_gnss_observation_rate_hz": physical_gnss_observation_rate_hz,
              # Stationary-yaw aging penalty. The republish_latched path
              # adds (rate · age)² to the variance to model the chance
              # that the latched yaw has gone stale (manual rotation,

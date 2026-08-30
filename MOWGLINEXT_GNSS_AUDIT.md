@@ -1,8 +1,8 @@
 # MowgliNext GNSS Downstream Audit
 
-> Final audit report and remediation ledger. Phase A and Phase B implementation
-> status is recorded separately from the original findings so open consumers
-> are not accidentally presented as fixed.
+> Final audit report and remediation ledger. Phase A, Phase B, and Phase C
+> implementation status is recorded separately from the original findings so
+> open consumers are not accidentally presented as fixed.
 
 ## Executive summary
 
@@ -13,6 +13,8 @@ The hard pre-flight passed: the top-level checkout was clean on
 to `45fe44a031520f9dfe4bfc07fd515952d1a1ea88` before Phase A edits began.
 Phase B started from clean HEAD `93475cdc`, containing the committed Phase A
 changes, with the same exact clean Universal GNSS baseline.
+Phase C started from clean HEAD `1c586082`, containing the committed Phase A
+and Phase B changes, again with the exact clean pinned submodule.
 
 The audit found that Universal GNSS distinguishes a new receiver observation
 from timer-driven republication using `position_observation_sequence`, while
@@ -35,6 +37,14 @@ prevent cross-epoch reuse. A fix whose status never arrives may still produce
 the semantically safe `/gps/absolute_pose` path from its own `NavSatStatus`
 after the bounded wait, but it can never authorize `/gps/pose_cov`.
 
+Phase C wires the existing physical receiver-profile setting
+`gnss_profile_rate_hz` into `cog_to_imu` and derives its default maximum
+receipt interval as `1.5 / physical_rate_hz`. Genuine 1/5/7/10 Hz observations
+therefore retain a bounded displacement baseline, while cached receipt stamps
+remain inert and gaps of two or more expected periods reseed. Receipt/clock
+rewinds fail closed, and the stationary latch now requires valid ROS provenance
+and bounded monotonic age instead of clamping negative ROS age fresh.
+
 Original audit result: **11 confirmed findings — 0 P0, 6 P1, 5 P2, 0 P3**. The P1 set is
 the FusionGraph duplicate-observation path, behavior safety-health liveness,
 dig-event trust, UM980 moving-rover configuration regression, ineffective
@@ -50,9 +60,10 @@ independent configuration regressions show that upgrading the pinned submodule
 also removed Mowgli-specific receiver behavior without removing its GUI/startup
 contract.
 
-Phases A and B change production code only for the public contract, both
+Phases A through C change production code only for the public contract, both
 bridges, FusionGraph deduplication/freshness, the shared freshness primitive,
-and the NavSat projection association targeted by MGNSS-002.
+the NavSat projection association targeted by MGNSS-002, and COG timing targeted
+by MGNSS-011.
 
 ## Phase A remediation status
 
@@ -78,6 +89,17 @@ Implemented 2026-08-30 as the second narrow fix batch:
 | MGNSS-002 | **FIXED** | The unbounded latest-status cache is removed. Exact receipt-stamp pairing, non-zero sequence identity, monotonic bounded waiting/capacity, fail-closed clock/provenance/reset behavior, and both callback orders are covered by deterministic regressions. |
 
 MGNSS-003 through MGNSS-011 were not changed by Phase B. The original severity
+and finding count remain historical audit facts.
+
+## Phase C remediation status
+
+Implemented 2026-08-30 as the third narrow fix batch:
+
+| Finding | Phase C state | Result |
+|---|---|---|
+| MGNSS-011 | **FIXED** | COG timing is derived from configured physical acquisition cadence, all exposed 1/5/7/10 Hz rates retain genuine samples, cached/delayed duplicates remain inert, gaps/restarts/clock errors reseed fail-closed, and the stationary latch rejects negative age and expires monotonically. |
+
+MGNSS-003 through MGNSS-010 were not changed by Phase C. The original severity
 and finding count remain historical audit facts.
 
 ## Baselines
@@ -116,6 +138,14 @@ and finding count remain historical audit facts.
   unrelated consumers remain unchanged.
 - No commit or push.
 
+### Phase C implementation constraints
+
+- Mode: narrow fix + test for MGNSS-011 only.
+- Universal GNSS remains read-only at the pinned commit.
+- COG topic/frame/heading/covariance/displacement/speed/rotation semantics remain
+  unchanged; only timing and temporal-state validity change.
+- No commit or push.
+
 ## GNSS data-flow map
 
 Current production path, revalidated from source:
@@ -130,7 +160,8 @@ physical receiver
        -> /gps/status                      (receipt stamp + sequence preserved)
        -> /rtcm
   -> FusionGraph / GTSAM                  (/gps/fix directly)
-  -> cog_to_imu                           (/gps/fix -> /imu/cog_heading)
+  -> cog_to_imu                           (physical-rate receipt timing
+                                           /gps/fix -> /imu/cog_heading)
   -> navsat_to_absolute_pose              (exact bounded receipt-paired fix/status)
        -> /gps/absolute_pose
        -> /gps/pose_cov
@@ -163,11 +194,11 @@ typed status continues to be published from the current cached runtime state.
 
 | Contract | Upstream behavior | Current downstream result | Status |
 |---|---|---|---|
-| Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves the stamp in public `header.stamp`; some consumers ignore it and record callback `now()`. | violated by multiple consumers |
+| Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves the stamp in public `header.stamp`; FusionGraph, NavSat projection, and COG timing use it. Some other consumers still record callback `now()`. | fixed in three localization paths; violated by other consumers |
 | Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status appends the sequence and both bridges copy it verbatim. FusionGraph deduplicates its fix-only path by receipt; NavSat projection uses the exact receipt pair plus sequence for cache/ambiguity/restart handling. Other status consumers have not yet adopted the sequence. | boundary, FusionGraph, and NavSat projection fixed; consumer adoption incomplete |
-| Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph ignores receipt-identical republications before factor/latch effects. NavSat projection cannot turn cached status into a new pair. Behavior, hardware, and monitoring still derive freshness from delivery callbacks. | FusionGraph/projection fixed; other consumers open |
+| Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph ignores receipt-identical republications; NavSat projection cannot turn cached status into a new pair; COG uses only receipt deltas and derives its gap from `gnss_profile_rate_hz`, never callback/publication cadence. Behavior, hardware, and monitoring still derive freshness from delivery callbacks. | FusionGraph/projection/COG fixed; other consumers open |
 | SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks, so core clears survive. The GUI diagnostic merge ORs old diagnostic-derived correction flags/values back into the current sample. | core preserved; correction projection violated |
-| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS provenance age from monotonic delivery and rejects negative age; FusionGraph and NavSat projection use it. Projection deadlines/capacity are monotonic and ROS/steady rewinds reset its association epoch. Other audited consumers have not adopted it. | policy/FusionGraph/projection fixed; other consumers open |
+| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS provenance age from monotonic delivery and rejects negative age; FusionGraph, NavSat projection, and COG use it. COG stationary-latch liveness is monotonic while ROS provenance independently rejects future/rewound time. Other audited consumers have not adopted it. | policy/FusionGraph/projection/COG fixed; other consumers open |
 | Correction states | Transport, accepted response, valid flow, semantic health, and receiver RTK solution are distinct. | Public projection derives one stream enum from a cached forwarding diagnostic; setup readiness passes on `ACTIVE` without semantic validity. | violated |
 | RTCM semantics | 1005/1006 are static-base data, MSM is dynamic correction data, and 1230 is optional for normal RTK health. | The UI shows 1230 availability only as detail; no downstream health/readiness gate was found that requires it. Dynamic correction health is nevertheless collapsed with forwarding activity. | 1230 preserved; flow/health violated |
 | Source/station ownership | Reconnect or source/station change must invalidate incompatible stale state. | Bridge diagnostics entries have no source incarnation or expiry and prefer old NTRIP entries over receiver entries. | violated |
@@ -185,7 +216,7 @@ Final classification:
 ## Findings summary
 
 Original audit count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
-After Phase B: **2 fixed, 9 open**.
+After Phase C: **3 fixed, 8 open**.
 
 P1 denotes a high-impact loss of a primary localization/safety function or a
 configuration regression with field-proven RTK consequences. P2 denotes a
@@ -204,7 +235,7 @@ or readiness error without the same immediate primary-path impact.
 | MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | confirmed bug | backend cache and frontend lifecycle proof |
 | MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | confirmed integration bug | bridge, upstream state, and readiness proof |
 | MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | confirmed integration regression | exact legacy/current/default and inert-setting delta |
-| MGNSS-011 | Supported 1 Hz fixes can never produce COG heading | P1 | confirmed integration bug | interval/state-machine proof against supported profile |
+| MGNSS-011 | Supported 1 Hz fixes can never produce COG heading | P1 | **fixed in Phase C** | physical-rate-derived timing + 19 focused regressions + 15 historical COG tests |
 
 This is not a forced reproduction of the recovered 10-finding count: MGNSS-011
 was found independently by the full downstream trace.
@@ -495,33 +526,51 @@ Status: confirmed against the legacy fork and current integration.
 
 ### MGNSS-011 — Supported 1 Hz fixes can never produce COG heading
 
-Status: independently discovered and confirmed from the estimator state machine
-and the supported-rate configuration.
+Status: **FIXED in Phase C**.
 
-- `cog_to_imu_node` subscribes to `/gps/fix` and defaults to
-  `min_dt = 0.05 s`, `max_dt = 0.50 s`
-  (`cog_to_imu_node.cpp:143-146,195-202`).
-- For every accepted fix it computes the delta between preserved receipt stamps.
-  If the delta exceeds `max_dt`, it clears both anchor and previous sample; the
-  same callback then only seeds a new anchor and returns
-  (`cog_to_imu_node.cpp:355-375,448-459`).
-- The supported GNSS configuration explicitly offers a 1 Hz profile. Consecutive
-  genuine observations are then about 1 s apart, so every observation resets
-  and reseeds the estimator. No displacement pair survives and no moving
-  `/imu/cog_heading` sample can be emitted.
-- Identical cached republications are correctly rejected by their unchanged
-  receipt stamp; the defect is the incompatible upper interval bound for a
-  genuine supported acquisition rate, not duplicate handling.
-- FusionGraph uses COG yaw for absolute heading updates, initialization/recovery,
-  keyframe decisions, docking, and calibration. At 1 Hz those functions silently
-  lose this heading source.
-- The stationary-heading latch uses ROS time with negative ages clamped fresh,
-  so pause/rewind can additionally extend the last stationary result beyond its
-  configured lifetime.
-- Remediation direction: define `max_dt` from the configured physical acquisition
-  rate with tolerance (independent of publication rate), retain a valid prior
-  observation across expected intervals, and test 1/5/7/10 Hz plus cached
-  republication and time jumps.
+- Original defect: `cog_to_imu` used a fixed 0.50 s maximum receipt delta even
+  though MowgliNext exposes physical receiver profiles at 1, 5, 7, and 10 Hz.
+  Every genuine 1 Hz sample therefore discarded the previous anchor and could
+  never form a moving heading baseline.
+- Phase C reuses the existing `gnss_profile_rate_hz` robot setting—the same
+  value passed to Universal GNSS profile application—as the sole physical-rate
+  source. `navigation.launch.py` passes it to the node under the explicit name
+  `physical_gnss_observation_rate_hz`; no ROS publication-rate input reaches
+  the COG timing policy.
+- The automatic `max_sample_dt_s` default is
+  `expected_period * 1.5`. The 50% tolerance admits normal receipt jitter at
+  every supported rate while a missed complete next cycle (two periods) still
+  resets. The pre-existing `max_sample_dt_s` operator override remains
+  available but must be finite and at least one configured physical period;
+  `min_sample_dt_s = 0.05` remains unchanged.
+- A production `CogObservationTiming` gate uses integer receipt nanoseconds
+  only. It has a bounded 64-receipt history so current and delayed cached
+  republications are ignored without disturbing the baseline, while same
+  coordinates with a new receipt remain genuine. No callback, publication, or
+  delivery interval participates in displacement timing.
+- Zero, future, older-than-2 s, unseen-rewound, and old-ROS-epoch provenance
+  fails closed. An excessive but valid forward receipt gap accepts the current
+  sample only as a clean seed. Receiver reconnect therefore cannot join motion
+  across an unbounded gap; the next normal sample can form a new baseline.
+- Stationary yaw now stores receipt provenance separately from monotonic latch
+  time. Negative ROS age or ROS/steady rewind clears it; either ROS provenance
+  age or monotonic liveness age exceeding `stationary_max_age_s` expires it.
+  Drift covariance uses the larger valid elapsed age, so paused ROS time cannot
+  preserve a latch indefinitely.
+- Output topic, frame, heading convention, covariance calculation, displacement
+  threshold, wheel-speed requirement, rotation/sweep gates, and moving versus
+  stationary behavior are unchanged.
+- Regression coverage proves moving heading-capable baselines at 1/5/7/10 Hz;
+  cached 10 Hz delivery around a physical 1 Hz source; same-coordinate new
+  observations; 50% jitter and preserved minimum interval; excessive gap
+  reseed; delayed duplicate; receipt/ROS rewind; zero/future/large-forward
+  stamps; reconnect; publication/acquisition independence; invalid config; and
+  stationary negative-age, rewind, ROS-pause, and monotonic expiry behavior.
+- Residual operational risk: `gnss_profile_rate_hz` is the requested/expected
+  physical rate. Receiver-profile application is intentionally non-fatal, so a
+  receiver that rejects configuration may retain a different effective rate.
+  The COG gate then fails safely by reseeding rather than joining excessive
+  gaps, but heading availability requires correcting the receiver configuration.
 
 ## Test coverage gaps
 
@@ -542,7 +591,8 @@ Required regression additions:
   expired. Phase A covers delayed duplicates and the existing historical-node
   timestamp suite remains green.
 - COG output at every supported acquisition rate, independently varied ROS
-  publication rate, cached duplicate stamps, and stationary-latch clock jumps.
+  publication rate, cached duplicate stamps, and stationary-latch clock jumps
+  is covered by Phase C.
 - NTRIP connected without valid RTCM, malformed/zero-cell MSM, caster restart,
   mountpoint/source change, station change, and stale diagnostic removal.
 - Backend/Foxglove and browser WebSocket loss/reconnect invalidation.
@@ -576,6 +626,9 @@ artifacts under `/tmp`):
 | Phase B isolated `mowgli_localization` build | **PASS — 1/1 package** | The production association library, projection node, and both focused test executables compile and install against the Phase A underlay. Only existing ament target-dependency deprecation warnings were emitted. |
 | Phase B focused localization tests | **PASS — 21/21 tests** | Eighteen association regressions cover all required pairing/order/cache/duplicate/transition/timeout/capacity/restart/clock/provenance cases; three existing projection/typed-covariance tests remain green. |
 | Phase B NavSat-only launch integration | **PASS — 2/2 functional tests plus clean shutdown** | A fresh fix with no local typed-status publisher emits exactly one `/gps/absolute_pose`, emits no `/gps/pose_cov`, and does not create a `/gps/status` publisher. |
+| Phase C isolated `mowgli_localization` build | **PASS — 1/1 package** | The COG node and receipt/latch timing policy compile and install against the committed Phase A/B tree. Only existing ament target-dependency deprecation warnings were emitted. |
+| Phase C focused COG tests | **PASS — 34/34 cases** | Nineteen timing/latch regressions cover every required rate, identity, cadence, gap, rewind, future, restart, and latch case; all 15 pre-existing heading/sweep/latch-rotation tests remain green. |
+| Phase C launch wiring tests | **PASS — 7/7** | The new AST guard proves `gnss_profile_rate_hz` reaches `cog_to_imu.physical_gnss_observation_rate_hz` as a bare value; all six existing launch-injection guards remain green. |
 
 The remaining downstream ROS packages, frontend, Go provider, and installer
 matrices were not rerun after the user's quota-prioritization instruction. The
@@ -595,6 +648,11 @@ For NavSat projection specifically, Phase B converts the static proof into
 deterministic production-path regression coverage for callback reordering,
 backlog, bounded timeout/capacity, duplicate/cache delivery, sequence restart,
 receipt/clock discontinuity, and ambiguous identity.
+
+For COG specifically, Phase C converts the 1 Hz dead-zone proof into
+deterministic production-gate coverage for every exposed receiver rate,
+publication/acquisition decoupling, bounded gaps/history, reconnect, provenance
+and clock discontinuity, and stationary-latch expiry.
 
 The GPS dock detector was explicitly reviewed and is not counted as stale-GNSS
 retention: after a Fixed solution it converts the dock to the continuous odom
@@ -641,14 +699,12 @@ hardware LED/dig trust, monitoring, backend, and GUI side by side while testing:
 
 Final dependency order:
 
-1. **Phases A and B complete:** public observation identity, FusionGraph
-   receipt deduplication/freshness, and bounded exact NavSat/status association
-   are implemented and regression-tested.
-2. Make COG interval handling honor all supported acquisition rates and test it
-   independently of publication cadence.
-3. Restore/replace the UM980 moving-rover policy and make correction-age settings
+1. **Phases A through C complete:** public observation identity, FusionGraph
+   receipt deduplication/freshness, bounded exact NavSat/status association, and
+   physical-rate-derived COG timing are implemented and regression-tested.
+2. Restore/replace the UM980 moving-rover policy and make correction-age settings
    effective; define typed correction health and source ownership.
-4. Convert behavior, dig trust, LED, monitoring, backend, and GUI consumers to
+3. Convert behavior, dig trust, LED, monitoring, backend, and GUI consumers to
    bounded provenance-aware state and add reconnect/clock tests.
 
 Findings sharing the observation-identity/public-contract root should be fixed
@@ -739,4 +795,38 @@ and remotes were not modified.
 
 All eight paths are owned by the normal project user `ubuntu`; isolated build
 artifacts remain under `/tmp`. MGNSS-003 through MGNSS-011, remotes, and
+submodules were not modified.
+
+## Phase C final repository cross-check
+
+- Branch: `audit/gnss-downstream`.
+- Top-level HEAD: `1c586082 fix(gnss): pair navsat fixes with matching
+  status`; committed Phases A and B are present. Phase C created no commit and
+  performed no push.
+- Universal GNSS gitlink/HEAD: exact required
+  `45fe44a031520f9dfe4bfc07fd515952d1a1ea88`, with an empty submodule
+  `git status --short`. No Universal GNSS content or gitlink changed.
+- `git diff --check`: **PASS**.
+- ROS2 C++ formatting: both `clang-format -n -Werror
+  -style=file:ros2/.clang-format` and `git clang-format --diff origin/main`
+  report no changes for every touched C++ source/header.
+- Focused validation: isolated `mowgli_localization` build **PASS**; 19/19 new
+  receipt/latch tests and 15/15 historical COG tests **PASS**; 7/7 launch
+  injection tests **PASS**.
+- `git status --short`, `git diff --stat`, `git diff --name-only`, and the
+  untracked-file listing show only the seven intended Phase C paths: five
+  tracked modifications and two new files:
+
+```text
+ M MOWGLINEXT_GNSS_AUDIT.md
+ M ros2/src/mowgli_bringup/launch/navigation.launch.py
+ M ros2/src/mowgli_bringup/test/test_launch_injection.py
+ M ros2/src/mowgli_localization/CMakeLists.txt
+ M ros2/src/mowgli_localization/src/cog_to_imu_node.cpp
+?? ros2/src/mowgli_localization/include/mowgli_localization/cog_observation_timing.hpp
+?? ros2/src/mowgli_localization/test/test_cog_observation_timing.cpp
+```
+
+All seven paths are owned by the normal project user `ubuntu`; isolated build
+artifacts remain under `/tmp`. MGNSS-003 through MGNSS-010, remotes, and
 submodules were not modified.
