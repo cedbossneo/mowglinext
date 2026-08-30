@@ -312,6 +312,16 @@ if(BUILD_TESTING)
     mowgli_interfaces
   )
 
+  ament_add_gtest(test_localization_monitor_freshness
+    test/test_localization_monitor_freshness.cpp
+  )
+  target_include_directories(test_localization_monitor_freshness PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_localization_monitor_freshness
+    mowgli_interfaces
+  )
+
   # ---- test_costmap_scan_filter ----
   # Re-implements the static helper so we don't drag rclcpp/main symbols
   # into the test binary; the helper is small enough to keep in sync by

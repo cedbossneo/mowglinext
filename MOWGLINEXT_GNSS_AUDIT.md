@@ -1,8 +1,8 @@
 # MowgliNext GNSS Downstream Audit
 
-> Final audit report and remediation ledger. Phase A, Phase B, and Phase C
-> implementation status is recorded separately from the original findings so
-> open consumers are not accidentally presented as fixed.
+> Final audit report and remediation ledger. Phase A, Phase B, Phase C, and
+> Phase D implementation status is recorded separately from the original
+> findings so open consumers are not accidentally presented as fixed.
 
 ## Executive summary
 
@@ -15,6 +15,8 @@ Phase B started from clean HEAD `93475cdc`, containing the committed Phase A
 changes, with the same exact clean Universal GNSS baseline.
 Phase C started from clean HEAD `1c586082`, containing the committed Phase A
 and Phase B changes, again with the exact clean pinned submodule.
+Phase D started from clean HEAD `97c75ebe`, containing committed Phases A-C,
+again on the exact clean pinned Universal GNSS baseline.
 
 The audit found that Universal GNSS distinguishes a new receiver observation
 from timer-driven republication using `position_observation_sequence`, while
@@ -45,6 +47,14 @@ remain inert and gaps of two or more expected periods reseed. Receipt/clock
 rewinds fail closed, and the stationary latch now requires valid ROS provenance
 and bounded monotonic age instead of clamping negative ROS age fresh.
 
+Phase D applies the shared observation identity to the four remaining local
+consumers. Behavior reevaluates its existing 5 s deadline before each tree tick;
+dig trust and the firmware-bound lock quality share the existing hardware 2 s
+deadline; localization monitoring keeps its existing 2 s deadline and separates
+cached callback liveness from physical observation freshness. In all four,
+cached delivery cannot refresh authority, invalid/future provenance fails
+closed, and ROS/monotonic epoch rewinds isolate old semantic state.
+
 Original audit result: **11 confirmed findings — 0 P0, 6 P1, 5 P2, 0 P3**. The P1 set is
 the FusionGraph duplicate-observation path, behavior safety-health liveness,
 dig-event trust, UM980 moving-rover configuration regression, ineffective
@@ -60,10 +70,14 @@ independent configuration regressions show that upgrading the pinned submodule
 also removed Mowgli-specific receiver behavior without removing its GUI/startup
 contract.
 
-Phases A through C change production code only for the public contract, both
+Phases A through D change production code only for the public contract, both
 bridges, FusionGraph deduplication/freshness, the shared freshness primitive,
 the NavSat projection association targeted by MGNSS-002, and COG timing targeted
-by MGNSS-011.
+by MGNSS-011, plus the four local consumers targeted by MGNSS-003/004/006/007.
+
+Current remediation result: **7 fixed, 4 open**. The remaining findings are
+exactly MGNSS-005, MGNSS-008, MGNSS-009, and MGNSS-010. Historical audit totals
+and severities remain unchanged.
 
 ## Phase A remediation status
 
@@ -101,6 +115,24 @@ Implemented 2026-08-30 as the third narrow fix batch:
 
 MGNSS-003 through MGNSS-010 were not changed by Phase C. The original severity
 and finding count remain historical audit facts.
+
+## Phase D remediation status
+
+Implemented and validated 2026-08-30 as one shared-consumer remediation batch:
+
+| Finding | Phase D state | Result |
+|---|---|---|
+| MGNSS-003 | **FIXED** | Behavior consumes public receipt+sequence identity, reevaluates the existing 5 s observation deadline before every tree tick, immediately clears Fixed-only authority/stales the health gate at expiry, and recovers only from accepted evidence. |
+| MGNSS-004 | **FIXED** | Hardware dig trust uses shared receipt/sequence plus monotonic physical-observation freshness; cached delivery cannot refresh the existing 2 s gate or establish a new dig anchor. |
+| MGNSS-006 | **FIXED** | The same hardware verdict expires firmware-bound quality to established value `0` (LOCK LED off) and restores the existing quality mapping only on genuine observations. |
+| MGNSS-007 | **FIXED** | The launched localization monitor evaluates `/gps/absolute_pose` receiver-receipt provenance rather than callback arrival and reports callback liveness separately on freshness transitions. |
+
+The generic Phase A helper now has one consumer-facing wrapper: ROS receipt age
+and monotonic elapsed age since the last accepted identity must both pass.
+Cached publications update delivery liveness only. Invalid/future provenance,
+ROS/monotonic rewind, and receipt-only source rewind fail closed. Thirty-two new
+deterministic cases cover the required consumer and cross-cutting matrix; all
+three affected package builds and their complete GTest suites pass.
 
 ## Baselines
 
@@ -167,7 +199,7 @@ physical receiver
        -> /gps/pose_cov
   -> behavior/localization-health         (/gps/status)
   -> hardware bridge                      (/gps/status; LED and dig trust)
-  -> monitoring                           (/gps/fix)
+  -> localization monitoring              (/gps/absolute_pose receipt provenance)
   -> map/dock calibration                 (/gps/pose_cov)
   -> Foxglove bridge -> Go RosProvider -> GUI WebSocket -> React GNSS state
 ```
@@ -194,11 +226,11 @@ typed status continues to be published from the current cached runtime state.
 
 | Contract | Upstream behavior | Current downstream result | Status |
 |---|---|---|---|
-| Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves the stamp in public `header.stamp`; FusionGraph, NavSat projection, and COG timing use it. Some other consumers still record callback `now()`. | fixed in three localization paths; violated by other consumers |
-| Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status appends the sequence and both bridges copy it verbatim. FusionGraph deduplicates its fix-only path by receipt; NavSat projection uses the exact receipt pair plus sequence for cache/ambiguity/restart handling. Other status consumers have not yet adopted the sequence. | boundary, FusionGraph, and NavSat projection fixed; consumer adoption incomplete |
-| Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph ignores receipt-identical republications; NavSat projection cannot turn cached status into a new pair; COG uses only receipt deltas and derives its gap from `gnss_profile_rate_hz`, never callback/publication cadence. Behavior, hardware, and monitoring still derive freshness from delivery callbacks. | FusionGraph/projection/COG fixed; other consumers open |
+| Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves public `header.stamp`; FusionGraph, NavSat projection, COG, behavior, hardware dig/LED, and localization monitoring now use preserved receipt provenance. | fixed in all audited local ROS consumers; backend/GUI lifecycle remains separate MGNSS-008 |
+| Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status appends the sequence and both bridges copy it verbatim. FusionGraph deduplicates by receipt; NavSat projection handles exact receipt+sequence association; behavior and hardware consume sequence+receipt. Monitoring's `AbsolutePose` interface has no sequence and uses the helper's fail-closed receipt-only mode. | fixed for all interfaces that expose sequence; safe compatibility mode for monitoring |
+| Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph, projection, COG, behavior, dig trust, LED, and monitoring ignore cached delivery for physical freshness. Explicit 1 Hz acquisition/10 Hz callback and sparse-publication tests pass. | fixed for audited local ROS consumers |
 | SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks, so core clears survive. The GUI diagnostic merge ORs old diagnostic-derived correction flags/values back into the current sample. | core preserved; correction projection violated |
-| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS provenance age from monotonic delivery and rejects negative age; FusionGraph, NavSat projection, and COG use it. COG stationary-latch liveness is monotonic while ROS provenance independently rejects future/rewound time. Other audited consumers have not adopted it. | policy/FusionGraph/projection/COG fixed; other consumers open |
+| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS receipt age, monotonic physical-observation elapsed age, and callback delivery liveness. FusionGraph, projection, COG, behavior, hardware, and monitoring reject future/negative age; Phase D consumers isolate debounce state on epoch rewind. | fixed for all audited local ROS consumers |
 | Correction states | Transport, accepted response, valid flow, semantic health, and receiver RTK solution are distinct. | Public projection derives one stream enum from a cached forwarding diagnostic; setup readiness passes on `ACTIVE` without semantic validity. | violated |
 | RTCM semantics | 1005/1006 are static-base data, MSM is dynamic correction data, and 1230 is optional for normal RTK health. | The UI shows 1230 availability only as detail; no downstream health/readiness gate was found that requires it. Dynamic correction health is nevertheless collapsed with forwarding activity. | 1230 preserved; flow/health violated |
 | Source/station ownership | Reconnect or source/station change must invalidate incompatible stale state. | Bridge diagnostics entries have no source incarnation or expiry and prefer old NTRIP entries over receiver entries. | violated |
@@ -216,7 +248,7 @@ Final classification:
 ## Findings summary
 
 Original audit count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
-After Phase C: **3 fixed, 8 open**.
+After Phase D: **7 fixed, 4 open**.
 
 P1 denotes a high-impact loss of a primary localization/safety function or a
 configuration regression with field-proven RTK consequences. P2 denotes a
@@ -227,11 +259,11 @@ or readiness error without the same immediate primary-path impact.
 |---|---|---:|---|---|
 | MGNSS-001 | Observation identity is lost, so FusionGraph reuses cached fixes as fresh factors/evidence | P1 | **fixed in Phase A** | public bridge + receipt-only FusionGraph regressions |
 | MGNSS-002 | NavSat projection pairs each fix with an unbounded, asynchronously cached typed status | P2 | **fixed in Phase B** | exact bounded association + 18 focused regressions + NavSat-only launch regression |
-| MGNSS-003 | Behavior localization-health freshness follows cached status callback arrival | P1 | confirmed bug; Phase A prerequisite available | consumer remains callback-time based |
-| MGNSS-004 | Dig-event GNSS trust follows cached status callback arrival | P1 | confirmed bug; Phase A prerequisite available | consumer remains callback-time based |
+| MGNSS-003 | Behavior localization-health freshness follows cached status callback arrival | P1 | **fixed in Phase D** | shared receipt+sequence/steady deadline + behavior safety-boundary regressions |
+| MGNSS-004 | Dig-event GNSS trust follows cached status callback arrival | P1 | **fixed in Phase D** | shared receipt+sequence/steady deadline + stale-anchor regressions |
 | MGNSS-005 | UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade | P1 | confirmed integration regression | exact legacy/current/API/startup delta |
-| MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | confirmed bug; Phase A prerequisite available | consumer expiry remains open |
-| MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | confirmed bug; Phase A prerequisite available | consumer remains delivery-time based |
+| MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | **fixed in Phase D** | shared hardware verdict expires quality to established LED-off value |
+| MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | **fixed in Phase D** | receipt-only physical freshness + separate delivery-liveness regressions |
 | MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | confirmed bug | backend cache and frontend lifecycle proof |
 | MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | confirmed integration bug | bridge, upstream state, and readiness proof |
 | MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | confirmed integration regression | exact legacy/current/default and inert-setting delta |
@@ -341,8 +373,7 @@ Status: **FIXED in Phase B**.
 
 ### MGNSS-003 — Behavior localization-health freshness follows cached status callback arrival
 
-Status: **OPEN; enabled for the next phase by the public sequence and shared
-freshness policy**.
+Status: **FIXED IN PHASE D**.
 
 - `BehaviorTreeNode::on_gnss_status()` records `get_clock()->now()` on every
   public status callback and passes that callback time to `LocalizationHealth`,
@@ -365,10 +396,29 @@ freshness policy**.
   bounded-age observation; use a monotonic liveness clock and fail closed on
   invalid/future provenance.
 
+Phase D resolution:
+
+- The callback feeds public `position_observation_sequence` plus receiver
+  receipt `header.stamp` into `PhysicalObservationTracker`. Only
+  `kNewObservation`/`kSourceRestart` may replace RTK mode, accuracy, fix type,
+  quality, or Fixed debounce state; cached/invalid/out-of-order deliveries are
+  semantically inert.
+- Before every behavior-tree tick, health requires both ROS receipt age and
+  monotonic elapsed age since the last accepted identity to be within the
+  existing `loc_gnss_stale_s` setting (5 s from bringup config/default).
+  Expiry immediately clears Fixed/quality authorization and latches GNSS stale;
+  the existing quality thresholds and recovery persistence are unchanged.
+- ROS/steady rewind clears the identity epoch and Fixed debounce. Invalid/zero
+  or future provenance cannot authorize; source restart applies only the new
+  message's semantics, so an old Fixed value cannot resurrect by itself.
+- Four behavior-specific regressions pin fresh Fixed, cached delivery without
+  deadline extension, fail-closed expiry under the default persistence config,
+  and genuine-observation recovery; all 16 historical health/latch cases stay
+  green.
+
 ### MGNSS-004 — Dig-event GNSS trust follows cached status callback arrival
 
-Status: **OPEN; enabled for the next phase by the public sequence and shared
-freshness policy**.
+Status: **FIXED IN PHASE D**.
 
 - The hardware bridge caches accuracy/Fixed state and assigns
   `dig_gnss_time_ = now()` on every `/gps/status` callback
@@ -385,6 +435,21 @@ freshness policy**.
 - Remediation direction: derive trust from new-observation identity and bounded
   receipt age using monotonic liveness; make stale/future provenance explicitly
   untrusted before the physical-action state machine.
+
+Phase D resolution:
+
+- The hardware status callback now uses the same public sequence+receipt
+  tracker and updates receiver accuracy/RTK eligibility only for accepted
+  genuine evidence. The dig monitor evaluates the tracker, not callback time.
+- The existing `dig_gnss_timeout_s` parameter remains the sole 2 s hardware
+  GNSS trust deadline. No position/accuracy/RTK threshold, dig window, anchor,
+  verdict, stop, event, or reverse behavior was changed.
+- Cached Fixed delivery can remain transport-live while `DigTrustSigma`
+  receives `fresh=false`/infinity; deterministic regression proves this cannot
+  initialize a `DigDetectorState` anchor. A later advancing identity restores
+  eligibility normally.
+- Four new dig-freshness cases pass alongside all 27 historical dig/trust/
+  escape cases.
 
 ### MGNSS-005 — UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade
 
@@ -410,8 +475,7 @@ Status: confirmed against the legacy fork and current integration.
 
 ### MGNSS-006 — GPS-lock indication does not age receiver observation provenance
 
-Status: **OPEN; enabled for the next phase by the public sequence and shared
-freshness policy**.
+Status: **FIXED IN PHASE D**.
 
 - The hardware bridge overwrites `gps_quality_` on each status callback and
   never ages or clears it (`hardware_bridge_node.cpp:749-766,947-954,2046-2068`).
@@ -425,10 +489,23 @@ freshness policy**.
 - Remediation direction: transmit an explicit age/valid bit or expire quality in
   the bridge, with boot, silence, reconnect, and cached-republication tests.
 
+Phase D resolution:
+
+- Firmware behavior was traced and left unchanged: `gps_quality < 90` turns
+  `PANEL_LED_LOCK` off. The bridge therefore preserves every existing fresh
+  quality/visual mapping and substitutes the established no-current value `0`
+  whenever the shared hardware physical-observation verdict is stale.
+- LED expiry reuses `dig_gnss_timeout_s` (2 s), the already-existing hardware
+  GNSS status deadline; cached callbacks cannot extend it. The periodic
+  high-level-state packet naturally propagates the cleared quality to STM32,
+  while an accepted new observation restores the mapped quality.
+- Four LED-specific regressions pin fresh Fixed/Float quality preservation,
+  cached Fixed expiry, the exact safe output value, and genuine recovery. No
+  firmware, protocol, color, brightness, or effect was changed.
+
 ### MGNSS-007 — Monitoring reports cached fix delivery as fresh observation health
 
-Status: **OPEN; enabled for the next phase by the public sequence and shared
-freshness policy**.
+Status: **FIXED IN PHASE D**.
 
 - `mowgli_monitoring` subscribes to `/gps/fix`; `on_gps()` records callback
   `now()`, and `check_gps()` computes health from that callback age
@@ -441,6 +518,27 @@ freshness policy**.
   physical observation freshness and varies with acquisition/publication ratio.
 - Remediation direction: monitor preserved observation identity/provenance and
   transport/runtime state separately, using monotonic deadlines.
+
+Phase D resolution:
+
+- Implementation-time launch revalidation identified the active production
+  component as `mowgli_localization/localization_monitor_node`, subscribed to
+  `/gps/absolute_pose`; the audit-era `mowgli_monitoring` source description is
+  retained above as historical failure evidence but is not the launched path in
+  this checkout.
+- `AbsolutePose` has no position sequence, so the active monitor uses the
+  shared tracker's receipt-only compatibility mode on its preserved
+  `header.stamp`. Only an advancing accepted receipt may replace Fixed/Float/
+  standalone flags. The existing `gps_timeout` remains 2 s and the existing 1 s
+  mode debounce/quality classification remains intact.
+- Monotonic physical-observation expiry now works even while ROS time is paused.
+  Callback delivery liveness remains separately observable: transition logging
+  distinguishes “cached delivery active, physical observations stale” from
+  total delivery silence, without logging each cached callback.
+- Twenty new monitoring/shared-policy cases cover its four required transitions
+  plus startup, same-value/new identity, delayed duplicate, zero/future/rewound
+  provenance, clock epochs, reconnect sequence reset, forward jump, both
+  publication/acquisition-rate scenarios, and delivery/observation separation.
 
 ### MGNSS-008 — Backend/browser retain old typed GNSS state across stream failures
 
@@ -576,17 +674,19 @@ Status: **FIXED in Phase C**.
 
 Required regression additions:
 
-- Cached status/fix republication versus new acquisition in the still-open
-  behavior, hardware, monitoring, backend, and GUI consumers. Phase B covers
-  NavSat projection.
-- Fixed -> Float -> no-fix and reverse transitions with adversarial cross-topic
-  ordering. Phase B covers both callback orders and exact epoch-local projection;
-  the other consumers remain open.
+- Cached status/fix republication versus new acquisition is now covered for
+  behavior, dig trust, the hardware LED, localization monitoring, FusionGraph,
+  NavSat projection, and COG. Backend/GUI disconnect retention remains open as
+  MGNSS-008.
+- Fixed -> Float -> no-fix semantic mappings remain covered by existing shared
+  adapter/consumer tests; Phase B covers adversarial cross-topic ordering and
+  Phase D prevents cached state from changing or extending consumer authority.
 - Explicit SET/OMIT/CLEAR invalidation of accuracy, DOP, heading, baseline, and
   satellite fields through the bridge and every cache.
-- ROS time zero, pause, backward/forward jump, negative/future age, and rosbag
-  replay for behavior, hardware, and monitoring. Phase A covers FusionGraph's
-  future/negative-age/rewind gate but not every replay-mode interaction.
+- ROS zero/future provenance, pause via monotonic expiry, backward/forward jump,
+  negative age, receipt rewind, and reconnect epoch behavior are deterministic
+  Phase D regressions for the shared behavior/hardware/monitoring policy.
+  End-to-end rosbag replay remains hardware validation rather than a unit gap.
 - Unique GNSS queue backlog and late fixed messages after their graph nodes have
   expired. Phase A covers delayed duplicates and the existing historical-node
   timestamp suite remains green.
@@ -629,6 +729,9 @@ artifacts under `/tmp`):
 | Phase C isolated `mowgli_localization` build | **PASS — 1/1 package** | The COG node and receipt/latch timing policy compile and install against the committed Phase A/B tree. Only existing ament target-dependency deprecation warnings were emitted. |
 | Phase C focused COG tests | **PASS — 34/34 cases** | Nineteen timing/latch regressions cover every required rate, identity, cadence, gap, rewind, future, restart, and latch case; all 15 pre-existing heading/sweep/latch-rotation tests remain green. |
 | Phase C launch wiring tests | **PASS — 7/7** | The new AST guard proves `gnss_profile_rate_hz` reaches `cog_to_imu.physical_gnss_observation_rate_hz` as a bare value; all six existing launch-injection guards remain green. |
+| Phase D isolated build: `mowgli_interfaces`, `mowgli_behavior`, `mowgli_hardware`, `mowgli_localization` | **PASS — 4/4 packages** | Shared physical-observation freshness and all three production consumers compile/install together. Only pre-existing ament dependency deprecation and unrelated BehaviorTree nodiscard warnings were emitted on the clean build. |
+| Phase D focused consumer tests | **PASS — 75/75 cases** | `test_localization_health` 20/20, `test_dig_detector` 35/35, and `test_localization_monitor_freshness` 20/20. Thirty-two are new Phase D cases (4 behavior, 4 dig, 4 LED, 20 monitoring/shared cross-cutting); 43 historical cases remain green. |
+| Phase D complete affected-package GTest suites | **PASS — 432/432 cases** | Behavior 198, hardware 111, localization 123; no failures/errors/skips. The complete CTest/lint pass exposed one cpplint complaint about anonymous test-parameter syntax, which was corrected; the affected health target and cpplint both passed on rerun. |
 
 The remaining downstream ROS packages, frontend, Go provider, and installer
 matrices were not rerun after the user's quota-prioritization instruction. The
@@ -653,6 +756,13 @@ For COG specifically, Phase C converts the 1 Hz dead-zone proof into
 deterministic production-gate coverage for every exposed receiver rate,
 publication/acquisition decoupling, bounded gaps/history, reconnect, provenance
 and clock discontinuity, and stationary-latch expiry.
+
+For the four Phase D consumers, deterministic coverage now proves that callback
+delivery and physical freshness diverge correctly: 1 Hz acquisition with 10 Hz
+callbacks follows the advancing identity; sparse 1 Hz publication of a faster
+source does not infer cadence; cached/delayed messages cannot refresh; receipt
+and clock epochs fail closed; and new accepted evidence restores the existing
+Fixed/Float/no-fix, dig, LED, and monitoring semantics.
 
 The GPS dock detector was explicitly reviewed and is not counted as stale-GNSS
 retention: after a Fixed solution it converts the dock to the continuous odom
@@ -699,13 +809,15 @@ hardware LED/dig trust, monitoring, backend, and GUI side by side while testing:
 
 Final dependency order:
 
-1. **Phases A through C complete:** public observation identity, FusionGraph
-   receipt deduplication/freshness, bounded exact NavSat/status association, and
-   physical-rate-derived COG timing are implemented and regression-tested.
-2. Restore/replace the UM980 moving-rover policy and make correction-age settings
-   effective; define typed correction health and source ownership.
-3. Convert behavior, dig trust, LED, monitoring, backend, and GUI consumers to
-   bounded provenance-aware state and add reconnect/clock tests.
+1. **Phases A through D complete:** public observation identity, FusionGraph,
+   bounded NavSat/status association, COG timing, behavior health, dig trust,
+   the lock LED, and localization monitoring are provenance-aware and tested.
+2. Fix MGNSS-005 and MGNSS-010 together at receiver configuration boundaries:
+   restore/replace UM980 moving-rover policy and make correction-age settings
+   effective and verifiably applied.
+3. Fix MGNSS-009 by defining correction semantic health, expiry, and source/
+   station incarnation ownership; then fix MGNSS-008 by carrying bounded
+   validity and disconnect invalidation through the backend/browser lifecycle.
 
 Findings sharing the observation-identity/public-contract root should be fixed
 and regression-tested together even where this report retains separate IDs for
@@ -830,3 +942,50 @@ submodules were not modified.
 All seven paths are owned by the normal project user `ubuntu`; isolated build
 artifacts remain under `/tmp`. MGNSS-003 through MGNSS-010, remotes, and
 submodules were not modified.
+
+## Phase D final repository cross-check
+
+- Branch: `audit/gnss-downstream`.
+- Top-level HEAD: `97c75ebeea5344e303d37e2ed5f2d1ad7fedca45`
+  (`fix(gnss): align COG timing with physical observation rate`); committed
+  Phases A-C are present. Phase D created no commit and performed no push.
+- Universal GNSS gitlink/HEAD remains the exact required
+  `45fe44a031520f9dfe4bfc07fd515952d1a1ea88`; `git submodule status` has the
+  clean leading blank marker and submodule `git status --short` is empty. No
+  Universal GNSS content or gitlink changed.
+- `git diff --check`: **PASS**.
+- ROS2 C++ formatting: `clang-format -n -Werror
+  -style=file:ros2/.clang-format` and repository-preferred
+  `git clang-format --diff origin/main` both report no changes for every Phase D
+  C++ source/header.
+- Isolated non-root validation under `/tmp`: four-package build **PASS**;
+  75/75 focused cases **PASS** (32 new); all 432 GTest cases in the three
+  affected packages **PASS**. The only newly exposed lint issue was test-only
+  anonymous-parameter syntax; after correction both the affected 20-case test
+  and cpplint passed.
+- `git status --short`, `git diff --stat`, `git diff --name-only`, and
+  `git diff --name-status` show 12 intended tracked modifications plus three
+  intended new files. As expected, ordinary Git diff/stat output excludes the
+  untracked files until they are added:
+
+```text
+ M MOWGLINEXT_GNSS_AUDIT.md
+ M ros2/src/mowgli_behavior/CMakeLists.txt
+ M ros2/src/mowgli_behavior/include/mowgli_behavior/localization_health.hpp
+ M ros2/src/mowgli_behavior/src/behavior_tree_node.cpp
+ M ros2/src/mowgli_behavior/test/test_localization_health.cpp
+ M ros2/src/mowgli_hardware/CMakeLists.txt
+ M ros2/src/mowgli_hardware/src/hardware_bridge_node.cpp
+ M ros2/src/mowgli_hardware/test/test_dig_detector.cpp
+ M ros2/src/mowgli_interfaces/include/mowgli_interfaces/gnss_observation_freshness.hpp
+ M ros2/src/mowgli_localization/CMakeLists.txt
+ M ros2/src/mowgli_localization/include/mowgli_localization/localization_monitor_node.hpp
+ M ros2/src/mowgli_localization/src/localization_monitor_node.cpp
+?? ros2/src/mowgli_hardware/include/mowgli_hardware/gnss_hardware_status.hpp
+?? ros2/src/mowgli_localization/include/mowgli_localization/localization_monitor_policy.hpp
+?? ros2/src/mowgli_localization/test/test_localization_monitor_freshness.cpp
+```
+
+All 15 paths are owned by `ubuntu`; build/test/log artifacts remain isolated
+under `/tmp`. Firmware, Universal GNSS, MGNSS-005/008/009/010 scopes, remotes,
+and submodules were not modified.
