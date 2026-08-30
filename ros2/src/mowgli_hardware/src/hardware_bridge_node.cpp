@@ -63,6 +63,7 @@
 #include "mowgli_hardware/blade_gate.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
+#include "mowgli_hardware/gnss_hardware_status.hpp"
 #include "mowgli_hardware/ll_datatypes.hpp"
 #include "mowgli_hardware/odometry_publisher.hpp"
 #include "mowgli_hardware/packet_handler.hpp"
@@ -118,6 +119,7 @@ static const char* high_level_mode_name(const uint8_t mode)
   }
 }
 
+#include "mowgli_interfaces/gnss_observation_freshness.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
 #include "mowgli_interfaces/msg/dig_event.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
@@ -754,6 +756,27 @@ private:
         rclcpp::QoS(10),
         [this](mowgli_interfaces::msg::GnssStatus::ConstSharedPtr msg)
         {
+          const rclcpp::Time ros_now = now();
+          const rclcpp::Time receipt_stamp(msg->header.stamp, get_clock()->get_clock_type());
+          const auto observation_update =
+              gnss_observation_freshness_.Observe(msg->position_observation_sequence,
+                                                  receipt_stamp.nanoseconds(),
+                                                  ros_now.nanoseconds(),
+                                                  steadyNowNs());
+          using mowgli_interfaces::gnss_observation_freshness::IsAcceptedObservation;
+          using mowgli_interfaces::gnss_observation_freshness::ObservationUpdate;
+          if (!IsAcceptedObservation(observation_update))
+          {
+            if (observation_update == ObservationUpdate::kInvalidProvenance)
+            {
+              RCLCPP_WARN_THROTTLE(get_logger(),
+                                   *get_clock(),
+                                   5000,
+                                   "hardware: GNSS receipt stamp is zero/future; trust denied");
+            }
+            return;
+          }
+
           gps_quality_ = mowgli_interfaces::gnss_status_utils::HardwareQualityPercent(*msg);
 
           // Trust signal for the dig detector. The receiver's own accuracy
@@ -761,8 +784,6 @@ private:
           const auto acc = mowgli_interfaces::gnss_status_utils::HorizontalAccuracyMeters(*msg);
           dig_gnss_acc_m_ = acc ? static_cast<double>(*acc) : -1.0;
           dig_gnss_rtk_fixed_ = mowgli_interfaces::gnss_status_utils::BehaviorTreeRtkFixed(*msg);
-          dig_gnss_time_ = now();
-          have_dig_gnss_ = true;
         });
 
     // Mirror the behavior tree's high-level state to the firmware so it
@@ -2043,12 +2064,45 @@ private:
                     sizeof(LlHeartbeat) - sizeof(uint16_t));  // CRC appended by encode_packet.
   }
 
+  static std::int64_t steadyNowNs()
+  {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  }
+
+  bool gnssObservationFresh()
+  {
+    const auto maximum_age_ns = static_cast<std::int64_t>(dig_gnss_timeout_s_ * 1.0e9);
+    const bool fresh = gnss_observation_freshness_.ObservationIsFresh(now().nanoseconds(),
+                                                                      steadyNowNs(),
+                                                                      maximum_age_ns);
+    if (!gnss_freshness_initialized_)
+    {
+      gnss_freshness_initialized_ = true;
+      last_gnss_observation_fresh_ = fresh;
+    }
+    else if (fresh != last_gnss_observation_fresh_)
+    {
+      last_gnss_observation_fresh_ = fresh;
+      if (fresh)
+      {
+        RCLCPP_INFO(get_logger(), "GNSS physical observation recovered; dig trust/lock restored");
+      }
+      else
+      {
+        RCLCPP_WARN(get_logger(), "GNSS physical observation stale; dig trust/lock cleared");
+      }
+    }
+    return fresh;
+  }
+
   void send_high_level_state()
   {
     LlHighLevelState pkt{};
     pkt.type = PACKET_ID_LL_HIGH_LEVEL_STATE;
     pkt.current_mode = current_mode_;
-    pkt.gps_quality = gps_quality_;
+    pkt.gps_quality = GnssQualityForFirmware(gnssObservationFresh(), gps_quality_);
 
     if (last_sent_mode_ != current_mode_ || last_sent_mode_state_name_ != current_mode_state_name_)
     {
@@ -2058,7 +2112,7 @@ private:
                   current_mode_,
                   high_level_mode_name(current_mode_),
                   current_mode_state_name_.c_str(),
-                  gps_quality_);
+                  pkt.gps_quality);
       last_sent_mode_ = current_mode_;
       last_sent_mode_state_name_ = current_mode_state_name_;
     }
@@ -2744,8 +2798,7 @@ private:
     const double yaw_rate =
         gyro_fresh ? last_gyro_yaw_rate_ : std::numeric_limits<double>::infinity();
 
-    const bool gnss_fresh =
-        have_dig_gnss_ && (tick_now - dig_gnss_time_).seconds() < dig_gnss_timeout_s_;
+    const bool gnss_fresh = gnssObservationFresh();
     const double trust_sigma =
         DigTrustSigma(gnss_fresh, dig_gnss_rtk_fixed_, dig_gnss_acc_m_ >= 0.0, dig_gnss_acc_m_);
 
@@ -2941,11 +2994,16 @@ private:
   /// Receiver-reported position quality, for the dig detector's trust gate.
   /// The factor graph's own marginal is NOT usable for this — see
   /// dig_detector.hpp.
-  bool have_dig_gnss_{false};
   bool dig_gnss_rtk_fixed_{false};
   double dig_gnss_acc_m_{-1.0};
-  rclcpp::Time dig_gnss_time_{0, 0, RCL_ROS_TIME};
+  /// Existing hardware GNSS trust timeout. It now governs both the dig trust
+  /// gate and the quality forwarded to the lock LED; only a genuinely new
+  /// receiver observation refreshes it.
   double dig_gnss_timeout_s_{2.0};
+  mowgli_interfaces::gnss_observation_freshness::PhysicalObservationTracker
+      gnss_observation_freshness_;
+  bool gnss_freshness_initialized_{false};
+  bool last_gnss_observation_fresh_{false};
 
   /// Calibrated gyro yaw rate, for the dig detector's turn exclusion. Gyro,
   /// never wheels — see dig_detector.hpp.
