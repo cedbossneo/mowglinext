@@ -58,7 +58,9 @@ install/lib/config.local.sh
 credentials.json
 .claude/worktrees
 
-# Agent local state — transient checkpoints, caches and session artifacts
+# Agent state
+# Local checkpoints/caches remain private, while short-lived shared handoffs
+# may be versioned intentionally.
 .agent/*
 !.agent/shared/
 !.agent/shared/**
