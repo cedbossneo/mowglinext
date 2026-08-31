@@ -3,6 +3,7 @@ package foxglove
 import (
 	"encoding/json"
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -48,5 +49,55 @@ func TestSanitizeJSONValueReplacesNonFiniteFloats(t *testing.T) {
 	}
 	if array[1] != nil {
 		t.Fatalf("array[1] = %#v, want nil", array[1])
+	}
+}
+
+func TestConnectionStateListenersReceiveDeduplicatedGenerations(t *testing.T) {
+	client := NewClient("ws://unused")
+	var got []ConnectionState
+	remove := client.OnConnectionStateChange(func(state ConnectionState) {
+		got = append(got, state)
+	})
+
+	client.setConnected(true)
+	client.setConnected(true)
+	client.setConnected(false)
+	client.setConnected(false)
+	client.setConnected(true)
+
+	want := []ConnectionState{
+		{Connected: true, Generation: 1},
+		{Connected: false, Generation: 1},
+		{Connected: true, Generation: 2},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("connection events = %#v, want %#v", got, want)
+	}
+
+	remove()
+	client.setConnected(false)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("removed listener received another event: %#v", got)
+	}
+}
+
+func TestConnectionStateListenerCanQueueReentrantTransition(t *testing.T) {
+	client := NewClient("ws://unused")
+	var got []ConnectionState
+	client.OnConnectionStateChange(func(state ConnectionState) {
+		got = append(got, state)
+		if state.Connected {
+			client.setConnected(false)
+		}
+	})
+
+	client.setConnected(true)
+
+	want := []ConnectionState{
+		{Connected: true, Generation: 1},
+		{Connected: false, Generation: 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("connection events = %#v, want %#v", got, want)
 	}
 }
