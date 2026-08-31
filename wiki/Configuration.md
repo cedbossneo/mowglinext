@@ -28,7 +28,13 @@ The **installed** robot config lives outside the package at `/ros2_ws/config/mow
 
 There is **no** `slam_toolbox.yaml` or `kiss_icp.yaml`. robot_localization (the default dual-EKF localizer) is tuned through `robot_localization.yaml`. LiDAR scan-matching and loop-closure are handled by `fusion_graph` (opt-in — see [§5](#5-fusion_graph)).
 
-Whether the LiDAR-aware stack (`nav2_params.yaml`) or the GPS-only stack (`nav2_params_no_lidar.yaml`) is loaded is decided by the **`lidar_enabled`** key in `mowgli_robot.yaml`, which is **authoritative**. The `LIDAR_ENABLED` environment variable (set by the installer `.env`) is only a **fallback** — it applies solely when `lidar_enabled` is absent from the yaml, so a stale installer `.env` can never override the user's GUI-managed config. A CLI/compose `use_lidar:=` override still wins for one-off runs.
+Whether the LiDAR-aware stack (`nav2_params.yaml`) or the GPS-only stack (`nav2_params_no_lidar.yaml`) is loaded is decided by the **`lidar_enabled`** key in `mowgli_robot.yaml`, and by **nothing else**. The `LIDAR_ENABLED` environment variable is **not read by the ROS2 stack at all** — it used to be a "fallback when the yaml is silent", and that fallback let a stale installer `.env` silently override the operator's GUI toggle (config absent + `LIDAR_ENABLED=false` ran the whole stack GPS-only while the GUI said LiDAR on). A CLI/compose `use_lidar:=` override still wins for one-off runs, because typing it is a deliberate act.
+
+If `lidar_enabled` is **absent** from the installed config, the stack resolves **`use_lidar=false`** and prints a prominent startup warning naming the file, the key and the resolved mode. Absence means no LiDAR was ever recorded (`mowglinext.sh` always writes the key), and a wrongly-off stack is coherent GPS-only operation whereas a wrongly-on one is a half-state: obstacle layer with no observation source, scan-based collision monitor with a dead source, and `fusion_graph` subscribing to a topic nothing publishes.
+
+`LIDAR_ENABLED` in `.env` still does one real job: it decides whether the **`mowgli-lidar` container** is composed in. So the two can now disagree in the opposite direction (config on, container never started). `scan_deskew_node` — which only runs when `use_lidar` is true — warns loudly if no scan arrives within `scan_watchdog_period_s` (20 s default) and names that cause.
+
+`use_scan_matching` and `use_loop_closure` are **ANDed with `use_lidar`** before they reach `fusion_graph_node`, so the "scan-matching enabled with no scanner" state is unreachable.
 
 The opt-in **fusion_graph** localizer (GTSAM iSAM2 — see [§7](#7-fusion_graph)) does **not** have a separate config file: its knobs are declared as ros2 parameters on `fusion_graph_node` and the high-level switches (`use_fusion_graph`, `use_scan_matching`, `use_loop_closure`, `use_magnetometer`) live in `mowgli_robot.yaml`. The Settings page exposes them under the *Localization* section.
 

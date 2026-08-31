@@ -75,10 +75,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robot_config_util import (  # noqa: E402
     DEFAULT_TOOL_WIDTH_M,
     DEFAULT_WHEEL_TRACK_M,
+    TRUE_TOKENS,
     check_turn_geometry,
     deep_merge,
     derive_turn_speed,
     load_robot_params,
+    resolve_lidar_enabled,
+    warn_lidar_key_absent,
 )
 
 
@@ -97,8 +100,6 @@ def generate_launch_description() -> LaunchDescription:
     # default only when no CLI value is set.
     # ------------------------------------------------------------------
     _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
-    _early_use_lidar = "true"
-    _lidar_from_yaml = False
     _early_use_magnetometer = "false"
     _early_use_scan_matching = "false"
     _early_use_loop_closure = "false"
@@ -113,17 +114,21 @@ def generate_launch_description() -> LaunchDescription:
     # Merged params = in-package template defaults with the installed sparse
     # config layered on top (robot_config_util.load_robot_params). INSTALL-
     # DECIDED keys (e.g. lidar_enabled) live ONLY in the installed config and
-    # are absent from the template, so their PRESENCE in _rp still signals an
-    # explicit operator choice (env-var fallback preserved); DEFAULT toggles
-    # (use_magnetometer / use_scan_matching / …) fall through to the template
-    # value when the installed config omits them.
+    # are absent from the template, so their PRESENCE in _rp signals an
+    # explicit operator choice; DEFAULT toggles (use_magnetometer /
+    # use_scan_matching / …) fall through to the template value when the
+    # installed config omits them.
+    #
+    # LiDAR presence comes from the CONFIG ONLY — the LIDAR_ENABLED env var is
+    # no longer read (see robot_config_util's "LiDAR presence" block). The yaml
+    # key is `lidar_enabled` (matching the install seed + GUI); the launch CLI
+    # arg stays `use_lidar:=true|false` so existing CI / dev scripts don't
+    # break.
     _rp = load_robot_params(bringup_dir, _runtime_cfg_path)
-    if "lidar_enabled" in _rp:
-        # The yaml key is `lidar_enabled` (matches install template + GUI). The
-        # launch CLI arg is still `use_lidar:=true|false` so existing CI / dev
-        # scripts don't break.
-        _early_use_lidar = "true" if bool(_rp["lidar_enabled"]) else "false"
-        _lidar_from_yaml = True
+    _lidar_enabled, _lidar_explicit = resolve_lidar_enabled(_rp)
+    _early_use_lidar = "true" if _lidar_enabled else "false"
+    if not _lidar_explicit:
+        warn_lidar_key_absent(_runtime_cfg_path)
     _early_use_magnetometer = "true" if bool(
         _rp.get("use_magnetometer", False)) else "false"
     _early_use_scan_matching = "true" if bool(
@@ -134,16 +139,6 @@ def generate_launch_description() -> LaunchDescription:
         float(_rp.get("fusion_graph_node_period_s", 0.04)))
     _early_use_gps_dock_detection = "true" if bool(
         _rp.get("use_gps_dock_detection", True)) else "false"
-
-    # LIDAR_ENABLED env var is a FALLBACK ONLY — it applies only when the yaml
-    # does NOT set lidar_enabled. The GUI-managed yaml is authoritative when
-    # present (a stale installer .env must never override the user's config).
-    if not _lidar_from_yaml:
-        _env_lidar = os.environ.get("LIDAR_ENABLED", "").strip().lower()
-        if _env_lidar in ("false", "0", "no"):
-            _early_use_lidar = "false"
-        elif _env_lidar in ("true", "1", "yes"):
-            _early_use_lidar = "true"
 
     # ------------------------------------------------------------------
     # Loop-closure gating
@@ -171,7 +166,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value=_early_use_lidar,
-        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through). Default read from mowgli_robot.yaml.lidar_enabled; CLI/compose override wins.",
+        description="When false, use nav2_params_no_lidar.yaml (no obstacle layer, collision monitor pass-through) and force fusion_graph scan-matching / loop-closure off. Default read from mowgli_robot.yaml.lidar_enabled ONLY (the LIDAR_ENABLED env var is not consulted); CLI/compose override wins.",
     )
 
     use_magnetometer_arg = DeclareLaunchArgument(
@@ -183,13 +178,13 @@ def generate_launch_description() -> LaunchDescription:
     use_scan_matching_arg = DeclareLaunchArgument(
         "use_scan_matching",
         default_value=_early_use_scan_matching,
-        description="LiDAR scan-matching between consecutive nodes (fusion_graph). Default read from mowgli_robot.yaml.",
+        description="LiDAR scan-matching between consecutive nodes (fusion_graph). Default read from mowgli_robot.yaml. ANDed with use_lidar before it reaches fusion_graph_node: with no LiDAR there is no /scan publisher, so the factors cannot exist.",
     )
 
     use_loop_closure_arg = DeclareLaunchArgument(
         "use_loop_closure",
         default_value=_effective_use_loop_closure,
-        description="Loop-closure search against earlier graph nodes (fusion_graph). Default read from mowgli_robot.yaml AND gated on a persisted graph file existing on disk — first session can't loop-close against itself.",
+        description="Loop-closure search against earlier graph nodes (fusion_graph). Default read from mowgli_robot.yaml AND gated on a persisted graph file existing on disk — first session can't loop-close against itself. Also ANDed with use_lidar before it reaches fusion_graph_node.",
     )
 
     use_gps_dock_detection_arg = DeclareLaunchArgument(
@@ -238,6 +233,31 @@ def generate_launch_description() -> LaunchDescription:
     use_gps_dock_detection = LaunchConfiguration("use_gps_dock_detection")
     fusion_graph_tf_lead_s = LaunchConfiguration("fusion_graph_tf_lead_s")
     fusion_graph_node_period_s = LaunchConfiguration("fusion_graph_node_period_s")
+
+    def lidar_gated(flag):
+        """AND a fusion_graph scan flag with ``use_lidar``.
+
+        Without this, the two gates leaked: use_scan_matching / use_loop_closure
+        default from the TEMPLATE (both `true`), which has no relation to
+        `lidar_enabled`, so a GPS-only stack still handed fusion_graph
+        use_scan_matching=True — it subscribed to /scan_deskewed with no
+        publisher (scan_deskew_node is itself use_lidar-gated), matched nothing,
+        and published success-shaped diagnostics forever. Observed live on
+        2026-08-31: use_lidar=false, use_scan_matching=True,
+        /scan_deskewed publisher count 0, scans_received 0.
+
+        The AND is evaluated at SUBSTITUTION time, not here, so it also covers a
+        CLI/compose `use_lidar:=` override (full_system.launch.py always passes
+        use_lidar in explicitly, so the declared default is not the live value).
+        The declared args stay pure operator INTENT — `use_lidar:=true` plus a
+        yaml `use_scan_matching: true` still turns matching on.
+        """
+        tokens = str(TRUE_TOKENS)
+        return PythonExpression([
+            "'true' if '", use_lidar, "'.strip().lower() in ", tokens,
+            " and '", flag, "'.strip().lower() in ", tokens,
+            " else 'false'",
+        ])
 
     # ------------------------------------------------------------------
     # Config paths — one shared base + thin lidar/no-lidar overlays, deep-
@@ -1061,8 +1081,10 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             "use_sim_time": use_sim_time,
             "use_magnetometer": use_magnetometer,
-            "use_scan_matching": use_scan_matching,
-            "use_loop_closure": use_loop_closure,
+            # LiDAR-gated: no scanner -> no scan factors, and no subscription to
+            # a topic nothing publishes. See lidar_gated() above.
+            "use_scan_matching": lidar_gated(use_scan_matching),
+            "use_loop_closure": lidar_gated(use_loop_closure),
             "primary_mode": "true",
             "tf_publish_lead_s": fusion_graph_tf_lead_s,
             "node_period_s": fusion_graph_node_period_s,
