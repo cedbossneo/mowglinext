@@ -58,6 +58,11 @@ install/lib/config.local.sh
 credentials.json
 .claude/worktrees
 
+# Agent local state — transient checkpoints, caches and session artifacts
+.agent/*
+!.agent/shared/
+!.agent/shared/**
+
 # Mow-session monitor logs — committed selectively via `git add -f` for
 # golden / failure-case reference runs; default-ignored to avoid bloating
 # the repo with every development test.
