@@ -61,6 +61,13 @@ type serviceCallResult struct {
 	data    []byte
 }
 
+// ConnectionState describes one ordered Foxglove transport transition.
+// Generation advances only when a new connection becomes active.
+type ConnectionState struct {
+	Connected  bool
+	Generation uint64
+}
+
 // Client connects to a foxglove_bridge via WebSocket and exposes a
 // topic-oriented API for subscribing, publishing, and calling services.
 //
@@ -112,6 +119,14 @@ type Client struct {
 	connected atomic.Bool
 	done      chan struct{}
 
+	connectionTransitionMu sync.Mutex
+	connectionGeneration   uint64
+	connectionEvents       []ConnectionState
+	connectionDispatching  bool
+	connectionListenersMu  sync.RWMutex
+	connectionListeners    map[uint64]func(ConnectionState)
+	connectionListenerID   atomic.Uint64
+
 	reconnectDelay time.Duration
 	maxReconnect   time.Duration
 
@@ -162,19 +177,20 @@ func sanitizeJSONValue(v interface{}) interface{} {
 // WebSocket at url (e.g. "ws://localhost:8765").
 func NewClient(url string) *Client {
 	return &Client{
-		url:            url,
-		channels:       make(map[string]*channelState),
-		channelsByID:   make(map[uint32]*channelState),
-		services:       make(map[string]*serviceState),
-		servicesByID:   make(map[uint32]*serviceState),
-		subscribers:    make(map[string][]subscriberEntry),
-		pendingTopics:  make(map[string]bool),
-		pendingSvc:     make(map[uint32]*pendingServiceCall),
-		pendingParam:   make(map[string]chan []Parameter),
-		advertised:     make(map[string]uint32),
-		done:           make(chan struct{}),
-		reconnectDelay: defaultReconnectDelay,
-		maxReconnect:   maxReconnectDelay,
+		url:                 url,
+		channels:            make(map[string]*channelState),
+		channelsByID:        make(map[uint32]*channelState),
+		services:            make(map[string]*serviceState),
+		servicesByID:        make(map[uint32]*serviceState),
+		subscribers:         make(map[string][]subscriberEntry),
+		pendingTopics:       make(map[string]bool),
+		pendingSvc:          make(map[uint32]*pendingServiceCall),
+		pendingParam:        make(map[string]chan []Parameter),
+		advertised:          make(map[string]uint32),
+		connectionListeners: make(map[uint64]func(ConnectionState)),
+		done:                make(chan struct{}),
+		reconnectDelay:      defaultReconnectDelay,
+		maxReconnect:        maxReconnectDelay,
 		dialer: websocket.Dialer{
 			Subprotocols: []string{"foxglove.sdk.v1"},
 		},
@@ -185,6 +201,72 @@ func NewClient(url string) *Client {
 // connection.
 func (c *Client) Connected() bool {
 	return c.connected.Load()
+}
+
+// OnConnectionStateChange registers a listener for future transport
+// transitions. The callback is not invoked with the current state at
+// registration time. The returned function removes the listener.
+func (c *Client) OnConnectionStateChange(callback func(ConnectionState)) func() {
+	if callback == nil {
+		return func() {}
+	}
+	id := c.connectionListenerID.Add(1)
+	c.connectionListenersMu.Lock()
+	c.connectionListeners[id] = callback
+	c.connectionListenersMu.Unlock()
+
+	return func() {
+		c.connectionListenersMu.Lock()
+		delete(c.connectionListeners, id)
+		c.connectionListenersMu.Unlock()
+	}
+}
+
+// setConnected serializes and de-duplicates transport transitions. Listener
+// callbacks run after all client locks have been released.
+func (c *Client) setConnected(connected bool) {
+	c.connectionTransitionMu.Lock()
+	if c.connected.Load() == connected {
+		c.connectionTransitionMu.Unlock()
+		return
+	}
+	if connected {
+		c.connectionGeneration++
+	}
+	c.connected.Store(connected)
+	state := ConnectionState{
+		Connected:  connected,
+		Generation: c.connectionGeneration,
+	}
+	c.connectionEvents = append(c.connectionEvents, state)
+	if c.connectionDispatching {
+		c.connectionTransitionMu.Unlock()
+		return
+	}
+	c.connectionDispatching = true
+	c.connectionTransitionMu.Unlock()
+
+	for {
+		c.connectionTransitionMu.Lock()
+		if len(c.connectionEvents) == 0 {
+			c.connectionDispatching = false
+			c.connectionTransitionMu.Unlock()
+			return
+		}
+		state = c.connectionEvents[0]
+		c.connectionEvents = c.connectionEvents[1:]
+		c.connectionTransitionMu.Unlock()
+
+		c.connectionListenersMu.RLock()
+		listeners := make([]func(ConnectionState), 0, len(c.connectionListeners))
+		for _, listener := range c.connectionListeners {
+			listeners = append(listeners, listener)
+		}
+		c.connectionListenersMu.RUnlock()
+		for _, listener := range listeners {
+			listener(state)
+		}
+	}
 }
 
 // Connect starts the reconnect loop. It never returns an error — callers can
@@ -201,7 +283,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.connMu.Lock()
 	c.conn = conn
 	c.connMu.Unlock()
-	c.connected.Store(true)
+	c.setConnected(true)
 
 	logrus.WithField("url", c.url).Info("foxglove: connected")
 
@@ -221,9 +303,9 @@ func (c *Client) Close() error {
 	}
 
 	c.connMu.Lock()
-	defer c.connMu.Unlock()
-
 	if c.conn == nil {
+		c.connMu.Unlock()
+		c.setConnected(false)
 		return nil
 	}
 
@@ -232,7 +314,9 @@ func (c *Client) Close() error {
 		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 	)
 	closeErr := c.conn.Close()
-	c.connected.Store(false)
+	c.conn = nil
+	c.connMu.Unlock()
+	c.setConnected(false)
 
 	if closeErr != nil {
 		return fmt.Errorf("foxglove: close: %w", closeErr)
@@ -522,13 +606,13 @@ func (c *Client) writeJSON(v interface{}) error {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.connected.Store(false)
 		c.connMu.Lock()
 		if c.conn != nil {
 			_ = c.conn.Close()
 			c.conn = nil
 		}
 		c.connMu.Unlock()
+		c.setConnected(false)
 		logrus.Info("foxglove: readPump exiting")
 	}()
 
@@ -915,7 +999,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 		c.connMu.Lock()
 		c.conn = conn
 		c.connMu.Unlock()
-		c.connected.Store(true)
+		c.setConnected(true)
 
 		// Clear stale state — server will re-advertise channels and services.
 		c.chanMu.Lock()

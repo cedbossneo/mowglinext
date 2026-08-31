@@ -95,15 +95,16 @@ independent configuration regressions show that upgrading the pinned submodule
 also removed Mowgli-specific receiver behavior without removing its GUI/startup
 contract.
 
-Phases A through F change production code only for the public contract, both
+Phases A through G change production code only for the public contract, both
 bridges, FusionGraph deduplication/freshness, the shared freshness primitive,
 the NavSat projection association targeted by MGNSS-002, and COG timing targeted
 by MGNSS-011, the four local consumers targeted by MGNSS-003/004/006/007, and
 the receiver-configuration boundaries targeted by MGNSS-005/010, and the
-correction projection/readiness boundary targeted by MGNSS-009.
+correction projection/readiness boundary targeted by MGNSS-009, and the
+backend/browser typed-GNSS authority boundary targeted by MGNSS-008.
 
-Current remediation result: **10 fixed, 1 open**. The remaining finding is
-exactly MGNSS-008. Historical audit totals and severities remain unchanged.
+Current remediation result: **11 fixed, 0 open**. Historical audit totals and
+severities remain unchanged.
 
 ## Phase A remediation status
 
@@ -192,6 +193,30 @@ NTRIP is absent/non-streaming, but it cannot fabricate NTRIP transport or
 semantic health. GLONASS 1230 remains optional. Generic backend/Foxglove/
 browser connection-lifetime invalidation was not changed and remains exactly
 MGNSS-008.
+
+## Phase G remediation status
+
+Implemented and validated 2026-08-31 as the typed-GNSS authority-lifecycle
+remediation batch:
+
+| Finding | Phase G state | Result |
+|---|---|---|
+| MGNSS-008 | **FIXED** | Ordered Foxglove connection generations, a GNSS-only 5 s monotonic delivery/observation authority tracker, cache deletion plus non-cached CLEAR, current-only subscription replay, browser socket/silence invalidation, and diagnostics fallback gating prevent stale typed GNSS state from regaining authority. |
+
+Foxglove loss invalidates the GNSS cache while preserving the last accepted
+receipt/sequence watermark. Reconnect alone and an identical pre-loss replay
+remain inert; only advancing identity or a defensible lower-sequence/later-stamp
+source restart can restore authority. ROS receipt stamps remain identity in the
+ROS clock domain and are never compared with Go or browser wall time. The
+existing multiplex wire contract carries aggregate `{}` CLEAR tombstones;
+non-GNSS cache/replay behavior is unchanged.
+
+Deterministic Go regressions cover lifecycle generations, cache invalidation,
+expiry, provenance ordering/restart, obsolete deadlines, reconnect replay, and
+non-GNSS preservation. Browser regressions cover startup, socket loss/open,
+tombstones, silence, restoration, timer cleanup, readiness, and live
+diagnostics. Focused race tests, all GUI backend package tests, 83 frontend
+tests, TypeScript no-emit, and targeted ESLint pass.
 
 ## Baselines
 
@@ -285,11 +310,11 @@ typed status continues to be published from the current cached runtime state.
 
 | Contract | Upstream behavior | Current downstream result | Status |
 |---|---|---|---|
-| Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves public `header.stamp`; FusionGraph, NavSat projection, COG, behavior, hardware dig/LED, and localization monitoring now use preserved receipt provenance. | fixed in all audited local ROS consumers; backend/GUI lifecycle remains separate MGNSS-008 |
+| Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves public `header.stamp`; FusionGraph, NavSat projection, COG, behavior, hardware dig/LED, localization monitoring, and the backend typed-GNSS tracker now preserve receipt provenance as identity. | fixed across all audited ROS/backend/browser consumers |
 | Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status appends the sequence and both bridges copy it verbatim. FusionGraph deduplicates by receipt; NavSat projection handles exact receipt+sequence association; behavior and hardware consume sequence+receipt. Monitoring's `AbsolutePose` interface has no sequence and uses the helper's fail-closed receipt-only mode. | fixed for all interfaces that expose sequence; safe compatibility mode for monitoring |
 | Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph, projection, COG, behavior, dig trust, LED, and monitoring ignore cached delivery for physical freshness. Explicit 1 Hz acquisition/10 Hz callback and sparse-publication tests pass. | fixed for audited local ROS consumers |
-| SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks. Phase F treats an unrelated diagnostic array as OMIT and a represented owner's complete snapshot as SET/CLEAR; typed correction group value masks override browser fallback rather than being OR-resurrected. | fixed in Phase F; generic stream-loss lifetime remains MGNSS-008 |
-| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS receipt age, monotonic physical-observation elapsed age, and callback delivery liveness. FusionGraph, projection, COG, behavior, hardware, and monitoring reject future/negative age; Phase D consumers isolate debounce state on epoch rewind. | fixed for all audited local ROS consumers |
+| SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks. Phase F treats an unrelated diagnostic array as OMIT and a represented owner's complete snapshot as SET/CLEAR; typed correction group value masks override browser fallback rather than being OR-resurrected. Phase G uses aggregate `{}` as GNSS-only stream-lifetime CLEAR. | fixed through the browser boundary |
+| Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS receipt age, monotonic physical-observation elapsed age, and callback delivery liveness. FusionGraph, projection, COG, behavior, hardware, and monitoring reject future/negative age; Phase D consumers isolate debounce state on epoch rewind. Phase G keeps receipt stamps as ROS-domain identity and uses only local monotonic elapsed time for backend/browser authority deadlines. | fixed for all audited consumers; no cross-domain wall-time comparison |
 | Correction states | Transport, accepted response, valid flow, semantic health, and receiver RTK solution are distinct. | Append-only typed fields and capability/value groups expose transport/response, valid flow, forwarding, MSM, and semantic health separately; readiness requires all current semantic evidence and does not use RTK Fixed as a proxy. | fixed in Phase F |
 | RTCM semantics | 1005/1006 are static-base data, MSM is dynamic correction data, and 1230 is optional for normal RTK health. | Phase F consumes upstream portable-RTK truth and checks same-snapshot base/MSM consistency; static-only, malformed, stale, station-mismatched, and zero-cell MSM fail readiness. No 1230 requirement is introduced. | fixed in Phase F; 1230 preserved optional |
 | Source/station ownership | Reconnect or source/station change must invalidate incompatible stale state. | Full per-owner snapshots carry upstream hardware identity, expire on steady time, replace omitted values with CLEAR, reject older ROS-stamped resurrection, and never merge NTRIP/receiver semantic epochs. | fixed in Phase F |
@@ -307,8 +332,7 @@ Final classification:
 ## Findings summary
 
 Original audit count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
-After Phase F: **10 fixed, 1 open**. The remaining finding is exactly
-MGNSS-008.
+After Phase G: **11 fixed, 0 open**.
 
 P1 denotes a high-impact loss of a primary localization/safety function or a
 configuration regression with field-proven RTK consequences. P2 denotes a
@@ -324,7 +348,7 @@ or readiness error without the same immediate primary-path impact.
 | MGNSS-005 | UM980 dynamic-mode compatibility regressed across the pinned submodule upgrade | P1 | **fixed in Phase E** | model-aware defaults + PLAN/APPLY/API/startup regressions |
 | MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | **fixed in Phase D** | shared hardware verdict expires quality to established LED-off value |
 | MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | **fixed in Phase D** | receipt-only physical freshness + separate delivery-liveness regressions |
-| MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | confirmed bug | backend cache and frontend lifecycle proof |
+| MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | **fixed in Phase G** | ordered lifecycle + bounded authority + reconnect/silence regressions |
 | MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | **fixed in Phase F** | bounded source snapshots + typed state separation + bridge/browser/readiness regressions |
 | MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | **fixed in Phase E** | restored defaults + bounded end-to-end override regressions |
 | MGNSS-011 | Supported 1 Hz fixes can never produce COG heading | P1 | **fixed in Phase C** | physical-rate-derived timing + 19 focused regressions + 15 historical COG tests |
@@ -609,7 +633,7 @@ Phase D resolution:
 
 ### MGNSS-008 — Backend/browser retain old typed GNSS state across stream failures
 
-Status: confirmed from source; no disconnect/invalidation regression test exists.
+Status: **FIXED in Phase G**.
 
 - The Go `RosProvider` caches every latest logical-topic message and immediately
   replays it to subscribers (`gui/pkg/providers/ros.go:322-330,491-515`). It
@@ -630,6 +654,29 @@ Status: confirmed from source; no disconnect/invalidation regression test exists
 - Remediation direction: carry a monotonic receive-age/validity state through
   the backend and hook, invalidate on either upstream or downstream connection
   loss, and require bounded receipt-provenance age for readiness.
+
+Phase G resolution:
+
+- `foxglove.Client` now emits deduplicated ordered connection states with a
+  monotonically increasing connection generation. Callbacks run outside client
+  connection, channel, and listener locks.
+- A GNSS-only provider tracker separates local monotonic delivery/observation
+  deadlines from ROS-domain receipt identity. Its 5 s authority window follows
+  the established GNSS timeout default without adding schema or settings.
+- Foxglove loss, silence, expiry, or invalid provenance deletes only the
+  `gnssStatus` cache and fans out one non-cached `{}` tombstone. GNSS
+  subscription replay is permitted only while authority is current; generic
+  non-GNSS cache and replay behavior is unchanged.
+- The accepted identity watermark survives transport loss. An identical
+  pre-loss cache replay cannot restore state; an advancing sequence/stamp or
+  lower sequence with a later stamp can establish a current observation/source
+  restart. Cached delivery and out-of-order provenance cannot extend authority.
+- `useGnssStatus` clears on browser socket error, backend tombstone, and 5 s
+  local silence. Socket open alone does not restore state, and diagnostic
+  fallback can merge only onto a current typed GNSS base.
+- Deterministic regressions prove loss/reconnect/silence behavior, obsolete
+  timer safety, provenance ordering, current-only replay, readiness/UI clearing,
+  and unchanged non-GNSS caching.
 
 ### MGNSS-009 — Correction diagnostics cache outlives source/incarnation and collapses flow with health
 
@@ -787,8 +834,7 @@ Required regression additions:
 
 - Cached status/fix republication versus new acquisition is now covered for
   behavior, dig trust, the hardware LED, localization monitoring, FusionGraph,
-  NavSat projection, and COG. Backend/GUI disconnect retention remains open as
-  MGNSS-008.
+  NavSat projection, COG, and the backend/browser typed-GNSS authority boundary.
 - Fixed -> Float -> no-fix semantic mappings remain covered by existing shared
   adapter/consumer tests; Phase B covers adversarial cross-topic ordering and
   Phase D prevents cached state from changing or extending consumer authority.
@@ -808,7 +854,8 @@ Required regression additions:
   caster reconnect, mountpoint/source change, station change, stale diagnostic
   removal, old-source resurrection, SET/OMIT/CLEAR, and paused/rewound ROS time
   are covered by Phase F C++/Python/browser regressions.
-- Backend/Foxglove and browser WebSocket loss/reconnect invalidation.
+- Backend/Foxglove and browser WebSocket loss/reconnect invalidation is covered
+  by Phase G provider and hook regressions.
 - UM980 Auto and explicit dynamic modes against the pinned tools.
 
 ## Infrastructure issues excluded from product findings
@@ -943,8 +990,9 @@ Final dependency order:
    validated correction-age settings.
 3. **Phase F complete:** correction semantic health, expiry, source/station
    ownership, browser CLEAR behavior, and readiness are explicit and tested.
-4. Fix the remaining MGNSS-008 by carrying bounded validity and disconnect
-   invalidation through the generic backend/browser lifecycle.
+4. **Phase G complete:** bounded typed-GNSS validity and disconnect invalidation
+   now span the Foxglove, backend-cache, and browser lifecycle while preserving
+   generic non-GNSS cache behavior.
 
 Findings sharing the observation-identity/public-contract root should be fixed
 and regression-tested together even where this report retains separate IDs for
@@ -1141,3 +1189,29 @@ and submodules were not modified.
   remain under `/tmp`. Generic backend/Foxglove/browser disconnect lifetime,
   MGNSS-008, remotes, submodules, and unrelated production paths were not
   modified.
+
+## Phase G final repository cross-check
+
+- Branch `audit/gnss-downstream`; top-level HEAD remains
+  `beefdf96f288a28159ebd72e714eecad085d4723`, tracking
+  `origin/audit/gnss-downstream`, with `origin/dev...HEAD = 0 8`. Phase G
+  created no commit and performed no push.
+- Universal GNSS gitlink/worktree HEAD remains
+  `5281472116669972ae12b9d1997d66b064671cf5`; its worktree is clean and no
+  Universal GNSS content or parent gitlink changed.
+- Focused non-root validation: Foxglove/provider race tests **PASS**; all GUI
+  backend package tests **PASS**; focused hook/GPS projection/readiness/live
+  diagnostics tests 83/83 **PASS**; TypeScript no-emit and targeted ESLint
+  **PASS**.
+- `gofmt -d` reports no changes. `git diff --check` passes for tracked
+  changes, and explicit `--no-index --check` passes for all three new files.
+  No ROS2 C++ source/header changed, so ROS2 clang-format is not applicable.
+- The scoped Phase G worktree contains eight tracked modifications plus three
+  new files: four production lifecycle/authority paths, five regression paths,
+  the audit ledger, and the ignored-checkpoint rule. Generic non-GNSS replay,
+  message/wire schemas, NTRIP/RTCM/frame transport, other findings, and
+  Universal GNSS remain unchanged.
+- All repository-writing and validation commands were run as the normal project
+  user `ubuntu`; the host-mounted workspace presents edited ownership as
+  `nobody:nogroup`. The unrelated user-modified `AGENTS.md` and untracked
+  `.devcontainer/devcontainer-lock.json` remain untouched.

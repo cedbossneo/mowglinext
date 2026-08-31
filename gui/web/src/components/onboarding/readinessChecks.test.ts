@@ -99,6 +99,12 @@ describe("RTK check", () => {
         const snap = passingSnapshot({gnss: {fix_valid: false}});
         expect(stateOf(computeReadinessChecks(snap), "rtk")).toBe("fail");
     });
+
+    it("cannot retain Fixed or healthy correction readiness after GNSS invalidation", () => {
+        const checks = computeReadinessChecks(passingSnapshot({gnss: {}}));
+        expect(stateOf(checks, "rtk")).not.toBe("pass");
+        expect(stateOf(checks, "corrections")).not.toBe("pass");
+    });
 });
 
 describe("NTRIP corrections check (recommended)", () => {

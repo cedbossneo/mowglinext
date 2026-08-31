@@ -48,6 +48,18 @@ describe("GnssLiveDiagnosticsCard", () => {
         expect(screen.getByTestId("gnss-cn0-max-fill")).toHaveStyle({ width: "100.0%" });
     });
 
+    it("does not retain receiver, RTK, or correction values after lifecycle invalidation", () => {
+        renderCard("dual_antenna_um982_solved", {
+            gnssStatus: {},
+            horizontalAccuracyM: undefined,
+        });
+
+        expect(screen.queryByText("Unicore UM982")).not.toBeInTheDocument();
+        expect(screen.queryByText(en.gpsStatus.rtkFixed)).not.toBeInTheDocument();
+        expect(screen.queryByText(en.gpsStatus.correctionSemanticHealthy)).not.toBeInTheDocument();
+        expect(screen.getAllByText(en.gpsStatus.noGps).length).toBeGreaterThan(0);
+    });
+
     it("keeps unknown satellite and C/N0 states explicit without fake bars", () => {
         renderCard("satellite_cn0_unknown", {
             latitude: undefined,

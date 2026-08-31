@@ -31,8 +31,8 @@ var topicMap = map[string]topicDef{
 	// One-click dock calibration live status (the GUI's foxglove-friendly
 	// window into the CalibrateDock action — foxglove_bridge has no action op).
 	"dockCalibrationStatus": {"/calibrate_imu_yaw_node/dock_calibration/status", "mowgli_interfaces/msg/DockCalibrationStatus"},
-	"gps":             {"/gps/fix", "sensor_msgs/msg/NavSatFix"},
-	"gnssStatus":      {"/gps/status", "mowgli_interfaces/msg/GnssStatus"},
+	"gps":                   {"/gps/fix", "sensor_msgs/msg/NavSatFix"},
+	"gnssStatus":            {"/gps/status", "mowgli_interfaces/msg/GnssStatus"},
 	// The robot's global pose comes from fusion_graph_node, the sole
 	// map-frame localizer. "pose" and "fusionRaw" both point at
 	// /odometry/filtered_map; the duplicate key is kept for backwards
@@ -181,6 +181,9 @@ type RosProvider struct {
 	subscribers        map[string]map[string]*RosSubscriber // logicalKey -> id -> subscriber
 	lastMessage        map[string][]byte                    // logicalKey -> last JSON bytes
 	foxgloveSubscribed map[string]bool                      // logicalKey -> upstream-subscribed?
+	gnssAuthority      *gnssAuthorityTracker
+	gnssDeadlineTimer  *time.Timer
+	gnssDeadlineToken  uint64
 
 	// Cached docking pose from map_server_node (guarded by mtx)
 	dockPoseSet bool
@@ -242,9 +245,11 @@ func NewRosProvider(dbProvider types2.IDBProvider) types2.IRosProvider {
 		subscribers:        make(map[string]map[string]*RosSubscriber),
 		lastMessage:        make(map[string][]byte),
 		foxgloveSubscribed: make(map[string]bool),
+		gnssAuthority:      newGnssAuthorityTracker(defaultGnssAuthorityTimeout),
 		dbProvider:         dbProvider,
 		sessionTracker:     NewSessionTracker(dbProvider),
 	}
+	r.client.OnConnectionStateChange(r.onFoxgloveConnectionState)
 
 	go func() {
 		if err := r.client.Connect(context.Background()); err != nil {
@@ -256,6 +261,8 @@ func NewRosProvider(dbProvider types2.IDBProvider) types2.IRosProvider {
 
 	return r
 }
+
+var gnssInvalidationMessage = []byte("{}")
 
 // ensureFoxgloveSubscribed subscribes the foxglove client to the ROS2 topic
 // backing logicalKey if it isn't already. No-op for virtual keys (empty
@@ -324,6 +331,22 @@ func (r *RosProvider) maybeUnsubscribeFoxglove(logicalKey string) {
 func (r *RosProvider) fanOut(logicalKey string, msg []byte) {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
+	if logicalKey == "gnssStatus" {
+		switch r.gnssAuthority.Observe(msg, time.Now()) {
+		case gnssAuthorityPublish:
+			r.lastMessage[logicalKey] = msg
+			for _, sub := range r.subscribers[logicalKey] {
+				sub.Publish(msg)
+			}
+			r.scheduleGnssDeadlineLocked()
+		case gnssAuthorityInvalidate:
+			r.invalidateGnssLocked()
+		case gnssAuthorityIgnore:
+			// Delayed, replayed, or already-invalid evidence cannot replace the
+			// current cache or refresh either authority deadline.
+		}
+		return
+	}
 	r.lastMessage[logicalKey] = msg
 	for _, sub := range r.subscribers[logicalKey] {
 		sub.Publish(msg)
@@ -343,6 +366,56 @@ func (r *RosProvider) fanOut(logicalKey string, msg []byte) {
 		msgCopy := append([]byte(nil), msg...)
 		r.sessionTracker.EnqueueOdometry(msgCopy)
 	}
+}
+
+func (r *RosProvider) onFoxgloveConnectionState(state foxglove.ConnectionState) {
+	r.mtx.Lock()
+	defer r.mtx.Unlock()
+	if r.gnssAuthority.ConnectionChanged(state.Connected, state.Generation) {
+		r.invalidateGnssLocked()
+	}
+}
+
+func (r *RosProvider) invalidateGnssLocked() {
+	delete(r.lastMessage, "gnssStatus")
+	for _, sub := range r.subscribers["gnssStatus"] {
+		sub.Publish(gnssInvalidationMessage)
+	}
+	r.cancelGnssDeadlineLocked()
+}
+
+func (r *RosProvider) cancelGnssDeadlineLocked() {
+	r.gnssDeadlineToken++
+	if r.gnssDeadlineTimer != nil {
+		r.gnssDeadlineTimer.Stop()
+		r.gnssDeadlineTimer = nil
+	}
+}
+
+func (r *RosProvider) scheduleGnssDeadlineLocked() {
+	r.cancelGnssDeadlineLocked()
+	deadline, ok := r.gnssAuthority.NextDeadline()
+	if !ok {
+		return
+	}
+	token := r.gnssDeadlineToken
+	delay := time.Until(deadline)
+	if delay < 0 {
+		delay = 0
+	}
+	r.gnssDeadlineTimer = time.AfterFunc(delay, func() {
+		r.mtx.Lock()
+		defer r.mtx.Unlock()
+		if token != r.gnssDeadlineToken {
+			return
+		}
+		r.gnssDeadlineTimer = nil
+		if r.gnssAuthority.Expire(time.Now()) {
+			r.invalidateGnssLocked()
+			return
+		}
+		r.scheduleGnssDeadlineLocked()
+	})
 }
 
 // initDockPoseSubscription subscribes to the map_server_node's docking_pose
@@ -508,7 +581,25 @@ func (r *RosProvider) Subscribe(topic string, id string, intervalMs int, cb func
 	// repeatedly — ensureFoxgloveSubscribed short-circuits on the second hit.
 	r.ensureFoxgloveSubscribed(topic)
 
-	// Replay the most recent message so the subscriber is immediately usable.
+	// Replay GNSS only while its source generation, delivery, and physical
+	// observation provenance remain authoritative. Every invalid subscriber
+	// receives an explicit typed CLEAR instead of waiting for a future sample.
+	if topic == "gnssStatus" {
+		now := time.Now()
+		if r.gnssAuthority.Expire(now) {
+			r.invalidateGnssLocked()
+			return nil
+		}
+		if last, ok := r.lastMessage[topic]; ok && r.gnssAuthority.Current(now) {
+			r.subscribers[topic][id].Publish(last)
+		} else {
+			delete(r.lastMessage, topic)
+			r.subscribers[topic][id].Publish(gnssInvalidationMessage)
+		}
+		return nil
+	}
+
+	// Preserve existing latest-message replay for every non-GNSS topic.
 	if last, ok := r.lastMessage[topic]; ok {
 		r.subscribers[topic][id].Publish(last)
 	}
