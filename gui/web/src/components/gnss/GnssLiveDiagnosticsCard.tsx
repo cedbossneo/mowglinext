@@ -6,7 +6,10 @@ import { GnssStatus, GnssStatusConstants } from "../../types/ros.ts";
 import {
     deriveGpsStatus,
     gnssBaselineSolutionStatusLabel,
+    gnssCorrectionFlowStatusLabel,
+    gnssCorrectionSemanticStatusLabel,
     gnssCorrectionStreamStatusLabel,
+    gnssCorrectionTransportStatusLabel,
     gnssReceiverLabel,
     hasGnssCapability,
     hasGnssValue,
@@ -61,6 +64,9 @@ export const GnssLiveDiagnosticsCard: React.FC<Props> = ({
     const receiverLabel = gnssReceiverLabel(gnssStatus);
     const backendLabel = normalizeGnssString(gnssStatus?.backend) || t("diagnosticsPage.unknownLower");
     const correctionStreamLabel = gnssCorrectionStreamStatusLabel(gnssStatus) ?? unknownLabel;
+    const correctionTransportLabel = gnssCorrectionTransportStatusLabel(gnssStatus) ?? unknownLabel;
+    const correctionFlowLabel = gnssCorrectionFlowStatusLabel(gnssStatus) ?? unknownLabel;
+    const correctionSemanticLabel = gnssCorrectionSemanticStatusLabel(gnssStatus) ?? unknownLabel;
     const baselineSolutionStatus = gnssBaselineSolutionStatusLabel(gnssStatus);
     const rtkModeLabel = (() => {
         if (!hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_RTK_MODE)) {
@@ -162,6 +168,9 @@ export const GnssLiveDiagnosticsCard: React.FC<Props> = ({
         hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_JAMMING_STATUS);
     const showCorrectionSection =
         hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_STREAM) ||
+        hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_TRANSPORT) ||
+        hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_FLOW) ||
+        hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_SEMANTIC) ||
         hasMsmSummary;
     const showBaselineSection =
         hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_DUAL_ANTENNA_BASELINE) ||
@@ -318,6 +327,42 @@ export const GnssLiveDiagnosticsCard: React.FC<Props> = ({
                     <Space direction="vertical" size={8} style={{ width: "100%" }}>
                         <Text strong>{t("settingsGnssLiveStatus.correctionMsmSectionTitle")}</Text>
                         <Descriptions size="small" column={{ xs: 1, sm: 2 }}>
+                            {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_TRANSPORT) && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.correctionTransport")}>
+                                    <Tag color={gnssStatus?.correction_transport_status ===
+                                        GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_STREAMING ? "success" : "warning"}>
+                                        {correctionTransportLabel}
+                                    </Tag>
+                                </Descriptions.Item>
+                            )}
+                            {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_TRANSPORT) && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.correctionResponseAccepted")}>
+                                    {hasGnssValue(gnssStatus, GnssStatusConstants.CAP_CORRECTION_TRANSPORT)
+                                        ? (gnssStatus?.correction_response_accepted ? t("diagnosticsPage.yes") : t("diagnosticsPage.no"))
+                                        : unknownLabel}
+                                </Descriptions.Item>
+                            )}
+                            {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_FLOW) && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.correctionFlow")}>
+                                    <Tag color={gnssStatus?.correction_flow_status ===
+                                        GnssStatusConstants.CORRECTION_FLOW_STATUS_ACTIVE ? "success" : "warning"}>
+                                        {correctionFlowLabel}
+                                    </Tag>
+                                </Descriptions.Item>
+                            )}
+                            {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_SEMANTIC) && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.correctionSemanticHealth")}>
+                                    <Tag color={gnssStatus?.correction_semantic_status ===
+                                        GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY ? "success" : "warning"}>
+                                        {correctionSemanticLabel}
+                                    </Tag>
+                                </Descriptions.Item>
+                            )}
+                            {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_TRANSPORT) && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.correctionSource")}>
+                                    {normalizeGnssString(gnssStatus?.correction_source) || unknownLabel}
+                                </Descriptions.Item>
+                            )}
                             {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_STREAM) && (
                                 <Descriptions.Item label={t("diagnosticsPage.correctionStreamStatus")}>
                                     <Tag color={correctionStreamTagColor(gnssStatus?.correction_stream_status)}>
@@ -325,9 +370,19 @@ export const GnssLiveDiagnosticsCard: React.FC<Props> = ({
                                     </Tag>
                                 </Descriptions.Item>
                             )}
+                            {hasGnssCapability(gnssStatus, GnssStatusConstants.CAP_CORRECTION_STREAM) && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.correctionForwardingSource")}>
+                                    {normalizeGnssString(gnssStatus?.correction_forwarding_source) || unknownLabel}
+                                </Descriptions.Item>
+                            )}
                             {hasMsmSummary && (
                                 <Descriptions.Item label={t("settingsGnssLiveStatus.msmState")}>
                                     <Tag color={msmState.color}>{msmState.label}</Tag>
+                                </Descriptions.Item>
+                            )}
+                            {hasMsmSummary && (
+                                <Descriptions.Item label={t("settingsGnssLiveStatus.msmSource")}>
+                                    {normalizeGnssString(gnssStatus?.msm_summary_source) || unknownLabel}
                                 </Descriptions.Item>
                             )}
                             {hasMsmSummary && (

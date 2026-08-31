@@ -11,6 +11,13 @@ import {
 
 const NOW = 1_000_000;
 
+const CORRECTION_CAPABILITIES =
+    GnssStatusConstants.CAP_CORRECTION_STREAM |
+    GnssStatusConstants.CAP_MSM_SUMMARY |
+    GnssStatusConstants.CAP_CORRECTION_TRANSPORT |
+    GnssStatusConstants.CAP_CORRECTION_FLOW |
+    GnssStatusConstants.CAP_CORRECTION_SEMANTIC;
+
 function calibration(
     dock: boolean,
     imu: boolean,
@@ -32,7 +39,18 @@ function passingSnapshot(overrides: Partial<ReadinessSnapshot> = {}): ReadinessS
     return {
         gnss: {
             rtk_mode: GnssStatusConstants.RTK_MODE_FIXED,
+            capability_flags: CORRECTION_CAPABILITIES,
+            value_flags: CORRECTION_CAPABILITIES,
             correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_ACTIVE,
+            correction_transport_status: GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_STREAMING,
+            correction_response_accepted: true,
+            correction_flow_status: GnssStatusConstants.CORRECTION_FLOW_STATUS_ACTIVE,
+            correction_semantic_status: GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY,
+            correction_source: "caster:2101/MOUNT",
+            msm_summary_seen: true,
+            msm_summary_decoded: true,
+            msm_summary_valid: true,
+            msm_summary_cell_count: 24,
         },
         fusion: freshFusion({total_nodes: "42", cov_xx: "0.0009", cov_yy: "0.0009"}),
         calibration: calibration(true, true, true),
@@ -84,24 +102,61 @@ describe("RTK check", () => {
 });
 
 describe("NTRIP corrections check (recommended)", () => {
-    it("passes when the correction stream is active", () => {
+    it("passes only with current source-owned dynamic correction evidence", () => {
         expect(stateOf(computeReadinessChecks(passingSnapshot()), "corrections")).toBe("pass");
     });
 
-    it("is pending while waiting", () => {
+    it.each([
+        ["connected without an accepted response", {
+            correction_transport_status: GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_CONNECTED,
+            correction_response_accepted: false,
+        }, "pending"],
+        ["accepted response without valid RTCM", {
+            correction_flow_status: GnssStatusConstants.CORRECTION_FLOW_STATUS_WAITING,
+            correction_semantic_status: GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_WAITING,
+        }, "pending"],
+        ["active forwarding with invalid semantics", {
+            correction_semantic_status: GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_INVALID,
+        }, "fail"],
+        ["malformed RTCM", {
+            correction_flow_status: GnssStatusConstants.CORRECTION_FLOW_STATUS_INVALID,
+        }, "fail"],
+        ["zero-cell MSM", {msm_summary_cell_count: 0}, "pending"],
+        ["static base only", {
+            msm_summary_seen: false,
+            msm_summary_decoded: false,
+            msm_summary_valid: false,
+        }, "pending"],
+        ["expired semantic value", {
+            value_flags: CORRECTION_CAPABILITIES & ~GnssStatusConstants.CAP_CORRECTION_SEMANTIC,
+        }, "pending"],
+        ["reconnecting source", {
+            correction_transport_status: GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_RECONNECTING,
+        }, "fail"],
+        ["missing source identity", {correction_source: ""}, "pending"],
+    ] as const)("does not pass for %s", (_name, correctionOverride, expected) => {
+        const baseline = passingSnapshot().gnss ?? {};
+        const snap = passingSnapshot({gnss: {...baseline, ...correctionOverride}});
+        expect(stateOf(computeReadinessChecks(snap), "corrections")).toBe(expected);
+    });
+
+    it("does not use RTK Fixed as correction health", () => {
+        const baseline = passingSnapshot().gnss ?? {};
         const snap = passingSnapshot({
             gnss: {
-                rtk_mode: GnssStatusConstants.RTK_MODE_FIXED,
-                correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_WAITING,
+                ...baseline,
+                rtk_mode: GnssStatusConstants.RTK_MODE_NONE,
+                fix_valid: false,
             },
         });
-        expect(stateOf(computeReadinessChecks(snap), "corrections")).toBe("pending");
+        expect(stateOf(computeReadinessChecks(snap), "corrections")).toBe("pass");
+        expect(stateOf(computeReadinessChecks(snap), "rtk")).toBe("fail");
     });
 
     it("fails on a stream error", () => {
         const snap = passingSnapshot({
             gnss: {
-                rtk_mode: GnssStatusConstants.RTK_MODE_FIXED,
+                ...passingSnapshot().gnss,
                 correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_ERROR,
             },
         });
@@ -111,7 +166,7 @@ describe("NTRIP corrections check (recommended)", () => {
     it("does not gate finishing (recommended only)", () => {
         const snap = passingSnapshot({
             gnss: {
-                rtk_mode: GnssStatusConstants.RTK_MODE_FIXED,
+                ...passingSnapshot().gnss,
                 correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_ERROR,
             },
         });

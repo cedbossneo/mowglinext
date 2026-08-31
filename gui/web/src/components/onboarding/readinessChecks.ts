@@ -1,5 +1,9 @@
 import {GnssStatus, GnssStatusConstants} from "../../types/ros.ts";
-import {deriveGpsStatus, gnssCorrectionStreamStatusLabel} from "../../utils/gpsStatus.ts";
+import {
+    deriveGpsStatus,
+    gnssCorrectionSemanticStatusLabel,
+    hasHealthyCorrectionEvidence,
+} from "../../utils/gpsStatus.ts";
 import type {FusionGraphStats} from "../../hooks/useFusionGraphDiagnostics.ts";
 import type {CalibrationStatus} from "../../hooks/useCalibrationStatus.ts";
 
@@ -95,13 +99,20 @@ function rtkCheck(snap: ReadinessSnapshot): ReadinessCheck {
 }
 
 function correctionsCheck(snap: ReadinessSnapshot): ReadinessCheck {
-    const status = snap.gnss?.correction_stream_status;
     let state: ReadinessState;
-    if (status === GnssStatusConstants.CORRECTION_STREAM_STATUS_ACTIVE) {
+    if (hasHealthyCorrectionEvidence(snap.gnss)) {
         state = "pass";
     } else if (
-        status === GnssStatusConstants.CORRECTION_STREAM_STATUS_ERROR ||
-        status === GnssStatusConstants.CORRECTION_STREAM_STATUS_UNAVAILABLE
+        snap.gnss?.correction_transport_status === GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_DISCONNECTED ||
+        snap.gnss?.correction_transport_status === GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_RECONNECTING ||
+        snap.gnss?.correction_transport_status === GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_FAILED ||
+        snap.gnss?.correction_flow_status === GnssStatusConstants.CORRECTION_FLOW_STATUS_STALE ||
+        snap.gnss?.correction_flow_status === GnssStatusConstants.CORRECTION_FLOW_STATUS_INVALID ||
+        snap.gnss?.correction_semantic_status === GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_UNAVAILABLE ||
+        snap.gnss?.correction_semantic_status === GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_STALE ||
+        snap.gnss?.correction_semantic_status === GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_INVALID ||
+        snap.gnss?.correction_stream_status === GnssStatusConstants.CORRECTION_STREAM_STATUS_ERROR ||
+        snap.gnss?.correction_stream_status === GnssStatusConstants.CORRECTION_STREAM_STATUS_UNAVAILABLE
     ) {
         state = "fail";
     } else {
@@ -112,7 +123,7 @@ function correctionsCheck(snap: ReadinessSnapshot): ReadinessCheck {
         required: false,
         state,
         labelKey: "onboardingPage.readinessCheckCorrections",
-        valueText: gnssCorrectionStreamStatusLabel(snap.gnss),
+        valueText: gnssCorrectionSemanticStatusLabel(snap.gnss),
         ctaKey: state === "pass" ? undefined : "onboardingPage.readinessCtaFixNtrip",
         ctaTarget: "ntrip",
     };

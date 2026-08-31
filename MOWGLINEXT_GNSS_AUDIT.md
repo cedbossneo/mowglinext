@@ -1,7 +1,7 @@
 # MowgliNext GNSS Downstream Audit
 
 > Final audit report and remediation ledger. Phase A, Phase B, Phase C, Phase D,
-> and Phase E implementation status is recorded separately from the original
+> Phase E, and Phase F implementation status is recorded separately from the original
 > findings so open consumers are not accidentally presented as fixed.
 
 ## Executive summary
@@ -21,6 +21,9 @@ Phase E validation resumed from parent HEAD
 `a14cf585cd8626ceb54aec592e07eaafed2b7e07`, with transferred Universal GNSS
 changes still based on the exact pinned gitlink
 `45fe44a031520f9dfe4bfc07fd515952d1a1ea88` and no submodule or parent commit.
+Phase F started from clean parent HEAD
+`c6cd8b907bb43bb42611976e51e39cb2deca45c9` with Universal GNSS read-only and
+clean at the exact gitlink `5281472116669972ae12b9d1997d66b064671cf5`.
 
 The audit found that Universal GNSS distinguishes a new receiver observation
 from timer-driven republication using `position_observation_sequence`, while
@@ -67,6 +70,16 @@ RTK/DGPS correction-age windows flow through Universal GNSS PLAN/APPLY, the Go
 API, settings persistence, web controls, and startup. The defaults are RTK
 120 s and DGPS 300 s, while `RTK RELIABILITY 3 1` remains unchanged.
 
+Phase F replaces indefinite correction diagnostic entries with complete,
+source-owned NtripNode and ReceiverNode snapshots. A 2 s steady-clock receipt
+deadline bounds authority; diagnostic ROS stamps order snapshots but never
+provide liveness. Source changes, disconnect/reconnect, station mismatch,
+snapshot omission, explicit CLEAR, and expiry fail closed. The public contract
+now separates NTRIP transport/response, valid RTCM flow, forwarding, MSM
+observation, and dynamic semantic health. Browser merge preserves typed CLEAR,
+and onboarding requires current valid dynamic semantic evidence rather than a
+generic `ACTIVE` forwarding string.
+
 Original audit result: **11 confirmed findings — 0 P0, 6 P1, 5 P2, 0 P3**. The P1 set is
 the FusionGraph duplicate-observation path, behavior safety-health liveness,
 dig-event trust, UM980 moving-rover configuration regression, ineffective
@@ -82,15 +95,15 @@ independent configuration regressions show that upgrading the pinned submodule
 also removed Mowgli-specific receiver behavior without removing its GUI/startup
 contract.
 
-Phases A through E change production code only for the public contract, both
+Phases A through F change production code only for the public contract, both
 bridges, FusionGraph deduplication/freshness, the shared freshness primitive,
 the NavSat projection association targeted by MGNSS-002, and COG timing targeted
 by MGNSS-011, the four local consumers targeted by MGNSS-003/004/006/007, and
-the receiver-configuration boundaries targeted by MGNSS-005/010.
+the receiver-configuration boundaries targeted by MGNSS-005/010, and the
+correction projection/readiness boundary targeted by MGNSS-009.
 
-Current remediation result: **9 fixed, 2 open**. The remaining findings are
-exactly MGNSS-008 and MGNSS-009. Historical audit totals and severities remain
-unchanged.
+Current remediation result: **10 fixed, 1 open**. The remaining finding is
+exactly MGNSS-008. Historical audit totals and severities remain unchanged.
 
 ## Phase A remediation status
 
@@ -162,6 +175,23 @@ bounds, PLAN/APPLY equivalence, saved-settings propagation, omitted-setting
 behavior, and startup ordering. No historical frame writer, RTCM forwarding,
 NTRIP/correction-health logic, or GLONASS-1230 requirement was ported. MGNSS-008
 and MGNSS-009 remain out of scope and open.
+
+## Phase F remediation status
+
+Implemented and validated 2026-08-31 as the correction-projection remediation
+batch:
+
+| Finding | Phase F state | Result |
+|---|---|---|
+| MGNSS-009 | **FIXED** | Complete per-owner snapshots, monotonic 2 s expiry, source/station/lifecycle invalidation, receiver-first forwarding ownership, distinct typed transport/response/flow/semantic fields, correction-specific SET/OMIT/CLEAR merge rules, and semantic onboarding readiness are covered by deterministic C++/Python/frontend regressions. |
+
+ReceiverNode owns confirmed receiver writes; NtripNode owns transport, accepted
+response, valid RTCM arrival, and its portable-RTK semantic truth. A current
+ReceiverNode snapshot can supply receiver forwarding and MSM display when
+NTRIP is absent/non-streaming, but it cannot fabricate NTRIP transport or
+semantic health. GLONASS 1230 remains optional. Generic backend/Foxglove/
+browser connection-lifetime invalidation was not changed and remains exactly
+MGNSS-008.
 
 ## Baselines
 
@@ -258,11 +288,11 @@ typed status continues to be published from the current cached runtime state.
 | Receipt provenance stamp | `GnssStatus.stamp` and `NavSatFix.header.stamp` are local receiver acceptance/receipt time in ROS-clock domain, not publication or callback time. | Bridge preserves public `header.stamp`; FusionGraph, NavSat projection, COG, behavior, hardware dig/LED, and localization monitoring now use preserved receipt provenance. | fixed in all audited local ROS consumers; backend/GUI lifecycle remains separate MGNSS-008 |
 | Position observation identity | Sequence advances only for an accepted position observation, including numerically identical observations; cached publication keeps the sequence. | Public status appends the sequence and both bridges copy it verbatim. FusionGraph deduplicates by receipt; NavSat projection handles exact receipt+sequence association; behavior and hardware consume sequence+receipt. Monitoring's `AbsolutePose` interface has no sequence and uses the helper's fail-closed receipt-only mode. | fixed for all interfaces that expose sequence; safe compatibility mode for monitoring |
 | Acquisition vs publication | Physical acquisition is independent of `publish_rate_hz`; fresh cached state may be republished. | FusionGraph, projection, COG, behavior, dig trust, LED, and monitoring ignore cached delivery for physical freshness. Explicit 1 Hz acquisition/10 Hz callback and sparse-publication tests pass. | fixed for audited local ROS consumers |
-| SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks, so core clears survive. The GUI diagnostic merge ORs old diagnostic-derived correction flags/values back into the current sample. | core preserved; correction projection violated |
+| SET / OMIT / CLEAR | Capability and value masks preserve supported/current-value tri-state semantics. | The bridge reconstructs each core message and copies both masks. Phase F treats an unrelated diagnostic array as OMIT and a represented owner's complete snapshot as SET/CLEAR; typed correction group value masks override browser fallback rather than being OR-resurrected. | fixed in Phase F; generic stream-loss lifetime remains MGNSS-008 |
 | Clock domains | Upstream liveness uses steady time; public provenance uses ROS time. | Shared policy separates ROS receipt age, monotonic physical-observation elapsed age, and callback delivery liveness. FusionGraph, projection, COG, behavior, hardware, and monitoring reject future/negative age; Phase D consumers isolate debounce state on epoch rewind. | fixed for all audited local ROS consumers |
-| Correction states | Transport, accepted response, valid flow, semantic health, and receiver RTK solution are distinct. | Public projection derives one stream enum from a cached forwarding diagnostic; setup readiness passes on `ACTIVE` without semantic validity. | violated |
-| RTCM semantics | 1005/1006 are static-base data, MSM is dynamic correction data, and 1230 is optional for normal RTK health. | The UI shows 1230 availability only as detail; no downstream health/readiness gate was found that requires it. Dynamic correction health is nevertheless collapsed with forwarding activity. | 1230 preserved; flow/health violated |
-| Source/station ownership | Reconnect or source/station change must invalidate incompatible stale state. | Bridge diagnostics entries have no source incarnation or expiry and prefer old NTRIP entries over receiver entries. | violated |
+| Correction states | Transport, accepted response, valid flow, semantic health, and receiver RTK solution are distinct. | Append-only typed fields and capability/value groups expose transport/response, valid flow, forwarding, MSM, and semantic health separately; readiness requires all current semantic evidence and does not use RTK Fixed as a proxy. | fixed in Phase F |
+| RTCM semantics | 1005/1006 are static-base data, MSM is dynamic correction data, and 1230 is optional for normal RTK health. | Phase F consumes upstream portable-RTK truth and checks same-snapshot base/MSM consistency; static-only, malformed, stale, station-mismatched, and zero-cell MSM fail readiness. No 1230 requirement is introduced. | fixed in Phase F; 1230 preserved optional |
+| Source/station ownership | Reconnect or source/station change must invalidate incompatible stale state. | Full per-owner snapshots carry upstream hardware identity, expire on steady time, replace omitted values with CLEAR, reject older ROS-stamped resurrection, and never merge NTRIP/receiver semantic epochs. | fixed in Phase F |
 
 ## Old-fork compatibility delta
 
@@ -277,8 +307,8 @@ Final classification:
 ## Findings summary
 
 Original audit count: **11 findings: 0 P0, 6 P1, 5 P2, 0 P3**.
-After Phase E: **9 fixed, 2 open**. The remaining findings are exactly
-MGNSS-008 and MGNSS-009.
+After Phase F: **10 fixed, 1 open**. The remaining finding is exactly
+MGNSS-008.
 
 P1 denotes a high-impact loss of a primary localization/safety function or a
 configuration regression with field-proven RTK consequences. P2 denotes a
@@ -295,7 +325,7 @@ or readiness error without the same immediate primary-path impact.
 | MGNSS-006 | GPS-lock indication does not age receiver observation provenance | P2 | **fixed in Phase D** | shared hardware verdict expires quality to established LED-off value |
 | MGNSS-007 | Monitoring reports cached fix delivery as fresh observation health | P2 | **fixed in Phase D** | receipt-only physical freshness + separate delivery-liveness regressions |
 | MGNSS-008 | Backend/browser retain old typed GNSS state across stream failures | P2 | confirmed bug | backend cache and frontend lifecycle proof |
-| MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | confirmed integration bug | bridge, upstream state, and readiness proof |
+| MGNSS-009 | Correction diagnostics cache outlives source/incarnation and collapses flow with health | P2 | **fixed in Phase F** | bounded source snapshots + typed state separation + bridge/browser/readiness regressions |
 | MGNSS-010 | Field-proven Unicore correction-age policy was lost and exposed settings are not applied | P1 | **fixed in Phase E** | restored defaults + bounded end-to-end override regressions |
 | MGNSS-011 | Supported 1 Hz fixes can never produce COG heading | P1 | **fixed in Phase C** | physical-rate-derived timing + 19 focused regressions + 15 historical COG tests |
 
@@ -603,7 +633,7 @@ Status: confirmed from source; no disconnect/invalidation regression test exists
 
 ### MGNSS-009 — Correction diagnostics cache outlives source/incarnation and collapses flow with health
 
-Status: confirmed across upstream diagnostics, both bridges, and GUI readiness.
+Status: **FIXED in Phase F**.
 
 - Both bridges store diagnostic entries indefinitely by name and never remove
   absent entries, age them, or tie them to a source incarnation
@@ -632,6 +662,44 @@ Status: confirmed across upstream diagnostics, both bridges, and GUI readiness.
 - Remediation direction: make correction state an explicit typed, timestamped,
   source-owned contract; clear it on absence/restart/source change and require
   semantic dynamic-correction health separately from transport/forwarding.
+
+Phase F resolution:
+
+- Both bridges now hold at most one complete NtripNode snapshot and one complete
+  ReceiverNode snapshot. Each receipt replaces that owner's correction entries;
+  arrays for unrelated components are OMIT, while missing fields in a represented
+  owner are CLEAR. Authority expires after 2 s on steady/monotonic time even if
+  ROS time pauses.
+- Upstream `hardware_id` is the source identity. A source change replaces the
+  old epoch; conflicting/missing identity fails closed. Non-streaming lifecycle,
+  reconnect, station mismatch, semantic invalidity, expiry, and a newer full
+  snapshot clear incompatible state. Diagnostic ROS stamps are ordering evidence
+  only, so an older SET cannot refresh lifetime or resurrect a newer CLEAR.
+- ReceiverNode forwarding is authoritative for successful receiver writes.
+  NtripNode forwarding is only the explicit compatibility fallback when no
+  current ReceiverNode owner exists. Expired/disconnected NTRIP cannot shadow a
+  current receiver forwarding/MSM observation; receiver fallback never invents
+  NTRIP transport or semantic health.
+- `GnssStatus.msg` appends typed transport, response-accepted, valid-flow, and
+  semantic-health states plus correction, forwarding, and MSM source identities.
+  Existing stream/MSM fields remain backward compatible. Capability/value masks
+  expose current evidence independently for each group.
+- Semantic `HEALTHY` requires upstream correction availability and parser health
+  plus a same-snapshot valid base and current decoded/valid non-zero-cell MSM for
+  the same station. Forwarding, connection, or response acceptance alone cannot
+  satisfy it. Static 1005/1006 alone and malformed/zero-cell MSM fail closed;
+  RTCM 1230 is not consulted and remains optional.
+- The browser's correction-specific merge gives typed SET/CLEAR ownership over
+  cached diagnostic fallback. Onboarding and the GPS correction alert require
+  current source identity, streaming/accepted response, active valid flow,
+  receiver forwarding, healthy semantics, and usable current MSM. RTK Fixed is
+  deliberately not part of this correction-health criterion.
+- Residual limitation: current diagnostics expose source/mountpoint identity and
+  ROS ordering, not an independent process-incarnation token. A restart with the
+  exact same identity and unusable/equal ROS ordering cannot be perfectly
+  distinguished. Complete snapshots, lifecycle CLEAR, older-snapshot rejection,
+  and monotonic expiry provide the strongest deterministic fail-closed policy
+  available without changing the read-only upstream contract.
 
 No independent defect was found in message-1230 handling: downstream readiness
 does not require 1230, and the detailed diagnostics view presents its absence as
@@ -736,8 +804,10 @@ Required regression additions:
 - COG output at every supported acquisition rate, independently varied ROS
   publication rate, cached duplicate stamps, and stationary-latch clock jumps
   is covered by Phase C.
-- NTRIP connected without valid RTCM, malformed/zero-cell MSM, caster restart,
-  mountpoint/source change, station change, and stale diagnostic removal.
+- NTRIP connected without valid RTCM, malformed/zero-cell MSM, static-only data,
+  caster reconnect, mountpoint/source change, station change, stale diagnostic
+  removal, old-source resurrection, SET/OMIT/CLEAR, and paused/rewound ROS time
+  are covered by Phase F C++/Python/browser regressions.
 - Backend/Foxglove and browser WebSocket loss/reconnect invalidation.
 - UM980 Auto and explicit dynamic modes against the pinned tools.
 
@@ -775,6 +845,11 @@ artifacts under `/tmp`):
 | Phase D isolated build: `mowgli_interfaces`, `mowgli_behavior`, `mowgli_hardware`, `mowgli_localization` | **PASS — 4/4 packages** | Shared physical-observation freshness and all three production consumers compile/install together. Only pre-existing ament dependency deprecation and unrelated BehaviorTree nodiscard warnings were emitted on the clean build. |
 | Phase D focused consumer tests | **PASS — 75/75 cases** | `test_localization_health` 20/20, `test_dig_detector` 35/35, and `test_localization_monitor_freshness` 20/20. Thirty-two are new Phase D cases (4 behavior, 4 dig, 4 LED, 20 monitoring/shared cross-cutting); 43 historical cases remain green. |
 | Phase D complete affected-package GTest suites | **PASS — 432/432 cases** | Behavior 198, hardware 111, localization 123; no failures/errors/skips. The complete CTest/lint pass exposed one cpplint complaint about anonymous test-parameter syntax, which was corrected; the affected health target and cpplint both passed on rerun. |
+| Phase F isolated build: pinned `universal_gnss`, `mowgli_interfaces`, `mowgli_gnss_bridge` | **PASS — 3/3 packages** | The pinned read-only ROS2 dependency, append-only public interface, generated types, tracker, and production bridge compile together under `/tmp`. |
+| Phase F C++ bridge tests | **PASS — 9/9 cases** | Six deterministic tracker cases cover the correction matrix; all three existing end-to-end mapping/sequence/RTCM tests remain green. |
+| Phase F Python bridge tests | **PASS — 7/7 cases** | The fallback mirrors the C++ source/lifetime/semantic vectors plus existing observation identity behavior. |
+| Phase F focused frontend tests | **PASS — 75/75 cases** | Projection CLEAR ownership, semantic readiness failures, existing Fixed/Float/no-fix mappings, and the typed diagnostics UI pass. |
+| Phase F TypeScript and Go validation | **PASS** | `tsc --noEmit` passes; generated Go message/provider suites pass, including `pkg/msgs/mowgli` and `pkg/providers`. |
 
 The remaining downstream ROS packages, frontend, Go provider, and installer
 matrices were not rerun after the user's quota-prioritization instruction. The
@@ -806,6 +881,14 @@ callbacks follows the advancing identity; sparse 1 Hz publication of a faster
 source does not infer cadence; cached/delayed messages cannot refresh; receipt
 and clock epochs fail closed; and new accepted evidence restores the existing
 Fixed/Float/no-fix, dig, LED, and monitoring semantics.
+
+For correction projection, Phase F converts the source-lifetime proof into
+deterministic C++/Python parity coverage for complete snapshots, monotonic
+expiry, paused/rewound ROS time, disconnect/reconnect, source and station
+changes, old-source rejection, receiver fallback, semantic-invalid active
+forwarding, static-only and zero-cell data, optional 1230, and SET/OMIT/CLEAR.
+Frontend regressions prove that typed CLEAR survives diagnostic fallback and
+readiness requires the distinct current semantic dimensions.
 
 The GPS dock detector was explicitly reviewed and is not counted as stale-GNSS
 retention: after a Fixed solution it converts the dock to the continuous odom
@@ -858,9 +941,10 @@ Final dependency order:
 2. **Phase E complete:** MGNSS-005 and MGNSS-010 are fixed together at receiver
    configuration boundaries with model-aware rover policy and effective,
    validated correction-age settings.
-3. Fix MGNSS-009 by defining correction semantic health, expiry, and source/
-   station incarnation ownership; then fix MGNSS-008 by carrying bounded
-   validity and disconnect invalidation through the backend/browser lifecycle.
+3. **Phase F complete:** correction semantic health, expiry, source/station
+   ownership, browser CLEAR behavior, and readiness are explicit and tested.
+4. Fix the remaining MGNSS-008 by carrying bounded validity and disconnect
+   invalidation through the generic backend/browser lifecycle.
 
 Findings sharing the observation-identity/public-contract root should be fixed
 and regression-tested together even where this report retains separate IDs for
@@ -1032,3 +1116,28 @@ submodules were not modified.
 All 15 paths are owned by `ubuntu`; build/test/log artifacts remain isolated
 under `/tmp`. Firmware, Universal GNSS, MGNSS-005/008/009/010 scopes, remotes,
 and submodules were not modified.
+
+## Phase F final repository cross-check
+
+- Branch: `audit/gnss-downstream`; top-level HEAD remains exact required
+  `c6cd8b907bb43bb42611976e51e39cb2deca45c9`, with
+  `origin/dev...HEAD` still `0 7`. Phase F created no commit and performed no
+  push.
+- Universal GNSS gitlink/worktree HEAD remains exact required
+  `5281472116669972ae12b9d1997d66b064671cf5`, and its `git status --short` is
+  empty. No Universal GNSS content or gitlink changed.
+- `git diff --check`: **PASS** for tracked changes; explicit `--no-index
+  --check` passes for all three new C++ files. The new tracker/header/test are
+  clang-format clean under the sensor bridge's existing Google-style layout.
+- Non-root validation under `/tmp`: pinned dependency/interface/bridge builds
+  **PASS**; C++ 9/9, Python 7/7, focused frontend 75/75, TypeScript no-emit, Go
+  message/provider tests, and reproducible TypeScript/Go message generation all
+  **PASS**.
+- The scoped worktree contains 19 tracked modified paths plus three new Phase F
+  tracker paths (883 new-file lines). Tracked diff is 1,180 insertions and 359
+  deletions. The unrelated untracked
+  `.devcontainer/devcontainer-lock.json` remains untouched and excluded.
+- All sampled changed/new paths are owned by `ubuntu`; build/test/log artifacts
+  remain under `/tmp`. Generic backend/Foxglove/browser disconnect lifetime,
+  MGNSS-008, remotes, submodules, and unrelated production paths were not
+  modified.
