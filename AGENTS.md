@@ -324,8 +324,6 @@ before relying on shared handoffs.
 
 ### Checkpoint compression and evidence cache
 
-### Checkpoint compression and evidence cache
-
 A checkpoint is a compact operational state, not a conversation transcript.
 
 Record conclusions and evidence, not the full reasoning process.
@@ -379,6 +377,21 @@ Exact next step
 
 A checkpoint should make resumption cheap, not become another large document
 that future agents must reprocess.
+
+For long audits or backlog reviews, keep checkpoints summary-first:
+
+- store the repository, branch, `HEAD`, base, and relevant submodule/gitlink
+  baseline once;
+- store classification counts and the current audit/remediation phase;
+- store only contradictions, decisions, invalidators, unresolved questions, and
+  the next action needed to resume safely;
+- keep line-by-line item evidence in a separate local ledger or durable audit
+  rather than duplicating it into the checkpoint;
+- do not enumerate every successful read-only command when a compact preflight
+  summary preserves the same recovery information.
+
+A detailed ledger may be large when exhaustive traceability is required. The
+checkpoint should reference that ledger instead of becoming a second copy of it.
 
 Ensure `.agent/checkpoints/` and other local `.agent` working state remain
 ignored by Git. Only `.agent/shared/` is eligible for intentional versioning,
@@ -652,6 +665,35 @@ current task.
 Once a fact is established and recorded in the checkpoint or durable shared
 analysis, treat it as an input unless later repository changes could invalidate
 it.
+
+When a versioned audit, analysis, architecture document, roadmap, `CLAUDE.md`
+reference, or other repository document is reused as an evidence cache, classify
+its freshness when that matters to the task:
+
+```text
+CURRENT
+PARTIALLY_STALE
+SUPERSEDED
+```
+
+Use these meanings:
+
+- `CURRENT`: no known contradiction affects the conclusions being reused;
+- `PARTIALLY_STALE`: some sections or conclusions are known to be outdated, but
+  explicitly identified unaffected conclusions may still be reused;
+- `SUPERSEDED`: the source must not be used as current authority except for
+  historical context.
+
+For a `PARTIALLY_STALE` source, record the known stale section or conclusion and
+its replacement evidence. Do not discard the entire source when only a bounded
+part is stale, and do not trust an entire document merely because it was once a
+validated audit.
+
+Source code, tests, current Git state, current submodule/gitlink state, and the
+applicable architecture/safety contract remain authoritative when they
+contradict stale descriptive documentation. If a contradiction touches a
+`CLAUDE.md` safety or architecture invariant, resolve it explicitly rather than
+silently overriding the reference.
 
 Examples include:
 
@@ -1070,6 +1112,204 @@ A contributor or agent receiving a subtask should be able to determine:
 - which tests establish completion;
 - what exact next action is expected.
 
+### Audit and backlog classification model
+
+For substantial repository audits, TODO reviews, remediation matrices, and
+backlog reconciliation, classify **task status** separately from **task type or
+scope**.
+
+Do not mix lifecycle state with subsystem ownership or category.
+
+Recommended status values are:
+
+```text
+IMPLEMENTED
+PARTIAL
+OPEN
+BLOCKED
+SUPERSEDED
+OBSOLETE
+DUPLICATE
+```
+
+Recommended MowgliNext type/scope values include, as applicable:
+
+```text
+ROS2
+NAVIGATION
+LOCALIZATION
+GNSS
+GUI
+BACKEND
+FRONTEND
+FIRMWARE
+HARDWARE_BRIDGE
+CONFIGURATION
+DEPLOYMENT
+SUBMODULE
+DOCUMENTATION
+VALIDATION
+DOWNSTREAM
+```
+
+Additional subsystem-specific scope values may be used when they improve
+clarity, but they must not replace the status field.
+
+Examples:
+
+```text
+Status: OPEN
+Scope: DOCUMENTATION
+```
+
+```text
+Status: BLOCKED
+Scope: GNSS
+```
+
+A documentation task is not complete merely because its scope is
+`DOCUMENTATION`. A submodule-related task is not necessarily blocked merely
+because it belongs to `SUBMODULE`.
+
+### Audit conservation and duplicate invariants
+
+Before editing a backlog after classification, freeze the classification and
+verify mechanical conservation.
+
+At minimum:
+
+```text
+original item count = sum(all classified items)
+```
+
+After cleanup:
+
+```text
+original item count = remaining items + intentionally removed items
+```
+
+Every intentionally removed item must retain enough traceability in the audit
+ledger to identify:
+
+- its original stable identity or text;
+- its status and scope;
+- the evidence supporting removal;
+- its final disposition.
+
+`DUPLICATE` is directional. Every duplicate item must reference exactly one
+canonical item that is itself not classified `DUPLICATE`.
+
+Invalid:
+
+```text
+A -> DUPLICATE of B
+B -> DUPLICATE of A
+```
+
+Valid:
+
+```text
+A -> OPEN / PARTIAL / IMPLEMENTED / ...
+B -> DUPLICATE of A
+```
+
+Before applying backlog edits, validate both:
+
+1. the numeric count invariant;
+2. the canonical-reference invariant for duplicates and dependencies.
+
+After cleanup, recount the resulting backlog and confirm that the expected
+number of retained and removed items matches the frozen ledger.
+
+### Strict PARTIAL and BLOCKED semantics
+
+Use `PARTIAL` only when part of the **same requested contract** already exists.
+Neighbouring infrastructure, reusable groundwork, a related ROS2/GUI surface, or
+a similar implementation in another subsystem does not by itself make an item
+`PARTIAL`.
+
+Every `PARTIAL` classification should record:
+
+```text
+Existing:
+Missing:
+Completion criterion:
+```
+
+Use `BLOCKED` only when a real dependency prevents safe or meaningful progress.
+Do not use `BLOCKED` merely to express preferred ordering, lower priority, or a
+future phase.
+
+Every `BLOCKED` classification should record:
+
+```text
+Blocked by: <stable item/finding ID or explicit external dependency>
+Unblocks when: <observable completion condition>
+```
+
+If work can proceed independently but should simply happen later, classify it
+`OPEN` and record the ordering recommendation separately.
+
+### Stable audit and backlog identifiers
+
+For substantial audits or large backlogs, give meaningful findings/items stable
+identifiers before they are used as dependency targets or shared across
+contributors.
+
+Examples:
+
+```text
+MGNSS-008
+MN-ROS2-012
+MN-GUI-004
+MN-FW-003
+MN-NAV-006
+```
+
+Preserve established project-specific identifiers when they already exist. Do
+not renumber mature findings merely to fit a new naming scheme.
+
+Line numbers and current Markdown positions may be recorded as secondary
+baseline information, but must not be the primary identity because backlog edits
+move them.
+
+When an item is renamed, moved, deduplicated, or transferred between Universal
+GNSS and MowgliNext ownership, preserve its stable identity or record an explicit
+canonical replacement/relationship.
+
+A dependency graph, remediation matrix, or shared handoff should reference
+stable IDs rather than mutable line numbers whenever practical.
+
+### Audit freeze and contradiction review
+
+For large backlog audits, prefer this sequence:
+
+```text
+baseline
+    -> targeted evidence collection
+    -> item classification
+    -> classification freeze
+    -> canonical duplicate/dependency validation
+    -> mechanical count validation
+    -> contradiction review
+    -> exact cleanup plan
+    -> apply authorized backlog/documentation edits
+    -> post-cleanup conservation check
+```
+
+Do not edit the authoritative backlog while classifications are still changing
+unless the task explicitly requires an incremental live ledger.
+
+When the audit discovers stale durable documentation, record the contradiction
+and classify the affected evidence source as `PARTIALLY_STALE` or `SUPERSEDED`
+as appropriate. Either repair it within authorized scope or leave an explicit
+follow-up finding so future agents do not reuse known-stale text as current
+truth.
+
+When a contradiction crosses the parent repository and a submodule, record the
+parent `HEAD`, parent gitlink, submodule worktree `HEAD`, and authoritative
+upstream evidence before deciding which side is stale.
+
 ### Sharing an unfinished task
 
 If another contributor must resume work before the analysis is mature enough
@@ -1199,6 +1439,11 @@ Before declaring completion, verify as applicable:
 - remaining open findings or follow-up work are identified accurately
 
 For substantial audits or architecture studies, also verify whether validated reusable knowledge should be promoted into versioned shared documentation before closing the task.
+
+For backlog reconciliation audits, completion also requires the applicable
+classification-count, duplicate-canonicalization, dependency-reference, and
+post-cleanup conservation checks from the collaborative-analysis rules above to
+pass or to be explicitly reported as unresolved.
 
 ### No silent scope expansion
 
