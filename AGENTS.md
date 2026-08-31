@@ -27,15 +27,16 @@ Before substantial work:
 1. read this `AGENTS.md` completely;
 2. inspect the latest task checkpoint under `.agent/checkpoints/`, when one
    exists;
-3. verify checkpoint assumptions against the actual repository state;
-4. establish repository path, branch, `HEAD`, remotes, dirty state, and
+3. inspect any relevant shared handoff under `.agent/shared/`, when one exists;
+4. verify checkpoint or handoff assumptions against the actual repository state;
+5. establish repository path, branch, `HEAD`, remotes, dirty state, and
    relevant submodule/gitlink state;
-5. determine which subsystem or architectural contracts the task touches;
-6. read `CLAUDE.md` when the task depends on project architecture, safety
+6. determine which subsystem or architectural contracts the task touches;
+7. read `CLAUDE.md` when the task depends on project architecture, safety
    boundaries, subsystem invariants, historical design decisions, or one of
    the areas documented there;
-7. read the subsystem-specific reference linked by `CLAUDE.md` when relevant;
-8. do not repeat investigation already recorded as established evidence unless
+8. read the subsystem-specific reference linked by `CLAUDE.md` when relevant;
+9. do not repeat investigation already recorded as established evidence unless
    repository state or new evidence invalidates it.
 
 ### When `CLAUDE.md` must be consulted
@@ -75,7 +76,7 @@ Reread the relevant material when:
 - context was compacted;
 - the devcontainer or execution environment was rebuilt;
 - the agent session was restarted;
-- repository state differs from the checkpoint;
+- repository state differs from the checkpoint or shared handoff;
 - a contradiction with established evidence appears;
 - new work touches an architectural or safety contract not previously loaded.
 
@@ -83,7 +84,7 @@ After context compaction or session restart, prefer:
 
 ```text
 AGENTS.md
-    -> latest checkpoint
+    -> latest local checkpoint and/or relevant shared handoff
     -> actual Git state
     -> CLAUDE.md / relevant subsystem reference when needed
     -> targeted verification
@@ -92,25 +93,30 @@ AGENTS.md
 
 instead of:
 
-
+```text
 repository-wide rediscovery
     -> historical archaeology
     -> repeated tests
     -> reconstructed reasoning
     -> eventual continuation
+```
 
 A context compaction, model switch, or new agent session is not new evidence.
 
-Instruction roles
+### Instruction roles
 
 When several repository instruction sources apply, interpret them by role:
 
-AGENTS.md -> agent execution policy;
-CLAUDE.md -> MowgliNext architecture, safety, and maintenance knowledge;
-subsystem documentation -> detailed technical contracts;
-task checkpoint -> current task state and already-established evidence;
-source code and tests -> authoritative current implementation and executable
-evidence.
+- `AGENTS.md` -> agent execution policy;
+- `CLAUDE.md` -> MowgliNext architecture, safety, and maintenance knowledge;
+- subsystem documentation -> detailed technical contracts;
+- `.agent/checkpoints/` -> local current-task state and already-established
+  evidence;
+- `.agent/shared/` -> intentionally shared, short-lived contributor/agent
+  handoff state;
+- versioned audit/analysis/architecture documents -> durable shared knowledge;
+- source code and tests -> authoritative current implementation and executable
+  evidence.
 
 If two applicable instructions appear to conflict, do not guess which one to
 ignore. Determine whether the conflict is caused by stale documentation or a
@@ -198,7 +204,12 @@ For audits, debugging, architecture analysis, compatibility work, and semantic m
   - `SUPERSEDED`
   - `REJECT`
 
-### Checkpoint storage
+### Agent state persistence policy
+
+Agent working state has three distinct persistence levels. Do not mix their
+roles.
+
+#### 1. Local checkpoints
 
 Store temporary task checkpoints under:
 
@@ -214,12 +225,104 @@ Examples:
 .agent/checkpoints/BLUEOS_MIGRATION_CHECKPOINT.md
 ```
 
-- Temporary checkpoint files are local working state and should not be committed by default.
-- Checkpoint files must survive agent context compaction and session changes.
-- Do not use `/tmp` for checkpoints that are expected to survive a devcontainer restart, agent restart, or session interruption.
-- Prefer a repository-local checkpoint over information preserved only in conversation context.
+Local checkpoints are operational memory for one contributor/agent and must
+remain ignored by Git.
 
+They exist primarily to survive:
 
+- context compaction;
+- model changes;
+- agent restarts;
+- interrupted sessions;
+- long-running investigations;
+- devcontainer restarts when the repository itself persists.
+
+Do not use `/tmp` for checkpoints that are expected to survive those events.
+
+Prefer a repository-local checkpoint over information preserved only in
+conversation context.
+
+Local checkpoints may contain transient details such as the current dirty
+worktree, exact next command, partially completed validation, or unresolved
+session-specific questions. Those details are useful for resumption but should
+not normally become shared project history.
+
+#### 2. Shared agent/contributor handoffs
+
+Use:
+
+```text
+.agent/shared/
+```
+
+only when short-lived working knowledge genuinely needs to be exchanged between
+contributors or agent sessions through Git.
+
+Files under `.agent/shared/` may be committed intentionally.
+
+Appropriate uses include:
+
+- an unfinished cross-contributor handoff;
+- an investigation state another contributor must resume;
+- a temporary remediation matrix;
+- a compact shared execution plan;
+- a handoff needed while two contributors work on different parts of one audit.
+
+Shared handoffs must:
+
+- be concise;
+- identify the repository baseline/commit they refer to;
+- state what is established versus unresolved;
+- state what must not be changed;
+- include the exact next step when continuation is expected;
+- avoid secrets, credentials, large logs, generated artifacts, and conversation
+  transcripts;
+- be removed or promoted when their short-lived purpose is complete.
+
+Do not use `.agent/shared/` as permanent project documentation.
+
+#### 3. Durable shared knowledge
+
+Validated knowledge that will remain useful after the current task belongs in
+versioned project documentation, preferably:
+
+```text
+docs/analysis/
+docs/audits/
+docs/architecture/
+```
+
+The intended lifecycle is:
+
+```text
+local investigation
+    -> .agent/checkpoints/
+    -> shared work required?
+         -> no: remain local while active
+         -> yes: .agent/shared/
+    -> validated and reusable
+    -> docs/analysis/ | docs/audits/ | docs/architecture/
+```
+
+Do not force another contributor or agent to repeat expensive validated
+analysis merely because the original work happened in another session.
+
+At the same time, do not preserve transient session noise as permanent project
+documentation.
+
+The repository `.gitignore` is expected to keep local `.agent` state ignored
+while allowing intentionally shared handoffs, conceptually:
+
+```gitignore
+.agent/*
+!.agent/shared/
+!.agent/shared/**
+```
+
+If repository ignore rules do not match this policy, fix or report the mismatch
+before relying on shared handoffs.
+
+### Checkpoint compression and evidence cache
 
 ### Checkpoint compression and evidence cache
 
@@ -277,8 +380,9 @@ Exact next step
 A checkpoint should make resumption cheap, not become another large document
 that future agents must reprocess.
 
-Ensure `.agent/` remains local working state and is ignored by Git. If it is
-not ignored, fix that before relying on repository-local checkpoints.
+Ensure `.agent/checkpoints/` and other local `.agent` working state remain
+ignored by Git. Only `.agent/shared/` is eligible for intentional versioning,
+and only under the shared-handoff rules above.
 
 ### Durable shared knowledge
 
@@ -499,6 +603,16 @@ The goal is not to minimize reasoning at the expense of correctness. The goal
 is to avoid spending expensive reasoning on information that is already known,
 already verified, irrelevant to the authorized scope, or recoverable cheaply
 from repository state.
+
+This policy intentionally reduces redundant reasoning, repository exploration,
+tool calls, broad test execution, and repeated reconstruction of validated
+knowledge. The primary goals are faster engineering iteration, lower compute
+use, and better use of limited agent/model resources without reducing
+validation quality.
+
+Avoidable compute also means avoidable energy use. Resource efficiency is
+therefore an engineering and environmental benefit, but do not invent or claim
+quantified energy/carbon savings unless they have actually been measured.
 
 #### Progressive investigation
 
@@ -864,6 +978,7 @@ The combination of:
 AGENTS.md
 CLAUDE.md and subsystem references
 .agent/checkpoints/
+.agent/shared/
 Git state
 tests and generated-interface checks
 versioned audits / architecture documents
@@ -876,7 +991,8 @@ Use each layer for its intended purpose:
 - `AGENTS.md` stores stable agent execution policy;
 - `CLAUDE.md` and its references store current project architecture and safety
   contracts;
-- checkpoints store compact current-task conclusions and next state;
+- local checkpoints store compact current-task conclusions and next state;
+- `.agent/shared/` stores intentionally shared short-lived handoff state;
 - Git stores exact implementation state;
 - tests store executable behavioural evidence;
 - versioned audits/architecture documents store durable cross-session findings.
@@ -924,32 +1040,73 @@ early is preferable to beginning work that cannot be safely completed.
 
 ## Collaborative analysis and work sharing
 
-Large analyses should be structured so that findings can be safely distributed among contributors without requiring each contributor to rediscover the entire repository.
+Large analyses should be structured so findings can be safely distributed among
+contributors without requiring each contributor or agent to rediscover the
+entire repository.
+
+This repository may be worked on by multiple human contributors and multiple
+agents. Shared state must therefore distinguish temporary collaboration from
+durable project knowledge.
 
 When a broad analysis identifies multiple independent findings or subsystems:
 
-- record the shared architectural baseline first
-- record common invariants and contracts once
-- split work only after ownership and dependency boundaries are understood
-- give each finding a stable identifier when practical
-- record severity, evidence, scope, dependencies, and remediation status
-- identify which findings can proceed independently
-- identify ordering constraints between findings
-- keep the shared analysis updated as remediation progresses
+- record the shared architectural baseline first;
+- record common invariants and contracts once;
+- split work only after ownership and dependency boundaries are understood;
+- give each finding a stable identifier when practical;
+- record severity, evidence, scope, dependencies, and remediation status;
+- identify which findings can proceed independently;
+- identify ordering constraints between findings;
+- keep the shared analysis or ledger updated as remediation progresses.
 
 A contributor or agent receiving a subtask should be able to determine:
 
-- what is already known
-- what has already been validated
-- what must not be changed
-- which repository baseline the conclusions refer to
-- which dependencies are already fixed
-- which findings remain open
-- which tests establish completion
+- what is already known;
+- what has already been validated;
+- what must not be changed;
+- which repository baseline the conclusions refer to;
+- which dependencies are already fixed;
+- which findings remain open;
+- which tests establish completion;
+- what exact next action is expected.
 
-Do not duplicate expensive repository-wide analysis across parallel contributors when a validated shared baseline already exists.
+### Sharing an unfinished task
 
-When multiple contributors work from one audit or architecture analysis, prefer a shared ledger or remediation document over separate incompatible notes.
+If another contributor must resume work before the analysis is mature enough
+for permanent documentation, create or update a concise handoff under:
+
+```text
+.agent/shared/
+```
+
+The handoff should reference any relevant local or durable evidence without
+copying large logs or full analyses.
+
+When the receiving contributor resumes:
+
+1. read the shared handoff before broad exploration;
+2. revalidate repository/branch/HEAD/submodule state;
+3. reuse still-valid evidence;
+4. investigate only missing, ambiguous, stale, or invalidated conclusions;
+5. update or retire the handoff as ownership changes.
+
+### Sharing a large audit
+
+For a large audit shared between contributors:
+
+- keep the authoritative finding ledger in versioned documentation when it is
+  already mature enough to be durable;
+- use `.agent/shared/` only for temporary cross-contributor execution state;
+- keep local session checkpoints in `.agent/checkpoints/`;
+- avoid maintaining separate incompatible copies of the same findings;
+- promote validated conclusions to `docs/audits/`, `docs/analysis/`, or
+  `docs/architecture/` as soon as they are stable and reusable.
+
+Do not duplicate expensive repository-wide analysis across parallel
+contributors when a validated shared baseline already exists.
+
+Do not commit every local checkpoint merely to make it shareable. Share only
+the minimum state required for collaboration.
 
 ---
 
@@ -996,6 +1153,14 @@ Unless explicitly instructed otherwise:
 - Do not silently change gitlinks.
 - Verify branch, HEAD, remotes, and relevant submodule state before large changes.
 - Revalidate repository state before concluding long-running work.
+
+- Never stage `.agent/checkpoints/` or other local agent state.
+- Stage `.agent/shared/` only when the shared handoff is intentionally meant to
+  be exchanged through Git.
+- Review staged `.agent/shared/` content for secrets, stale session noise, large
+  logs, and accidental local-only state before committing it.
+- Prefer promoting mature reusable knowledge to versioned documentation rather
+  than keeping permanent handoffs under `.agent/shared/`.
 
 If repository state differs from an explicitly required baseline, stop and report the mismatch before making production changes.
 
@@ -1066,7 +1231,9 @@ If the task is intentionally left incomplete, also report:
 
 - what remains;
 - why it remains;
-- the latest durable checkpoint;
+- the latest local checkpoint;
+- whether a `.agent/shared/` handoff was created or updated for another
+  contributor;
 - validation still pending;
 - the exact recommended next step or command.
 

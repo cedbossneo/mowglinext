@@ -1,14 +1,26 @@
 # Shared agent handoffs
 
-This directory is for short-lived handoff material that must be shared between
-contributors or agent sessions.
+This directory is for short-lived handoff material that must be shared through
+Git between contributors or agents.
 
-Do not use it as permanent project documentation.
+Use it for compact unfinished-work state such as:
 
-Validated reusable knowledge must be promoted to:
+- cross-contributor handoffs;
+- temporary remediation matrices;
+- shared execution plans;
+- resumable investigation state.
+
+Do not use it for local session checkpoints. Those belong under
+`.agent/checkpoints/` and remain ignored.
+
+Do not use it as permanent project documentation. Validated reusable knowledge
+must be promoted to:
 
 - `docs/audits/`
 - `docs/analysis/`
 - `docs/architecture/`
 
-Local task checkpoints belong under `.agent/checkpoints/` and remain ignored.
+Every shared handoff should identify its repository baseline, established
+evidence, unresolved items, scope boundaries, and exact next step.
+
+Remove or promote the handoff once its collaboration purpose is complete.
