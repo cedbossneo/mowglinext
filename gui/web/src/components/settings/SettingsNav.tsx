@@ -4,6 +4,7 @@ import { Badge, Menu, Tabs } from "antd";
 import {
     AimOutlined,
     BgColorsOutlined,
+    BulbOutlined,
     CloudOutlined,
     CodeOutlined,
     CompassOutlined,
@@ -24,6 +25,7 @@ import { SettingsSection, SectionMeta } from "../../hooks/useSettingsManager.ts"
 
 const SECTION_ICONS: Record<string, React.ReactNode> = {
     "bg-colors": <BgColorsOutlined />,
+    bulb: <BulbOutlined />,
     tool: <ToolOutlined />,
     dashboard: <DashboardOutlined />,
     global: <GlobalOutlined />,

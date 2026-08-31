@@ -30,6 +30,7 @@ Brings up all subsystems:
   8. Diagnostics             — mowgli_monitoring
   9. MQTT bridge (optional)  — mowgli_monitoring
   10. foxglove_bridge        — WebSocket bridge for GUI and Foxglove Studio
+  11. LED status ring (opt)  — mowgli_leds
 """
 
 import os
@@ -93,6 +94,11 @@ def generate_launch_description() -> LaunchDescription:
     if not _lidar_explicit:
         warn_lidar_key_absent(_runtime_cfg_path)
 
+    # Same pre-read for the optional WS2812 status ring. Defaults FALSE in the
+    # in-package template (Invariant 15), so an existing robot never starts
+    # writing to a /dev/spidev it may not own until the operator opts in.
+    _early_led_enabled = "true" if bool(_rp.get("led_enabled", False)) else "false"
+
     # ------------------------------------------------------------------
     # Declared arguments
     # ------------------------------------------------------------------
@@ -136,6 +142,12 @@ def generate_launch_description() -> LaunchDescription:
         "use_obstacle_tracker",
         default_value="true",
         description="Enable persistent obstacle tracking from /scan into the mow_progress map. Promotes static clusters to OBSTACLE_PERMANENT after 60 s, triggers replanning around them. Set to false if the tracker is misbehaving on grass-heavy terrain.",
+    )
+
+    led_enabled_arg = DeclareLaunchArgument(
+        "led_enabled",
+        default_value=_early_led_enabled,
+        description="Launch the WS2812 status ring node (mowgli_leds). Default read from mowgli_robot.yaml.led_enabled; CLI/compose override wins. Requires the SPI4-M0 device-tree overlay (see mowgli_leds/README.md) -- the node warns once and stands down when /dev/spidev is absent.",
     )
 
     # use_fusion_graph and use_magnetometer are NOT declared here —
@@ -644,6 +656,57 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------
+    # 11. WS2812 status ring (optional)
+    # ------------------------------------------------------------------
+    # Read-only status display: subscribes to /behavior_tree_node/
+    # high_level_status, /gps/status and /hardware_bridge/power and writes the
+    # rendered frame to /dev/spidev. It commands nothing and is NOT part of the
+    # blade-safety path (the STM32 keeps its own status LED and remains the sole
+    # blade safety authority). Every default lives in the in-package
+    # mowgli_robot.yaml template (Invariant 15), so the GUI can reset any of
+    # them; only genuine overrides land in the sparse installed config.
+    led_ring_node = Node(
+        condition=IfCondition(LaunchConfiguration("led_enabled")),
+        package="mowgli_leds",
+        executable="led_ring_node",
+        name="led_ring_node",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                # The node re-checks led_enabled itself so `ros2 run` outside
+                # this launch file also stands down by default.
+                "led_enabled": ParameterValue(
+                    LaunchConfiguration("led_enabled"), value_type=bool
+                ),
+                "led_count": int(robot_params.get("led_count", 16)),
+                "led_spi_device": str(
+                    robot_params.get("led_spi_device", "/dev/spidev4.1")
+                ),
+                "led_brightness": float(robot_params.get("led_brightness", 0.6)),
+                "led_refresh_hz": float(robot_params.get("led_refresh_hz", 20.0)),
+                "led_keepalive_s": float(robot_params.get("led_keepalive_s", 2.0)),
+                "led_status_timeout_s": float(
+                    robot_params.get("led_status_timeout_s", 5.0)
+                ),
+                "led_device_retry_s": float(
+                    robot_params.get("led_device_retry_s", 30.0)
+                ),
+                "led_low_battery_percent": float(
+                    robot_params.get("led_low_battery_percent", 20.0)
+                ),
+                "led_charge_full_percent": float(
+                    robot_params.get("led_charge_full_percent", 99.0)
+                ),
+                "led_idle_scale": float(robot_params.get("led_idle_scale", 0.10)),
+                "led_spi_speed_hz": int(
+                    robot_params.get("led_spi_speed_hz", 2400000)
+                ),
+            },
+        ],
+    )
+
+    # ------------------------------------------------------------------
     # LaunchDescription
     # ------------------------------------------------------------------
     return LaunchDescription(
@@ -656,6 +719,7 @@ def generate_launch_description() -> LaunchDescription:
             foxglove_port_arg,
             use_lidar_arg,
             use_obstacle_tracker_arg,
+            led_enabled_arg,
             # Subsystem includes
             mowgli_launch,
             navigation_launch,
@@ -669,6 +733,7 @@ def generate_launch_description() -> LaunchDescription:
             diagnostics_node,
             mqtt_bridge_node,
             foxglove_bridge_node,
+            led_ring_node,
             cmd_vel_relay_node,
             # Dock heading is published by hardware_bridge at 1 Hz while
             # charging (~/dock_heading → /gnss/heading via mowgli.launch.py

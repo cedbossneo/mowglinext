@@ -27,6 +27,7 @@ import { SafetySection } from "../components/settings/SafetySection.tsx";
 import { ObstaclesSection } from "../components/settings/ObstaclesSection.tsx";
 import { NavigationSection } from "../components/settings/NavigationSection.tsx";
 import { RainSection } from "../components/settings/RainSection.tsx";
+import { LedsSection } from "../components/settings/LedsSection.tsx";
 import { AdvancedSection } from "../components/settings/AdvancedSection.tsx";
 import { SettingsPreview } from "../components/settings/SettingsPreview.tsx";
 import { DisplayModeSection } from "../components/settings/DisplayModeSection.tsx";
@@ -215,6 +216,16 @@ export const SettingsPage = () => {
                 );
             case "rain":
                 return <RainSection values={values} onChange={handleChange} />;
+            case "leds":
+                return (
+                    <LedsSection
+                        values={values}
+                        onChange={handleChange}
+                        isOverridden={isOverridden}
+                        hasDefault={hasDefault}
+                        onReset={resetToDefault}
+                    />
+                );
             case "advanced":
                 return <AdvancedSection values={values} advancedKeys={advancedKeys} onChange={handleChange} />;
             default:

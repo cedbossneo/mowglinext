@@ -23,6 +23,7 @@ export type SettingsSection =
     | "obstacles"
     | "navigation"
     | "rain"
+    | "leds"
     | "advanced";
 
 export type SectionMeta = {
@@ -204,6 +205,21 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
         icon: "cloud",
         description: "settingsSections.rain.description",
         keys: ["rain_mode", "rain_delay_minutes", "rain_debounce_sec"],
+    },
+    {
+        id: "leds",
+        label: "settingsSections.leds.label",
+        icon: "bulb",
+        description: "settingsSections.leds.description",
+        keys: [
+            // Every led_* key is claimed here so none of them leaks into
+            // AdvancedSection's free-form editor, where a raw SPI device path
+            // or clock would be edited with no context.
+            "led_enabled", "led_count", "led_spi_device", "led_spi_speed_hz",
+            "led_brightness", "led_idle_scale", "led_refresh_hz",
+            "led_low_battery_percent", "led_charge_full_percent",
+            "led_status_timeout_s", "led_keepalive_s", "led_device_retry_s",
+        ],
     },
     {
         id: "advanced",
