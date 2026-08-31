@@ -701,3 +701,39 @@ mowgli:
     # obstacle-deviation + reverse-escape, not this timer, so the longer wait is
     # a coverage-completeness gain, not a safety regression.
     progress_timeout_sec: 30.0     # seconds without progress before a strip is aborted+skipped
+
+    # -----------------------------------------------------------------
+    # WS2812 status ring (mowgli_leds)
+    # -----------------------------------------------------------------
+    # Optional addressable LED ring driven from the SBC over SPI MOSI. Read-only
+    # with respect to the robot; NOT part of the blade-safety path (the STM32
+    # keeps its own status LED and remains the sole blade safety authority).
+    #
+    # OFF by default: an existing robot must not suddenly start writing to a
+    # /dev/spidev it may not own. full_system.launch.py reads led_enabled here
+    # for the led_ring_node launch gate, exactly as it does for lidar_enabled.
+    #
+    # On the Orange Pi 5B the ring's DATA line is on 40-pin header pin 19
+    # (GPIO1_C1 = SPI4_MOSI_M0), and the SPI4-M0 device-tree overlay must be
+    # enabled in U-Boot before /dev/spidev exists at all. See
+    # ros2/src/mowgli_leds/README.md for the u-boot-update steps. Until then
+    # the node warns ONCE and stands down; it never crashes or spams.
+    led_enabled: false             # master switch; false = node is not launched
+    led_count: 16                  # LEDs on the ring — SET THIS to the real count
+    led_spi_device: "/dev/spidev4.1"  # confirm with `ls /dev/spidev*` after the overlay is live
+    led_brightness: 0.6            # 0..1 linear scale on every channel. Whole-ring
+                                   # white at 1.0 is ~60 mA per LED; 0.6 keeps a
+                                   # 16-LED ring under ~0.6 A while staying readable
+                                   # in daylight.
+    led_refresh_hz: 20.0           # render tick. Frames are only WRITTEN when they
+                                   # change (plus led_keepalive_s), so static modes
+                                   # cost ~0.5 writes/s of 234 bytes.
+    led_keepalive_s: 2.0           # re-send an unchanged frame at least this often
+    led_status_timeout_s: 5.0      # no HighLevelStatus for this long -> STALE pattern
+    led_device_retry_s: 30.0       # re-open a missing/failed /dev/spidev this often
+    led_low_battery_percent: 20.0  # below this, and not charging, the ring blinks red
+    led_charge_full_percent: 99.0  # at or above this a charging ring goes steady green
+    led_idle_scale: 0.10           # brightness of the dim idle ring, relative to led_brightness
+    led_spi_speed_hz: 2400000      # 3 SPI bits per WS2812 bit = 1.25 us. Do NOT retune
+                                   # without re-reading ws2812_encoder.hpp — the symbol
+                                   # table is derived from this exact clock.
