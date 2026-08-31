@@ -51,7 +51,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 # file). Deep-merges the SPARSE installed mowgli_robot.yaml over the in-package
 # template defaults, so a missing key falls through to its versioned default.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from robot_config_util import DEFAULT_TOOL_WIDTH_M, load_robot_params  # noqa: E402
+from robot_config_util import (  # noqa: E402
+    DEFAULT_TOOL_WIDTH_M,
+    load_robot_params,
+    resolve_lidar_enabled,
+    warn_lidar_key_absent,
+)
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -75,33 +80,18 @@ def generate_launch_description() -> LaunchDescription:
     # without having to also touch .env / compose. CLI/compose override
     # (use_lidar:=false) still wins because DeclareLaunchArgument applies
     # its default only when no value is passed.
+    #
+    # LiDAR presence comes from the CONFIG ONLY. The LIDAR_ENABLED env var is
+    # deliberately not read here — see robot_config_util's "LiDAR presence"
+    # block for why the old env fallback was removed and why an absent key
+    # resolves to DEFAULT_LIDAR_ENABLED with a loud warning.
     # ------------------------------------------------------------------
     _runtime_cfg_path = "/ros2_ws/config/mowgli_robot.yaml"
-    _early_use_lidar = "true"
-    _yaml_set_lidar = False
-    # Merged params = in-package template defaults with the installed sparse
-    # config layered on top. `lidar_enabled` is an INSTALL-DECIDED key that is
-    # ABSENT from the template, so its PRESENCE in the merged params still
-    # signals an explicit operator choice (env-var fallback preserved below);
-    # if the installed config omits it, the key stays absent and the LIDAR_ENABLED
-    # env var / default governs.
     _rp = load_robot_params(bringup_dir, _runtime_cfg_path)
-    if "lidar_enabled" in _rp:
-        _early_use_lidar = "true" if bool(_rp["lidar_enabled"]) else "false"
-        _yaml_set_lidar = True
-
-    # mowgli_robot.yaml is the source of truth. The LIDAR_ENABLED env var
-    # (installer / compose .env) is a FALLBACK ONLY — it applies when the
-    # runtime yaml does NOT specify lidar_enabled (fresh install before the GUI
-    # has written one). When the yaml DOES set lidar_enabled, it WINS: a
-    # deliberate operator/GUI toggle must not be silently overridden by a stale
-    # .env (the .env said false while the GUI had re-enabled lidar — confusing).
-    if not _yaml_set_lidar:
-        _env_lidar = os.environ.get("LIDAR_ENABLED", "").strip().lower()
-        if _env_lidar in ("false", "0", "no"):
-            _early_use_lidar = "false"
-        elif _env_lidar in ("true", "1", "yes"):
-            _early_use_lidar = "true"
+    _lidar_enabled, _lidar_explicit = resolve_lidar_enabled(_rp)
+    _early_use_lidar = "true" if _lidar_enabled else "false"
+    if not _lidar_explicit:
+        warn_lidar_key_absent(_runtime_cfg_path)
 
     # ------------------------------------------------------------------
     # Declared arguments
@@ -139,7 +129,7 @@ def generate_launch_description() -> LaunchDescription:
     use_lidar_arg = DeclareLaunchArgument(
         "use_lidar",
         default_value=_early_use_lidar,
-        description="Enable LiDAR-dependent nodes (fusion_graph scan-matching, obstacle layer, collision monitor scan). Default read from mowgli_robot.yaml.use_lidar (or .lidar_enabled); CLI/compose override wins. Set to false for GPS-only operation without a LiDAR.",
+        description="Enable LiDAR-dependent nodes (fusion_graph scan-matching, obstacle layer, collision monitor scan). Default read from mowgli_robot.yaml.lidar_enabled ONLY (the LIDAR_ENABLED env var is not consulted); CLI/compose override wins. Set to false for GPS-only operation without a LiDAR.",
     )
 
     use_obstacle_tracker_arg = DeclareLaunchArgument(

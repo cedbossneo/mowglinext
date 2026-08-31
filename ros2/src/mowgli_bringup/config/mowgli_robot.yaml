@@ -241,9 +241,13 @@ mowgli:
     # previous graph-node scan. Adds a BetweenFactor with rmse-scaled
     # covariance — bounded drift between consecutive nodes even when
     # GPS drops to RTK-Float. Required for "robot keeps mowing through
-    # multi-minute GPS dropouts" scenarios. No-op when the LiDAR
-    # driver is off (use_lidar=false): no /scan publisher, no
-    # subscription, no factors.
+    # multi-minute GPS dropouts" scenarios. FORCED OFF when the LiDAR is
+    # off (lidar_enabled/use_lidar false): navigation.launch.py ANDs this
+    # flag with use_lidar before it reaches fusion_graph_node, so there is
+    # no subscription and no factors. That AND is not cosmetic — this
+    # template default is `true` and has no relation to lidar_enabled, so
+    # without it a GPS-only robot ran fusion_graph with
+    # use_scan_matching=True subscribed to a topic nothing published.
     use_scan_matching: true
 
     # use_loop_closure: on every new node, search earlier graph nodes
@@ -254,8 +258,9 @@ mowgli:
     # and at session start when re-entering a previously-mapped area.
     # Cost: one ICP per candidate per tick (~5 ms each, capped to
     # lc_max_candidates=3). No-op when use_scan_matching is also
-    # false or when use_lidar=false (the launch file force-OFFs it
-    # on first boot too — see navigation.launch.py).
+    # false; FORCED OFF when use_lidar=false (ANDed with use_lidar in
+    # navigation.launch.py, same as use_scan_matching above) and on the
+    # first boot, when no persisted graph exists to close against.
     use_loop_closure: true
 
     # -----------------------------------------------------------------
