@@ -295,6 +295,47 @@ describe('deriveGpsStatus', () => {
         expect((merged.capability_flags ?? 0) & GnssStatusConstants.CAP_CORRECTION_STREAM).not.toBe(0);
     });
 
+    it('does not resurrect a typed correction CLEAR from cached diagnostics', () => {
+        const diagnosticSet: GnssStatus = {
+            capability_flags: GnssStatusConstants.CAP_CORRECTION_STREAM,
+            value_flags: GnssStatusConstants.CAP_CORRECTION_STREAM,
+            correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_ACTIVE,
+        };
+        const merged = mergeGnssStatusDiagnosticProjection(
+            {
+                backend: 'universal',
+                capability_flags: GnssStatusConstants.CAP_CORRECTION_STREAM,
+                value_flags: 0,
+                correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_UNKNOWN,
+            },
+            diagnosticSet,
+        );
+
+        expect(merged.correction_stream_status).toBe(GnssStatusConstants.CORRECTION_STREAM_STATUS_UNKNOWN);
+        expect((merged.value_flags ?? 0) & GnssStatusConstants.CAP_CORRECTION_STREAM).toBe(0);
+    });
+
+    it('allows a later typed SET and leaves non-correction merge behavior unchanged', () => {
+        const merged = mergeGnssStatusDiagnosticProjection(
+            {
+                backend: 'universal',
+                capability_flags: GnssStatusConstants.CAP_CORRECTION_SEMANTIC,
+                value_flags: GnssStatusConstants.CAP_CORRECTION_SEMANTIC,
+                correction_semantic_status: GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY,
+            },
+            {
+                capability_flags: GnssStatusConstants.CAP_HORIZONTAL_ACCURACY,
+                value_flags: GnssStatusConstants.CAP_HORIZONTAL_ACCURACY,
+                horizontal_accuracy_m: 0.02,
+            },
+        );
+
+        expect(merged.correction_semantic_status).toBe(GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY);
+        expect((merged.value_flags ?? 0) & GnssStatusConstants.CAP_CORRECTION_SEMANTIC).not.toBe(0);
+        expect(merged.horizontal_accuracy_m).toBe(0.02);
+        expect((merged.value_flags ?? 0) & GnssStatusConstants.CAP_HORIZONTAL_ACCURACY).not.toBe(0);
+    });
+
     it('formats user-facing receiver labels without leaking backend ids', () => {
         expect(gnssReceiverLabel({backend: 'unicore', receiver_vendor: 'Unicore'})).toBe('Unicore');
         expect(gnssReceiverLabel({backend: 'ublox', receiver_vendor: 'u-blox'})).toBe('u-blox');

@@ -37,6 +37,10 @@ const BASELINE_CAPABILITIES =
     GnssStatusConstants.CAP_BASELINE_SOLUTION_STATUS;
 const CORRECTION_STREAM_CAPABILITY = GnssStatusConstants.CAP_CORRECTION_STREAM;
 const MSM_SUMMARY_CAPABILITY = GnssStatusConstants.CAP_MSM_SUMMARY;
+const CORRECTION_TYPED_CAPABILITIES =
+    GnssStatusConstants.CAP_CORRECTION_TRANSPORT |
+    GnssStatusConstants.CAP_CORRECTION_FLOW |
+    GnssStatusConstants.CAP_CORRECTION_SEMANTIC;
 const SATELLITE_CAPABILITIES =
     GnssStatusConstants.CAP_SATELLITES_USED |
     GnssStatusConstants.CAP_SATELLITES_VISIBLE |
@@ -174,6 +178,13 @@ export const gnssStatusSamples: Record<GnssStatusSampleName, GnssStatus> = {
         fix_valid: true,
         rtk_mode: GnssStatusConstants.RTK_MODE_FLOAT,
         correction_stream_status: GnssStatusConstants.CORRECTION_STREAM_STATUS_ACTIVE,
+        correction_transport_status: GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_STREAMING,
+        correction_response_accepted: true,
+        correction_flow_status: GnssStatusConstants.CORRECTION_FLOW_STATUS_ACTIVE,
+        correction_semantic_status: GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY,
+        correction_source: 'caster.example:2101/MOUNT',
+        correction_forwarding_source: 'serial:/dev/ttyACM0',
+        msm_summary_source: 'caster.example:2101/MOUNT',
         msm_summary_seen: true,
         msm_summary_decoded: true,
         msm_summary_valid: true,
@@ -184,8 +195,10 @@ export const gnssStatusSamples: Record<GnssStatusSampleName, GnssStatus> = {
         msm_summary_signal_count: 22,
         msm_summary_cell_count: 31,
         msm_summary_age_s: 0.6,
-        capability_flags: RTK_MODE_CAPABILITY | CORRECTION_STREAM_CAPABILITY | MSM_SUMMARY_CAPABILITY,
-        value_flags: RTK_MODE_CAPABILITY | CORRECTION_STREAM_CAPABILITY | MSM_SUMMARY_CAPABILITY,
+        capability_flags: RTK_MODE_CAPABILITY | CORRECTION_STREAM_CAPABILITY |
+            MSM_SUMMARY_CAPABILITY | CORRECTION_TYPED_CAPABILITIES,
+        value_flags: RTK_MODE_CAPABILITY | CORRECTION_STREAM_CAPABILITY |
+            MSM_SUMMARY_CAPABILITY | CORRECTION_TYPED_CAPABILITIES,
     },
     msm_summary_not_seen: {
         backend: 'universal',

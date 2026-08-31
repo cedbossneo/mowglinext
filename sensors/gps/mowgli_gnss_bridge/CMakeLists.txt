@@ -32,6 +32,7 @@ find_package(universal_gnss_ros2 REQUIRED)
 # ---------------------------------------------------------------------------
 
 add_library(mowgli_gnss_bridge_lib STATIC
+  src/correction_diagnostic_tracker.cpp
   src/universal_gnss_topic_bridge.cpp
 )
 
@@ -101,6 +102,17 @@ if(BUILD_TESTING)
     universal_gnss_ros2
     diagnostic_msgs
     rtcm_msgs
+  )
+
+  ament_add_gtest(test_correction_diagnostic_tracker
+    test/test_correction_diagnostic_tracker.cpp
+  )
+  target_link_libraries(test_correction_diagnostic_tracker
+    mowgli_gnss_bridge_lib
+  )
+  ament_target_dependencies(test_correction_diagnostic_tracker
+    diagnostic_msgs
+    mowgli_interfaces
   )
 
   ament_add_pytest_test(test_python_bridge

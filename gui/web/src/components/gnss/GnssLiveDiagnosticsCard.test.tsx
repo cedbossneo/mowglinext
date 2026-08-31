@@ -87,6 +87,10 @@ describe("GnssLiveDiagnosticsCard", () => {
     it("renders a valid MSM state explicitly", () => {
         renderCard("msm_summary_present");
         expect(screen.getByText(en.settingsGnssLiveStatus.msmStateValid)).toBeInTheDocument();
+        expect(screen.getByText(en.gpsStatus.correctionStreaming)).toBeInTheDocument();
+        expect(screen.getByText(en.gpsStatus.correctionFlowActive)).toBeInTheDocument();
+        expect(screen.getByText(en.gpsStatus.correctionSemanticHealthy)).toBeInTheDocument();
+        expect(screen.getAllByText("caster.example:2101/MOUNT").length).toBeGreaterThan(0);
     });
 
     it("renders a seen-but-undecoded MSM state explicitly", () => {

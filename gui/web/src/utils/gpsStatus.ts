@@ -133,6 +133,65 @@ export function gnssCorrectionStreamStatusLabel(gnssStatus: GnssStatus | undefin
     }
 }
 
+export function gnssCorrectionTransportStatusLabel(gnssStatus: GnssStatus | undefined | null): string | undefined {
+    switch (gnssStatus?.correction_transport_status) {
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_UNKNOWN:
+            return i18n.t("gpsStatus.correctionUnknown");
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_DISCONNECTED:
+            return i18n.t("gpsStatus.correctionDisconnected");
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_CONNECTING:
+            return i18n.t("gpsStatus.correctionConnecting");
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_CONNECTED:
+            return i18n.t("gpsStatus.correctionConnected");
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_STREAMING:
+            return i18n.t("gpsStatus.correctionStreaming");
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_RECONNECTING:
+            return i18n.t("gpsStatus.correctionReconnecting");
+        case GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_FAILED:
+            return i18n.t("gpsStatus.correctionFailed");
+        default:
+            return undefined;
+    }
+}
+
+export function gnssCorrectionFlowStatusLabel(gnssStatus: GnssStatus | undefined | null): string | undefined {
+    switch (gnssStatus?.correction_flow_status) {
+        case GnssStatusConstants.CORRECTION_FLOW_STATUS_UNKNOWN:
+            return i18n.t("gpsStatus.correctionUnknown");
+        case GnssStatusConstants.CORRECTION_FLOW_STATUS_IDLE:
+            return i18n.t("gpsStatus.correctionFlowIdle");
+        case GnssStatusConstants.CORRECTION_FLOW_STATUS_WAITING:
+            return i18n.t("gpsStatus.correctionFlowWaiting");
+        case GnssStatusConstants.CORRECTION_FLOW_STATUS_ACTIVE:
+            return i18n.t("gpsStatus.correctionFlowActive");
+        case GnssStatusConstants.CORRECTION_FLOW_STATUS_STALE:
+            return i18n.t("gpsStatus.correctionStale");
+        case GnssStatusConstants.CORRECTION_FLOW_STATUS_INVALID:
+            return i18n.t("gpsStatus.correctionInvalid");
+        default:
+            return undefined;
+    }
+}
+
+export function gnssCorrectionSemanticStatusLabel(gnssStatus: GnssStatus | undefined | null): string | undefined {
+    switch (gnssStatus?.correction_semantic_status) {
+        case GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_UNKNOWN:
+            return i18n.t("gpsStatus.correctionUnknown");
+        case GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_UNAVAILABLE:
+            return i18n.t("gpsStatus.correctionStreamUnavailable");
+        case GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_WAITING:
+            return i18n.t("gpsStatus.correctionSemanticWaiting");
+        case GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY:
+            return i18n.t("gpsStatus.correctionSemanticHealthy");
+        case GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_STALE:
+            return i18n.t("gpsStatus.correctionStale");
+        case GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_INVALID:
+            return i18n.t("gpsStatus.correctionInvalid");
+        default:
+            return undefined;
+    }
+}
+
 export function hasTypedGnssStatusSample(gnssStatus: GnssStatus | undefined | null): boolean {
     return gnssStatus?.fix_type !== undefined ||
         gnssStatus?.fix_valid !== undefined ||
@@ -329,7 +388,7 @@ export function deriveGnssStatusFromDiagnostics(
 const CAPABILITY_GROUP_FIELDS: Array<{flag: number; fields: (keyof GnssStatus)[]}> = [
     {
         flag: GnssStatusConstants.CAP_CORRECTION_STREAM,
-        fields: ["correction_stream_status"],
+        fields: ["correction_stream_status", "correction_forwarding_source"],
     },
     {
         flag: GnssStatusConstants.CAP_MSM_SUMMARY,
@@ -344,7 +403,24 @@ const CAPABILITY_GROUP_FIELDS: Array<{flag: number; fields: (keyof GnssStatus)[]
             "msm_summary_signal_count",
             "msm_summary_cell_count",
             "msm_summary_age_s",
+            "msm_summary_source",
         ],
+    },
+    {
+        flag: GnssStatusConstants.CAP_CORRECTION_TRANSPORT,
+        fields: [
+            "correction_transport_status",
+            "correction_response_accepted",
+            "correction_source",
+        ],
+    },
+    {
+        flag: GnssStatusConstants.CAP_CORRECTION_FLOW,
+        fields: ["correction_flow_status", "correction_source"],
+    },
+    {
+        flag: GnssStatusConstants.CAP_CORRECTION_SEMANTIC,
+        fields: ["correction_semantic_status", "correction_source"],
     },
 ];
 
@@ -368,10 +444,21 @@ export function mergeGnssStatusDiagnosticProjection(
     };
 
     for (const group of CAPABILITY_GROUP_FIELDS) {
-        if (((base.capability_flags ?? 0) & group.flag) !== 0 ||
-            ((diagnosticProjection.capability_flags ?? 0) & group.flag) === 0) {
+        const baseSupportsGroup = ((base.capability_flags ?? 0) & group.flag) !== 0;
+        if (baseSupportsGroup) {
+            // Typed support makes typed SET/CLEAR authoritative for correction
+            // groups. Do not OR a cached diagnostic SET back over typed CLEAR.
+            if (((base.value_flags ?? 0) & group.flag) !== 0) {
+                merged.value_flags = (merged.value_flags ?? 0) | group.flag;
+            } else {
+                merged.value_flags = (merged.value_flags ?? 0) & ~group.flag;
+            }
+            for (const field of group.fields) {
+                (merged as Record<string, unknown>)[field] = base[field];
+            }
             continue;
         }
+        if (((diagnosticProjection.capability_flags ?? 0) & group.flag) === 0) continue;
         for (const field of group.fields) {
             (merged as Record<string, unknown>)[field] = diagnosticProjection[field];
         }
@@ -386,6 +473,28 @@ export function hasGnssCapability(gnssStatus: GnssStatus | undefined | null, fla
 
 export function hasGnssValue(gnssStatus: GnssStatus | undefined | null, flag: number): boolean {
     return ((gnssStatus?.value_flags ?? 0) & flag) !== 0;
+}
+
+/** Current, source-owned evidence that usable dynamic corrections reach the receiver. */
+export function hasHealthyCorrectionEvidence(gnssStatus: GnssStatus | undefined | null): boolean {
+    const requiredFlags = [
+        GnssStatusConstants.CAP_CORRECTION_STREAM,
+        GnssStatusConstants.CAP_CORRECTION_TRANSPORT,
+        GnssStatusConstants.CAP_CORRECTION_FLOW,
+        GnssStatusConstants.CAP_CORRECTION_SEMANTIC,
+        GnssStatusConstants.CAP_MSM_SUMMARY,
+    ];
+    return requiredFlags.every((flag) => hasGnssCapability(gnssStatus, flag) && hasGnssValue(gnssStatus, flag)) &&
+        (gnssStatus?.correction_source?.trim().length ?? 0) > 0 &&
+        gnssStatus?.correction_transport_status === GnssStatusConstants.CORRECTION_TRANSPORT_STATUS_STREAMING &&
+        gnssStatus?.correction_response_accepted === true &&
+        gnssStatus?.correction_flow_status === GnssStatusConstants.CORRECTION_FLOW_STATUS_ACTIVE &&
+        gnssStatus?.correction_stream_status === GnssStatusConstants.CORRECTION_STREAM_STATUS_ACTIVE &&
+        gnssStatus?.correction_semantic_status === GnssStatusConstants.CORRECTION_SEMANTIC_STATUS_HEALTHY &&
+        gnssStatus?.msm_summary_seen === true &&
+        gnssStatus?.msm_summary_decoded === true &&
+        gnssStatus?.msm_summary_valid === true &&
+        (gnssStatus?.msm_summary_cell_count ?? 0) > 0;
 }
 
 export function readGnssNumber(
