@@ -117,10 +117,27 @@ failure is handled exactly like a missing device: one WARN, then stand down.
 
 ## 3. Enable the node
 
-Everything is in the **in-package template**
-`ros2/src/mowgli_bringup/config/mowgli_robot.yaml` (CLAUDE.md Invariant 15).
-To turn the ring on, set only what differs from the default in the **installed
-sparse** config (`/ros2_ws/config/mowgli_robot.yaml`) — typically just two keys:
+**From the GUI (preferred):** *Settings → Status LEDs*. Flip **Enable Status
+Ring**, set **LED count** to what your ring actually has, and correct the **SPI
+device** if `ls /dev/spidev*` reported something other than the default. Save,
+then restart the ROS2 stack. The section also carries the prerequisites above
+and a legend of every ring pattern.
+
+Every default lives in the **in-package template**
+`ros2/src/mowgli_bringup/config/mowgli_robot.yaml` (CLAUDE.md Invariant 15) and
+is mirrored in `gui/asserts/mower_config.schema.json`, so each field gets the
+GUI's "overridden" dot and its reset-to-default button, and only genuine
+overrides are written to the installed sparse config.
+
+`led_enabled` defaults to **false** in BOTH the template and the schema, and
+must stay that way. The settings backend prunes any saved value equal to its
+schema default; with a default of `true`, "switch the ring ON" would write the
+default value, be pruned as redundant, never reach the installed file, and the
+toggle would be permanently inert. That is the `lidar_enabled` bug fixed in
+#508, and `gui/pkg/api/settings_leds_test.go` pins it here.
+
+**By hand**, if you prefer, set only what differs from the default in
+`/ros2_ws/config/mowgli_robot.yaml`:
 
 ```yaml
 mowgli:
@@ -130,9 +147,10 @@ mowgli:
     # led_spi_device: "/dev/spidev4.0"   # only if it is not the default
 ```
 
-Then restart the stack. `full_system.launch.py` reads `led_enabled` at launch
-and only starts `led_ring_node` when it is true (same pattern as
-`lidar_enabled`); a CLI/compose `led_enabled:=false` still overrides it.
+Either way, restart the stack afterwards. `full_system.launch.py` reads
+`led_enabled` at launch and only starts `led_ring_node` when it is true (same
+pattern as `lidar_enabled`); a CLI/compose `led_enabled:=false` still overrides
+it.
 
 ### Parameters
 
@@ -284,3 +302,17 @@ The pattern header mirrors `HighLevelStatus`'s `HIGH_LEVEL_STATE_*` constants
 so it can stay ROS-free; `led_ring_node.cpp` `static_assert`s the two against
 each other, so a renumbering on the message side breaks the **build**, not the
 ring.
+
+### GUI side
+
+| File | Role |
+|---|---|
+| `gui/asserts/mower_config.schema.json` | `led_settings` group. Every default here MUST equal the template's. |
+| `gui/web/src/components/settings/LedsSection.tsx` | The *Status LEDs* settings section, including the pattern legend. Its swatches mirror this package's palette — keep them in sync. |
+| `gui/pkg/api/settings_leds_test.go` | Pins `led_enabled`'s default to `false` and exercises the sparse-prune coupling, so the ON toggle can never become inert (bug #508). Also pins the SPI clock to the value this encoder is derived from. |
+| `gui/web/src/components/settings/LedsSection.test.tsx` | 16 tests: off-by-default, the ON write, the prerequisite hints, the field set, and the legend. |
+
+```bash
+cd gui && go test ./pkg/api/...
+cd gui/web && yarn test
+```
