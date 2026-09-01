@@ -1,59 +1,103 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="408" viewBox="0 0 900 408" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="610" viewBox="0 0 900 610" role="img" aria-labelledby="title desc">
   <title id="title">MowgliNext backlog status</title>
-  <desc id="desc">Baseline 18, remaining 7, resolved 11; backlog counts by status and scope.</desc>
+  <desc id="desc">45 canonical findings from 79 tracked sources; baseline 45, remaining 34, resolved 11; counts by status and scope.</desc>
   <style>
     .bg{fill:#0f172a}.panel{fill:#172033}.muted{fill:#94a3b8}.text{fill:#e2e8f0}.accent{fill:#38bdf8}.good{fill:#34d399}.warn{fill:#fbbf24}
     text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.title{font-size:24px;font-weight:700}.label{font-size:12px}.value{font-size:24px;font-weight:700}.small{font-size:13px}.scope{font-size:12px;font-weight:600}
   </style>
-  <rect class="bg" width="900" height="408" rx="14"/>
+  <rect class="bg" width="900" height="610" rx="14"/>
   <text class="text title" x="32" y="40">MowgliNext backlog status</text>
   <text class="muted small" x="868" y="38" text-anchor="end">as of 2026-09-01</text>
   <rect class="panel" x="32" y="58" width="172" height="72" rx="10"/>
   <text class="muted label" x="48" y="80">BASELINE</text>
-  <text class="accent value" x="48" y="113">18</text>
+  <text class="accent value" x="48" y="113">45</text>
   <rect class="panel" x="220" y="58" width="172" height="72" rx="10"/>
   <text class="muted label" x="236" y="80">REMAINING</text>
-  <text class="warn value" x="236" y="113">7</text>
+  <text class="warn value" x="236" y="113">34</text>
   <rect class="panel" x="408" y="58" width="172" height="72" rx="10"/>
   <text class="muted label" x="424" y="80">RESOLVED</text>
   <text class="good value" x="424" y="113">11</text>
   <rect class="panel" x="596" y="58" width="272" height="72" rx="10"/>
   <text class="muted label" x="612" y="80">HARDWARE VALIDATION</text>
-  <text class="text small" x="612" y="104">Required <tspan class="warn">0</tspan>  ·  Pending <tspan class="warn">0</tspan></text>
+  <text class="text small" x="612" y="104">Required <tspan class="warn">7</tspan>  ·  Pending <tspan class="warn">4</tspan></text>
   <text class="muted label" x="32" y="158">BY STATUS</text>
-  <text class="text small" x="32" y="181">OPEN 7  ·  IMPLEMENTED 11</text>
-  <line x1="32" y1="202" x2="868" y2="202" stroke="#334155"/>
-  <text class="text small" x="32" y="231" font-weight="700">By scope</text>
-  <text class="text scope" x="32" y="265">DEPLOYMENT</text>
-  <rect fill="#243247" x="164" y="255" width="236" height="12" rx="6"/>
-  <rect class="accent" x="164" y="255" width="236" height="12" rx="6"/>
-  <text class="text scope" x="410" y="265">7</text>
-  <text class="text scope" x="452" y="265">LOCALIZATION</text>
-  <rect fill="#243247" x="584" y="255" width="236" height="12" rx="6"/>
-  <rect class="accent" x="584" y="255" width="101" height="12" rx="6"/>
-  <text class="text scope" x="830" y="265">3</text>
-  <text class="text scope" x="32" y="295">CONFIGURATION</text>
-  <rect fill="#243247" x="164" y="285" width="236" height="12" rx="6"/>
-  <rect class="accent" x="164" y="285" width="67" height="12" rx="6"/>
-  <text class="text scope" x="410" y="295">2</text>
-  <text class="text scope" x="452" y="295">HARDWARE_BRIDGE</text>
-  <rect fill="#243247" x="584" y="285" width="236" height="12" rx="6"/>
-  <rect class="accent" x="584" y="285" width="67" height="12" rx="6"/>
-  <text class="text scope" x="830" y="295">2</text>
-  <text class="text scope" x="32" y="325">BACKEND</text>
-  <rect fill="#243247" x="164" y="315" width="236" height="12" rx="6"/>
-  <rect class="accent" x="164" y="315" width="34" height="12" rx="6"/>
-  <text class="text scope" x="410" y="325">1</text>
-  <text class="text scope" x="452" y="325">GNSS</text>
-  <rect fill="#243247" x="584" y="315" width="236" height="12" rx="6"/>
-  <rect class="accent" x="584" y="315" width="34" height="12" rx="6"/>
-  <text class="text scope" x="830" y="325">1</text>
-  <text class="text scope" x="32" y="355">NAVIGATION</text>
-  <rect fill="#243247" x="164" y="345" width="236" height="12" rx="6"/>
-  <rect class="accent" x="164" y="345" width="34" height="12" rx="6"/>
-  <text class="text scope" x="410" y="355">1</text>
-  <text class="text scope" x="452" y="355">VALIDATION</text>
-  <rect fill="#243247" x="584" y="345" width="236" height="12" rx="6"/>
-  <rect class="accent" x="584" y="345" width="34" height="12" rx="6"/>
-  <text class="text scope" x="830" y="355">1</text>
+  <text class="text small" x="32" y="181">OPEN 32  ·  PARTIAL 1  ·  BLOCKED 1  ·  IMPLEMENTED 11</text>
+  <text class="muted label" x="32" y="213">TRACKED WORK SOURCES</text>
+  <rect class="panel" x="32" y="224" width="152" height="58" rx="8"/>
+  <text class="muted label" x="44" y="243">SOURCES</text>
+  <text class="text small" x="44" y="267" font-weight="700">79</text>
+  <rect class="panel" x="200" y="224" width="152" height="58" rx="8"/>
+  <text class="muted label" x="212" y="243">ISSUES</text>
+  <text class="text small" x="212" y="267" font-weight="700">30 · 26 open</text>
+  <rect class="panel" x="368" y="224" width="152" height="58" rx="8"/>
+  <text class="muted label" x="380" y="243">PRS</text>
+  <text class="text small" x="380" y="267" font-weight="700">31 · 20 open</text>
+  <rect class="panel" x="536" y="224" width="152" height="58" rx="8"/>
+  <text class="muted label" x="548" y="243">CANONICAL</text>
+  <text class="text small" x="548" y="267" font-weight="700">45</text>
+  <rect class="panel" x="704" y="224" width="152" height="58" rx="8"/>
+  <text class="muted label" x="716" y="243">DUPLICATES</text>
+  <text class="text small" x="716" y="267" font-weight="700">2</text>
+  <line x1="32" y1="304" x2="868" y2="304" stroke="#334155"/>
+  <text class="text small" x="32" y="326" font-weight="700">By scope</text>
+  <text class="text scope" x="32" y="347">DEPLOYMENT</text>
+  <rect fill="#243247" x="164" y="337" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="337" width="236" height="12" rx="6"/>
+  <text class="text scope" x="410" y="347">9</text>
+  <text class="text scope" x="452" y="347">CONFIGURATION</text>
+  <rect fill="#243247" x="584" y="337" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="337" width="105" height="12" rx="6"/>
+  <text class="text scope" x="830" y="347">4</text>
+  <text class="text scope" x="32" y="377">COVERAGE</text>
+  <rect fill="#243247" x="164" y="367" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="367" width="105" height="12" rx="6"/>
+  <text class="text scope" x="410" y="377">4</text>
+  <text class="text scope" x="452" y="377">FRONTEND</text>
+  <rect fill="#243247" x="584" y="367" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="367" width="105" height="12" rx="6"/>
+  <text class="text scope" x="830" y="377">4</text>
+  <text class="text scope" x="32" y="407">LOCALIZATION</text>
+  <rect fill="#243247" x="164" y="397" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="397" width="105" height="12" rx="6"/>
+  <text class="text scope" x="410" y="407">4</text>
+  <text class="text scope" x="452" y="407">HARDWARE_BRIDGE</text>
+  <rect fill="#243247" x="584" y="397" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="397" width="79" height="12" rx="6"/>
+  <text class="text scope" x="830" y="407">3</text>
+  <text class="text scope" x="32" y="437">NAVIGATION</text>
+  <rect fill="#243247" x="164" y="427" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="427" width="79" height="12" rx="6"/>
+  <text class="text scope" x="410" y="437">3</text>
+  <text class="text scope" x="452" y="437">VALIDATION</text>
+  <rect fill="#243247" x="584" y="427" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="427" width="79" height="12" rx="6"/>
+  <text class="text scope" x="830" y="437">3</text>
+  <text class="text scope" x="32" y="467">BACKEND</text>
+  <rect fill="#243247" x="164" y="457" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="457" width="52" height="12" rx="6"/>
+  <text class="text scope" x="410" y="467">2</text>
+  <text class="text scope" x="452" y="467">DOCKING</text>
+  <rect fill="#243247" x="584" y="457" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="457" width="52" height="12" rx="6"/>
+  <text class="text scope" x="830" y="467">2</text>
+  <text class="text scope" x="32" y="497">FIRMWARE</text>
+  <rect fill="#243247" x="164" y="487" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="487" width="52" height="12" rx="6"/>
+  <text class="text scope" x="410" y="497">2</text>
+  <text class="text scope" x="452" y="497">GNSS</text>
+  <rect fill="#243247" x="584" y="487" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="487" width="52" height="12" rx="6"/>
+  <text class="text scope" x="830" y="497">2</text>
+  <text class="text scope" x="32" y="527">DEPENDENCIES</text>
+  <rect fill="#243247" x="164" y="517" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="517" width="26" height="12" rx="6"/>
+  <text class="text scope" x="410" y="527">1</text>
+  <text class="text scope" x="452" y="527">ROS2</text>
+  <rect fill="#243247" x="584" y="517" width="236" height="12" rx="6"/>
+  <rect class="accent" x="584" y="517" width="26" height="12" rx="6"/>
+  <text class="text scope" x="830" y="527">1</text>
+  <text class="text scope" x="32" y="557">SENSORS</text>
+  <rect fill="#243247" x="164" y="547" width="236" height="12" rx="6"/>
+  <rect class="accent" x="164" y="547" width="26" height="12" rx="6"/>
+  <text class="text scope" x="410" y="557">1</text>
 </svg>
