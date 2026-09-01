@@ -46,6 +46,15 @@ ALLOWED_VALIDATION = {
     "HARDWARE_REQUIRED",
     "HARDWARE_PENDING",
 }
+ALLOWED_SOURCE_TYPES = {"ISSUE", "PR", "TODO", "AUDIT", "FOLLOWUP"}
+ALLOWED_EVIDENCE_STATES = {"CURRENT", "PARTIALLY_STALE", "SUPERSEDED"}
+ALLOWED_MIGRATION_DISPOSITIONS = {
+    "PORT",
+    "ADAPT",
+    "ALREADY_PRESENT",
+    "SUPERSEDED",
+    "REJECT",
+}
 ID_PATTERN = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$")
 
 
@@ -62,6 +71,13 @@ class Summary:
     scopes: tuple[tuple[str, int], ...]
     hardware_required: int
     hardware_pending: int
+    total_sources: int
+    tracked_issues: int
+    tracked_prs: int
+    open_issues: int
+    open_prs: int
+    canonical_findings: int
+    duplicates: int
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -72,13 +88,16 @@ def load_manifest(path: Path) -> dict[str, Any]:
 
 
 def validate_manifest(data: dict[str, Any]) -> None:
-    if data.get("schema_version") != 1:
-        raise ManifestError("schema_version must be 1")
-    items = data.get("items")
-    if not isinstance(items, list):
-        raise ManifestError("items must be a list")
-    if data.get("baseline_total") != len(items):
-        raise ManifestError("baseline_total must equal the expanded item count")
+    if data.get("schema_version") != 2:
+        raise ManifestError("schema_version must be 2")
+    findings = data.get("findings")
+    sources = data.get("sources")
+    if not isinstance(findings, list):
+        raise ManifestError("findings must be a list")
+    if not isinstance(sources, list):
+        raise ManifestError("sources must be a list")
+    if data.get("baseline_total") != len(findings):
+        raise ManifestError("baseline_total must equal the canonical finding count")
 
     resolved_statuses = data.get("resolved_statuses")
     if not isinstance(resolved_statuses, list) or not resolved_statuses:
@@ -88,37 +107,178 @@ def validate_manifest(data: dict[str, Any]) -> None:
         raise ManifestError(f"unknown resolved statuses: {sorted(unknown_resolved)}")
 
     by_id: dict[str, dict[str, Any]] = {}
-    for index, item in enumerate(items):
+    for index, item in enumerate(findings):
         if not isinstance(item, dict):
-            raise ManifestError(f"item {index} must be an object")
+            raise ManifestError(f"finding {index} must be an object")
         item_id = item.get("id")
         if not isinstance(item_id, str) or not ID_PATTERN.fullmatch(item_id):
-            raise ManifestError(f"item {index} has invalid stable id")
+            raise ManifestError(f"finding {index} has invalid stable id")
         if item_id in by_id:
             raise ManifestError(f"duplicate stable id: {item_id}")
         by_id[item_id] = item
 
-        for field in ("title", "scope", "source"):
+        for field in (
+            "title",
+            "scope",
+            "priority",
+            "analysis_summary",
+            "evidence_state",
+            "analyzed_at",
+            "analyzed_head",
+            "exact_next_step",
+        ):
             if not isinstance(item.get(field), str) or not item[field].strip():
                 raise ManifestError(f"{item_id} requires non-empty {field}")
         if item.get("status") not in ALLOWED_STATUSES:
             raise ManifestError(f"{item_id} has invalid status")
+        if item["status"] == "DUPLICATE":
+            raise ManifestError(f"{item_id} is canonical and may not be DUPLICATE")
         if item.get("validation") not in ALLOWED_VALIDATION:
             raise ManifestError(f"{item_id} has invalid validation")
+        if item.get("evidence_state") not in ALLOWED_EVIDENCE_STATES:
+            raise ManifestError(f"{item_id} has invalid evidence_state")
+        for field in ("blocked_by", "dependencies"):
+            if not isinstance(item.get(field), list) or not all(
+                isinstance(value, str) for value in item[field]
+            ):
+                raise ManifestError(f"{item_id} requires a string list in {field}")
 
     for item_id, item in by_id.items():
-        canonical = item.get("duplicate_of")
-        if item["status"] == "DUPLICATE":
-            if not isinstance(canonical, str) or canonical not in by_id:
-                raise ManifestError(f"{item_id} requires an existing duplicate_of")
-            if canonical == item_id or by_id[canonical]["status"] == "DUPLICATE":
-                raise ManifestError(f"{item_id} duplicate target must be canonical")
+        for field in ("blocked_by", "dependencies"):
+            unknown = set(item[field]) - set(by_id)
+            if unknown or item_id in item[field]:
+                raise ManifestError(f"{item_id} has invalid {field}: {sorted(unknown)}")
+        if item["status"] == "BLOCKED" and not item["blocked_by"]:
+            raise ManifestError(f"{item_id} is BLOCKED without blocked_by")
+        if item["status"] != "BLOCKED" and item["blocked_by"]:
+            raise ManifestError(f"{item_id} sets blocked_by but is not BLOCKED")
+
+    by_source_key: dict[str, dict[str, Any]] = {}
+    source_count_by_finding: Counter[str] = Counter()
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            raise ManifestError(f"source {index} must be an object")
+        source_key = source.get("source_key")
+        if not isinstance(source_key, str) or not ID_PATTERN.fullmatch(source_key):
+            raise ManifestError(f"source {index} has invalid source_key")
+        if source_key in by_source_key:
+            raise ManifestError(f"duplicate source_key: {source_key}")
+        by_source_key[source_key] = source
+        if source.get("source_type") not in ALLOWED_SOURCE_TYPES:
+            raise ManifestError(f"{source_key} has invalid source_type")
+        if not isinstance(source.get("source_id"), (str, int)):
+            raise ManifestError(f"{source_key} requires source_id")
+        for field in (
+            "url",
+            "title",
+            "stable_id",
+            "canonical_id",
+            "scope",
+            "priority",
+            "analysis_summary",
+            "evidence_state",
+            "analyzed_at",
+            "analyzed_head",
+            "exact_next_step",
+            "relation",
+        ):
+            if not isinstance(source.get(field), str) or not source[field].strip():
+                raise ManifestError(f"{source_key} requires non-empty {field}")
+        canonical_id = source["canonical_id"]
+        if canonical_id not in by_id or source["stable_id"] != canonical_id:
+            raise ManifestError(f"{source_key} requires an existing canonical_id")
+        canonical_finding = by_id[canonical_id]
+        for field in ("scope", "validation", "priority"):
+            if source[field] != canonical_finding[field]:
+                raise ManifestError(
+                    f"{source_key} {field} differs from its canonical finding"
+                )
+        if source.get("checkpoint") is not None and not isinstance(
+            source["checkpoint"], str
+        ):
+            raise ManifestError(f"{source_key} has invalid checkpoint")
+        source_count_by_finding[canonical_id] += 1
+        if source.get("status") not in ALLOWED_STATUSES:
+            raise ManifestError(f"{source_key} has invalid status")
+        if source.get("validation") not in ALLOWED_VALIDATION:
+            raise ManifestError(f"{source_key} has invalid validation")
+        if source.get("evidence_state") not in ALLOWED_EVIDENCE_STATES:
+            raise ManifestError(f"{source_key} has invalid evidence_state")
+        for field in ("blocked_by", "dependencies"):
+            if not isinstance(source.get(field), list) or not all(
+                isinstance(value, str) and value in by_id for value in source[field]
+            ):
+                raise ManifestError(f"{source_key} has invalid {field}")
+        if source["source_type"] in {"ISSUE", "PR"}:
+            if source.get("github_state") not in {"OPEN", "CLOSED"}:
+                raise ManifestError(f"{source_key} has invalid github_state")
+            if not isinstance(source["source_id"], int):
+                raise ManifestError(f"{source_key} GitHub source_id must be numeric")
+        if source["source_type"] == "PR":
+            if source.get("migration_disposition") not in ALLOWED_MIGRATION_DISPOSITIONS:
+                raise ManifestError(f"{source_key} has invalid migration_disposition")
+            if source["github_state"] == "OPEN":
+                for field in ("base_ref", "base_sha", "head_ref", "head_sha"):
+                    if not isinstance(source.get(field), str) or not source[field]:
+                        raise ManifestError(f"{source_key} requires non-empty {field}")
+
+    unrepresented = set(by_id) - set(source_count_by_finding)
+    if unrepresented:
+        raise ManifestError(f"canonical findings without sources: {sorted(unrepresented)}")
+
+    for source_key, source in by_source_key.items():
+        canonical = source.get("duplicate_of")
+        if source["status"] == "DUPLICATE":
+            if not isinstance(canonical, str) or canonical not in by_source_key:
+                raise ManifestError(f"{source_key} requires an existing duplicate_of")
+            target = by_source_key[canonical]
+            if (
+                canonical == source_key
+                or target["status"] == "DUPLICATE"
+                or target["canonical_id"] != source["canonical_id"]
+            ):
+                raise ManifestError(f"{source_key} duplicate target must be canonical")
         elif canonical is not None:
-            raise ManifestError(f"{item_id} may not set duplicate_of unless DUPLICATE")
+            raise ManifestError(
+                f"{source_key} may not set duplicate_of unless DUPLICATE"
+            )
+
+    inventory = data.get("github_inventory")
+    if not isinstance(inventory, dict) or not inventory.get("snapshot_complete"):
+        raise ManifestError("github_inventory must describe a complete snapshot")
+    if inventory.get("total_sources") != inventory.get(
+        "total_issues", 0
+    ) + inventory.get("total_prs", 0):
+        raise ManifestError("GitHub total source conservation failed")
+    if inventory.get("closed_sources") != inventory.get(
+        "expanded_related_closed_sources", 0
+    ) + inventory.get("closed_sources_not_expanded", 0):
+        raise ManifestError("GitHub closed source conservation failed")
+    github_sources = [
+        source for source in sources if source["source_type"] in {"ISSUE", "PR"}
+    ]
+    expanded_open = sum(source["github_state"] == "OPEN" for source in github_sources)
+    expanded_closed = sum(source["github_state"] == "CLOSED" for source in github_sources)
+    expected_counts = {
+        "open_issues": sum(
+            source["source_type"] == "ISSUE" and source["github_state"] == "OPEN"
+            for source in github_sources
+        ),
+        "open_prs": sum(
+            source["source_type"] == "PR" and source["github_state"] == "OPEN"
+            for source in github_sources
+        ),
+        "expanded_open_sources": expanded_open,
+        "expanded_related_closed_sources": expanded_closed,
+    }
+    for field, actual in expected_counts.items():
+        if inventory.get(field) != actual:
+            raise ManifestError(f"github_inventory {field} does not match sources")
 
 
 def summarize(data: dict[str, Any]) -> Summary:
-    items = data["items"]
+    items = data["findings"]
+    sources = data["sources"]
     resolved_statuses = set(data["resolved_statuses"])
     statuses = Counter(item["status"] for item in items)
     scopes = Counter(item["scope"] for item in items)
@@ -139,6 +299,19 @@ def summarize(data: dict[str, Any]) -> Summary:
         hardware_pending=sum(
             item["validation"] == "HARDWARE_PENDING" for item in items
         ),
+        total_sources=len(sources),
+        tracked_issues=sum(source["source_type"] == "ISSUE" for source in sources),
+        tracked_prs=sum(source["source_type"] == "PR" for source in sources),
+        open_issues=sum(
+            source["source_type"] == "ISSUE" and source["github_state"] == "OPEN"
+            for source in sources
+        ),
+        open_prs=sum(
+            source["source_type"] == "PR" and source["github_state"] == "OPEN"
+            for source in sources
+        ),
+        canonical_findings=len(items),
+        duplicates=sum(source["status"] == "DUPLICATE" for source in sources),
     )
 
 
@@ -146,7 +319,7 @@ def render_svg(data: dict[str, Any], summary: Summary) -> str:
     width = 900
     scope_columns = 2 if len(summary.scopes) > 4 else 1
     scope_rows = max(1, (len(summary.scopes) + scope_columns - 1) // scope_columns)
-    scope_top = 252
+    scope_top = 334
     row_height = 30
     height = scope_top + scope_rows * row_height + 36
     column_width = 420 if scope_columns == 2 else 820
@@ -156,7 +329,7 @@ def render_svg(data: dict[str, Any], summary: Summary) -> str:
     lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
         '  <title id="title">MowgliNext backlog status</title>',
-        f'  <desc id="desc">Baseline {summary.baseline}, remaining {summary.remaining}, resolved {summary.resolved}; backlog counts by status and scope.</desc>',
+        f'  <desc id="desc">{summary.canonical_findings} canonical findings from {summary.total_sources} tracked sources; baseline {summary.baseline}, remaining {summary.remaining}, resolved {summary.resolved}; counts by status and scope.</desc>',
         "  <style>",
         "    .bg{fill:#0f172a}.panel{fill:#172033}.muted{fill:#94a3b8}.text{fill:#e2e8f0}.accent{fill:#38bdf8}.good{fill:#34d399}.warn{fill:#fbbf24}",
         "    text{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.title{font-size:24px;font-weight:700}.label{font-size:12px}.value{font-size:24px;font-weight:700}.small{font-size:13px}.scope{font-size:12px;font-weight:600}",
@@ -188,8 +361,31 @@ def render_svg(data: dict[str, Any], summary: Summary) -> str:
             f'  <text class="text small" x="612" y="104">Required <tspan class="warn">{summary.hardware_required}</tspan>  ·  Pending <tspan class="warn">{summary.hardware_pending}</tspan></text>',
             '  <text class="muted label" x="32" y="158">BY STATUS</text>',
             f'  <text class="text small" x="32" y="181">{escape(status_text)}</text>',
-            '  <line x1="32" y1="202" x2="868" y2="202" stroke="#334155"/>',
-            '  <text class="text small" x="32" y="231" font-weight="700">By scope</text>',
+            '  <text class="muted label" x="32" y="213">TRACKED WORK SOURCES</text>',
+        ]
+    )
+
+    source_cards = (
+        ("SOURCES", summary.total_sources),
+        ("ISSUES", f"{summary.tracked_issues} · {summary.open_issues} open"),
+        ("PRS", f"{summary.tracked_prs} · {summary.open_prs} open"),
+        ("CANONICAL", summary.canonical_findings),
+        ("DUPLICATES", summary.duplicates),
+    )
+    for index, (label, value) in enumerate(source_cards):
+        x = 32 + index * 168
+        lines.extend(
+            [
+                f'  <rect class="panel" x="{x}" y="224" width="152" height="58" rx="8"/>',
+                f'  <text class="muted label" x="{x + 12}" y="243">{label}</text>',
+                f'  <text class="text small" x="{x + 12}" y="267" font-weight="700">{value}</text>',
+            ]
+        )
+
+    lines.extend(
+        [
+            '  <line x1="32" y1="304" x2="868" y2="304" stroke="#334155"/>',
+            '  <text class="text small" x="32" y="326" font-weight="700">By scope</text>',
         ]
     )
 
