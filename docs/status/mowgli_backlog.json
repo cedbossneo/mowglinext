@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "title": "MowgliNext backlog status",
+  "as_of": "2026-09-01",
+  "baseline_total": 18,
+  "resolved_statuses": [
+    "IMPLEMENTED",
+    "SUPERSEDED",
+    "OBSOLETE",
+    "DUPLICATE"
+  ],
+  "notes": [
+    "MOWGLINEXT_GNSS_AUDIT.md is CURRENT for the eleven MGNSS findings.",
+    "TODO-runtime-backups.md is mapped to stable MN-RUNTIME IDs by this manifest.",
+    "Historical session notes, the 2026-07-23 safety review, and design specs are not counted because they are baseline-specific snapshots rather than current stable-ID ledgers."
+  ],
+  "items": [
+    {
+      "id": "MGNSS-001",
+      "title": "Preserve observation identity before FusionGraph factor and RTK evidence updates",
+      "status": "IMPLEMENTED",
+      "scope": "LOCALIZATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE A"
+    },
+    {
+      "id": "MGNSS-002",
+      "title": "Bound and provenance-match NavSat fix/status association",
+      "status": "IMPLEMENTED",
+      "scope": "LOCALIZATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE B"
+    },
+    {
+      "id": "MGNSS-003",
+      "title": "Base behavior localization health on physical observation freshness",
+      "status": "IMPLEMENTED",
+      "scope": "NAVIGATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE D"
+    },
+    {
+      "id": "MGNSS-004",
+      "title": "Base dig-event trust on physical GNSS observation freshness",
+      "status": "IMPLEMENTED",
+      "scope": "HARDWARE_BRIDGE",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE D"
+    },
+    {
+      "id": "MGNSS-005",
+      "title": "Restore model-aware Unicore rover dynamic-mode policy",
+      "status": "IMPLEMENTED",
+      "scope": "CONFIGURATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE E"
+    },
+    {
+      "id": "MGNSS-006",
+      "title": "Expire firmware-bound GPS lock quality with receiver evidence",
+      "status": "IMPLEMENTED",
+      "scope": "HARDWARE_BRIDGE",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE D"
+    },
+    {
+      "id": "MGNSS-007",
+      "title": "Separate monitoring delivery liveness from observation freshness",
+      "status": "IMPLEMENTED",
+      "scope": "VALIDATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE D"
+    },
+    {
+      "id": "MGNSS-008",
+      "title": "Invalidate typed GNSS authority across backend and browser stream loss",
+      "status": "IMPLEMENTED",
+      "scope": "BACKEND",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE G"
+    },
+    {
+      "id": "MGNSS-009",
+      "title": "Bound correction diagnostics by source, incarnation, and freshness",
+      "status": "IMPLEMENTED",
+      "scope": "GNSS",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE F"
+    },
+    {
+      "id": "MGNSS-010",
+      "title": "Restore and apply field-proven Unicore correction-age policy",
+      "status": "IMPLEMENTED",
+      "scope": "CONFIGURATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE E"
+    },
+    {
+      "id": "MGNSS-011",
+      "title": "Derive COG timing from supported physical receiver cadence",
+      "status": "IMPLEMENTED",
+      "scope": "LOCALIZATION",
+      "validation": "VALIDATED",
+      "source": "MOWGLINEXT_GNSS_AUDIT.md#findings-summary",
+      "source_state": "FIXED IN PHASE C"
+    },
+    {
+      "id": "MN-RUNTIME-001",
+      "title": "Avoid runtime backups when generated files are unchanged",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "avoid creating backups when files are unchanged"
+    },
+    {
+      "id": "MN-RUNTIME-002",
+      "title": "Rotate old runtime backups automatically",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "rotate old backups automatically"
+    },
+    {
+      "id": "MN-RUNTIME-003",
+      "title": "Retain only the latest configured number of runtime backups",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "keep only the latest N backups"
+    },
+    {
+      "id": "MN-RUNTIME-004",
+      "title": "Optionally move runtime backups into a dedicated directory",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "optionally move backups into a dedicated backup directory"
+    },
+    {
+      "id": "MN-RUNTIME-005",
+      "title": "Add an explicit runtime backup policy mode",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "add a `--no-backup` or `--safe-backup` policy mode"
+    },
+    {
+      "id": "MN-RUNTIME-006",
+      "title": "Distinguish generated runtime files from user-edited files",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "detect generated vs user-edited runtime files"
+    },
+    {
+      "id": "MN-RUNTIME-007",
+      "title": "Avoid backup spam during repeated installer runs and tests",
+      "status": "OPEN",
+      "scope": "DEPLOYMENT",
+      "validation": "PENDING",
+      "source": "TODO-runtime-backups.md#future-improvements",
+      "source_text": "avoid backup spam during repeated reruns/tests"
+    }
+  ]
+}

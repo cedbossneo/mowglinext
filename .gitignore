@@ -59,9 +59,11 @@ credentials.json
 .claude/worktrees
 
 # Agent state
-# Local checkpoints/caches remain private, while short-lived shared handoffs
-# may be versioned intentionally.
+# Local checkpoints/caches remain private. Policies and short-lived shared
+# handoffs may be versioned intentionally.
 .agent/*
+!.agent/policies/
+!.agent/policies/**
 !.agent/shared/
 !.agent/shared/**
 
