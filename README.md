@@ -76,6 +76,20 @@ A fully autonomous mowing stack running on real hardware: undock, navigate to zo
 
 See the **[Architecture wiki page](https://github.com/mowglinext/mowglinext/wiki/Architecture)** for full system design and data flow.
 
+<!-- backlog-status:start -->
+## Backlog status
+
+This dashboard is generated from the versioned backlog manifest at
+[`docs/status/mowgli_backlog.json`](docs/status/mowgli_backlog.json).
+
+<p align="center">
+  <img src="docs/status/mowgli_backlog.svg" alt="MowgliNext backlog status" width="900">
+</p>
+
+Regenerate with `python3 scripts/update_backlog_status.py`; verify committed
+artifacts with `python3 scripts/update_backlog_status.py --check`.
+<!-- backlog-status:end -->
+
 ## Dashboard
 
 <p align="center">
