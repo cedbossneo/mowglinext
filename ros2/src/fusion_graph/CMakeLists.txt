@@ -207,6 +207,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_rtk_wrongfix_gate fusion_graph_core)
 
+  ament_add_gtest(test_dock_gps_consistency
+    test/test_dock_gps_consistency.cpp
+  )
+  target_link_libraries(test_dock_gps_consistency fusion_graph_core)
+
   ament_add_gtest(test_loop_closure_gate
     test/test_loop_closure_gate.cpp
   )

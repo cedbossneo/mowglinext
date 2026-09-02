@@ -16,6 +16,7 @@
 #include <tf2/exceptions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#include "fusion_graph/dock_gps_consistency.hpp"
 #include "fusion_graph/dr_slip_veto.hpp"
 #include "fusion_graph/fusion_graph_node.hpp"
 #include "fusion_graph/fusion_graph_node_util.hpp"
@@ -309,6 +310,25 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
     // accumulated dock priors keep iSAM2 well-posed AND pin the docked pose
     // exactly where the operator calibrated it, holding both position and yaw.
     // seed_xy_ is still NOT updated (TrySeedInitialPose bootstraps from dock_pose).
+    //
+    // Issue #512 — the prior is NOT unconditional. This sample has already
+    // passed the wrong-fix / unknown-covariance / max-σ gates above, so it is
+    // the most recent ACCEPTED fix; compare it, antenna-to-antenna, with where
+    // dock_pose says the antenna is. A fresh RTK-Fixed sample with a small σ
+    // that still lands metres away (2026-09-02: 1.88-2.45 m at "Fixed 14-20 mm"
+    // for ~45 min after a receiver power cycle) is a confident contradiction
+    // the 3 cm prior must not silently override: skip the prior for this node
+    // and let the sample through to QueueGnss below instead. No fix / Float /
+    // large σ — the terrace dock — keeps pinning exactly as before; see
+    // dock_gps_consistency.hpp.
+    const auto dock_antenna = DockAntennaMapXY(
+        dock_pose_x_, dock_pose_y_, dock_pose_yaw_, lever_arm_x_m_, lever_arm_y_m_);
+    dock_gps_disagreement_m_ = DockGpsDisagreementM(dock_antenna.x, dock_antenna.y, mx, my);
+    const bool dock_prior_yields = DockPriorShouldYield(rtk_fixed,
+                                                        sigma,
+                                                        dock_gps_disagreement_m_,
+                                                        dock_prior_max_gps_disagreement_m_,
+                                                        dock_prior_max_gps_sigma_m_);
     if (graph_->IsInitialized())
     {
       if (auto snap = graph_->LatestSnapshot())
@@ -316,21 +336,47 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
         // Re-anchor each NEW node exactly once (nodes appear ~1/5 s while
         // stationary), so the prior count tracks the node count and stays
         // bounded by the sliding window rather than piling several priors onto
-        // the same stationary node.
+        // the same stationary node. A yielded node is marked the same way so
+        // it is counted once and never gets the prior later in its lifetime.
         if (snap->node_index != last_dock_reanchor_node_)
         {
-          const gtsam::Pose2 dock(dock_pose_x_, dock_pose_y_, dock_pose_yaw_);
-          graph_->ForceAnchor(snap->node_index,
-                              dock,
-                              dock_reanchor_sigma_xy_m_,
-                              std::max(dock_pose_yaw_sigma_rad_, 0.035));
+          if (dock_prior_yields)
+          {
+            ++dock_prior_yielded_;
+            RCLCPP_ERROR_THROTTLE(get_logger(),
+                                  *get_clock(),
+                                  10000,
+                                  "fusion_graph: dock prior vs RTK-Fixed GPS disagree by %.2f m "
+                                  "(σ=%.3f m, threshold %.2f m) — skipping dock prior, GPS wins; "
+                                  "check dock_pose / receiver",
+                                  dock_gps_disagreement_m_,
+                                  sigma,
+                                  dock_prior_max_gps_disagreement_m_);
+          }
+          else
+          {
+            const gtsam::Pose2 dock(dock_pose_x_, dock_pose_y_, dock_pose_yaw_);
+            graph_->ForceAnchor(snap->node_index,
+                                dock,
+                                dock_reanchor_sigma_xy_m_,
+                                std::max(dock_pose_yaw_sigma_rad_, 0.035));
+          }
           last_dock_reanchor_node_ = snap->node_index;
         }
       }
     }
-    TrySeedInitialPose();
-    return;
+    if (!dock_prior_yields || !graph_->IsInitialized())
+    {
+      TrySeedInitialPose();
+      return;
+    }
+    // Yielding: fall through and fuse this sample like an off-dock fix.
   }
+  else
+  {
+    dock_gps_disagreement_m_ = 0.0;
+  }
+  const bool docked_gps_override = last_is_charging_valid_ && last_is_charging_;
   // GNSS bridges preserve the receiver measurement epoch in header.stamp,
   // which may precede callback delivery by hundreds of milliseconds or more.
   // Resolve that epoch only after the quality/docking gates above so the
@@ -370,13 +416,17 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
                          "fusion_graph: GNSS epoch node left the live graph; sample dropped");
     return;
   }
-  seed_xy_ = gtsam::Vector2(mx, my);
   // Latch whether the most recent seed came from RTK-Fixed so the next
   // graph initialization can use a tight prior matching that quality.
   // Stale once seeded but TrySeedInitialPose only fires once per
   // (re)initialization, so the freshness window is the same as the
-  // seed itself.
-  seed_xy_rtk_fixed_ = rtk_fixed;
+  // seed itself. NOT latched on the docked #512 override path: on the dock
+  // a (re)initialization must still bootstrap from dock_pose, not GPS.
+  if (!docked_gps_override)
+  {
+    seed_xy_ = gtsam::Vector2(mx, my);
+    seed_xy_rtk_fixed_ = rtk_fixed;
+  }
 
   // RTK-Fixed override of an autoloaded init: the persisted graph's last
   // node is almost always the dock (auto-save fires on dock arrival), so
