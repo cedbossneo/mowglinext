@@ -166,7 +166,8 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     if (saved.firmwareSource === undefined) {
                         saved.firmwareSource = saved.expertBuild ? "custom" : "prebuilt"
                     }
-                    // Provenance is persisted with the config after a flash.
+                    // Provenance is persisted with the config when the flash
+                    // request is submitted (including failed flash attempts).
                     // Unknown/legacy configs are deliberately conservative:
                     // preserve both saved fields instead of guessing a board.
                     manualOverridesRef.current = manualOverridesFromProvenance(saved);
@@ -747,7 +748,7 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                             description={t('flashBoard.selectionRequiredDesc')}
                         />
                     )}
-                    {!isExpert && !PREBUILT_BOARDS.has(selectedBoard) && (
+                    {selectedBoard && !isExpert && !PREBUILT_BOARDS.has(selectedBoard) && (
                         <Alert
                             type="warning"
                             showIcon

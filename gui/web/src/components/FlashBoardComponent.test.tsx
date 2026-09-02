@@ -4,6 +4,7 @@ import type {ReactNode} from "react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {ThemeProvider} from "../theme/ThemeContext.tsx";
 import {FlashBoardComponent} from "./FlashBoardComponent.tsx";
+import {fetchEventSource} from "@microsoft/fetch-event-source";
 
 const state = vi.hoisted(() => ({
     savedConfig: "",
@@ -65,6 +66,7 @@ describe("FlashBoardComponent model/default integration", () => {
         state.savedConfig = "";
         state.settingsModel = "YardForce500B";
         state.settingsError = false;
+        vi.mocked(fetchEventSource).mockReset().mockResolvedValue(undefined);
     });
 
     it("fresh YardForce500B selects its canonical board and panel", async () => {
@@ -160,8 +162,42 @@ describe("FlashBoardComponent model/default integration", () => {
         const flashButton = screen.getByRole("button", {name: /flash firmware/i});
         expect(flashButton).toBeDisabled();
         expect(screen.getByText("Select a board and panel before flashing")).toBeInTheDocument();
+        expect(screen.queryByText("No prebuilt firmware for this model yet")).not.toBeInTheDocument();
 
         await chooseOption(0, "Mowgli - YardForce 500 Classic");
         await waitFor(() => expect(flashButton).toBeEnabled());
+    });
+
+    it("submits explicit provenance after a manual field change and confirmation", async () => {
+        renderComponent("YardForce500B");
+        await waitFor(() => {
+            expect(selectedLabel(0)).toBe("Mowgli - YardForce 500 B Variant");
+            expect(selectedLabel(1)).toBe("YardForce 500B Classic");
+        });
+
+        // The board is intentionally changed while the panel keeps following
+        // the YardForce500B automatic default.
+        await chooseOption(0, "Vermut - YardForce 500 Classic");
+        const flashButton = screen.getByRole("button", {name: /flash firmware/i});
+        await waitFor(() => expect(flashButton).toBeEnabled());
+        fireEvent.click(flashButton);
+
+        const confirmButton = await screen.findByRole("button", {name: /^Flash$/});
+        fireEvent.click(confirmButton);
+        await waitFor(() => expect(fetchEventSource).toHaveBeenCalledTimes(1));
+
+        const request = vi.mocked(fetchEventSource).mock.calls[0]?.[1] as {body?: string};
+        const payload = JSON.parse(request.body ?? "{}") as {
+            boardType?: string;
+            panelType?: string;
+            boardTypeOrigin?: string;
+            panelTypeOrigin?: string;
+            firmwareSelectionModel?: string;
+        };
+        expect(payload.boardType).toBe("BOARD_VERMUT_YARDFORCE500");
+        expect(payload.panelType).toBe("PANEL_TYPE_YARDFORCE_500B_CLASSIC");
+        expect(payload.boardTypeOrigin).toBe("manual");
+        expect(payload.panelTypeOrigin).toBe("auto");
+        expect(payload.firmwareSelectionModel).toBe("YardForce500B");
     });
 });

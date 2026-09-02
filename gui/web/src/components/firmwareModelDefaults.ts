@@ -1,9 +1,10 @@
 /**
  * Firmware targets that are safe to infer from the selected mower model.
  *
- * Keep this list aligned with firmware/scripts/package_release.py's
- * PERMUTATIONS. Models without an unambiguous published permutation are
- * intentionally absent: the firmware flashing UI must not guess for them.
+ * These are only the fields that can be safely inferred from the published
+ * firmware permutations in firmware/scripts/package_release.py. Models
+ * without an unambiguous published mapping are intentionally absent: the
+ * firmware flashing UI must not guess for them.
  */
 export type FirmwareSelection = {
     boardType?: string;
