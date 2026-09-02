@@ -245,6 +245,7 @@ void FTCController::declareParameters(const rclcpp_lifecycle::LifecycleNode::Sha
   config_.obstacle_wait_timeout_s = declare_double("obstacle_wait_timeout_s", 2.5);
   config_.obstacle_clear_hold_s = declare_double("obstacle_clear_hold_s", 1.5);
   config_.confine_deviation_to_zone = declare_bool("confine_deviation_to_zone", true);
+  config_.ignore_obstacles_outside_zone = declare_bool("ignore_obstacles_outside_zone", true);
 
   // Footprint-polygon clearance + bounded reverse-escape.
   config_.use_footprint_clearance = declare_bool("use_footprint_clearance", false);
@@ -573,6 +574,10 @@ rcl_interfaces::msg::SetParametersResult FTCController::onParameterChange(
     else if (key == "confine_deviation_to_zone")
     {
       config_.confine_deviation_to_zone = p.as_bool();
+    }
+    else if (key == "ignore_obstacles_outside_zone")
+    {
+      config_.ignore_obstacles_outside_zone = p.as_bool();
     }
     else if (key == "use_footprint_clearance")
     {
@@ -1936,6 +1941,18 @@ void FTCController::updateLateralDeviation(double dt)
     }
   }
 
+  // Zone MASK for the obstacle-DETECTION checks (issue #517) — the same guard,
+  // used in the opposite direction: a lethal LOCAL cell that is ALSO lethal in
+  // the boundary costmap (out-of-zone / keepout hole) is NOT an obstacle. The
+  // path ends chassis_safety_inset inside the boundary and U-turns there, so at
+  // every row end the lookahead footprints reach the hedge the boundary was
+  // recorded along — a real LiDAR return the robot was never going to drive
+  // into. guard.costmap is non-null only when confine_deviation_to_zone is on
+  // AND the global costmap has arrived, so the mask is inert otherwise (old
+  // behaviour). In-zone obstacles are unaffected.
+  const ObstacleDeviation::BoundaryGuard zone_mask =
+      config_.ignore_obstacles_outside_zone ? guard : ObstacleDeviation::BoundaryGuard{};
+
   // Robot chassis FOOTPRINT (base frame), fetched once per tick when
   // use_footprint_clearance is on. Passed to the ObstacleDeviation helpers so
   // they sample the true rectangular body (at true-lethal 254) instead of the
@@ -1974,7 +1991,8 @@ void FTCController::updateLateralDeviation(double dt)
   // centerline — otherwise an obstacle in the lateral band the chassis hits but
   // the inscribed-inflation radius misses never flips clear_at_zero false, so
   // avoidance never engages. No zone guard here: this asks "does the body hit an
-  // obstacle on the nominal line", independent of the mowing-zone boundary.
+  // obstacle on the nominal line", independent of the mowing-zone boundary —
+  // but the zone MASK applies, so an out-of-zone lethal is not "an obstacle".
   const bool clear_at_zero =
       ObstacleDeviation::isPathClearWithDeviation(*costmap_map_,
                                                   window,
@@ -1983,7 +2001,8 @@ void FTCController::updateLateralDeviation(double dt)
                                                   0.0,
                                                   ObstacleDeviation::BoundaryGuard{},
                                                   config_.obstacle_body_half_width,
-                                                  detect_footprint);
+                                                  detect_footprint,
+                                                  zone_mask);
 
   if (clear_at_zero)
   {
@@ -2069,7 +2088,8 @@ void FTCController::updateLateralDeviation(double dt)
                                                     0,
                                                     config_.obstacle_lookahead,
                                                     config_.obstacle_body_half_width,
-                                                    detect_footprint);
+                                                    detect_footprint,
+                                                    zone_mask);
       if (obs_idx < 0)
       {
         // Footprint collision but no path-pose hit (e.g. inflated cell next
@@ -2088,7 +2108,8 @@ void FTCController::updateLateralDeviation(double dt)
                                            0,
                                            config_.obstacle_lookahead,
                                            config_.obstacle_body_half_width,
-                                           detect_footprint))
+                                           detect_footprint,
+                                           zone_mask))
       {
         if (reverseEscapeOrWait("no clear exit past obstacle — refusing to skirt into a pocket",
                                 detect_footprint,
