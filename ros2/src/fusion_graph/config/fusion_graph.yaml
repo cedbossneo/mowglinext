@@ -191,6 +191,28 @@ fusion_graph_node:
     # stale, so no-fix windows still get global consistency. Default true.
     lc_skip_when_rtk_fixed: true
 
+    # Loop-closure rate/travel gate + GPS σ floor (issue #513). Because
+    # lc_skip_when_rtk_fixed disables LC under Fixed, the search runs exactly
+    # when GPS is Float or absent — and there the scan_yield σ inflation never
+    # applies. Unbounded it fires up to 1/node_period_s × lc_max_candidates =
+    # 25 Hz × 3 = 75 /s; measured live 2026-09-02 (mow #1, 100 % Float): 13.7
+    # accepted LC/s (5194 over 1900 samples at 5 Hz), 3816 in the 286 s MOWING
+    # phase, 0 under Fixed — each a 5 cm/0.02 rad factor to the ADJACENT swath
+    # (ICP on featureless grass converges to something with 10-20 cm RMSE
+    # almost every time), i.e. a lateral snap of one swath spacing ~13× per
+    # second. Fix: at most ONE accepted LC per node, and none until BOTH
+    # lc_min_interval_s has elapsed AND lc_min_travel_m of wheel travel has
+    # accrued since the last ACCEPTED LC (accumulators reset on accept only —
+    # see loop_closure_gate.hpp). <= 0 disables either half.
+    lc_min_travel_m: 1.0
+    lc_min_interval_s: 2.0
+    # lc_sigma_xy = max(lc_sigma_xy, lc_gps_sigma_ratio × σ of the last accepted
+    # GPS sample): an LC can never be tighter than the most recent GNSS fix.
+    # Under Float (σ ≈ 0.3 m) LC becomes advisory; under Fixed (σ ≈ 3 mm) the
+    # floor is below lc_sigma_xy and nothing changes; with no GPS ever seen the
+    # floor is skipped. <= 0 disables.
+    lc_gps_sigma_ratio: 1.0
+
     # ── Online gyro bias estimation (item #3, pragmatic) ─────────────
     # During wheel-only stationary windows, EMA-update an estimate of
     # gyro_z bias and subtract it from raw samples before integration.

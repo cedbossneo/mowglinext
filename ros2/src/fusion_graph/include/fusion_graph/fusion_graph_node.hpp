@@ -466,6 +466,24 @@ private:
   // re-enables, so it still carries global consistency through no-fix (tree)
   // windows. Default true.
   bool lc_skip_when_rtk_fixed_ = true;
+  // Loop-closure rate/travel gate + GPS σ floor (issue #513, see
+  // loop_closure_gate.hpp). Without it LC ran at 13.7 accepts/s under RTK-Float
+  // (3816 in 286 s of mowing), each a 5 cm factor to the adjacent swath.
+  // At most ONE accepted LC per node, and none until BOTH lc_min_interval_s_
+  // has elapsed AND lc_min_travel_m_ of wheel travel has accrued since the
+  // last ACCEPTED LC. lc_sigma_xy is floored to lc_gps_sigma_ratio_ ×
+  // last_gps_sigma_ so an LC is never tighter than the last GNSS fix.
+  double lc_min_travel_m_ = 1.0;
+  double lc_min_interval_s_ = 2.0;
+  double lc_gps_sigma_ratio_ = 1.0;
+  // Accumulators for the gate — reset on ACCEPT ONLY (a gate rejection must
+  // leave them alone or the gate never opens; loop_closure_gate.hpp explains
+  // why that is the correct polarity here and the wrong one for the RTK
+  // wrong-fix gate). wheel_dist_since_last_lc_m_ is incremented alongside
+  // wheel_dist_since_last_gps_m_ in OnWheel.
+  double wheel_dist_since_last_lc_m_ = 0.0;
+  std::optional<rclcpp::Time> last_lc_accept_stamp_;
+  uint64_t lc_rate_gated_ = 0;  // diagnostic: nodes where the gate blocked the search
 
   // Publishers.
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;

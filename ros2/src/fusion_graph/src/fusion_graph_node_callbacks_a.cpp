@@ -47,6 +47,9 @@ void FusionGraphNode::OnWheelOdom(nav_msgs::msg::Odometry::ConstSharedPtr msg)
       // test, only how far the chassis travelled.
       const double speed = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
       wheel_dist_since_last_gps_m_ += speed * dt;
+      // Same scalar for the loop-closure travel gate (issue #513); reset only
+      // when a loop closure is ACCEPTED in OnTimer.
+      wheel_dist_since_last_lc_m_ += speed * dt;
     }
   }
   last_wheel_stamp_ = stamp;
