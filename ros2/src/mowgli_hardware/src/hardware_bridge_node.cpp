@@ -60,6 +60,7 @@
 
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "mowgli_hardware/battery_state_semantics.hpp"
 #include "mowgli_hardware/blade_gate.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/cmd_vel_validation.hpp"
@@ -71,6 +72,7 @@
 #include "mowgli_hardware/odometry_publisher.hpp"
 #include "mowgli_hardware/packet_handler.hpp"
 #include "mowgli_hardware/serial_port.hpp"
+#include "mowgli_hardware/timer_period.hpp"
 
 // High-level mode constants — must match HighLevelStatus.msg and the
 // HL_MODE_* defines in firmware/mowgli_protocol.h. Declared locally to
@@ -310,6 +312,7 @@ public:
       : Node("hardware_bridge", options), odometry_publisher_(*this)
   {
     declare_parameters();
+    validate_timer_parameters();
     create_publishers();
     create_subscribers();
     create_services();
@@ -336,8 +339,31 @@ private:
   {
     serial_port_path_ = declare_parameter<std::string>("serial_port", "/dev/mowgli");
     baud_rate_ = declare_parameter<int>("baud_rate", 115200);
-    heartbeat_rate_ = declare_parameter<double>("heartbeat_rate", 4.0);
-    publish_rate_ = declare_parameter<double>("publish_rate", 100.0);
+    // Cadence is read once at startup.  The descriptor rejects invalid startup
+    // overrides; validate_timer_parameters() also rejects non-finite values.
+    auto timer_rate = [this](const std::string& name, double default_val) -> double
+    {
+      rcl_interfaces::msg::ParameterDescriptor desc;
+      desc.description = "Finite positive timer cadence in Hz (read at startup).";
+      desc.read_only = true;
+      desc.floating_point_range.resize(1);
+      desc.floating_point_range[0].from_value = minimum_timer_rate_hz();
+      desc.floating_point_range[0].to_value = std::numeric_limits<double>::max();
+      return declare_parameter<double>(name, default_val, desc);
+    };
+    auto bounded_startup_double =
+        [this](const std::string& name, double default_val, double min, double max) -> double
+    {
+      rcl_interfaces::msg::ParameterDescriptor desc;
+      desc.description = "Finite bounded value read at startup.";
+      desc.read_only = true;
+      desc.floating_point_range.resize(1);
+      desc.floating_point_range[0].from_value = min;
+      desc.floating_point_range[0].to_value = max;
+      return declare_parameter<double>(name, default_val, desc);
+    };
+    heartbeat_rate_ = timer_rate("heartbeat_rate", 4.0);
+    publish_rate_ = timer_rate("publish_rate", 100.0);
     // Serial-link watchdog: if no bytes arrive for this long while the port is
     // open, treat the link as dead and reopen it. The STM32 streams status
     // (~4 Hz) + odom (~20 Hz) + IMU (~50-100 Hz) continuously whenever it is
@@ -346,8 +372,9 @@ private:
     // OS leaves the stale fd "open" (reads just return nothing), so without
     // this the bridge would sit forever writing into a dead fd. Reopening
     // re-resolves /dev/mowgli to the new ttyACM.
-    serial_rx_timeout_s_ = declare_parameter<double>("serial_rx_timeout_s", 2.0);
-    high_level_rate_ = declare_parameter<double>("high_level_rate", 2.0);
+    serial_rx_timeout_s_ =
+        bounded_startup_double("serial_rx_timeout_s", 2.0, 0.0, std::numeric_limits<double>::max());
+    high_level_rate_ = timer_rate("high_level_rate", 2.0);
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
@@ -359,7 +386,10 @@ private:
     // centre drive-wheel distance; ticks_per_meter is the runtime encoder
     // scale used by this bridge for host-side odometry and re-sent to the
     // STM32 so the firmware wheel PI / odom share the same tuned value.
-    wheel_track_ = declare_parameter<double>("wheel_track", 0.325);
+    wheel_track_ = bounded_startup_double("wheel_track",
+                                          0.325,
+                                          std::numeric_limits<double>::min(),
+                                          static_cast<double>(std::numeric_limits<float>::max()));
     // Helper for declaring doubles with a floating_point_range descriptor so
     // ros2 param set rejects out-of-bounds values at the framework level before
     // the set-parameters callback fires. Ranges mirror the firmware validation.
@@ -682,16 +712,20 @@ private:
     // RTK-Float the map pose cannot distinguish slip from GNSS noise, and a
     // false dig would hard-stop a perfectly healthy robot mid-mow.
     dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.10);
-    dig_gnss_timeout_s_ = declare_parameter<double>("dig_gnss_timeout_s", 2.0);
+    dig_gnss_timeout_s_ = bounded_startup_double(
+        "dig_gnss_timeout_s", 2.0, 0.0, std::numeric_limits<double>::max());
     dig_cfg_.max_yaw_rate = declare_parameter<double>("dig_max_yaw_rate", 0.20);
-    dig_gyro_timeout_s_ = declare_parameter<double>("dig_gyro_timeout_s", 0.5);
+    dig_gyro_timeout_s_ = bounded_startup_double(
+        "dig_gyro_timeout_s", 0.5, 0.0, std::numeric_limits<double>::max());
     dig_escape_cfg_.reverse_speed = declare_parameter<double>("dig_reverse_speed", 0.12);
     dig_escape_cfg_.reverse_dist = declare_parameter<double>("dig_reverse_dist", 0.30);
-    dig_escape_cfg_.timeout_s = declare_parameter<double>("dig_reverse_timeout_s", 4.0);
-    dig_monitor_rate_ = declare_parameter<double>("dig_monitor_rate", 10.0);
+    dig_escape_cfg_.timeout_s = bounded_startup_double(
+        "dig_reverse_timeout_s", 4.0, 0.0, std::numeric_limits<double>::max());
+    dig_monitor_rate_ = timer_rate("dig_monitor_rate", 10.0);
     // Fused pose older than this is treated as absent (detector stands down)
     // rather than compared against stale coordinates.
-    dig_pose_timeout_s_ = declare_parameter<double>("dig_pose_timeout_s", 1.0);
+    dig_pose_timeout_s_ = bounded_startup_double(
+        "dig_pose_timeout_s", 1.0, 0.0, std::numeric_limits<double>::max());
     dig_cfg_.enabled = dig_detect_enabled_;
 
     // ── Repeat-dig escalation (see mowgli_hardware/dig_escalation.hpp) ─────
@@ -717,6 +751,23 @@ private:
                 heartbeat_rate_,
                 publish_rate_,
                 high_level_rate_);
+  }
+
+  void validate_timer_parameters() const
+  {
+    // Descriptors provide ROS-facing bounds.  Converting each value here adds
+    // the finite check which range descriptors alone cannot express and fails
+    // before serial I/O or timer creation if an override is nonsensical.
+    (void)timer_period_from_rate_hz(heartbeat_rate_);
+    (void)timer_period_from_rate_hz(publish_rate_);
+    (void)timer_period_from_rate_hz(high_level_rate_);
+    (void)timer_period_from_rate_hz(dig_monitor_rate_);
+    require_finite_nonnegative_timeout(serial_rx_timeout_s_, "serial_rx_timeout_s");
+    require_finite_positive(wheel_track_, "wheel_track");
+    require_finite_nonnegative_timeout(dig_gnss_timeout_s_, "dig_gnss_timeout_s");
+    require_finite_nonnegative_timeout(dig_gyro_timeout_s_, "dig_gyro_timeout_s");
+    require_finite_nonnegative_timeout(dig_escape_cfg_.timeout_s, "dig_reverse_timeout_s");
+    require_finite_nonnegative_timeout(dig_pose_timeout_s_, "dig_pose_timeout_s");
   }
 
   void create_publishers()
@@ -937,17 +988,17 @@ private:
   void create_timers()
   {
     // Serial read / packet dispatch.
-    const auto read_period_ms = std::chrono::milliseconds(static_cast<int>(1000.0 / publish_rate_));
-    timer_read_ = create_wall_timer(read_period_ms,
+    const auto read_period = timer_period_from_rate_hz(publish_rate_);
+    timer_read_ = create_wall_timer(read_period,
                                     [this]()
                                     {
                                       read_serial_tick();
                                     });
 
     // Heartbeat.
-    const auto hb_period_ms = std::chrono::milliseconds(static_cast<int>(1000.0 / heartbeat_rate_));
+    const auto hb_period = timer_period_from_rate_hz(heartbeat_rate_);
     timer_heartbeat_ =
-        create_wall_timer(hb_period_ms,
+        create_wall_timer(hb_period,
                           [this]()
                           {
                             // On startup, send emergency release for the first few
@@ -993,9 +1044,8 @@ private:
                           });
 
     // High-level state.
-    const auto hl_period_ms =
-        std::chrono::milliseconds(static_cast<int>(1000.0 / high_level_rate_));
-    timer_high_level_ = create_wall_timer(hl_period_ms,
+    const auto hl_period = timer_period_from_rate_hz(high_level_rate_);
+    timer_high_level_ = create_wall_timer(hl_period,
                                           [this]()
                                           {
                                             send_high_level_state();
@@ -1008,9 +1058,8 @@ private:
     // still sitting in the hole it dug).
     if (dig_detect_enabled_)
     {
-      const auto dig_period_ms =
-          std::chrono::milliseconds(static_cast<int>(1000.0 / std::max(1.0, dig_monitor_rate_)));
-      timer_dig_monitor_ = create_wall_timer(dig_period_ms,
+      const auto dig_period = timer_period_from_rate_hz(dig_monitor_rate_);
+      timer_dig_monitor_ = create_wall_timer(dig_period,
                                              [this]()
                                              {
                                                dig_monitor_tick();
@@ -1474,7 +1523,7 @@ private:
       // 0.0 when not charging so hasStoppedCharging() detects the
       // transition after undocking.
       msg.current = is_charging_ ? std::abs(pkt.charging_current) : 0.0f;
-      msg.percentage = static_cast<float>(pkt.batt_percentage) / 100.0f;
+      msg.percentage = battery_percentage_from_firmware(pkt.batt_percentage);
       msg.power_supply_status =
           is_charging_ ? sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
                        : sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_DISCHARGING;

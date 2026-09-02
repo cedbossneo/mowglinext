@@ -215,6 +215,24 @@ if(BUILD_TESTING)
     PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
+
+  # ---- test_battery_state_semantics ----
+  ament_add_gtest(test_battery_state_semantics
+    test/test_battery_state_semantics.cpp
+  )
+  target_include_directories(test_battery_state_semantics
+    PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+
+  # ---- test_timer_period ----
+  ament_add_gtest(test_timer_period
+    test/test_timer_period.cpp
+  )
+  target_include_directories(test_timer_period
+    PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
 endif()
 
 # ---------------------------------------------------------------------------

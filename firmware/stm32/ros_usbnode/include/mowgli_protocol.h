@@ -312,7 +312,7 @@ typedef struct {
   float v_charge;                       /**< Charge input voltage [V] */
   float v_system;                       /**< Battery / system voltage [V] */
   float charging_current;               /**< Charging current [A] */
-  uint8_t batt_percentage;              /**< Battery state of charge [0-100] */
+  uint8_t batt_percentage;              /**< Reserved until a verified SoC provider exists; currently 0. */
   uint16_t crc; /**< CRC-16 CCITT over preceding bytes */
 } pkt_status_t;
 
