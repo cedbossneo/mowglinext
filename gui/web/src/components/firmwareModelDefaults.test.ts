@@ -2,12 +2,12 @@ import {describe, expect, it} from "vitest";
 import {
     applyFirmwareModelDefaults,
     firmwareDefaultsForModel,
+    manualOverridesFromProvenance,
 } from "./firmwareModelDefaults.ts";
 
 describe("firmware model defaults", () => {
     it("maps the canonical YardForce 500 permutation", () => {
         expect(firmwareDefaultsForModel("YardForce500")).toEqual({
-            boardType: "BOARD_YARDFORCE500",
             panelType: "PANEL_TYPE_YARDFORCE_500_CLASSIC",
         });
     });
@@ -63,5 +63,22 @@ describe("firmware model defaults", () => {
             boardType: "BOARD_YARDFORCE500B",
             panelType: "PANEL_TYPE_YARDFORCE_500B_CLASSIC",
         });
+    });
+
+    it("treats missing provenance as a legacy manual selection", () => {
+        expect(manualOverridesFromProvenance({
+            boardType: "BOARD_YARDFORCE500",
+            panelType: "PANEL_TYPE_YARDFORCE_500_CLASSIC",
+        })).toEqual({boardType: true, panelType: true});
+    });
+
+    it("keeps only explicitly automatic fields following model changes", () => {
+        expect(manualOverridesFromProvenance({
+            boardType: "BOARD_YARDFORCE500",
+            panelType: "PANEL_TYPE_YARDFORCE_500_CLASSIC",
+            boardTypeOrigin: "manual",
+            panelTypeOrigin: "auto",
+            firmwareSelectionModel: "YardForce500",
+        })).toEqual({boardType: true, panelType: false});
     });
 });

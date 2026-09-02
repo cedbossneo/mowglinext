@@ -8,13 +8,22 @@
 export type FirmwareSelection = {
     boardType?: string;
     panelType?: string;
+    /** Persisted provenance for the two independently editable fields. */
+    boardTypeOrigin?: FirmwareFieldOrigin;
+    panelTypeOrigin?: FirmwareFieldOrigin;
+    /** Mower model whose automatic defaults were last applied. */
+    firmwareSelectionModel?: string;
 };
 
-export type FirmwareModelDefaults = Readonly<Required<FirmwareSelection>>;
+export type FirmwareFieldOrigin = "auto" | "manual" | "legacy";
+
+export type FirmwareModelDefaults = Readonly<Pick<FirmwareSelection, "boardType" | "panelType">>;
 
 export const FIRMWARE_MODEL_DEFAULTS: Readonly<Record<string, FirmwareModelDefaults>> = {
     YardForce500: {
-        boardType: "BOARD_YARDFORCE500",
+        // YardForce500 is shared by the Vermut and Mowgli controller variants;
+        // the mechanical mower model does not identify the board. The panel
+        // is common to both classic variants and is safe to infer.
         panelType: "PANEL_TYPE_YARDFORCE_500_CLASSIC",
     },
     YardForce500B: {
@@ -49,3 +58,15 @@ export const applyFirmwareModelDefaults = <T extends FirmwareSelection>(
         ...(manualOverrides.panelType ? {} : {panelType: defaults?.panelType ?? ""}),
     } as T;
 };
+
+/**
+ * Convert persisted field provenance to the conservative override policy used
+ * by the form. Missing/unknown provenance is treated as legacy, so a saved
+ * value is never silently replaced with a guessed firmware target.
+ */
+export const manualOverridesFromProvenance = (
+    selection: FirmwareSelection,
+): Partial<Record<"boardType" | "panelType", boolean>> => ({
+    boardType: selection.boardTypeOrigin !== "auto",
+    panelType: selection.panelTypeOrigin !== "auto",
+});

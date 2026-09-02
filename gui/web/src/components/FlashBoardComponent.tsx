@@ -21,7 +21,8 @@ import {useIsMobile} from "../hooks/useIsMobile";
 import {useThemeMode} from "../theme/ThemeContext.tsx";
 import {
     applyFirmwareModelDefaults,
-    firmwareDefaultsForModel,
+    manualOverridesFromProvenance,
+    type FirmwareFieldOrigin,
     type FirmwareSelection,
 } from "./firmwareModelDefaults.ts";
 
@@ -63,6 +64,9 @@ type Config = {
     tickPerM: number,
     wheelBase: number
     perimeterWire: boolean
+    boardTypeOrigin?: FirmwareFieldOrigin
+    panelTypeOrigin?: FirmwareFieldOrigin
+    firmwareSelectionModel?: string
 }
 
 // Boards that flash WITHOUT compiling: Vermut has its own release-zip path, and
@@ -82,12 +86,13 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
     const {t} = useTranslation();
     const applyingModelDefaultsRef = useRef(false);
     const manualOverridesRef = useRef<Partial<Record<keyof FirmwareSelection, boolean>>>({});
-    const autoDefaultsRef = useRef<FirmwareSelection>({});
     const initializedModelRef = useRef(false);
+    const mowerModelRef = useRef(props.mowerModel);
     const [configuredMowerModel, setConfiguredMowerModel] = useState<string | undefined>(props.mowerModel);
     // Mirror the two fields that gate the default-vs-expert flash affordance into
     // React state so the button + guidance can react without a Formily observer.
-    const [selectedBoard, setSelectedBoard] = useState("BOARD_VERMUT_YARDFORCE500");
+    const [selectedBoard, setSelectedBoard] = useState("");
+    const [selectedPanel, setSelectedPanel] = useState("");
     const [isExpert, setIsExpert] = useState(false);
     const form = useMemo(() => createForm({
         validateFirst: true,
@@ -95,8 +100,8 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
             onFieldValueChange('boardType', (field) => {
                 setSelectedBoard(String(field.value));
                 if (initializedModelRef.current && !applyingModelDefaultsRef.current) {
-                    manualOverridesRef.current.boardType =
-                        field.value !== autoDefaultsRef.current.boardType;
+                    manualOverridesRef.current.boardType = true;
+                    form.setValues({boardTypeOrigin: 'manual'});
                 }
                 form.setFieldState('*(tickPerM,wheelBase,directory,branch,repository,disableEmergency,maxMps,maxChargeCurrent,limitVoltage150MA,maxChargeVoltage,batChargeCutoffVoltage,oneWheelLiftEmergencyMillis,bothWheelsLiftEmergencyMillis,tiltEmergencyMillis,stopButtonEmergencyMillis,playButtonClearEmergencyMillis,imuOnboardInclinationThreshold,externalImuAcceleration,externalImuAngular,perimeterWire)', (state) => {
                     state.display = field.value !== "BOARD_VERMUT_YARDFORCE500" ? "visible" : "hidden";
@@ -106,9 +111,10 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                 })
             })
             onFieldValueChange('panelType', (field) => {
+                setSelectedPanel(String(field.value ?? ""));
                 if (initializedModelRef.current && !applyingModelDefaultsRef.current) {
-                    manualOverridesRef.current.panelType =
-                        field.value !== autoDefaultsRef.current.panelType;
+                    manualOverridesRef.current.panelType = true;
+                    form.setValues({panelTypeOrigin: 'manual'});
                 }
             })
             onFieldValueChange('firmwareSource', (field) => {
@@ -129,6 +135,11 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
     const terminalRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+        mowerModelRef.current = props.mowerModel;
+    }, [props.mowerModel]);
+
+    useEffect(() => {
+        let disposed = false;
         (async () => {
             try {
                 // Keep the existing firmware-config read independent from the
@@ -143,8 +154,9 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     // Model inference is best-effort; the normal manual form
                     // remains available if settings cannot be read.
                 }
+                if (disposed) return;
                 const jsonConfig = config.data["gui.firmware.config"]
-                const model = props.mowerModel ?? configuredModel;
+                const model = mowerModelRef.current ?? configuredModel;
                 setConfiguredMowerModel(model);
                 if (jsonConfig) {
                     const saved = JSON.parse(jsonConfig)
@@ -154,17 +166,24 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     if (saved.firmwareSource === undefined) {
                         saved.firmwareSource = saved.expertBuild ? "custom" : "prebuilt"
                     }
-                    // The backend persists this config only after a flash and
-                    // does not store whether board/panel came from a model
-                    // preset. Treat persisted values as deliberate overrides
-                    // so a returning expert configuration is never rewritten.
-                    manualOverridesRef.current = {
-                        boardType: saved.boardType !== undefined && saved.boardType !== "",
-                        panelType: saved.panelType !== undefined && saved.panelType !== "",
-                    };
-                    const seeded = applyFirmwareModelDefaults(model, saved, manualOverridesRef.current);
-                    autoDefaultsRef.current = firmwareDefaultsForModel(model) ?? {};
+                    // Provenance is persisted with the config after a flash.
+                    // Unknown/legacy configs are deliberately conservative:
+                    // preserve both saved fields instead of guessing a board.
+                    manualOverridesRef.current = manualOverridesFromProvenance(saved);
+                    // If the model/settings lookup is unavailable, restoring
+                    // the saved config must still work. In particular, do not
+                    // turn a previously known automatic value into an empty
+                    // value merely because the async settings request failed.
+                    const seeded = (model === undefined
+                        ? {...saved}
+                        : applyFirmwareModelDefaults(model, saved, manualOverridesRef.current)) as FirmwareSelection & Record<string, unknown>;
+                    seeded.firmwareSelectionModel = model;
+                    seeded.boardTypeOrigin = manualOverridesRef.current.boardType ?
+                        (saved.boardTypeOrigin ?? "legacy") : "auto";
+                    seeded.panelTypeOrigin = manualOverridesRef.current.panelType ?
+                        (saved.panelTypeOrigin ?? "legacy") : "auto";
                     setSelectedBoard(String(seeded.boardType ?? ""));
+                    setSelectedPanel(String(seeded.panelType ?? ""));
                     setIsExpert(seeded.firmwareSource === "custom");
                     applyingModelDefaultsRef.current = true;
                     form.setInitialValues(seeded);
@@ -172,8 +191,11 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     applyingModelDefaultsRef.current = false;
                 } else {
                     const seeded = applyFirmwareModelDefaults<FirmwareSelection>(model, {}, manualOverridesRef.current);
-                    autoDefaultsRef.current = firmwareDefaultsForModel(model) ?? {};
+                    seeded.firmwareSelectionModel = model;
+                    seeded.boardTypeOrigin = "auto";
+                    seeded.panelTypeOrigin = "auto";
                     setSelectedBoard(String(seeded.boardType ?? ""));
+                    setSelectedPanel(String(seeded.panelType ?? ""));
                     applyingModelDefaultsRef.current = true;
                     form.setInitialValues(seeded);
                     form.setValues(seeded);
@@ -188,6 +210,7 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
             }
         })()
         return () => {
+            disposed = true;
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort();
             }
@@ -201,13 +224,16 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
         if (!initializedModelRef.current || props.mowerModel === undefined || props.mowerModel === configuredMowerModel) {
             return;
         }
-        const nextDefaults = firmwareDefaultsForModel(props.mowerModel) ?? {};
         const seeded = applyFirmwareModelDefaults(
             props.mowerModel,
             form.values as FirmwareSelection,
             manualOverridesRef.current,
         );
-        autoDefaultsRef.current = nextDefaults;
+        seeded.firmwareSelectionModel = props.mowerModel;
+        seeded.boardTypeOrigin = manualOverridesRef.current.boardType ?
+            (form.values as FirmwareSelection).boardTypeOrigin ?? "manual" : "auto";
+        seeded.panelTypeOrigin = manualOverridesRef.current.panelType ?
+            (form.values as FirmwareSelection).panelTypeOrigin ?? "manual" : "auto";
         applyingModelDefaultsRef.current = true;
         form.setValues(seeded);
         applyingModelDefaultsRef.current = false;
@@ -300,11 +326,29 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
     };
 
     const flashFirmware = (values: Config) => {
+        if (!values.boardType || !values.panelType) {
+            notification.error({
+                message: t('flashBoard.selectionRequiredTitle'),
+                description: t('flashBoard.selectionRequiredDesc'),
+            });
+            return;
+        }
         const isCustomBuild = values.firmwareSource === "custom";
         // Derive the backend's expert flag straight from the dropdown so the
         // payload can never disagree with what the user selected — selecting
         // "custom" is what routes the backend to compile-from-source.
-        const payload: Config = {...values, expertBuild: isCustomBuild};
+        const payload: Config = {
+            ...values,
+            expertBuild: isCustomBuild,
+            // Keep provenance explicit in the persisted payload even if a
+            // Formily version drops values for fields that are not rendered.
+            boardTypeOrigin: values.boardTypeOrigin ??
+                (manualOverridesRef.current.boardType ? "manual" : "auto"),
+            panelTypeOrigin: values.panelTypeOrigin ??
+                (manualOverridesRef.current.panelType ? "manual" : "auto"),
+            firmwareSelectionModel: values.firmwareSelectionModel ??
+                mowerModelRef.current ?? configuredMowerModel,
+        };
         // The prebuilt (default) path doesn't expose the charge/IMU params, so
         // its confirmation is a simple "flash the blessed binary" prompt. The
         // custom compile path keeps the detailed value-verification list.
@@ -407,7 +451,9 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     <SchemaField><SchemaField.String
                         name={"boardType"}
                         title={t('flashBoard.boardSelectionTitle')}
-                        default={"BOARD_VERMUT_YARDFORCE500"}
+                        // No board is safe as a generic fallback: YardForce
+                        // 500 identifies a chassis, not Vermut vs Mowgli.
+                        default={""}
                         enum={[{
                             label: "Vermut - YardForce 500 Classic",
                             value: "BOARD_VERMUT_YARDFORCE500"
@@ -427,7 +473,7 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     <SchemaField><SchemaField.String
                         name={"panelType"}
                         title={t('flashBoard.panelSelectionTitle')}
-                        default={"PANEL_TYPE_YARDFORCE_500_CLASSIC"}
+                        default={""}
                         enum={[
                             {label: "YardForce 500 Classic", value: "PANEL_TYPE_YARDFORCE_500_CLASSIC"},
                             {label: "YardForce LUV1000RI", value: "PANEL_TYPE_YARDFORCE_LUV1000RI"},
@@ -692,6 +738,15 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                 zIndex: 50,
             }}>
                 <div style={{width: "100%"}}>
+                    {(!selectedBoard || !selectedPanel) && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            style={{marginBottom: 8, textAlign: "left"}}
+                            message={t('flashBoard.selectionRequiredTitle')}
+                            description={t('flashBoard.selectionRequiredDesc')}
+                        />
+                    )}
                     {!isExpert && !PREBUILT_BOARDS.has(selectedBoard) && (
                         <Alert
                             type="warning"
@@ -704,7 +759,7 @@ export const FlashBoardComponent = (props: { onNext: () => void; mowerModel?: st
                     <FormButtonGroup>
                         <Button
                             type="primary"
-                            disabled={!isExpert && !PREBUILT_BOARDS.has(selectedBoard)}
+                            disabled={!selectedBoard || !selectedPanel || (!isExpert && !PREBUILT_BOARDS.has(selectedBoard))}
                             onClick={() => {
                                 form.submit(flashFirmware).catch((err: unknown) => {
                                     if (err instanceof Error) {
