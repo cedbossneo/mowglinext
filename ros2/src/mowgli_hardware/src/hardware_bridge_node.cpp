@@ -61,6 +61,7 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_hardware/blade_gate.hpp"
+#include "mowgli_hardware/cmd_vel_validation.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
 #include "mowgli_hardware/dig_escalation.hpp"
@@ -2716,6 +2717,20 @@ private:
     double vx = msg->twist.linear.x;
     double wz = msg->twist.angular.z;
 
+    // Reject non-finite input before any shaping, mode inference, or state
+    // bookkeeping.  Discarding it lets the firmware's existing 200 ms
+    // cmd_vel watchdog deterministically stop the mower without refreshing
+    // the valid-command heartbeat.  The warning is throttled because this
+    // callback runs at command rate.
+    if (!mowgli_hardware::is_finite_velocity_command(vx, wz))
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Rejecting non-finite cmd_vel (linear.x=%f, angular.z=%f); command discarded.",
+        vx, wz);
+      return;
+    }
+
     // The firmware ignores cmd_vel when mode is IDLE.  When velocity commands
     // arrive before the BT publishes any high-level state, ensure the firmware
     // is not left in NULL/transition mode.
@@ -3087,10 +3102,24 @@ private:
   /// Single point where a velocity command reaches the firmware.
   void send_cmd_vel_packet(double vx, double wz)
   {
+    // Keep this final construction boundary defensive as well: callers such
+    // as the bounded dig escape pass doubles, and a value that is finite as a
+    // double can become Inf when narrowed to the wire's float32 format.
+    const float wire_vx = static_cast<float>(vx);
+    const float wire_wz = static_cast<float>(wz);
+    if (!mowgli_hardware::is_finite_velocity_command(wire_vx, wire_wz))
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000,
+        "Refusing non-finite LlCmdVel wire values (linear.x=%f, angular.z=%f).",
+        vx, wz);
+      return;
+    }
+
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
-    pkt.linear_x = static_cast<float>(vx);
-    pkt.angular_z = static_cast<float>(wz);
+    pkt.linear_x = wire_vx;
+    pkt.angular_z = wire_wz;
 
     send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdVel) - sizeof(uint16_t));
   }

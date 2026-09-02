@@ -206,6 +206,15 @@ if(BUILD_TESTING)
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../firmware/stm32/ros_usbnode/include
   )
+
+  # ---- test_cmd_vel_validation ----
+  ament_add_gtest(test_cmd_vel_validation
+    test/test_cmd_vel_validation.cpp
+  )
+  target_include_directories(test_cmd_vel_validation
+    PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
 endif()
 
 # ---------------------------------------------------------------------------
