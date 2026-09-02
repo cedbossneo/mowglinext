@@ -353,6 +353,17 @@ void FusionGraphNode::SetupCommunications(double node_period_s)
                           // search (cumulative). Diff against loop_closures to
                           // see the gate working.
                           add("lc_rate_gated", std::to_string(lc_rate_gated_));
+                          // Dock-prior vs RTK-Fixed GPS consistency (#512):
+                          // latest disagreement while charging (0 when
+                          // not) + nodes the dock prior yielded on.
+                          {
+                            const bool docked = last_is_charging_valid_ && last_is_charging_;
+                            const double d = docked ? dock_gps_disagreement_m_ : 0.0;
+                            char buf[32];
+                            std::snprintf(buf, sizeof(buf), "%.3f", d);
+                            add("dock_gps_disagreement_m", buf);
+                            add("dock_prior_yielded", std::to_string(dock_prior_yielded_));
+                          }
                           add("scans_received", std::to_string(scans_received_));
                           add("scan_matches_ok", std::to_string(scan_matches_ok_));
                           add("scan_matches_fail", std::to_string(scan_matches_fail_));

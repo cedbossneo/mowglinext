@@ -617,6 +617,22 @@ private:
   // and yaw with no live GPS to drag it off.
   double dock_reanchor_sigma_xy_m_ = 0.03;
   uint64_t last_dock_reanchor_node_ = std::numeric_limits<uint64_t>::max();
+  // Dock-prior vs RTK-Fixed GPS consistency (issue #512, dock_gps_consistency.hpp).
+  // The prior above YIELDS for a node — and that GPS sample is fused instead —
+  // only when a FRESH RTK-Fixed sample with σ ≤ dock_prior_max_gps_sigma_m_ puts
+  // the antenna more than dock_prior_max_gps_disagreement_m_ from where
+  // dock_pose says it is. No fix / Float / large σ (the terrace case) → the
+  // prior keeps pinning exactly as before. Either threshold ≤ 0 disables.
+  double dock_prior_max_gps_disagreement_m_ = 0.50;
+  double dock_prior_max_gps_sigma_m_ = 0.05;
+  // GPS antenna offset from base_link (mirrors GraphParams::lever_arm_x/y) so
+  // the docked antenna position can be predicted as dock_pose ⊕ R(yaw)·lever.
+  double lever_arm_x_m_ = 0.0;
+  double lever_arm_y_m_ = 0.0;
+  // Diagnostics: latest antenna-to-antenna disagreement measured while
+  // charging (0 when not charging), and how many nodes the prior yielded on.
+  double dock_gps_disagreement_m_ = 0.0;
+  uint64_t dock_prior_yielded_ = 0;
   // Dock-approach pose stabilisation. While /cmd_vel_docking is active the
   // graceful dock controller is steering the final approach; the slow reverse
   // motion makes the COG travel-direction yaw unreliable and the RTK fixed↔float

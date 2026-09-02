@@ -377,6 +377,21 @@ fusion_graph_node:
     # iSAM2 well-posed with no GPS to drag it. sigma_xy small so it
     # dominates; yaw σ from dock_pose_yaw_sigma_rad.
     dock_reanchor_sigma_xy_m: 0.03
+    # Dock-prior vs RTK-Fixed GPS consistency (issue #512). The prior above
+    # is NOT unconditional: when a FRESH RTK-Fixed sample with σ ≤
+    # dock_prior_max_gps_sigma_m puts the antenna more than
+    # dock_prior_max_gps_disagreement_m from where dock_pose says it is,
+    # the prior yields for that node and the sample is fused instead —
+    # ERROR log (10 s throttle) + diagnostics `dock_gps_disagreement_m` /
+    # `dock_prior_yielded`. Field case 2026-09-02, 12:27-12:50 UTC, docked
+    # after a receiver power cycle: "Fixed 14-20 mm" at 2.45 / 2.33 /
+    # 1.88 m from dock_pose, converged on its own after ~45 min; the prior
+    # pinned the pose silently through all of it. 0.50 m sits far above the
+    # 5-30 cm ambiguity-set shift the dock hold exists for. No fix / Float /
+    # large σ on the dock (a dock under a terrace) is NOT a trigger — the
+    # prior keeps pinning as before. Either value ≤ 0 disables the check.
+    dock_prior_max_gps_disagreement_m: 0.50
+    dock_prior_max_gps_sigma_m: 0.05
 
     # ── RTK-anchored keyframe map (scan-to-keyframe absolute localization) ──
     # The mechanism for holding <2 cm absolute DURING RTK-Float windows. Under

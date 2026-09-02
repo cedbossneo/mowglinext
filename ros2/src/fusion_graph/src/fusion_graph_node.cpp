@@ -45,6 +45,10 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   // we only mirror the magnitude here for the gate-side threshold
   // and never re-apply the offset to the GPS sample.
   lever_arm_radius_m_ = std::hypot(gp.lever_arm_x, gp.lever_arm_y);
+  // ...and the full vector for the docked antenna prediction (issue #512):
+  // dock_pose ⊕ R(yaw)·lever_arm is where a correct fix puts the antenna.
+  lever_arm_x_m_ = gp.lever_arm_x;
+  lever_arm_y_m_ = gp.lever_arm_y;
   gp.cov_update_every_n = declare_parameter<int>("cov_update_every_n", 10);
   gp.isam2_relinearize_skip = declare_parameter<int>("isam2_relinearize_skip", 5);
   gp.max_graph_nodes = static_cast<uint64_t>(declare_parameter<int>("max_graph_nodes", 6000));
@@ -101,6 +105,21 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   // the docked pose 11.5 cm + 53° over a dwell — field 2026-06-10). σ small so
   // the dock prior dominates xy; yaw σ from dock_pose_yaw_sigma_rad.
   dock_reanchor_sigma_xy_m_ = declare_parameter<double>("dock_reanchor_sigma_xy_m", 0.03);
+  // Dock-prior vs RTK-Fixed GPS consistency (issue #512, dock_gps_consistency.hpp).
+  // Field case 2026-09-02, 12:27-12:50 UTC, robot docked + charging after a
+  // power cycle: the ZED-F9P reported RTK Fixed at 14-20 mm while placing the
+  // antenna 2.45 m / 2.33 m / 1.88 m from dock_pose (three bases/readings);
+  // it converged to 10-24 cm on its own after ~45 min. The 3 cm prior pinned
+  // the pose through all of it and nothing was logged. Above
+  // dock_prior_max_gps_disagreement_m — with a FRESH Fixed sample whose σ is
+  // ≤ dock_prior_max_gps_sigma_m — the prior yields for that node and the
+  // sample is fused instead (ERROR log + diagnostics). 0.50 m sits far above
+  // the 5-30 cm ambiguity-set shift the dock hold exists for, and the σ cap
+  // keeps a Float fix (dm-m σ) from ever triggering it. No fix / Float on the
+  // dock (the terrace case) is deliberately NOT a trigger. ≤ 0 disables.
+  dock_prior_max_gps_disagreement_m_ =
+      declare_parameter<double>("dock_prior_max_gps_disagreement_m", 0.50);
+  dock_prior_max_gps_sigma_m_ = declare_parameter<double>("dock_prior_max_gps_sigma_m", 0.05);
   // Dead-reckoning slip veto thresholds (see header + dr_slip_veto.hpp).
   // dr_slip_wheel_min_rad_per_s MUST stay above the 1-tick quantization floor
   // of the wheel-derived yaw rate, or the veto fires on encoder rounding
