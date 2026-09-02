@@ -218,6 +218,17 @@ struct GraphParams
   double slip_residual_thresh_rad = 0.01;
   double slip_gyro_max_rad = 0.005;
   double slip_wheel_min_rad = 0.005;
+  // Sliding window (s) the three thresholds above are evaluated over
+  // (issue #516, slip_window.hpp). window_nodes = round(slip_window_s /
+  // node_period_s), floored at 1; the rule is applied to the window SUMS
+  // with the thresholds scaled by the node count, so the per-node values
+  // keep their meaning and the window just integrates. Per node the gate
+  // cannot separate one encoder tick of L/R asymmetry (≈ 0.011 rad in a
+  // 40 ms frame) from genuine slip (≈ 0.012 rad/frame, sustained) —
+  // field 2026-09-02 it fired 1.33/s on straight swaths and zeroed ~5 %
+  // of nodes' wheel translation on jitter. 0 = window of one node, the
+  // old per-node gate, exactly.
+  double slip_window_s = 0.5;
 
   // Stationary multi-source gate. The wheel-only gate (above) can be
   // tricked by encoders that report no motion while the robot is

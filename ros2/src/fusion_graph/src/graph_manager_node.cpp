@@ -199,11 +199,29 @@ std::optional<TickOutput> GraphManager::CreateNodeLocked(double now_s)
   // every time the gyro updates faster than the wheel encoders, which
   // happens on every normal turn. The combination "wheels rotating
   // hard, gyro near zero" is the genuine slip signature.
-  const double wheel_gyro_residual = std::abs(accum_.dtheta_wheel - accum_.dtheta_gyro);
-  const bool slip_detected =
-      wheel_gyro_residual > params_.slip_residual_thresh_rad * tick_scale &&
-      std::abs(accum_.dtheta_gyro) < params_.slip_gyro_max_rad * tick_scale &&
-      std::abs(accum_.dtheta_wheel) > params_.slip_wheel_min_rad * tick_scale;
+  //
+  // Evaluated over a sliding WINDOW of nodes, not on this node alone
+  // (issue #516, slip_window.hpp). Per node the gate cannot separate the
+  // encoder quantum — one tick of L/R asymmetry is ≈ 0.011 rad of wheel
+  // dθ in a 40 ms frame — from genuine slip (≈ 0.012 rad/frame): field
+  // 2026-09-02 it fired 1.33/s on STRAIGHT swaths (wheel 0.00 vs gyro
+  // 0.05 rad/s at the increments) and zeroed ~5 % of nodes' translation
+  // on jitter. The three thresholds keep their per-node meaning; the
+  // window sums the deltas and scales the thresholds by its node count,
+  // so sustained slip (~0.15 rad over 0.5 s) trips it while jitter
+  // averages to ~0. The veto is still APPLIED per node — this node's
+  // translation is zeroed while the window is flagged. A node that spans
+  // longer than the window (stationary-throttled, up to 5 s) restarts it:
+  // that node covers the whole window by itself, and carrying its
+  // gyro-bias drift into the next 0.5 s of motion would mask slip onset.
+  // slip_window_s: 0 therefore restarts on every node = the old per-node
+  // gate, exactly.
+  if (now_s - last_node_time_s_ > params_.slip_window_s)
+    slip_window_.Clear();
+  slip_window_.Push(accum_.dtheta_wheel, accum_.dtheta_gyro);
+  const bool slip_detected = slip_window_.Detected(params_.slip_residual_thresh_rad * tick_scale,
+                                                   params_.slip_gyro_max_rad * tick_scale,
+                                                   params_.slip_wheel_min_rad * tick_scale);
   double dx_eff = accum_.dx;
   double dy_eff = accum_.dy;
   if (slip_detected)
