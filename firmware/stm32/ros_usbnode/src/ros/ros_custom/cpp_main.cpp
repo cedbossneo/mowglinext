@@ -26,6 +26,7 @@
 #include "charger.h"
 #include "drivemotor.h"
 #include "emergency.h"
+#include "heartbeat_emergency_policy.hpp"
 #include "nbt.h"
 #include "panel.h"
 #include "pid.hpp"
@@ -362,37 +363,47 @@ static void on_heartbeat(const uint8_t *data, size_t len) {
 
   last_heartbeat_tick = HAL_GetTick();
 
-  /* Comms restored. If the active emergency was a PURE comms-loss watchdog latch
-   * (no physical trigger) and no sensor is asserted now, auto-clear it so a brief
-   * host/USB stall doesn't strand the robot until a manual reset. A physical
-   * trigger that appeared in the meantime asserts a sensor (handled below) and
-   * clears heartbeat_only_latch, so this never auto-clears a physical e-stop. */
-  if (heartbeat_only_latch && Emergency_State()) {
-    if (!any_physical_emergency()) {
+  const bool emergency_requested = pkt->emergency_requested != 0u;
+  const bool emergency_release_requested =
+      pkt->emergency_release_requested != 0u;
+  const bool watchdog_latch_active =
+      heartbeat_only_latch && Emergency_State();
+  /* A STOP request needs no sensor read: it always wins. This preserves the
+   * previous sensor-read conditions for all other inputs. */
+  const bool physical_emergency =
+      !emergency_requested &&
+      (watchdog_latch_active || emergency_release_requested) &&
+      any_physical_emergency();
+  const HeartbeatEmergencyDecision decision = decide_heartbeat_emergency(
+      emergency_requested, emergency_release_requested, physical_emergency,
+      watchdog_latch_active);
+
+  switch (decision.action) {
+    case HeartbeatEmergencyAction::Assert:
+      heartbeat_only_latch = false;  /* host stop is not comms-loss */
+      Emergency_SetState(1);
+      break;
+    case HeartbeatEmergencyAction::Release:
+      Emergency_SetState(0);
+      heartbeat_only_latch = false;
+      break;
+    case HeartbeatEmergencyAction::AutoClearWatchdog:
       Emergency_SetState(0);
       heartbeat_only_latch = false;
       debug_printf("heartbeat resumed: comms-loss emergency auto-cleared\r\n");
-    } else {
-      /* A physical sensor is now asserted — this is no longer a pure comms
-       * latch; require an explicit operator release. */
-      heartbeat_only_latch = false;
+      break;
+    case HeartbeatEmergencyAction::Unchanged:
+      if (decision.clear_heartbeat_only_latch) {
+        /* A physical sensor is now asserted — this is no longer a pure comms
+         * latch; require an explicit operator release. */
+        heartbeat_only_latch = false;
+      }
+      break;
     }
-  }
 
-  if (pkt->emergency_requested) {
-    heartbeat_only_latch = false;  /* host-commanded e-stop is not comms-loss */
-    Emergency_SetState(1);
-  }
-  if (pkt->emergency_release_requested) {
-    /* Only clear emergency if no physical sensor is still asserted.
-     * Firmware is the sole safety authority — never bypass hardware. */
-    if (!any_physical_emergency()) {
-      Emergency_SetState(0);
-      heartbeat_only_latch = false;
-    } else {
-      debug_printf(
-          "emergency release rejected: physical sensor still active\r\n");
-    }
+  if (emergency_release_requested && !emergency_requested &&
+      physical_emergency) {
+    debug_printf("emergency release rejected: physical sensor still active\r\n");
   }
 }
 
