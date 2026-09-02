@@ -613,14 +613,23 @@ behavior_server:
     # (often map→odom jump artefacts or dock residue). 2.0s refused every
     # undock.
     simulate_ahead_time: 0.5
-    # 2.5 rad/s (was 1.0) — robot can do ~3.14 rad/s on the bench
-    # (360° in ~2 s). Spin recovery should use the real envelope so a
-    # 90° recovery turn finishes in ~0.6 s instead of 1.6 s.
-    max_rotational_vel: 2.5
+    # 1.0 rad/s (was 2.5, 2026-06-15 → 2026-09-02). 2.5 rad/s was set from a
+    # bench figure ("robot can do ~3.14 rad/s"); on grass it is the violent
+    # pivot the operator reported as digging holes at swath ends (#499). The
+    # 2026-09-02 LiDAR mow recorded the chassis gyro at 2.46 rad/s during the
+    # five Spin recoveries of the run (cmd_vel = 2.50 rad/s from a standstill,
+    # rotational_acc_lim 5.0) — the ONLY source of >1 rad/s rotation in the
+    # whole mow; FTC's own pivots are capped at max_cmd_vel_ang 0.8. A 90°
+    # recovery turn now takes ~1.6 s instead of ~0.6 s; that second is cheap
+    # next to a hole. Keep min_rotational_vel below this value.
+    max_rotational_vel: 1.0
     # 0.85 rad/s ≈ wheel vel 0.14 m/s per wheel (PWM 42 > deadband).
     # Lower floor let Spin behavior dither at sub-deadband ω.
     min_rotational_vel: 0.85
-    rotational_acc_lim: 5.0
+    # 2.0 rad/s² (was 5.0): a 5 rad/s² step from rest on turf is exactly the
+    # inner-wheel reversal / tyre carving of #499; 2.0 reaches 1.0 rad/s in
+    # 0.5 s, which the firmware yaw-rate loop tracks without slip.
+    rotational_acc_lim: 2.0
 
 # ---------------------------------------------------------------------------
 # Waypoint follower
