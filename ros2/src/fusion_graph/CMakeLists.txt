@@ -207,6 +207,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_rtk_wrongfix_gate fusion_graph_core)
 
+  ament_add_gtest(test_loop_closure_gate
+    test/test_loop_closure_gate.cpp
+  )
+  target_link_libraries(test_loop_closure_gate fusion_graph_core)
+
   ament_add_gtest(test_cog_flip_recovery
     test/test_cog_flip_recovery.cpp
   )

@@ -349,6 +349,10 @@ void FusionGraphNode::SetupCommunications(double node_period_s)
                           add("total_nodes", std::to_string(stats.total_nodes));
                           add("scans_attached", std::to_string(stats.scans_attached));
                           add("loop_closures", std::to_string(stats.loop_closures));
+                          // Nodes where the #513 rate/travel gate blocked the LC
+                          // search (cumulative). Diff against loop_closures to
+                          // see the gate working.
+                          add("lc_rate_gated", std::to_string(lc_rate_gated_));
                           add("scans_received", std::to_string(scans_received_));
                           add("scan_matches_ok", std::to_string(scan_matches_ok_));
                           add("scan_matches_fail", std::to_string(scan_matches_fail_));
