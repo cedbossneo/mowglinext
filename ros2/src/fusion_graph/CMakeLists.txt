@@ -212,6 +212,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_dock_gps_consistency fusion_graph_core)
 
+  ament_add_gtest(test_slip_window
+    test/test_slip_window.cpp
+  )
+  target_link_libraries(test_slip_window fusion_graph_core)
+
   ament_add_gtest(test_loop_closure_gate
     test/test_loop_closure_gate.cpp
   )

@@ -138,6 +138,26 @@ fusion_graph_node:
     slip_residual_thresh_rad: 0.01    # |wheel_dθ − gyro_dθ| limit (≈14°/s @25 Hz)
     slip_gyro_max_rad: 0.005          # gyro must read near-still (≈7°/s @25 Hz)
     slip_wheel_min_rad: 0.005         # wheel must claim non-trivial rotation
+    # The triple gate is evaluated over a sliding WINDOW of nodes, not per
+    # node (issue #516, slip_window.hpp): window_nodes = round(slip_window_s /
+    # node_period_s), the three thresholds above are applied to the window
+    # SUMS scaled by that node count, so they keep their per-node meaning and
+    # the window just integrates. Why: per node the gate cannot tell one
+    # encoder tick of L/R asymmetry (≈ 0.011 rad of wheel dθ in a 40 ms frame,
+    # already above slip_wheel_min_rad; two ticks exceed
+    # slip_residual_thresh_rad) from genuine slip (≈ 0.012 rad/frame). Field
+    # 2026-09-02 (73 min RTK-Fixed mow): it fired 1.33/s on STRAIGHT swaths vs
+    # 0.27/s turning and 0.18/s stopped, with wheel yaw rate p50 0.00 rad/s vs
+    # gyro 0.05 at the increments — ~5 % of nodes had their wheel translation
+    # zeroed on quantization jitter, silently shortening dead reckoning under
+    # RTK-Float / no-fix. The genuine 2026-05-27 signature (wheels ~0.3 rad/s,
+    # gyro < 0.02, sustained for seconds) accumulates ~0.15 rad over 0.5 s
+    # while jitter averages to ~0 — the signal is the persistence. The veto
+    # stays off until the window is full (a cold start never vetoes) and is
+    # still applied per node while the window is flagged. Do NOT raise the
+    # per-frame thresholds instead — that also blinds it to the real case.
+    # 0 = window of one node (the old per-node behaviour, exactly).
+    slip_window_s: 0.5                # 12 nodes @ 25 Hz, 25 @ 50 Hz
 
     # ── Sliding-window cap on the factor graph ───────────────────────
     # RebaseISAM2 keeps only the most-recent max_graph_nodes pose nodes
