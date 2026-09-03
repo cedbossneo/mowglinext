@@ -1,4 +1,3 @@
-#include <cmath>
 #include <limits>
 
 #include <unity.h>
@@ -13,11 +12,14 @@ static void test_finite_and_zero_are_accepted()
   SafetyState state{3.0f, 1.0f, -1.0f, 10u};
   TEST_ASSERT_TRUE(apply_safety(0.25f, -0.8f, 20u, state));
   TEST_ASSERT_FLOAT_WITHIN(0.0f, -0.8f, state.cmd_wz);
-  TEST_ASSERT_TRUE(std::isfinite(state.left_target_mps));
-  TEST_ASSERT_TRUE(std::isfinite(state.right_target_mps));
+  TEST_ASSERT_FLOAT_WITHIN(0.0f, 1.0f, state.left_target_mps);
+  TEST_ASSERT_FLOAT_WITHIN(0.0f, -1.0f, state.right_target_mps);
   TEST_ASSERT_EQUAL_UINT32(20u, state.last_valid_tick);
   TEST_ASSERT_TRUE(apply_safety(0.0f, 0.0f, 30u, state));
   TEST_ASSERT_FLOAT_WITHIN(0.0f, 0.0f, state.cmd_wz);
+  TEST_ASSERT_FLOAT_WITHIN(0.0f, 1.0f, state.left_target_mps);
+  TEST_ASSERT_FLOAT_WITHIN(0.0f, -1.0f, state.right_target_mps);
+  TEST_ASSERT_EQUAL_UINT32(30u, state.last_valid_tick);
 }
 
 static void test_nonfinite_commands_clear_targets_without_refresh()

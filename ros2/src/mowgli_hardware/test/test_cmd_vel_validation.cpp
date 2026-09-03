@@ -10,6 +10,8 @@ TEST(CmdVelValidation, AcceptsFiniteCommands)
 {
   EXPECT_TRUE(is_finite_velocity_command(0.25, -0.8));
   EXPECT_TRUE(is_finite_velocity_command(0.0, 0.0));
+  EXPECT_TRUE(is_finite_velocity_command(-0.0, 0.0));
+  EXPECT_TRUE(is_finite_velocity_command(0.0, -0.0));
 }
 
 TEST(CmdVelValidation, RejectsNonFiniteLinearVelocity)
@@ -34,7 +36,14 @@ TEST(CmdVelValidation, RejectsBothNonFinite)
 
 TEST(CmdVelValidation, RejectsValuesNonFiniteAfterFloatWireConversion)
 {
-  const double too_large_for_float = std::numeric_limits<float>::max() * 2.0;
-  EXPECT_FALSE(is_finite_velocity_command(static_cast<float>(too_large_for_float), 0.0f));
-  EXPECT_FALSE(is_finite_velocity_command(0.0f, static_cast<float>(-too_large_for_float)));
+  const double positive_overflow = std::numeric_limits<double>::max();
+  const double negative_overflow = -std::numeric_limits<double>::max();
+  EXPECT_FALSE(is_finite_velocity_command(static_cast<float>(positive_overflow), 0.0f));
+  EXPECT_FALSE(is_finite_velocity_command(0.0f, static_cast<float>(negative_overflow)));
+}
+
+TEST(CmdVelValidation, AcceptsMaximumFiniteFloatWireValue)
+{
+  const float largest_finite_float = std::numeric_limits<float>::max();
+  EXPECT_TRUE(is_finite_velocity_command(largest_finite_float, -largest_finite_float));
 }
