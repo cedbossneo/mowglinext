@@ -900,6 +900,12 @@
   },
   "schedulePage": {
     "planning": "Planning",
+    "soilWetBlocking": "Soil wet — scheduled mows suspended",
+    "soilWet": "Soil wet",
+    "soilDry": "Soil dry",
+    "soilUnknown": "IrriSense: state unknown",
+    "soilFetchedAt": "IrriSense data from {{value}}",
+    "lastSkipped": "Skipped {{value}}: {{reason}}",
     "scheduledMows": "Scheduled mows",
     "dayMon": "Mon",
     "dayTue": "Tue",
@@ -2954,6 +2960,58 @@
   "asyncButton": {
     "errorOccurred": "An error occured"
   },
+  "settingsIrriSense": {
+    "title": "IrriSense Cloud soil moisture",
+    "description": "Read your irrigation service's zone deficits so the scheduler does not start a mow on wet grass.",
+    "failOpenTitle": "Fail-open by design",
+    "failOpenBody": "If IrriSense is unreachable, misconfigured or its data is older than the validity window, the soil state is reported as unknown and scheduled mows run as usual. A cloud outage never keeps the robot in the dock.",
+    "connection": "Connection",
+    "baseUrl": "Service URL",
+    "baseUrlTooltip": "Base URL of your IrriSense Cloud instance; the read-only API lives under /api/ha.",
+    "token": "Read-only API token",
+    "tokenTooltip": "Mint a read-only API token in IrriSense (Settings → API tokens). A login session is rejected. The token is stored on the robot and never shown again.",
+    "tokenPlaceholder": "Paste a new token…",
+    "tokenApply": "Set",
+    "tokenClear": "Clear",
+    "tokenSet": "Token stored ({{masked}})",
+    "tokenNotSet": "No token stored",
+    "tokenPending": "New token will be stored on save",
+    "tokenCleared": "Token will be removed on save",
+    "garden": "Garden",
+    "gardenTooltip": "Which IrriSense garden to read. Use Test connection to fill the list.",
+    "gardenPlaceholder": "Select a garden",
+    "zones": "Zones (optional)",
+    "zonesTooltip": "Leave empty to consider every enabled zone of the garden.",
+    "zonesPlaceholder": "All enabled zones",
+    "zoneDisabled": "{{label}} (disabled)",
+    "testConnection": "Test connection",
+    "testOk_one": "IrriSense reachable: {{count}} garden",
+    "testOk_other": "IrriSense reachable: {{count}} gardens",
+    "testFailed": "IrriSense connection failed",
+    "rule": "Wetness rule",
+    "ruleDescription": "A zone is wet when its deficit (mm evaporated since it was last wetted by irrigation or rain) is at or below the threshold, or when it was watered recently. The garden is wet when any selected zone is wet.",
+    "wetDeficit": "Wet at or below deficit",
+    "wetDeficitTooltip": "Deficit at or below which the surface counts as wet. Default 2 mm.",
+    "dryAfterWatering": "Wet after watering for",
+    "dryAfterWateringTooltip": "A zone watered within this many hours counts as wet whatever its deficit. Default 3 h.",
+    "maxStale": "Data valid for",
+    "maxStaleTooltip": "If the last successful fetch is older than this, the state is unknown and mowing is not blocked. Default 90 min.",
+    "gateScheduler": "Block scheduled mowing when wet",
+    "gateSchedulerDescription": "Off only shows the soil state and never skips a schedule.",
+    "status": "Live status",
+    "verdict": {
+      "wet": "Wet",
+      "dry": "Dry",
+      "unknown": "Unknown"
+    },
+    "fetchedAt": "fetched {{value}}",
+    "neverFetched": "no data fetched yet",
+    "refresh": "Refresh",
+    "save": "Save IrriSense settings",
+    "saved": "IrriSense settings saved",
+    "saveFailed": "Failed to save IrriSense settings",
+    "loadFailed": "Failed to load IrriSense settings"
+  },
   "settingsLeds": {
     "statusRing": "WS2812 status ring",
     "statusRingDescription": "An addressable LED ring on the robot showing state at a glance: emergency, charging, mowing progress and RTK health. Read-only — it never commands the robot, and it is not part of the blade-safety path (the firmware keeps its own status LED).",
@@ -3063,6 +3121,10 @@
     "rain": {
       "label": "Rain",
       "description": "Rain detection behavior and delay"
+    },
+    "irrisense": {
+      "label": "IrriSense",
+      "description": "Soil moisture from your IrriSense Cloud garden: skip scheduled mows on wet grass"
     },
     "leds": {
       "label": "Status LEDs",

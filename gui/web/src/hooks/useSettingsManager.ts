@@ -24,6 +24,7 @@ export type SettingsSection =
     | "navigation"
     | "rain"
     | "leds"
+    | "irrisense"
     | "advanced";
 
 export type SectionMeta = {
@@ -220,6 +221,15 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
             "led_low_battery_percent", "led_charge_full_percent",
             "led_status_timeout_s", "led_keepalive_s", "led_device_retry_s",
         ],
+    },
+    {
+        id: "irrisense",
+        label: "settingsSections.irrisense.label",
+        icon: "cloud-sync",
+        description: "settingsSections.irrisense.description",
+        // No yaml keys: the IrriSense settings (token included) live in the
+        // GUI's key-value DB and the section loads/saves them itself.
+        keys: [],
     },
     {
         id: "advanced",
