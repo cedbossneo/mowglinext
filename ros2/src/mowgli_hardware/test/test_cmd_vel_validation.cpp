@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 using mowgli_hardware::is_finite_velocity_command;
+using mowgli_hardware::is_float32_representable_velocity_command;
 
 TEST(CmdVelValidation, AcceptsFiniteCommands)
 {
@@ -34,16 +35,31 @@ TEST(CmdVelValidation, RejectsBothNonFinite)
                                           std::numeric_limits<double>::infinity()));
 }
 
-TEST(CmdVelValidation, RejectsValuesNonFiniteAfterFloatWireConversion)
+TEST(CmdVelValidation, RejectsValuesOutsideFloatWireRangeBeforeNarrowing)
 {
-  const double positive_overflow = std::numeric_limits<double>::max();
-  const double negative_overflow = -std::numeric_limits<double>::max();
-  EXPECT_FALSE(is_finite_velocity_command(static_cast<float>(positive_overflow), 0.0f));
-  EXPECT_FALSE(is_finite_velocity_command(0.0f, static_cast<float>(negative_overflow)));
+  const double max_wire_float = static_cast<double>(std::numeric_limits<float>::max());
+  const double above_max_wire_float =
+      std::nextafter(max_wire_float, std::numeric_limits<double>::infinity());
+  const double below_min_wire_float =
+      std::nextafter(-max_wire_float, -std::numeric_limits<double>::infinity());
+
+  EXPECT_FALSE(is_float32_representable_velocity_command(std::numeric_limits<double>::max(), 0.0));
+  EXPECT_FALSE(is_float32_representable_velocity_command(-std::numeric_limits<double>::max(), 0.0));
+  EXPECT_FALSE(is_float32_representable_velocity_command(above_max_wire_float, 0.0));
+  EXPECT_FALSE(is_float32_representable_velocity_command(0.0, below_min_wire_float));
 }
 
 TEST(CmdVelValidation, AcceptsMaximumFiniteFloatWireValue)
 {
-  const float largest_finite_float = std::numeric_limits<float>::max();
-  EXPECT_TRUE(is_finite_velocity_command(largest_finite_float, -largest_finite_float));
+  const double max_wire_float = static_cast<double>(std::numeric_limits<float>::max());
+  EXPECT_TRUE(is_float32_representable_velocity_command(max_wire_float, -max_wire_float));
+  EXPECT_TRUE(is_float32_representable_velocity_command(0.0, -0.0));
+}
+
+TEST(CmdVelValidation, RejectsNonFiniteFloatWireValues)
+{
+  EXPECT_FALSE(is_float32_representable_velocity_command(
+      std::numeric_limits<double>::quiet_NaN(), 0.0));
+  EXPECT_FALSE(is_float32_representable_velocity_command(
+      0.0, std::numeric_limits<double>::infinity()));
 }

@@ -3106,20 +3106,25 @@ private:
   void send_cmd_vel_packet(double vx, double wz)
   {
     // Keep this final construction boundary defensive as well: callers such
-    // as the bounded dig escape pass doubles, and a value that is finite as a
-    // double can become Inf when narrowed to the wire's float32 format.
-    const float wire_vx = static_cast<float>(vx);
-    const float wire_wz = static_cast<float>(wz);
-    if (!mowgli_hardware::is_finite_velocity_command(wire_vx, wire_wz))
+    // as the bounded dig escape pass doubles.  Check float32 representability
+    // before narrowing: converting an out-of-range double is not a safe way
+    // to detect wire overflow.
+    if (!mowgli_hardware::is_float32_representable_velocity_command(vx, wz))
     {
       RCLCPP_WARN_THROTTLE(get_logger(),
                            *get_clock(),
                            5000,
-                           "Refusing non-finite LlCmdVel wire values (linear.x=%f, angular.z=%f).",
+                           "Refusing non-finite or out-of-range LlCmdVel values "
+                           "(linear.x=%f, angular.z=%f).",
                            vx,
                            wz);
       return;
     }
+
+    // The pre-check establishes that both conversions are within float32's
+    // finite range.
+    const float wire_vx = static_cast<float>(vx);
+    const float wire_wz = static_cast<float>(wz);
 
     LlCmdVel pkt{};
     pkt.type = PACKET_ID_LL_CMD_VEL;
