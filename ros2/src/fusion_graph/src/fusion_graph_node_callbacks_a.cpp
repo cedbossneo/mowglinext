@@ -298,11 +298,11 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
   // Associate the receiver-receipt provenance with the live historical node
   // before any current-RTK latch is changed. A delayed observation whose graph
   // node has expired is not current localization evidence.
-  std::optional<uint64_t> measurement_node;
+  std::optional<uint64_t> receipt_node;
   if (graph_->IsInitialized())
   {
-    measurement_node = graph_->FindNodeAtOrBefore(receipt_stamp.seconds());
-    if (!measurement_node)
+    receipt_node = graph_->FindNodeAtOrBefore(receipt_stamp.seconds());
+    if (!receipt_node)
     {
       RCLCPP_WARN_THROTTLE(
           get_logger(),
@@ -479,7 +479,6 @@ void FusionGraphNode::OnGnss(sensor_msgs::msg::NavSatFix::ConstSharedPtr msg)
     return;
   }
   commit_current_gnss_evidence();
-  seed_xy_ = gtsam::Vector2(mx, my);
   // Latch whether the most recent seed came from RTK-Fixed so the next
   // graph initialization can use a tight prior matching that quality.
   // Stale once seeded but TrySeedInitialPose only fires once per
