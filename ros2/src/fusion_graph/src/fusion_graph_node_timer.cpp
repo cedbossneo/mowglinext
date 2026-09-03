@@ -368,7 +368,6 @@ void FusionGraphNode::OnTimer()
       ++lc_rate_gated_;
 
     if (lc_gate_open)
-{
     {
       auto candidates = graph_->FindLoopClosureCandidates(out->node_index,
                                                           lc_max_dist_m_,
