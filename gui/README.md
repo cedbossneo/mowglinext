@@ -111,6 +111,23 @@ Available commands :
 
 Do not forget to set env var MQTT_ENABLED to true
 
+### IrriSense
+
+Optional soil-moisture gate for scheduled mowing, fed by your own
+[IrriSense Cloud](https://irrisense-cloud.fly.dev) irrigation service. Mint a
+**read-only API token** in IrriSense (Settings → API tokens — a login session is
+rejected), then open Settings → IrriSense in the GUI: paste the token, pick the
+garden (and optionally the zones), and leave "Block scheduled mowing when wet"
+on. The GUI polls the garden every 10 minutes; a zone counts as wet when its
+deficit is ≤ 2 mm or it was watered within the last 3 h (both adjustable), and a
+due schedule is skipped while any selected zone is wet — the reason is shown on
+the schedule card. The gate is fail-open: if the service is unreachable, the
+token is wrong, or the data is older than 90 minutes, the state is "unknown" and
+schedules run as usual. The token lives only in the GUI database
+(`irrisense.token`), is never written to `mowgli_robot.yaml` and is never sent
+back to the browser. Endpoints: `GET/PUT /api/irrisense/settings`,
+`GET /api/irrisense/status`, `GET /api/irrisense/gardens`.
+
 ### Env variables
 
 - MOWER_CONFIG_FILE=mower_config.sh : config file location

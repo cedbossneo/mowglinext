@@ -28,6 +28,7 @@ import { ObstaclesSection } from "../components/settings/ObstaclesSection.tsx";
 import { NavigationSection } from "../components/settings/NavigationSection.tsx";
 import { RainSection } from "../components/settings/RainSection.tsx";
 import { LedsSection } from "../components/settings/LedsSection.tsx";
+import { IrriSenseSection } from "../components/settings/IrriSenseSection.tsx";
 import { AdvancedSection } from "../components/settings/AdvancedSection.tsx";
 import { SettingsPreview } from "../components/settings/SettingsPreview.tsx";
 import { DisplayModeSection } from "../components/settings/DisplayModeSection.tsx";
@@ -226,6 +227,8 @@ export const SettingsPage = () => {
                         onReset={resetToDefault}
                     />
                 );
+            case "irrisense":
+                return <IrriSenseSection />;
             case "advanced":
                 return <AdvancedSection values={values} advancedKeys={advancedKeys} onChange={handleChange} />;
             default:

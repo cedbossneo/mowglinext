@@ -900,6 +900,12 @@
   },
   "schedulePage": {
     "planning": "Planning",
+    "soilWetBlocking": "Sol humide — tontes planifiées suspendues",
+    "soilWet": "Sol humide",
+    "soilDry": "Sol sec",
+    "soilUnknown": "IrriSense : état inconnu",
+    "soilFetchedAt": "Données IrriSense du {{value}}",
+    "lastSkipped": "Ignorée {{value}} : {{reason}}",
     "scheduledMows": "Tontes programmées",
     "areaLabel": "Zone {{index}}",
     "dayMon": "Lun",
@@ -2950,6 +2956,58 @@
   "asyncButton": {
     "errorOccurred": "Une erreur est survenue"
   },
+  "settingsIrriSense": {
+    "title": "Humidité du sol IrriSense Cloud",
+    "description": "Lit le déficit hydrique des zones de votre service d'arrosage pour que le planificateur ne lance pas de tonte sur herbe mouillée.",
+    "failOpenTitle": "Sécurité positive par conception",
+    "failOpenBody": "Si IrriSense est injoignable, mal configuré ou si ses données sont plus anciennes que la fenêtre de validité, l'état du sol est « inconnu » et les tontes planifiées se lancent normalement. Une panne du cloud ne garde jamais le robot à la station.",
+    "connection": "Connexion",
+    "baseUrl": "URL du service",
+    "baseUrlTooltip": "URL de base de votre instance IrriSense Cloud ; l'API en lecture seule est sous /api/ha.",
+    "token": "Jeton API en lecture seule",
+    "tokenTooltip": "Créez un jeton API en lecture seule dans IrriSense (Réglages → Jetons API). Une session de connexion est refusée. Le jeton est stocké sur le robot et n'est plus jamais affiché.",
+    "tokenPlaceholder": "Collez un nouveau jeton…",
+    "tokenApply": "Définir",
+    "tokenClear": "Effacer",
+    "tokenSet": "Jeton enregistré ({{masked}})",
+    "tokenNotSet": "Aucun jeton enregistré",
+    "tokenPending": "Le nouveau jeton sera enregistré à la sauvegarde",
+    "tokenCleared": "Le jeton sera supprimé à la sauvegarde",
+    "garden": "Jardin",
+    "gardenTooltip": "Le jardin IrriSense à lire. Utilisez « Tester la connexion » pour remplir la liste.",
+    "gardenPlaceholder": "Choisir un jardin",
+    "zones": "Zones (optionnel)",
+    "zonesTooltip": "Laissez vide pour considérer toutes les zones actives du jardin.",
+    "zonesPlaceholder": "Toutes les zones actives",
+    "zoneDisabled": "{{label}} (désactivée)",
+    "testConnection": "Tester la connexion",
+    "testOk_one": "IrriSense joignable : {{count}} jardin",
+    "testOk_other": "IrriSense joignable : {{count}} jardins",
+    "testFailed": "Échec de la connexion à IrriSense",
+    "rule": "Règle d'humidité",
+    "ruleDescription": "Une zone est humide quand son déficit (mm évaporés depuis le dernier arrosage ou la dernière pluie) est inférieur ou égal au seuil, ou quand elle a été arrosée récemment. Le jardin est humide dès qu'une zone sélectionnée l'est.",
+    "wetDeficit": "Humide si déficit ≤",
+    "wetDeficitTooltip": "Déficit en dessous duquel la surface est considérée humide. Défaut 2 mm.",
+    "dryAfterWatering": "Humide après arrosage pendant",
+    "dryAfterWateringTooltip": "Une zone arrosée depuis moins de ce nombre d'heures compte comme humide quel que soit son déficit. Défaut 3 h.",
+    "maxStale": "Validité des données",
+    "maxStaleTooltip": "Si la dernière lecture réussie est plus ancienne, l'état est inconnu et la tonte n'est pas bloquée. Défaut 90 min.",
+    "gateScheduler": "Bloquer les tontes planifiées si humide",
+    "gateSchedulerDescription": "Désactivé, l'état du sol est seulement affiché et aucune tonte n'est ignorée.",
+    "status": "État en direct",
+    "verdict": {
+      "wet": "Humide",
+      "dry": "Sec",
+      "unknown": "Inconnu"
+    },
+    "fetchedAt": "lu le {{value}}",
+    "neverFetched": "aucune donnée lue pour l'instant",
+    "refresh": "Actualiser",
+    "save": "Enregistrer les réglages IrriSense",
+    "saved": "Réglages IrriSense enregistrés",
+    "saveFailed": "Échec de l'enregistrement des réglages IrriSense",
+    "loadFailed": "Échec du chargement des réglages IrriSense"
+  },
   "settingsLeds": {
     "statusRing": "Anneau d'état WS2812",
     "statusRingDescription": "Un anneau de LED adressables sur le robot qui montre l'état d'un coup d'œil : arrêt d'urgence, charge, progression de la tonte et santé RTK. En lecture seule — il ne commande jamais le robot et ne fait pas partie de la chaîne de sécurité des lames (le firmware garde sa propre LED d'état).",
@@ -3059,6 +3117,10 @@
     "rain": {
       "label": "Pluie",
       "description": "Comportement de détection de pluie et délai"
+    },
+    "irrisense": {
+      "label": "IrriSense",
+      "description": "Humidité du sol depuis votre jardin IrriSense Cloud : suspend les tontes planifiées sur herbe mouillée"
     },
     "leds": {
       "label": "LED d'état",
