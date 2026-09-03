@@ -349,7 +349,7 @@ private:
       desc.read_only = true;
       desc.floating_point_range.resize(1);
       desc.floating_point_range[0].from_value = minimum_timer_rate_hz();
-      desc.floating_point_range[0].to_value = std::numeric_limits<double>::max();
+      desc.floating_point_range[0].to_value = maximum_timer_rate_hz();
       return declare_parameter<double>(name, default_val, desc);
     };
     auto bounded_startup_double =

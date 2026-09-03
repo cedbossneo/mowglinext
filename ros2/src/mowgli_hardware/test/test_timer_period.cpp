@@ -34,6 +34,9 @@ TEST(TimerPeriod, RejectsZeroNegativeAndNonFiniteRates)
 TEST(TimerPeriod, OneNanosecondPeriodIsTheFastestAcceptedCadence)
 {
   EXPECT_EQ(timer_period_from_rate_hz(1.0e9).count(), 1);
+  EXPECT_THROW(timer_period_from_rate_hz(std::nextafter(maximum_timer_rate_hz(),
+                                                        std::numeric_limits<double>::infinity())),
+               std::invalid_argument);
   EXPECT_THROW(timer_period_from_rate_hz(std::numeric_limits<double>::max()),
                std::invalid_argument);
 }

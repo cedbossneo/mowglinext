@@ -55,6 +55,11 @@ inline double minimum_timer_rate_hz()
   return std::nextafter(exact, std::numeric_limits<double>::infinity());
 }
 
+inline constexpr double maximum_timer_rate_hz()
+{
+  return 1.0e9;
+}
+
 /**
  * Convert a timer cadence in Hz to a positive, representable wall-timer
  * duration. Nanoseconds preserve sub-millisecond cadence. Rates whose period
@@ -63,9 +68,10 @@ inline double minimum_timer_rate_hz()
  */
 inline TimerDuration timer_period_from_rate_hz(double rate_hz)
 {
-  if (!std::isfinite(rate_hz) || rate_hz <= 0.0)
+  if (!std::isfinite(rate_hz) || rate_hz < minimum_timer_rate_hz() ||
+      rate_hz > maximum_timer_rate_hz())
   {
-    throw std::invalid_argument("timer rate must be finite and positive");
+    throw std::invalid_argument("timer rate must be finite and within the representable range");
   }
 
   const long double period_ns = 1.0e9L / static_cast<long double>(rate_hz);
