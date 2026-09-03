@@ -16,6 +16,12 @@ namespace mowgli_hardware
 
 using TimerDuration = std::chrono::nanoseconds;
 
+// Mirrors the firmware's PKT_ID_SET_KINEMATICS wheel-base clamp. Keeping the
+// host in this range prevents host odometry and firmware inverse kinematics
+// from silently using different geometry.
+inline constexpr double kMinRuntimeWheelTrackM = 0.15;
+inline constexpr double kMaxRuntimeWheelTrackM = 0.60;
+
 inline void require_finite_positive(double value, const char* name)
 {
   if (!std::isfinite(value) || value <= 0.0)
@@ -32,35 +38,46 @@ inline void require_finite_nonnegative_timeout(double value, const char* name)
   }
 }
 
-/** Lowest positive rate whose reciprocal is representable as TimerDuration. */
-inline constexpr double minimum_timer_rate_hz()
+inline void require_runtime_wheel_track(double value)
 {
-  return 1.0e9 / static_cast<double>(TimerDuration::max().count());
+  if (!std::isfinite(value) || value < kMinRuntimeWheelTrackM || value > kMaxRuntimeWheelTrackM)
+  {
+    throw std::invalid_argument("wheel_track must be finite and within [0.15, 0.60] m");
+  }
+}
+
+/** Lowest positive rate whose reciprocal is representable as TimerDuration. */
+inline double minimum_timer_rate_hz()
+{
+  // Round upward so the descriptor cannot admit a rate whose reciprocal is
+  // already outside the int64 nanosecond range after floating-point rounding.
+  const double exact = 1.0e9 / static_cast<double>(TimerDuration::max().count());
+  return std::nextafter(exact, std::numeric_limits<double>::infinity());
 }
 
 /**
  * Convert a timer cadence in Hz to a positive, representable wall-timer
- * duration.  Nanoseconds preserve sub-millisecond cadence.  Rates faster than
- * one tick per nanosecond intentionally saturate at one nanosecond rather
- * than producing a zero-duration busy loop.
+ * duration. Nanoseconds preserve sub-millisecond cadence. Rates whose period
+ * is outside the representable [1 ns, nanoseconds::max()] interval are
+ * rejected rather than creating a zero-duration or CPU-hammering timer.
  */
 inline TimerDuration timer_period_from_rate_hz(double rate_hz)
 {
-  if (!std::isfinite(rate_hz) || rate_hz < minimum_timer_rate_hz())
+  if (!std::isfinite(rate_hz) || rate_hz <= 0.0)
   {
-    throw std::invalid_argument(
-        "timer rate must be finite, positive, and have a representable period");
+    throw std::invalid_argument("timer rate must be finite and positive");
   }
 
   const long double period_ns = 1.0e9L / static_cast<long double>(rate_hz);
-  if (period_ns <= 1.0L)
+  const long double max_period_ns = static_cast<long double>(TimerDuration::max().count());
+  if (period_ns < 1.0L || period_ns > max_period_ns)
   {
-    return TimerDuration{1};
+    throw std::invalid_argument("timer rate must have a representable period in [1 ns, max]");
   }
 
-  // The lower-rate bound above makes the cast representable.  Truncation is
-  // deliberate: it preserves the historic exact periods for integral-ms
-  // defaults while allowing sub-millisecond rates.
+  // Bounds were checked as long doubles before this conversion. Truncation
+  // preserves historic exact periods for integral-ms defaults while allowing
+  // sub-millisecond rates.
   return TimerDuration{static_cast<TimerDuration::rep>(period_ns)};
 }
 

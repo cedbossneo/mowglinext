@@ -5,9 +5,8 @@
 #include <limits>
 #include <stdexcept>
 
-#include <gtest/gtest.h>
-
 #include "mowgli_hardware/timer_period.hpp"
+#include <gtest/gtest.h>
 
 namespace mowgli_hardware
 {
@@ -28,28 +27,56 @@ TEST(TimerPeriod, RejectsZeroNegativeAndNonFiniteRates)
                std::invalid_argument);
   EXPECT_THROW(timer_period_from_rate_hz(std::numeric_limits<double>::infinity()),
                std::invalid_argument);
-}
-
-TEST(TimerPeriod, VeryHighFiniteRateCannotCreateZeroDuration)
-{
-  EXPECT_EQ(timer_period_from_rate_hz(std::numeric_limits<double>::max()).count(), 1);
-}
-
-TEST(TimerPeriod, RejectsRateWithUnrepresentablyLongPeriod)
-{
-  EXPECT_THROW(timer_period_from_rate_hz(minimum_timer_rate_hz() / 2.0),
+  EXPECT_THROW(timer_period_from_rate_hz(-std::numeric_limits<double>::infinity()),
                std::invalid_argument);
+}
+
+TEST(TimerPeriod, OneNanosecondPeriodIsTheFastestAcceptedCadence)
+{
+  EXPECT_EQ(timer_period_from_rate_hz(1.0e9).count(), 1);
+  EXPECT_THROW(timer_period_from_rate_hz(std::numeric_limits<double>::max()),
+               std::invalid_argument);
+}
+
+TEST(TimerPeriod, HandlesRepresentablePeriodBoundaryWithoutOverflow)
+{
+  const double minimum = minimum_timer_rate_hz();
+  EXPECT_GT(timer_period_from_rate_hz(minimum).count(), 0);
+  EXPECT_LE(timer_period_from_rate_hz(minimum), TimerDuration::max());
+  EXPECT_NO_THROW(
+      timer_period_from_rate_hz(std::nextafter(minimum, std::numeric_limits<double>::infinity())));
+  EXPECT_THROW(timer_period_from_rate_hz(std::nextafter(minimum, 0.0)), std::invalid_argument);
 }
 
 TEST(TimerPeriod, RejectsInvalidDivisorsAndTimeouts)
 {
-  EXPECT_THROW(require_finite_positive(0.0, "wheel_track"), std::invalid_argument);
-  EXPECT_THROW(require_finite_positive(std::numeric_limits<double>::quiet_NaN(), "wheel_track"),
+  EXPECT_NO_THROW(require_runtime_wheel_track(0.325));
+  EXPECT_THROW(require_runtime_wheel_track(0.0), std::invalid_argument);
+  EXPECT_THROW(require_runtime_wheel_track(-0.325), std::invalid_argument);
+  EXPECT_THROW(require_runtime_wheel_track(std::numeric_limits<double>::quiet_NaN()),
                std::invalid_argument);
+  EXPECT_THROW(require_runtime_wheel_track(std::numeric_limits<double>::infinity()),
+               std::invalid_argument);
+  EXPECT_THROW(require_runtime_wheel_track(kMinRuntimeWheelTrackM / 2.0), std::invalid_argument);
+  EXPECT_THROW(require_runtime_wheel_track(kMaxRuntimeWheelTrackM * 2.0), std::invalid_argument);
+
+  EXPECT_NO_THROW(require_finite_nonnegative_timeout(0.0, "serial_rx_timeout_s"));
+  EXPECT_NO_THROW(require_finite_positive(1.0, "dig_pose_timeout_s"));
   EXPECT_THROW(require_finite_nonnegative_timeout(-1.0, "serial_rx_timeout_s"),
                std::invalid_argument);
   EXPECT_THROW(require_finite_nonnegative_timeout(std::numeric_limits<double>::quiet_NaN(),
                                                   "serial_rx_timeout_s"),
+               std::invalid_argument);
+  EXPECT_THROW(require_finite_nonnegative_timeout(std::numeric_limits<double>::infinity(),
+                                                  "serial_rx_timeout_s"),
+               std::invalid_argument);
+  EXPECT_THROW(require_finite_positive(0.0, "dig_pose_timeout_s"), std::invalid_argument);
+  EXPECT_THROW(require_finite_positive(-1.0, "dig_pose_timeout_s"), std::invalid_argument);
+  EXPECT_THROW(require_finite_positive(std::numeric_limits<double>::quiet_NaN(),
+                                       "dig_pose_timeout_s"),
+               std::invalid_argument);
+  EXPECT_THROW(require_finite_positive(std::numeric_limits<double>::infinity(),
+                                       "dig_pose_timeout_s"),
                std::invalid_argument);
 }
 

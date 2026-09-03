@@ -5,9 +5,8 @@
 #include <cmath>
 #include <cstdint>
 
-#include <gtest/gtest.h>
-
 #include "mowgli_hardware/battery_state_semantics.hpp"
+#include <gtest/gtest.h>
 
 namespace mowgli_hardware
 {

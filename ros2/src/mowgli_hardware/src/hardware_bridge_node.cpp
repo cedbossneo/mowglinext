@@ -312,7 +312,7 @@ public:
       : Node("hardware_bridge", options), odometry_publisher_(*this)
   {
     declare_parameters();
-    validate_timer_parameters();
+    validate_startup_parameters();
     create_publishers();
     create_subscribers();
     create_services();
@@ -340,11 +340,12 @@ private:
     serial_port_path_ = declare_parameter<std::string>("serial_port", "/dev/mowgli");
     baud_rate_ = declare_parameter<int>("baud_rate", 115200);
     // Cadence is read once at startup.  The descriptor rejects invalid startup
-    // overrides; validate_timer_parameters() also rejects non-finite values.
+    // overrides; validate_startup_parameters() also rejects non-finite values.
     auto timer_rate = [this](const std::string& name, double default_val) -> double
     {
       rcl_interfaces::msg::ParameterDescriptor desc;
-      desc.description = "Finite positive timer cadence in Hz (read at startup).";
+      desc.description =
+          "Finite startup-only timer cadence in Hz with a representable period of at least 1 ns.";
       desc.read_only = true;
       desc.floating_point_range.resize(1);
       desc.floating_point_range[0].from_value = minimum_timer_rate_hz();
@@ -355,7 +356,7 @@ private:
         [this](const std::string& name, double default_val, double min, double max) -> double
     {
       rcl_interfaces::msg::ParameterDescriptor desc;
-      desc.description = "Finite bounded value read at startup.";
+      desc.description = "Finite bounded startup-only value.";
       desc.read_only = true;
       desc.floating_point_range.resize(1);
       desc.floating_point_range[0].from_value = min;
@@ -372,6 +373,8 @@ private:
     // OS leaves the stale fd "open" (reads just return nothing), so without
     // this the bridge would sit forever writing into a dead fd. Reopening
     // re-resolves /dev/mowgli to the new ttyACM.
+    // Zero intentionally disables the RX watchdog; non-finite and negative
+    // values have no useful or safe watchdog meaning.
     serial_rx_timeout_s_ =
         bounded_startup_double("serial_rx_timeout_s", 2.0, 0.0, std::numeric_limits<double>::max());
     high_level_rate_ = timer_rate("high_level_rate", 2.0);
@@ -388,8 +391,8 @@ private:
     // STM32 so the firmware wheel PI / odom share the same tuned value.
     wheel_track_ = bounded_startup_double("wheel_track",
                                           0.325,
-                                          std::numeric_limits<double>::min(),
-                                          static_cast<double>(std::numeric_limits<float>::max()));
+                                          kMinRuntimeWheelTrackM,
+                                          kMaxRuntimeWheelTrackM);
     // Helper for declaring doubles with a floating_point_range descriptor so
     // ros2 param set rejects out-of-bounds values at the framework level before
     // the set-parameters callback fires. Ranges mirror the firmware validation.
@@ -712,20 +715,31 @@ private:
     // RTK-Float the map pose cannot distinguish slip from GNSS noise, and a
     // false dig would hard-stop a perfectly healthy robot mid-mow.
     dig_cfg_.max_pos_sigma = declare_parameter<double>("dig_max_pos_sigma", 0.10);
-    dig_gnss_timeout_s_ = bounded_startup_double(
-        "dig_gnss_timeout_s", 2.0, 0.0, std::numeric_limits<double>::max());
+    // Zero freshness windows would permanently stand the detector down, and a
+    // zero escape timeout would suppress its reverse manoeuvre. Require each
+    // dig timeout to be strictly positive instead.
+    dig_gnss_timeout_s_ = bounded_startup_double("dig_gnss_timeout_s",
+                                                 2.0,
+                                                 std::numeric_limits<double>::min(),
+                                                 std::numeric_limits<double>::max());
     dig_cfg_.max_yaw_rate = declare_parameter<double>("dig_max_yaw_rate", 0.20);
-    dig_gyro_timeout_s_ = bounded_startup_double(
-        "dig_gyro_timeout_s", 0.5, 0.0, std::numeric_limits<double>::max());
+    dig_gyro_timeout_s_ = bounded_startup_double("dig_gyro_timeout_s",
+                                                 0.5,
+                                                 std::numeric_limits<double>::min(),
+                                                 std::numeric_limits<double>::max());
     dig_escape_cfg_.reverse_speed = declare_parameter<double>("dig_reverse_speed", 0.12);
     dig_escape_cfg_.reverse_dist = declare_parameter<double>("dig_reverse_dist", 0.30);
-    dig_escape_cfg_.timeout_s = bounded_startup_double(
-        "dig_reverse_timeout_s", 4.0, 0.0, std::numeric_limits<double>::max());
+    dig_escape_cfg_.timeout_s = bounded_startup_double("dig_reverse_timeout_s",
+                                                       4.0,
+                                                       std::numeric_limits<double>::min(),
+                                                       std::numeric_limits<double>::max());
     dig_monitor_rate_ = timer_rate("dig_monitor_rate", 10.0);
     // Fused pose older than this is treated as absent (detector stands down)
     // rather than compared against stale coordinates.
-    dig_pose_timeout_s_ = bounded_startup_double(
-        "dig_pose_timeout_s", 1.0, 0.0, std::numeric_limits<double>::max());
+    dig_pose_timeout_s_ = bounded_startup_double("dig_pose_timeout_s",
+                                                 1.0,
+                                                 std::numeric_limits<double>::min(),
+                                                 std::numeric_limits<double>::max());
     dig_cfg_.enabled = dig_detect_enabled_;
 
     // ── Repeat-dig escalation (see mowgli_hardware/dig_escalation.hpp) ─────
@@ -753,7 +767,7 @@ private:
                 high_level_rate_);
   }
 
-  void validate_timer_parameters() const
+  void validate_startup_parameters() const
   {
     // Descriptors provide ROS-facing bounds.  Converting each value here adds
     // the finite check which range descriptors alone cannot express and fails
@@ -763,11 +777,11 @@ private:
     (void)timer_period_from_rate_hz(high_level_rate_);
     (void)timer_period_from_rate_hz(dig_monitor_rate_);
     require_finite_nonnegative_timeout(serial_rx_timeout_s_, "serial_rx_timeout_s");
-    require_finite_positive(wheel_track_, "wheel_track");
-    require_finite_nonnegative_timeout(dig_gnss_timeout_s_, "dig_gnss_timeout_s");
-    require_finite_nonnegative_timeout(dig_gyro_timeout_s_, "dig_gyro_timeout_s");
-    require_finite_nonnegative_timeout(dig_escape_cfg_.timeout_s, "dig_reverse_timeout_s");
-    require_finite_nonnegative_timeout(dig_pose_timeout_s_, "dig_pose_timeout_s");
+    require_runtime_wheel_track(wheel_track_);
+    require_finite_positive(dig_gnss_timeout_s_, "dig_gnss_timeout_s");
+    require_finite_positive(dig_gyro_timeout_s_, "dig_gyro_timeout_s");
+    require_finite_positive(dig_escape_cfg_.timeout_s, "dig_reverse_timeout_s");
+    require_finite_positive(dig_pose_timeout_s_, "dig_pose_timeout_s");
   }
 
   void create_publishers()
