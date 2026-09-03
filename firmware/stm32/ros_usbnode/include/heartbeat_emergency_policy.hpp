@@ -16,6 +16,9 @@ enum class HeartbeatEmergencyAction {
 
 struct HeartbeatEmergencyDecision {
   HeartbeatEmergencyAction action;
+  // This is consumed after every action by the firmware handler. It discards
+  // watchdog-only provenance once the emergency is asserted, released,
+  // auto-cleared, or found to have become physical.
   bool clear_heartbeat_only_latch;
 };
 
@@ -23,11 +26,11 @@ struct HeartbeatEmergencyDecision {
 // a normal heartbeat, but never when that heartbeat explicitly requests STOP.
 constexpr HeartbeatEmergencyDecision decide_heartbeat_emergency(
     const bool emergency_requested, const bool emergency_release_requested,
-    const bool physical_emergency, const bool heartbeat_only_latch) {
+    const bool physical_emergency, const bool watchdog_latch_active) {
   return emergency_requested
              ? HeartbeatEmergencyDecision{HeartbeatEmergencyAction::Assert,
                                           true}
-         : heartbeat_only_latch
+         : watchdog_latch_active
              ? (physical_emergency
                     ? HeartbeatEmergencyDecision{HeartbeatEmergencyAction::
                                                      Unchanged,

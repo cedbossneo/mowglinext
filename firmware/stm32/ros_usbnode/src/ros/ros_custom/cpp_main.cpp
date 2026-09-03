@@ -380,26 +380,22 @@ static void on_heartbeat(const uint8_t *data, size_t len) {
 
   switch (decision.action) {
     case HeartbeatEmergencyAction::Assert:
-      heartbeat_only_latch = false;  /* host stop is not comms-loss */
       Emergency_SetState(1);
       break;
     case HeartbeatEmergencyAction::Release:
       Emergency_SetState(0);
-      heartbeat_only_latch = false;
       break;
     case HeartbeatEmergencyAction::AutoClearWatchdog:
       Emergency_SetState(0);
-      heartbeat_only_latch = false;
       debug_printf("heartbeat resumed: comms-loss emergency auto-cleared\r\n");
       break;
     case HeartbeatEmergencyAction::Unchanged:
-      if (decision.clear_heartbeat_only_latch) {
-        /* A physical sensor is now asserted — this is no longer a pure comms
-         * latch; require an explicit operator release. */
-        heartbeat_only_latch = false;
-      }
       break;
-    }
+  }
+
+  if (decision.clear_heartbeat_only_latch) {
+    heartbeat_only_latch = false;
+  }
 
   if (emergency_release_requested && !emergency_requested &&
       physical_emergency) {
