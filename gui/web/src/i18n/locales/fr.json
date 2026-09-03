@@ -694,7 +694,9 @@
     "coverageProgress": "Couverture de la zone · {{pct}} %",
     "bladesOff": "arrêt",
     "areaN": "Zone {{number}}",
-    "actionFailed": "Échec de la commande"
+    "actionFailed": "Échec de la commande",
+    "soilWetTitle": "Attention : le jardin est humide (IrriSense)",
+    "soilWetBlocking": "tontes planifiées suspendues"
   },
   "onboardingPage": {
     "preview": "Aperçu",
@@ -1906,10 +1908,18 @@
         "tooltip": "Modèle de mouvement que le récepteur suppose pour le RTK. UAV est le moteur cinématique qui fixe rapidement et conserve le verrouillage pendant que la tondeuse se déplace ; Survey Mow est optimisé pour un relevé quasi statique (plus lent à fixer, peut perdre le verrouillage en mouvement) ; Rover est le repli générique.",
         "helpText": "Auto utilise la valeur par défaut selon le modèle (le UM980 utilise UAV par défaut). Choisissez UAV si votre récepteur est lent à atteindre le RTK-Fixe ou perd le fix pendant la tonte.",
         "option": {
-          "auto": { "label": "Auto (défaut selon le modèle)" },
-          "uav": { "label": "UAV (cinématique — recommandé)" },
-          "survey_mow": { "label": "Survey Mow" },
-          "rover": { "label": "Rover (générique)" }
+          "auto": {
+            "label": "Auto (défaut selon le modèle)"
+          },
+          "uav": {
+            "label": "UAV (cinématique — recommandé)"
+          },
+          "survey_mow": {
+            "label": "Survey Mow"
+          },
+          "rover": {
+            "label": "Rover (générique)"
+          }
         }
       },
       "pvtAlgorithm": {
@@ -3003,7 +3013,6 @@
     "fetchedAt": "lu le {{value}}",
     "neverFetched": "aucune donnée lue pour l'instant",
     "refresh": "Actualiser",
-    "save": "Enregistrer les réglages IrriSense",
     "saved": "Réglages IrriSense enregistrés",
     "saveFailed": "Échec de l'enregistrement des réglages IrriSense",
     "loadFailed": "Échec du chargement des réglages IrriSense"
