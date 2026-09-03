@@ -1,9 +1,8 @@
 #include <cmath>
 #include <limits>
 
-#include <gtest/gtest.h>
-
 #include "mowgli_hardware/cmd_vel_validation.hpp"
+#include <gtest/gtest.h>
 
 using mowgli_hardware::is_finite_velocity_command;
 
@@ -29,8 +28,8 @@ TEST(CmdVelValidation, RejectsNonFiniteAngularVelocity)
 
 TEST(CmdVelValidation, RejectsBothNonFinite)
 {
-  EXPECT_FALSE(is_finite_velocity_command(
-    std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()));
+  EXPECT_FALSE(is_finite_velocity_command(std::numeric_limits<double>::quiet_NaN(),
+                                          std::numeric_limits<double>::infinity()));
 }
 
 TEST(CmdVelValidation, RejectsValuesNonFiniteAfterFloatWireConversion)

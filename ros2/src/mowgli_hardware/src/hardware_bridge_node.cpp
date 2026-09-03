@@ -61,8 +61,8 @@
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_hardware/blade_gate.hpp"
-#include "mowgli_hardware/cmd_vel_validation.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
+#include "mowgli_hardware/cmd_vel_validation.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
 #include "mowgli_hardware/dig_escalation.hpp"
 #include "mowgli_hardware/gnss_hardware_status.hpp"
@@ -2725,9 +2725,12 @@ private:
     if (!mowgli_hardware::is_finite_velocity_command(vx, wz))
     {
       RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 5000,
-        "Rejecting non-finite cmd_vel (linear.x=%f, angular.z=%f); command discarded.",
-        vx, wz);
+          get_logger(),
+          *get_clock(),
+          5000,
+          "Rejecting non-finite cmd_vel (linear.x=%f, angular.z=%f); command discarded.",
+          vx,
+          wz);
       return;
     }
 
@@ -3109,10 +3112,12 @@ private:
     const float wire_wz = static_cast<float>(wz);
     if (!mowgli_hardware::is_finite_velocity_command(wire_vx, wire_wz))
     {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 5000,
-        "Refusing non-finite LlCmdVel wire values (linear.x=%f, angular.z=%f).",
-        vx, wz);
+      RCLCPP_WARN_THROTTLE(get_logger(),
+                           *get_clock(),
+                           5000,
+                           "Refusing non-finite LlCmdVel wire values (linear.x=%f, angular.z=%f).",
+                           vx,
+                           wz);
       return;
     }
 

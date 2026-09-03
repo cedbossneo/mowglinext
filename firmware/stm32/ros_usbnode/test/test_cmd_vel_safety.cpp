@@ -63,13 +63,11 @@ static void test_valid_command_after_invalid_is_normal()
   TEST_ASSERT_EQUAL_UINT32(13u, state.last_valid_tick);
 }
 
-void setup()
+int main()
 {
   UNITY_BEGIN();
   RUN_TEST(test_finite_and_zero_are_accepted);
   RUN_TEST(test_nonfinite_commands_clear_targets_without_refresh);
   RUN_TEST(test_valid_command_after_invalid_is_normal);
-  UNITY_END();
+  return UNITY_END();
 }
-
-void loop() {}
