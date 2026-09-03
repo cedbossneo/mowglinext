@@ -50,6 +50,9 @@ export const SettingsPage = () => {
         loading,
         saving,
         isDirty,
+        dirtyCount,
+        registerExternalSaver,
+        unregisterExternalSaver,
         dirtyKeys,
         restartRequired,
         searchQuery,
@@ -228,7 +231,12 @@ export const SettingsPage = () => {
                     />
                 );
             case "irrisense":
-                return <IrriSenseSection />;
+                return (
+                    <IrriSenseSection
+                        registerSaver={registerExternalSaver}
+                        unregisterSaver={unregisterExternalSaver}
+                    />
+                );
             case "advanced":
                 return <AdvancedSection values={values} advancedKeys={advancedKeys} onChange={handleChange} />;
             default:
@@ -391,7 +399,7 @@ export const SettingsPage = () => {
                     loading={saving}
                     disabled={!isDirty}
                 >
-                    {isDirty ? t("settingsPage.saveWithCount", {count: dirtyKeys.size}) : t("settingsPage.saved")}
+                    {isDirty ? t("settingsPage.saveWithCount", {count: dirtyCount}) : t("settingsPage.saved")}
                 </Button>
                 {isDirty && (
                     <Button

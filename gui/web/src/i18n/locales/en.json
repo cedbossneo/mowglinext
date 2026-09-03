@@ -694,7 +694,9 @@
     "firmwareVersion": "v{{version}}",
     "firmwareReflash": "v{{version}} — reflash firmware to mow",
     "firmwareFlashCta": "Flash firmware",
-    "coverageToday": "Coverage today · {{pct}} %"
+    "coverageToday": "Coverage today · {{pct}} %",
+    "soilWetTitle": "Careful: the garden is wet (IrriSense)",
+    "soilWetBlocking": "scheduled mows are suspended"
   },
   "onboardingPage": {
     "preview": "Preview",
@@ -1910,10 +1912,18 @@
         "tooltip": "Motion model the receiver assumes for RTK. UAV is the kinematic engine that fixes fast and holds lock while the mower moves; Survey Mow is tuned for near-static surveying (slower to fix, can drop lock under motion); Rover is the generic fallback.",
         "helpText": "Auto uses the per-model default (UM980 defaults to UAV). Choose UAV if your receiver is slow to reach RTK-Fixed or loses fix while mowing.",
         "option": {
-          "auto": { "label": "Auto (per-model default)" },
-          "uav": { "label": "UAV (kinematic — recommended)" },
-          "survey_mow": { "label": "Survey Mow" },
-          "rover": { "label": "Rover (generic)" }
+          "auto": {
+            "label": "Auto (per-model default)"
+          },
+          "uav": {
+            "label": "UAV (kinematic — recommended)"
+          },
+          "survey_mow": {
+            "label": "Survey Mow"
+          },
+          "rover": {
+            "label": "Rover (generic)"
+          }
         }
       },
       "pvtAlgorithm": {
@@ -3007,7 +3017,6 @@
     "fetchedAt": "fetched {{value}}",
     "neverFetched": "no data fetched yet",
     "refresh": "Refresh",
-    "save": "Save IrriSense settings",
     "saved": "IrriSense settings saved",
     "saveFailed": "Failed to save IrriSense settings",
     "loadFailed": "Failed to load IrriSense settings"

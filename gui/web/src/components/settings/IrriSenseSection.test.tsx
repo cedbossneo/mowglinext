@@ -1,8 +1,9 @@
 import {App} from "antd";
-import {render, screen, waitFor} from "@testing-library/react";
+import {act, render, screen, waitFor} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {IrriSenseSection} from "./IrriSenseSection.tsx";
+import type {ExternalSaver} from "../../hooks/useSettingsManager.ts";
 import type {IrriSenseSettings, SoilStatus} from "../../types/irrisense.ts";
 
 const requestMock = vi.fn();
@@ -59,10 +60,20 @@ const putCalls = () => requestMock.mock.calls
     .map(([req]) => req as Req)
     .filter((req) => req.path === "/irrisense/settings" && req.method === "PUT");
 
+// The section has no Save button of its own: it registers with the settings
+// page (useSettingsManager) and the page's single Save button calls it.
+let savers: Record<string, ExternalSaver> = {};
+const registerSaver = (id: string, saver: ExternalSaver) => { savers[id] = saver; };
+const unregisterSaver = (id: string) => { delete savers[id]; };
+async function saveViaPage() {
+    await act(async () => { await savers["irrisense"].save(); });
+}
+
 function renderSection() {
+    savers = {};
     return render(
         <App>
-            <IrriSenseSection/>
+            <IrriSenseSection registerSaver={registerSaver} unregisterSaver={unregisterSaver}/>
         </App>,
     );
 }
@@ -79,7 +90,8 @@ describe("IrriSenseSection", () => {
         const toggle = await screen.findByRole("switch", {name: /IrriSense Cloud soil moisture/i});
         expect(toggle).not.toBeChecked();
         expect(screen.queryByLabelText(/Read-only API token/i)).not.toBeInTheDocument();
-        expect(screen.getByRole("button", {name: /Save IrriSense settings/i})).toBeDisabled();
+        expect(screen.queryByRole("button", {name: /Save IrriSense settings/i})).not.toBeInTheDocument();
+        expect(savers["irrisense"]?.dirtyCount ?? 0).toBe(0);
     });
 
     it("stores a pasted token on save without ever echoing it", async () => {
@@ -92,7 +104,7 @@ describe("IrriSenseSection", () => {
         await user.click(screen.getByRole("button", {name: /^Set$/i}));
         expect(screen.getByTestId("irrisense-token-state")).toHaveTextContent(/stored on save/i);
 
-        await user.click(screen.getByRole("button", {name: /Save IrriSense settings/i}));
+        await saveViaPage();
 
         await waitFor(() => expect(putCalls()).toHaveLength(1));
         expect(putCalls()[0].body).toMatchObject({enabled: true, token: "irs_secret_token_123"});
@@ -108,7 +120,7 @@ describe("IrriSenseSection", () => {
 
         expect(await screen.findByTestId("irrisense-token-state")).toHaveTextContent("irs_••••••••");
         await user.click(screen.getByRole("button", {name: /^Clear$/i}));
-        await user.click(screen.getByRole("button", {name: /Save IrriSense settings/i}));
+        await saveViaPage();
 
         await waitFor(() => expect(putCalls()).toHaveLength(1));
         expect(putCalls()[0].body).toMatchObject({clearToken: true});

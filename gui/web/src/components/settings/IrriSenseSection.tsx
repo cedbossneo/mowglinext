@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from "react";
-import {Alert, App, Button, Card, Spin, Switch, Typography} from "antd";
-import {CloudSyncOutlined, SaveOutlined} from "@ant-design/icons";
+import {Alert, App, Card, Spin, Switch, Typography} from "antd";
+import {CloudSyncOutlined} from "@ant-design/icons";
 import {useTranslation} from "react-i18next";
 import {useApi} from "../../hooks/useApi.ts";
 import {useSoilStatus} from "../../hooks/useSoilStatus.ts";
@@ -13,6 +13,15 @@ import {
 import {IrriSenseConnectionCard} from "./IrriSenseConnectionCard.tsx";
 import {IrriSenseRuleCard} from "./IrriSenseRuleCard.tsx";
 import {IrriSenseStatusLine} from "./IrriSenseStatusLine.tsx";
+import type {ExternalSaver} from "../../hooks/useSettingsManager.ts";
+
+const SAVER_ID = "irrisense";
+
+export interface IrriSenseSectionProps {
+    /** Hook into the settings page's single Save / Revert buttons. */
+    registerSaver?: (id: string, saver: ExternalSaver) => void;
+    unregisterSaver?: (id: string) => void;
+}
 
 const {Text, Paragraph} = Typography;
 
@@ -22,10 +31,11 @@ const STATUS_REFRESH_AFTER_SAVE_MS = 1500;
 /**
  * IrriSense Cloud soil-moisture integration. Unlike the yaml-backed sections
  * this one owns its own load/save: the settings (token included) live in the
- * GUI's key-value DB, never in mowgli_robot.yaml, so it does not go through
- * useSettingsManager.
+ * GUI's key-value DB, never in mowgli_robot.yaml — but it registers itself
+ * with useSettingsManager as an external saver so the page's ONE Save button
+ * (and Revert) covers it; there is no section-local Save button.
  */
-export function IrriSenseSection() {
+export function IrriSenseSection({registerSaver, unregisterSaver}: IrriSenseSectionProps = {}) {
     const {t} = useTranslation();
     const guiApi = useApi();
     const {notification} = App.useApp();
@@ -33,7 +43,6 @@ export function IrriSenseSection() {
     const [draft, setDraft] = useState<IrriSenseSettingsUpdate>({});
     const [gardens, setGardens] = useState<IrriSenseGardenSummary[]>([]);
     const [loadError, setLoadError] = useState<string | null>(null);
-    const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
     const {status, refresh: refreshStatus} = useSoilStatus();
 
@@ -56,7 +65,6 @@ export function IrriSenseSection() {
 
     const save = useCallback(async (): Promise<boolean> => {
         if (!isDirty) return true;
-        setSaving(true);
         try {
             const res = await guiApi.request<IrriSenseSettings>({
                 path: "/irrisense/settings", method: "PUT", body: draft, format: "json",
@@ -69,10 +77,18 @@ export function IrriSenseSection() {
         } catch (e: unknown) {
             notification.error({message: t("settingsIrriSense.saveFailed"), description: apiErrorMessage(e)});
             return false;
-        } finally {
-            setSaving(false);
         }
     }, [draft, guiApi, isDirty, notification, refreshStatus, t]);
+
+    // Keep the page-level Save button informed of our pending edits.
+    useEffect(() => {
+        registerSaver?.(SAVER_ID, {
+            dirtyCount: Object.keys(draft).length,
+            save,
+            revert: () => setDraft({}),
+        });
+    }, [draft, registerSaver, save]);
+    useEffect(() => () => unregisterSaver?.(SAVER_ID), [unregisterSaver]);
 
     const testConnection = useCallback(async () => {
         setTesting(true);
@@ -149,15 +165,6 @@ export function IrriSenseSection() {
                 </>
             )}
 
-            <Button
-                type="primary"
-                icon={<SaveOutlined/>}
-                onClick={() => void save()}
-                loading={saving}
-                disabled={!isDirty || saving}
-            >
-                {t("settingsIrriSense.save")}
-            </Button>
         </div>
     );
 }
