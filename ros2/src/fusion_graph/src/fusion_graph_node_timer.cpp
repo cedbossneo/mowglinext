@@ -338,8 +338,7 @@ void FusionGraphNode::OnTimer()
     // ~no information — an unbounded leak over a long stationary dwell that
     // OOM-killed the node 2026-06-09. Re-enables once the fix is stale past
     // scan_yield_timeout_s so LC still carries the no-fix (tree-cover) windows.
-    const bool rtk_fixed_fresh =
-        RtkFixedReceiptIsFresh(scan_yield_timeout_s_);
+    const bool rtk_fixed_fresh = RtkFixedReceiptIsFresh(scan_yield_timeout_s_);
 
     // Rate/travel gate (issue #513): with LC enabled exactly when GPS is Float
     // or absent, the unbounded search accepted 13.7 LC/s on featureless grass
@@ -348,21 +347,18 @@ void FusionGraphNode::OnTimer()
     // lc_min_interval_s AND lc_min_travel_m have accrued since the last
     // ACCEPTED LC; the accumulators are reset on accept only — see
     // loop_closure_gate.hpp for why that polarity is right here.
-    const bool lc_search_enabled =
-        loop_closure_enabled_ && scan_matcher_ && curr_valid &&
-        !(lc_skip_when_rtk_fixed_ && rtk_fixed_fresh);
+    const bool lc_search_enabled = loop_closure_enabled_ && scan_matcher_ && curr_valid &&
+                                   !(lc_skip_when_rtk_fixed_ && rtk_fixed_fresh);
 
-    const double time_since_lc_s =
-        last_lc_accept_stamp_
-            ? (this->now() - *last_lc_accept_stamp_).seconds()
-            : std::numeric_limits<double>::infinity();
+    const double time_since_lc_s = last_lc_accept_stamp_
+                                       ? (this->now() - *last_lc_accept_stamp_).seconds()
+                                       : std::numeric_limits<double>::infinity();
 
     const bool lc_gate_open =
-        lc_search_enabled &&
-        LoopClosureRateAllows(wheel_dist_since_last_lc_m_,
-                              time_since_lc_s,
-                              lc_min_travel_m_,
-                              lc_min_interval_s_);
+        lc_search_enabled && LoopClosureRateAllows(wheel_dist_since_last_lc_m_,
+                                                   time_since_lc_s,
+                                                   lc_min_travel_m_,
+                                                   lc_min_interval_s_);
 
     if (lc_search_enabled && !lc_gate_open)
       ++lc_rate_gated_;
