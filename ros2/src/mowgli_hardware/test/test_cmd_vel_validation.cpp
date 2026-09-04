@@ -58,8 +58,8 @@ TEST(CmdVelValidation, AcceptsMaximumFiniteFloatWireValue)
 
 TEST(CmdVelValidation, RejectsNonFiniteFloatWireValues)
 {
-  EXPECT_FALSE(is_float32_representable_velocity_command(
-      std::numeric_limits<double>::quiet_NaN(), 0.0));
-  EXPECT_FALSE(is_float32_representable_velocity_command(
-      0.0, std::numeric_limits<double>::infinity()));
+  EXPECT_FALSE(
+      is_float32_representable_velocity_command(std::numeric_limits<double>::quiet_NaN(), 0.0));
+  EXPECT_FALSE(
+      is_float32_representable_velocity_command(0.0, std::numeric_limits<double>::infinity()));
 }
