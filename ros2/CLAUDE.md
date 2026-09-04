@@ -52,8 +52,8 @@ make build-debug               # BUILD_TYPE=Debug ; make clean removes build/ in
 make test                      # colcon test + colcon test-result --verbose (needs install/setup.bash)
 PACKAGES="mowgli_hardware" ./scripts/test.sh      # single package
 cd /ros2_ws && colcon test --packages-select fusion_graph --return-code-on-test-failure
-./scripts/format.sh --check    # CI-equivalent format gate (excludes the opennav_coverage submodule)
-make format                    # clang-format -i — see gotchas, it rewrites submodule files
+./scripts/format.sh --check    # CI-equivalent format gate (excludes both submodules)
+make format                    # clang-format -i — see gotchas, it still rewrites opennav_coverage
 make lint                      # cppcheck --enable=all + cpplint (CI runs its own report-only cppcheck instead)
 make sim                       # sim-stop, then headless Webots; Foxglove ws://localhost:8765
 make sim-stop                  # after any crash: kills Webots/nodes, wipes DDS shm + Webots IPC
@@ -85,7 +85,7 @@ docker build -f ros2/Dockerfile --target runtime -t mowgli-ros2 .    # context M
 
 - `/ros2_ws/src` is a set of **symlinks** created by `scripts/sync_workspace_packages.sh`; it auto-globs `src/mowgli_*/` only. A new non-`mowgli_*` package needs an explicit `link_workspace_package` line there **and** a `package.xml`/`CMakeLists.txt` entry in the `deps` stage of `ros2/Dockerfile`. `mowgli_tools` is `tools/motor/` — outside `ros2/`.
 - `make docker` / `make docker-sim` build with context `ros2/` while the Dockerfile COPYs from the repo root — they fail. Build from the root as CI and compose do.
-- `make lint` / `make format` / `make format-check` glob all of `src/`, **including** the `opennav_coverage` submodule; use `./scripts/format.sh [--check]` to match CI and avoid rewriting vendored files.
+- `make lint` / `make format` / `make format-check` glob all of `src/`, **including** the `opennav_coverage` submodule; use `./scripts/format.sh [--check]` to match CI and avoid rewriting vendored files. `format.sh` itself prunes BOTH submodules since 2026-09-04 (`*/opennav_coverage/*` and `*/external/*`) — before that fix, every pre-push rewrote 155 vendored universal-gnss files and blocked re-pinning it.
 - `make sim` and `make e2e-test` export `DISPLAY=:99` but do **not** start Xvfb (compose does) — start it yourself or Webots fails to open a display. After any crash, `scripts/sim-stop.sh` (a stale Webots IPC socket hangs the next launch in "retrying").
 - **A parameter no launch file injects is inert** — the node silently runs its compiled `declare_parameter` default no matter what the YAML says ([`docs/claude/parameters.md`](../docs/claude/parameters.md); the mowgli_bringup codemap lists today's inert and orphan keys). Param **order** matters too: the injected dicts are appended AFTER the static params file, so the launch-injected value wins for shared keys — in `mowgli.launch.py` the injected `imu_cal_samples: 200` beats `hardware_bridge.yaml`'s 1000.
 - Expect 3–4 disagreeing defaults per knob (struct initialiser vs `declare_parameter` vs package YAML vs launch fallback): `GraphParams::max_graph_nodes` is 3000 in the struct but 6000 in `fusion_graph.yaml`; `obstacle_reverse_enabled` is `false` in FTC's struct **and** its `declare_bool`, `true` in `nav2_params_base.yaml`. Read `declare_parameters()`, not the member initialiser — and note unit tests construct the structs directly, so they run on struct defaults, not production values.

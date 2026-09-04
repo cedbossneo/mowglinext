@@ -87,12 +87,13 @@ NTRIP corrections
     transition
 - Runtime `/gps/status.receiver_model` remains observational/display-only in MowgliNext. It is not auto-copied into the persisted configurator `gnss_receiver_model`; an operator must choose that explicitly before MowgliNext forwards `--model` to Universal GNSS tools.
 - The Universal GNSS submodule (`ros2/src/external/universal-gnss`) is pinned to
-  the **mowglinext fork**, branch `fix/rover-dynamic-mode-uav` — not upstream
-  `main`. Two fixes for issue #395 are stacked there: GLONASS-1230 treated as
-  optional-for-RTK correction health, and a UM980 `MODE ROVER UAV` default with a
-  `--rover-dynamic-mode` override. The pin reverts to
-  `pepeuch/universal-gnss` once both are upstreamed; the rationale lives in
-  `.gitmodules`. Bumping it means re-pinning the gitlink, and a clone without
+  the **mowglinext fork**, branch `main`, which tracks
+  `Pepeuch/universal-gnss` main. Both fixes for issue #395 now live there:
+  GLONASS-1230 treated as optional-for-RTK correction health, and a UM980
+  `MODE ROVER UAV` default with a `--rover-dynamic-mode` override. The pin
+  followed a stacked `fix/rover-dynamic-mode-uav` branch until 2026-09-04; that
+  branch is gone and the fork's main is followed directly. The rationale lives
+  in `.gitmodules`. Bumping it means re-pinning the gitlink, and a clone without
   `--recurse-submodules` silently misses the GNSS packages.
 - Do not commit real `GNSS_NTRIP_PASSWORD` values or copy them into docs/logs.
 - The devcontainer now mirrors the host `/dev` tree at `/host-dev` and re-links `/dev/serial/by-id` when the host provides it.
