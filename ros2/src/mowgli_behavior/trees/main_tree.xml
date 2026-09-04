@@ -681,6 +681,33 @@
                 </Sequence>
               </Fallback>
 
+              <!-- Charge manuelle : l'opérateur a posé la tondeuse sur le socle en
+              dehors d'un cycle piloté par RainGuard/BatteryGuard (batterie pas
+              encore basse, pas de pluie). Sans ce garde, la boucle de couverture
+              continue de tourner et republie MOWING en boucle, jusqu'à ce que la
+              batterie tombe à battery_low_pct et déclenche l'auto-continue de
+              BatteryGuard (undock non désiré une fois chargée). -->
+          <Fallback name="ManualChargeGuard">
+            <Inverter><IsCharging/></Inverter>
+            <Sequence name="ManualChargeHandler">
+              <SetMowerEnabled enabled="false"/>
+              <StopMoving/>
+              <PublishHighLevelStatus state="1" state_name="CHARGING"/>
+              <!-- Attend le débranchement manuel — pas d'auto-undock sur seuil
+                  batterie ici, c'est l'opérateur qui décide. -->
+              <RetryUntilSuccessful num_attempts="17280">
+                <Fallback>
+                  <Inverter><IsCharging/></Inverter>
+                  <Sequence>
+                    <WaitForDuration duration_sec="5.0"/>
+                    <AlwaysFailure/>
+                  </Sequence>
+                </Fallback>
+              </RetryUntilSuccessful>
+              <PublishHighLevelStatus state="2" state_name="MOWING"/>
+            </Sequence>
+          </Fallback>
+
               <!-- Multi-area coverage loop.
                    Outer loop: iterate through all mowing areas.
                    Per area: PlanCoverageArea asks mowgli_coverage's
