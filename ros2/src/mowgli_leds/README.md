@@ -293,6 +293,10 @@ Same shape as `mowgli_hardware/dig_detector.hpp` and
 `mowgli_nav2_plugins/ftc_start_index.hpp`: all the logic lives in a header that
 can be tested without a robot. Keep display logic out of `spi_device.cpp`.
 
+A file-level map of this package — including every mirror a change has to touch
+(launch, template, schema, GUI section, i18n) — is
+[`docs/claude/codemaps/mowgli_leds.md`](../../../docs/claude/codemaps/mowgli_leds.md).
+
 ```bash
 colcon build --packages-select mowgli_leds
 colcon test  --packages-select mowgli_leds && colcon test-result --verbose
@@ -310,7 +314,7 @@ ring.
 | `gui/asserts/mower_config.schema.json` | `led_settings` group. Every default here MUST equal the template's. |
 | `gui/web/src/components/settings/LedsSection.tsx` | The *Status LEDs* settings section, including the pattern legend. Its swatches mirror this package's palette — keep them in sync. |
 | `gui/pkg/api/settings_leds_test.go` | Pins `led_enabled`'s default to `false` and exercises the sparse-prune coupling, so the ON toggle can never become inert (bug #508). Also pins the SPI clock to the value this encoder is derived from. |
-| `gui/web/src/components/settings/LedsSection.test.tsx` | 16 tests: off-by-default, the ON write, the prerequisite hints, the field set, and the legend. |
+| `gui/web/src/components/settings/LedsSection.test.tsx` | 14 tests: off-by-default, the ON/OFF writes, the prerequisite hints, the field set, the legend, and reset-to-default. |
 
 ```bash
 cd gui && go test ./pkg/api/...
