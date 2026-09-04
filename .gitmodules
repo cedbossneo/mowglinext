@@ -8,8 +8,7 @@
 	# issue #395: (1) GLONASS-1230 optional-for-RTK correction health
 	# (Pepeuch/universal-gnss#4) and (2) UM980 MODE ROVER UAV default +
 	# --rover-dynamic-mode override (mowglinext/universal-gnss#1). Points at the
-	# rover-dynamic-mode branch until that fork PR merges into the 1230 branch;
-	# then re-pin the gitlink to the merge commit and restore the branch below.
+	# Downstream compatibility is validated against the current upstream main.
 	# Revert to https://github.com/pepeuch/universal-gnss.git once upstreamed.
 	url = https://github.com/Pepeuch/universal-gnss.git
-	branch = review
+	branch = main
