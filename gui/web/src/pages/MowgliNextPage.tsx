@@ -70,7 +70,7 @@ function useMowerData() {
   // OBSTACLE_BACKOFF, DYNAMIC_OBSTACLE_CLEARED, AREA_UNREACHABLE) and carried a
   // phantom SKIP_STRIP, so every planning/backoff phase read as "idle" mid-mow.
   const stateNum = highLevelStatus.state ?? -1;
-  const isMoving = stateNum === 2 || stateNum === 3 || stateNum === 4;
+  const isMoving = stateNum === 2 || stateNum === 3 || stateNum === 4 && !isCharging;
 
   return {
     state: stateName,
