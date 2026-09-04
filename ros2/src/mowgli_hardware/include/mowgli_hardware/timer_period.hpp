@@ -60,6 +60,17 @@ inline constexpr double maximum_timer_rate_hz()
   return 1.0e9;
 }
 
+inline void require_operational_timer_rate(double rate_hz,
+                                           const char* name,
+                                           double minimum_hz,
+                                           double maximum_hz)
+{
+  if (!std::isfinite(rate_hz) || rate_hz < minimum_hz || rate_hz > maximum_hz)
+  {
+    throw std::invalid_argument(std::string(name) + " must be within its operational range");
+  }
+}
+
 /**
  * Convert a timer cadence in Hz to a positive, representable wall-timer
  * duration. Nanoseconds preserve sub-millisecond cadence. Rates whose period

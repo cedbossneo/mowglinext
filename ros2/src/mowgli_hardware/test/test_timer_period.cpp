@@ -51,6 +51,18 @@ TEST(TimerPeriod, HandlesRepresentablePeriodBoundaryWithoutOverflow)
   EXPECT_THROW(timer_period_from_rate_hz(std::nextafter(minimum, 0.0)), std::invalid_argument);
 }
 
+TEST(TimerPeriod, EnforcesOperationalTimerRateBounds)
+{
+  EXPECT_NO_THROW(require_operational_timer_rate(4.0, "heartbeat_rate", 1.0, 50.0));
+  EXPECT_NO_THROW(require_operational_timer_rate(100.0, "publish_rate", 10.0, 500.0));
+  EXPECT_NO_THROW(require_operational_timer_rate(2.0, "high_level_rate", 1.0, 20.0));
+  EXPECT_NO_THROW(require_operational_timer_rate(10.0, "dig_monitor_rate", 1.0, 50.0));
+  EXPECT_THROW(require_operational_timer_rate(0.99, "dig_monitor_rate", 1.0, 50.0),
+               std::invalid_argument);
+  EXPECT_THROW(require_operational_timer_rate(501.0, "publish_rate", 10.0, 500.0),
+               std::invalid_argument);
+}
+
 TEST(TimerPeriod, RejectsInvalidDivisorsAndTimeouts)
 {
   EXPECT_NO_THROW(require_runtime_wheel_track(0.325));

@@ -341,15 +341,18 @@ private:
     baud_rate_ = declare_parameter<int>("baud_rate", 115200);
     // Cadence is read once at startup.  The descriptor rejects invalid startup
     // overrides; validate_startup_parameters() also rejects non-finite values.
-    auto timer_rate = [this](const std::string& name, double default_val) -> double
+    auto timer_rate = [this](const std::string& name,
+                             double default_val,
+                             double minimum_hz,
+                             double maximum_hz) -> double
     {
       rcl_interfaces::msg::ParameterDescriptor desc;
       desc.description =
           "Finite startup-only timer cadence in Hz with a representable period of at least 1 ns.";
       desc.read_only = true;
       desc.floating_point_range.resize(1);
-      desc.floating_point_range[0].from_value = minimum_timer_rate_hz();
-      desc.floating_point_range[0].to_value = maximum_timer_rate_hz();
+      desc.floating_point_range[0].from_value = minimum_hz;
+      desc.floating_point_range[0].to_value = maximum_hz;
       return declare_parameter<double>(name, default_val, desc);
     };
     auto bounded_startup_double =
@@ -363,8 +366,8 @@ private:
       desc.floating_point_range[0].to_value = max;
       return declare_parameter<double>(name, default_val, desc);
     };
-    heartbeat_rate_ = timer_rate("heartbeat_rate", 4.0);
-    publish_rate_ = timer_rate("publish_rate", 100.0);
+    heartbeat_rate_ = timer_rate("heartbeat_rate", 4.0, 1.0, 50.0);
+    publish_rate_ = timer_rate("publish_rate", 100.0, 10.0, 500.0);
     // Serial-link watchdog: if no bytes arrive for this long while the port is
     // open, treat the link as dead and reopen it. The STM32 streams status
     // (~4 Hz) + odom (~20 Hz) + IMU (~50-100 Hz) continuously whenever it is
@@ -377,7 +380,7 @@ private:
     // values have no useful or safe watchdog meaning.
     serial_rx_timeout_s_ =
         bounded_startup_double("serial_rx_timeout_s", 2.0, 0.0, std::numeric_limits<double>::max());
-    high_level_rate_ = timer_rate("high_level_rate", 2.0);
+    high_level_rate_ = timer_rate("high_level_rate", 2.0, 1.0, 20.0);
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
     dock_yaw_ = declare_parameter<double>("dock_pose_yaw", 0.0);
@@ -733,7 +736,7 @@ private:
                                                        4.0,
                                                        std::numeric_limits<double>::min(),
                                                        std::numeric_limits<double>::max());
-    dig_monitor_rate_ = timer_rate("dig_monitor_rate", 10.0);
+    dig_monitor_rate_ = timer_rate("dig_monitor_rate", 10.0, 1.0, 50.0);
     // Fused pose older than this is treated as absent (detector stands down)
     // rather than compared against stale coordinates.
     dig_pose_timeout_s_ = bounded_startup_double("dig_pose_timeout_s",
@@ -776,6 +779,10 @@ private:
     (void)timer_period_from_rate_hz(publish_rate_);
     (void)timer_period_from_rate_hz(high_level_rate_);
     (void)timer_period_from_rate_hz(dig_monitor_rate_);
+    require_operational_timer_rate(heartbeat_rate_, "heartbeat_rate", 1.0, 50.0);
+    require_operational_timer_rate(publish_rate_, "publish_rate", 10.0, 500.0);
+    require_operational_timer_rate(high_level_rate_, "high_level_rate", 1.0, 20.0);
+    require_operational_timer_rate(dig_monitor_rate_, "dig_monitor_rate", 1.0, 50.0);
     require_finite_nonnegative_timeout(serial_rx_timeout_s_, "serial_rx_timeout_s");
     require_runtime_wheel_track(wheel_track_);
     require_finite_positive(dig_gnss_timeout_s_, "dig_gnss_timeout_s");
