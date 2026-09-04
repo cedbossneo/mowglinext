@@ -12,6 +12,19 @@ context, compute, or time savings.
 
 ---
 
+## Repository index and architecture navigation
+
+Use the root `CLAUDE.md` Reference Index to route architecture and subsystem
+work. Read the applicable entries under `docs/claude/` and any subsystem index
+or codemap they link before broad discovery. If a tree contains a nearer
+`CLAUDE.md`, read it as the tree-specific supplement to the root guidance; it
+does not weaken the CORE or applicable policy modules.
+
+Use these indexes to select the narrowest relevant references rather than
+loading unrelated architecture material. When an index, codemap, or linked
+reference is stale or contradicts current source, tests, or Git state, follow
+the evidence-resolution rules below and record the discrepancy when material.
+
 ## 1. Instruction and evidence roles
 
 Use each layer for its intended role:
@@ -188,7 +201,31 @@ Repository ignore rules must preserve:
 !.agent/policies/
 !.agent/policies/**
 !.agent/shared/
-!.agent/shared/**
+!.agent/shared/*
+```
+
+---
+
+### ROS2 formatting
+
+For changes under `ros2/` that touch C++ source or headers, format the touched
+files with the repository style and `clang-format-18`:
+
+```bash
+clang-format-18 -i -style=file:ros2/.clang-format <touched-files>
+```
+
+Before concluding, check changed lines against the merge base with
+`origin/main`:
+
+```bash
+git clang-format --diff "$(git merge-base HEAD origin/main)" -- <touched-files>
+```
+
+If `origin/main` is unavailable, run a full touched-file check instead:
+
+```bash
+clang-format-18 --dry-run --Werror -style=file:ros2/.clang-format <touched-files>
 ```
 
 ---

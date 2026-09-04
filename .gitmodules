@@ -4,11 +4,7 @@
 	branch = main
 [submodule "ros2/src/external/universal-gnss"]
 	path = ros2/src/external/universal-gnss
-	# Pinned to the mowglinext fork. Two fork fixes are stacked here, both for
-	# issue #395: (1) GLONASS-1230 optional-for-RTK correction health
-	# (Pepeuch/universal-gnss#4) and (2) UM980 MODE ROVER UAV default +
-	# --rover-dynamic-mode override (mowglinext/universal-gnss#1). Points at the
-	# Downstream compatibility is validated against the current upstream main.
-	# Revert to https://github.com/pepeuch/universal-gnss.git once upstreamed.
+	# Universal GNSS downstream compatibility is validated against upstream main.
+	# MowgliNext pins the exact validated commit through the parent gitlink.
 	url = https://github.com/Pepeuch/universal-gnss.git
 	branch = main
