@@ -23,8 +23,8 @@
         "wheel_radius": {
           "type": "number",
           "title": "Wheel Radius",
-          "default": 0.04475,
-          "description": "Drive wheel radius in metres."
+          "default": 0.1,
+          "description": "Drive wheel radius in metres. Measured on the YardForce 500 (2026-09-05); was 0.04475, an 8.95 cm diameter wheel that no chassis here has. Consumed only by the URDF: it sets base_link's height above ground, so every sensor z offset is measured from it."
         },
         "wheel_track": {
           "type": "number",
@@ -160,8 +160,8 @@
         "imu_y": {
           "type": "number",
           "title": "IMU Offset Y",
-          "default": 0.0,
-          "description": "Body-frame left offset of IMU from base_footprint (metres)."
+          "default": -0.195,
+          "description": "Body-frame left offset of IMU from base_footprint (metres). Negative = right of the wheelbase centre, which is where the IMU physically sits on the YardForce 500. Was 0.0 until 2026-09-05, so a reset-to-default moved the IMU 19.5 cm sideways in the URDF."
         },
         "imu_z": {
           "type": "number",
@@ -501,13 +501,13 @@
           "type": "number",
           "title": "Path Spacing",
           "default": 0.18,
-          "description": "DEPRECATED / informational only — no ROS2 node reads this. Swath spacing is driven by tool_width (coverage_server.operation_width), so this matches tool_width. A separate value re-opens the swath-gap bug."
+          "description": "DEAD KEY — nothing reads this, and it no longer exists in the ROS2 template (removed 2026-09-05). Kept in the schema only so previously-installed YAMLs still validate. Swath spacing is tool_width minus swath_overlap (coverage_server.operation_width); a separate value re-opens the swath-gap bug."
         },
         "headland_width": {
           "type": "number",
           "title": "Headland Width",
           "default": 0.18,
-          "description": "Width of headland (turning area) in metres."
+          "description": "Headland band width in metres. Injected as coverage_server.default_headland_width, where it is used for one thing only: the AUTO ring count, ceil(headland_width / operation_width). It therefore has NO effect unless Headland Passes is set to Auto (0) — with a forced pass count the ring count wins."
         },
         "num_headland_passes": {
           "type": "integer",

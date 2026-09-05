@@ -96,7 +96,10 @@ def generate_launch_description() -> LaunchDescription:
     chassis_height   = float(robot_params.get("chassis_height", 0.19))
     chassis_mass_kg  = float(robot_params.get("chassis_mass_kg", 8.76))
     chassis_center_x = float(robot_params.get("chassis_center_x", 0.18))
-    wheel_radius     = float(robot_params.get("wheel_radius", 0.093))
+    # 0.1 m: keep this fallback equal to the mowgli_robot.yaml template default
+    # AND to mowgli.urdf.xacro's own <xacro:arg> default. It used to be 0.093
+    # while the template said 0.04475 — three numbers for one wheel.
+    wheel_radius     = float(robot_params.get("wheel_radius", 0.1))
     wheel_width      = float(robot_params.get("wheel_width", 0.04))
     wheel_track      = float(robot_params.get("wheel_track", 0.325))
     wheel_x_offset   = float(robot_params.get("wheel_x_offset", 0.0))
@@ -110,7 +113,9 @@ def generate_launch_description() -> LaunchDescription:
     lidar_z   = str(robot_params.get("lidar_z", 0.30))
     lidar_yaw = str(robot_params.get("lidar_yaw", 0.0))
     imu_x     = str(robot_params.get("imu_x", 0.18))
-    imu_y     = str(robot_params.get("imu_y", 0.0))
+    # -0.195: keep equal to the mowgli_robot.yaml template default AND the
+    # xacro <xacro:arg> default (IMU is right of the wheelbase centre).
+    imu_y     = str(robot_params.get("imu_y", -0.195))
     imu_z     = str(robot_params.get("imu_z", 0.095))
     imu_roll  = str(robot_params.get("imu_roll", 0.0))
     imu_pitch = str(robot_params.get("imu_pitch", 0.0))

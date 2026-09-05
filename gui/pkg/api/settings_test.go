@@ -1039,6 +1039,7 @@ func TestPostSettingsYAMLPrunesRetiredKeys(t *testing.T) {
     outline_passes: 3
     motor_temp_high_c: 80.0
     mow_angle_increment_deg: 15.0
+    ticks_per_revolution: 84
     mowing_speed: 0.55
 `)
 	envFile := createTempConfigFileAtGuiRoot(t, "")
@@ -1062,7 +1063,7 @@ func TestPostSettingsYAMLPrunesRetiredKeys(t *testing.T) {
 
 	content, err := os.ReadFile(yamlFile)
 	require.NoError(t, err)
-	for _, retired := range []string{"outline_passes", "motor_temp_high_c", "mow_angle_increment_deg"} {
+	for _, retired := range []string{"outline_passes", "motor_temp_high_c", "mow_angle_increment_deg", "ticks_per_revolution"} {
 		assert.NotContains(t, string(content), retired,
 			"retired key %s must be scrubbed from the installed YAML", retired)
 	}

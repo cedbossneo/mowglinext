@@ -44,7 +44,7 @@ All 158 template keys. `L###` = line in `ros2/src/mowgli_bringup/config/mowgli_r
 | `chassis_width` (L25) | 0.40 | xacro `mowgli.launch.py:95`; footprint `navigation.launch.py:305`; `map_server.chassis_width` `full_system.launch.py:389`; `coverage_server.robot_width` `navigation.launch.py:930` | Hardware | launch |
 | `chassis_height` (L26) | 0.19 | xacro `mowgli.launch.py:96` | Hardware | launch |
 | `chassis_mass_kg` (L27) | 8.76 | xacro `mowgli.launch.py:97` (base_link inertial; pinned by `test_urdf_xacro.py`) | Hardware | launch |
-| `wheel_radius` (L30) | 0.04475 | xacro `mowgli.launch.py:99` | Hardware | launch |
+| `wheel_radius` | 0.1 | xacro `mowgli.launch.py:99` → `base_z_offset` (base_link height above ground, so every sensor z) + wheel visuals. Nothing else; odometry uses `ticks_per_meter`. Was 0.04475 (xacro default 0.093) until 2026-09-05 | Hardware | launch |
 | `wheel_width` (L31) | 0.04 | xacro `mowgli.launch.py:100` | Hardware | launch |
 | `wheel_track` (L32) | 0.325 | xacro `mowgli.launch.py:101`; `hardware_bridge.wheel_track` L209 (→ firmware diff-drive IK); turn-geometry check `navigation.launch.py:587`. Fallback single-sourced as `DEFAULT_WHEEL_TRACK_M` (`robot_config_util.py:64`) and MUST equal firmware `board.h` `WHEEL_BASE` | Hardware | launch |
 | `wheel_x_offset` (L35) | 0.0 | xacro `mowgli.launch.py:102` | Hardware | launch |
@@ -54,7 +54,6 @@ All 158 template keys. `L###` = line in `ros2/src/mowgli_bringup/config/mowgli_r
 | `caster_track` (L191) | 0.36 | xacro `mowgli.launch.py:104` | Hardware | launch |
 | `blade_radius` (L194) | 0.09 | xacro `mowgli.launch.py:105` (`blade_link`) | Hardware | launch |
 | `tool_width` (L195) | 0.18 | `map_server.tool_width` `full_system.launch.py:426` (mow-progress stamp radius); `coverage_server.operation_width = tool_width − swath_overlap` `navigation.launch.py:924`. Fallback single-sourced as `DEFAULT_TOOL_WIDTH_M` (`robot_config_util.py:48`) — **Invariant 6** | Hardware | launch |
-| `ticks_per_revolution` (L187) | 84 | none — template says "informational only" (cross-check for wheel-size changes) | no | INERT |
 
 ### Runtime limits pushed to the STM32 — all currently INERT
 
@@ -139,7 +138,7 @@ All feed the xacro in `mowgli.launch.py:108–120`; `lidar_z`/`lidar_yaw`/`imu_y
 | Key (L) | Default | GUI | Life |
 |---|---|---|---|
 | `lidar_x` (L204) / `lidar_y` (L205) / `lidar_z` (L206) / `lidar_yaw` (L207) | 0.0 / 0.024 / 0.30 / 3.1408 | Sensor Mounting | launch |
-| `imu_x` (L210) / `imu_y` (L211) / `imu_z` (L212) / `imu_yaw` (L213) | 0.18 / 0.0 / 0.095 / 0.0 | Sensor Mounting | launch |
+| `imu_x` / `imu_y` / `imu_z` / `imu_yaw` | 0.18 / -0.195 / 0.095 / 0.0 | Sensor Mounting | launch |
 | `gps_x` (L217) / `gps_y` (L218) / `gps_z` (L219) | 0.3 / 0.0 / 0.20 | Sensor Mounting | launch |
 | `imu_roll`, `imu_pitch` — **not in the template** | 0.0 (hardcoded `mowgli.launch.py:115–116`, allow-listed in `schema_template_parity_test.go:41`) | Sensor Mounting | launch |
 
@@ -193,7 +192,7 @@ All feed the xacro in `mowgli.launch.py:108–120`; `lidar_z`/`lidar_yaw`/`imu_y
 
 | Key (L) | Default | Becomes | GUI | Life |
 |---|---|---|---|---|
-| `headland_width` (L344) | 0.18 | `coverage_server.default_headland_width` L931 | Mowing | dynamic (read per plan) |
+| `headland_width` | 0.18 | `coverage_server.default_headland_width` L931 — used ONLY for the AUTO ring count `ceil(headland_width / operation_width)`, i.e. only when `num_headland_passes == 0`; inert at the shipped `2` | Mowing | dynamic (read per plan) |
 | `num_headland_passes` (L374) | 2 | `coverage_server.num_headland_passes` L932 — three-way sentinel: `<0` none, `0` auto, `>0` exact (injected **unclamped**, pinned by `test_launch_injection.py`) | Mowing | dynamic |
 | `mow_direction` (L379) | 0 | `coverage_server.ring_direction` L934 | no | dynamic |
 | `chassis_safety_inset` (L396) | 0.2 | `coverage_server.chassis_safety_inset` L935; mirrored to `map_server` `full_system.launch.py:396` | Mowing | dynamic |
@@ -201,7 +200,6 @@ All feed the xacro in `mowgli.launch.py:108–120`; `lidar_z`/`lidar_yaw`/`imu_y
 | `min_turning_radius` (L416) | 0.15 | clamped to [0.10, 0.50] → `coverage_server.min_turning_radius` L944; also drives the `check_turn_geometry` warning (issue #499: 0.15 is **below** the 0.1625 m half-track) | Mowing | dynamic |
 | `connector_turn_radius` — **not in the template**; launch fallback 0.18 (`navigation.launch.py:403`), node default `coverage_server.cpp:94` | 0.18 | clamped ≥ `min_turning_radius`, ≤ 0.50 → `coverage_server.connector_turn_radius` L948 | no | dynamic |
 | `turn_speed_ratio` (L333) | 0.8 | `FollowCoveragePath.speed_slow = clamp(mowing_speed × ratio, min_speed_mps, mowing_speed)` via `derive_turn_speed` (`robot_config_util.py:268`), injected L781 | no | launch |
-| `path_spacing` (L400) | 0.18 | **nothing — dead knob**, flagged as such in the template (L397) and hidden by the GUI (`useSettingsManager.ts:134`) | Mowing | INERT |
 
 ### Docking (→ `docking_server` / `simple_charging_dock`, `navigation.launch.py:665–739`)
 
