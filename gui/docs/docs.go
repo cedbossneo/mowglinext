@@ -1589,6 +1589,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "source_relation": {
+                    "type": "string"
+                },
                 "state": {
                     "type": "string"
                 }

@@ -15,6 +15,11 @@ mower's installed channel, image references or Watchtower settings.
   digests establish whether images match. Equal source revisions do not hide
   rebuilt images. An older multiarch index can still match when the mower's
   platform image is unchanged.
+- For different images, GitHub commit ancestry identifies **newer source**,
+  **older source**, **diverged histories**, or the **same source rebuilt**.
+  This does not use build dates or claim that every different image is an upgrade.
+  Missing revisions, inaccessible fork commits, rate limits and lookup failures
+  leave source order unknown without invalidating the digest comparison.
 
 The checker covers installed first-party ROS2, GUI, GPS and the LDLiDAR, RPLiDAR
 and STL27L variants. Other installed optional components remain in the inventory
@@ -42,6 +47,12 @@ layers. Requests have a 45-second overall budget, individual HTTP calls time out
 after 15 seconds, and documents are limited to 4 MiB. GHCR and GitHub API hosts are
 fixed. `UPDATES_REPOSITORY=owner/repo` lets a host administrator select the source
 repository; browser requests cannot supply arbitrary URLs.
+
+Source comparisons run after image checks with at most five seconds of the
+remaining overall budget. Full commit SHAs are required; equal revisions need no
+GitHub request. Repeated pairs are deduplicated per check, and up to 128 successful
+immutable source comparisons are cached across channels until process restart
+or cache capacity is reached. No GitHub credentials are required.
 
 GUI and sensor image pipelines publish version tags on release-tag pushes,
 alongside existing branch/SHA tags and OCI metadata. This does not retroactively

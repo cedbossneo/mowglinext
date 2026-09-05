@@ -179,6 +179,7 @@ export interface ApiUpdateComponent {
   digest_reference?: boolean;
   installed_revision?: string;
   name?: string;
+  source_relation?: string;
   state?: string;
 }
 

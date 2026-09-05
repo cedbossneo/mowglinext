@@ -20,6 +20,7 @@ type UpdateComponent struct {
 	InstalledRevision string `json:"installed_revision,omitempty"`
 	AvailableRevision string `json:"available_revision,omitempty"`
 	AvailableImage    string `json:"available_image,omitempty"`
+	SourceRelation    string `json:"source_relation,omitempty"`
 	CustomImage       bool   `json:"custom_image"`
 	DigestReference   bool   `json:"digest_reference"`
 }
@@ -37,8 +38,27 @@ type UpdateCheck struct {
 type updateSource interface {
 	Resolve(context.Context, string, string) (updates.Image, error)
 	Stable(context.Context, string) (string, string, error)
+	Compare(context.Context, string, string, string) string
 }
-type remoteUpdates struct{ *updates.Registry }
+type remoteUpdates struct {
+	*updates.Registry
+	revisions map[string]string // Immutable pairs; accessed under the route lock.
+}
+
+func (r remoteUpdates) Compare(ctx context.Context, repo, installed, available string) string {
+	key := repo + "/" + installed + "..." + available
+	if relation, ok := r.revisions[key]; ok {
+		return relation
+	}
+	relation := updates.CompareRevisions(ctx, r.Client, repo, installed, available)
+	if relation != "unknown" && r.revisions != nil {
+		if len(r.revisions) >= 128 {
+			clear(r.revisions)
+		}
+		r.revisions[key] = relation
+	}
+	return relation
+}
 
 func (r remoteUpdates) Stable(ctx context.Context, repo string) (string, string, error) {
 	body, err := updates.Read(ctx, r.Client, "https://api.github.com/repos/"+repo+"/releases/latest", "")
@@ -150,6 +170,24 @@ func checkUpdates(ctx context.Context, inventory VersionsResponse, repo, channel
 	if !incomplete {
 		result.LastSuccessfulAt = result.CheckedAt
 	}
+	// Optional source ordering must not consume the image comparison budget or
+	// turn a successful digest check into a failure if GitHub is unavailable.
+	ancestryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	compared := map[string]string{}
+	for i := range result.Components {
+		item := &result.Components[i]
+		if item.State != "changed" {
+			continue
+		}
+		key := item.InstalledRevision + "..." + item.AvailableRevision
+		relation, exists := compared[key]
+		if !exists {
+			relation = source.Compare(ancestryCtx, repo, item.InstalledRevision, item.AvailableRevision)
+			compared[key] = relation
+		}
+		item.SourceRelation = relation
+	}
 	return result
 }
 
@@ -167,7 +205,7 @@ func UpdatesRoutes(r *gin.RouterGroup, provider types.IDockerProvider) {
 	if repo == "" {
 		repo = "mowglinext/mowglinext"
 	}
-	source := remoteUpdates{updates.NewRegistry()}
+	source := remoteUpdates{Registry: updates.NewRegistry(), revisions: map[string]string{}}
 	registerUpdatesRoutes(r, provider, repo, source)
 }
 

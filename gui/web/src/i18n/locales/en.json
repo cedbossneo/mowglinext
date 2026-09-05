@@ -22,6 +22,13 @@
       "available": "Different images are available",
       "current": "Installed images match the selected channel"
     },
+    "sourceRelations": {
+      "newer": "Available image uses newer source",
+      "older": "Installed source is newer",
+      "diverged": "Source histories have diverged; neither is strictly newer",
+      "same": "Same source commit, different build",
+      "unknown": "Source order could not be determined"
+    },
     "componentStates": {
       "current": "Matches",
       "changed": "Different image available",

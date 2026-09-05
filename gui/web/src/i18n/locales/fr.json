@@ -22,6 +22,13 @@
       "available": "Des images différentes sont disponibles",
       "current": "Les images installées correspondent au canal sélectionné"
     },
+    "sourceRelations": {
+      "newer": "L’image disponible utilise un code source plus récent",
+      "older": "Le code source installé est plus récent",
+      "diverged": "Les historiques ont divergé ; aucun n’est strictement plus récent",
+      "same": "Même commit source, compilation différente",
+      "unknown": "L’ordre des versions sources n’a pas pu être déterminé"
+    },
     "componentStates": {
       "current": "Identique",
       "changed": "Image différente disponible",

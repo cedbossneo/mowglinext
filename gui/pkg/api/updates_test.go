@@ -12,12 +12,19 @@ import (
 )
 
 type fakeUpdates struct {
-	image      updates.Image
-	old        updates.Image
-	resolveErr error
-	calls      int
-	stableErr  error
-	refs       []string
+	image       updates.Image
+	old         updates.Image
+	resolveErr  error
+	calls       int
+	stableErr   error
+	refs        []string
+	relation    string
+	comparisons int
+}
+
+func (f *fakeUpdates) Compare(context.Context, string, string, string) string {
+	f.comparisons++
+	return f.relation
 }
 
 func (f *fakeUpdates) Stable(context.Context, string) (string, string, error) {
@@ -124,6 +131,30 @@ func TestUpdatesEndpointIsReadOnlyAndCacheDoesNotContactRegistry(t *testing.T) {
 		r.ServeHTTP(w, httptest.NewRequest(request.method, request.path, nil))
 		if w.Code != request.code {
 			t.Fatalf("%s returned %d", request.path, w.Code)
+		}
+	}
+}
+
+func TestSourceOrderingEnrichesChangedImagesWithoutAffectingDigestResults(t *testing.T) {
+	for _, relation := range []string{"newer", "older", "diverged", "same", "unknown"} {
+		inv, source := updateFixture()
+		source.relation = relation
+		if got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source); source.comparisons != 0 || got.Components[0].SourceRelation != "" {
+			t.Fatal("matching images do not need an ancestry lookup")
+		}
+		inv.Components[0].ImageID = "sha256:" + strings.Repeat("f", 64)
+		second := inv.Components[0]
+		second.Name = "mowgli-lidar"
+		second.Image = "ghcr.io/custom/repo/lidar-ldlidar:dev"
+		inv.Components = append(inv.Components, second)
+		got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source)
+		if got.State != "available" || got.LastSuccessfulAt == "" || source.comparisons != 1 {
+			t.Fatalf("ordering must be deduplicated and optional: %+v (%d)", got, source.comparisons)
+		}
+		for _, item := range got.Components {
+			if item.State != "changed" || item.SourceRelation != relation {
+				t.Fatalf("digest result lost: %+v", item)
+			}
 		}
 	}
 }

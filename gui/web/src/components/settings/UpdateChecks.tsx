@@ -20,6 +20,7 @@ export function UpdateChecks() {
             {result?.components?.map(component => <div className="installed-version-row" key={component.name}>
                 <div className="installed-version-heading"><Typography.Text strong>{component.name}</Typography.Text><Tag>{t(`updateChecks.componentStates.${component.state}`)}</Tag></div>
                 <Typography.Text type="secondary">{component.installed_revision?.slice(0,8) || t('updates.unknown')} → {component.available_revision?.slice(0,8) || t('updates.unknown')}</Typography.Text>
+                {component.state === 'changed' && <div><Typography.Text>{t(`updateChecks.sourceRelations.${component.source_relation || 'unknown'}`)}</Typography.Text></div>}
                 {component.custom_image && <div><Typography.Text type="secondary">{t('updateChecks.custom')}</Typography.Text></div>}
                 {component.digest_reference && <div><Typography.Text type="secondary">{t('updateChecks.digestReference')}</Typography.Text></div>}
                 {component.available_image && <details><summary>{t('updateChecks.targetImage')}</summary><Typography.Text style={{overflowWrap:'anywhere'}}>{component.available_image}</Typography.Text></details>}

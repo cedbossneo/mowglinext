@@ -8,6 +8,7 @@ for (const mobile of [false,true]) {
         await installMockBackend(page, SCENARIOS[0]);
         const requests: string[] = [];
         const errors: string[] = [];
+        let relation = 'newer';
         page.on('pageerror', error => errors.push(error.message));
         page.on('request', request => { if (request.method() !== 'GET' && /\/api\/(containers|system|mowglinext\/call)/.test(request.url())) requests.push(request.url()); });
         await page.route('**/api/system/updates?*', route => {
@@ -20,7 +21,7 @@ for (const mobile of [false,true]) {
                 checked_at: checking ? '2026-09-05T16:00:00Z' : undefined,
                 last_successful_at: checking ? '2026-09-05T16:00:00Z' : undefined,
                 notes_url: 'https://github.com/mowglinext/mowglinext/releases/tag/v1.2.0',
-                components: checking ? [{name:'mowgli-gui',state:channel === 'dev' ? 'changed' : 'current',installed_revision:'aaaaaaa',available_revision:channel === 'dev' ? 'bbbbbbb' : 'aaaaaaa',custom_image:true,digest_reference:true,available_image:'ghcr.io/mowglinext/mowglinext/mowglinext-gui@sha256:'+'b'.repeat(64)}] : [],
+                components: checking ? [{name:'mowgli-gui',state:channel === 'dev' ? 'changed' : 'current',source_relation:channel === 'dev' ? relation : undefined,installed_revision:'aaaaaaa',available_revision:channel === 'dev' ? 'bbbbbbb' : 'aaaaaaa',custom_image:true,digest_reference:true,available_image:'ghcr.io/mowglinext/mowglinext/mowglinext-gui@sha256:'+'b'.repeat(64)}] : [],
             }});
         });
         await page.goto('/#/settings?section=updates');
@@ -29,6 +30,20 @@ for (const mobile of [false,true]) {
         await card.getByRole('button', {name:'Check now'}).click();
         await expect(card.getByText('Different images are available', {exact:true})).toBeVisible();
         await expect(card.getByText('Different image available', {exact:true})).toBeVisible();
+        await expect(card.getByText('Available image uses newer source', {exact:true})).toBeVisible();
+        await card.screenshot({path:`tests/e2e/.artifacts/update-source-newer-${mobile ? 'mobile' : 'desktop'}.png`});
+        for (const [value, label] of [
+            ['older', 'Installed source is newer'],
+            ['diverged', 'Source histories have diverged; neither is strictly newer'],
+            ['same', 'Same source commit, different build'],
+            ['unknown', 'Source order could not be determined'],
+        ]) {
+            relation = value;
+            await card.getByRole('button', {name:'Check now'}).click();
+            await expect(card.getByText(label, {exact:true})).toBeVisible();
+            await expect(card.getByText('Available image uses newer source', {exact:true})).toHaveCount(0);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }
         await card.getByText('Development', {exact:true}).click();
         await page.getByText('Stable releases', {exact:true}).click();
         await expect(card.getByText('Not checked yet', {exact:true})).toBeVisible();
