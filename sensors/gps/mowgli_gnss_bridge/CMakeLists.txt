@@ -85,6 +85,16 @@ install(DIRECTORY include/
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  # Match every package under ros2/src: this project formats with clang-format
+  # (see .clang-format) and declares licensing with an SPDX identifier, neither
+  # of which ament_uncrustify / ament_copyright recognise. Without these this
+  # package is the only one in the repo that fails those two linters — which is
+  # what the new "Test mowgli_gnss_bridge" CI job surfaced the moment anything
+  # started running them.
+  set(ament_cmake_uncrustify_FOUND TRUE)
+  set(ament_cmake_copyright_FOUND TRUE)
+  # cpplint is deliberately left ENABLED here: it currently passes, and this
+  # package is the GNSS trust boundary, so the extra checking is worth keeping.
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
