@@ -681,32 +681,95 @@
                 </Sequence>
               </Fallback>
 
-              <!-- Charge manuelle : l'opérateur a posé la tondeuse sur le socle en
-              dehors d'un cycle piloté par RainGuard/BatteryGuard (batterie pas
-              encore basse, pas de pluie). Sans ce garde, la boucle de couverture
-              continue de tourner et republie MOWING en boucle, jusqu'à ce que la
-              batterie tombe à battery_low_pct et déclenche l'auto-continue de
-              BatteryGuard (undock non désiré une fois chargée). -->
-          <Fallback name="ManualChargeGuard">
-            <Inverter><IsCharging/></Inverter>
-            <Sequence name="ManualChargeHandler">
-              <SetMowerEnabled enabled="false"/>
-              <StopMoving/>
-              <PublishHighLevelStatus state="1" state_name="CHARGING"/>
-              <!-- Attend le débranchement manuel — pas d'auto-undock sur seuil
-                  batterie ici, c'est l'opérateur qui décide. -->
-              <RetryUntilSuccessful num_attempts="17280">
-                <Fallback>
-                  <Inverter><IsCharging/></Inverter>
-                  <Sequence>
-                    <WaitForDuration duration_sec="5.0"/>
-                    <AlwaysFailure/>
-                  </Sequence>
-                </Fallback>
-              </RetryUntilSuccessful>
-              <PublishHighLevelStatus state="2" state_name="MOWING"/>
-            </Sequence>
-          </Fallback>
+              <!-- Manual charge guard: the operator has physically put the
+                   mower back on the dock mid-mow, OUTSIDE a cycle driven by
+                   RainGuard or BatteryGuard (battery not low, no rain). Without
+                   this guard the coverage loop keeps running and republishing
+                   MOWING at a robot that cannot go anywhere, until the pack
+                   finally sags to battery_low_pct and BatteryGuard's
+                   auto-continue undocks it - an undock nobody asked for. So:
+                   blade off, stop, publish CHARGING, and hold until the
+                   operator physically lifts the mower off again.
+
+                   ENTRY IS DEBOUNCED (stable_for_sec="3.0"), and it matters
+                   what the <Inverter> makes of a debounced condition:
+
+                     not charging        IsCharging FAILURE -> Inverter SUCCESS
+                                         -> Fallback SUCCESS on the first child.
+                                         The guard costs one condition tick and
+                                         mowing continues. This is the case
+                                         99.9 % of the time.
+                     charging < 3.0 s    IsCharging still FAILURE (the window
+                                         has not elapsed) -> Inverter SUCCESS
+                                         -> mowing continues. This is how a
+                                         transient is ridden out.
+                     charging >= 3.0 s   IsCharging SUCCESS -> Inverter FAILURE
+                                         -> the handler below engages.
+
+                   i.e. the inverted debounced condition reads "not (charging,
+                   settled)", which is exactly the pass-through predicate we
+                   want, and it errs in the direction that keeps mowing rather
+                   than the direction that stops it.
+
+                   The debounce exists because the firmware charger bit is not
+                   clean: it stays high ~100 ms into a BackUp undock (CLAUDE.md
+                   invariant 11) and it can bounce when the mower brushes the
+                   dock contacts while mowing a swath that passes close to the
+                   station. Every other <IsCharging/> in this tree treats a
+                   transient as harmless; here a single flickered sample would
+                   cost a real blade stop and a CHARGING/MOWING status round
+                   trip mid-mow. StripGuards is a ReactiveSequence, so this node
+                   is re-ticked every tick and the window genuinely accumulates.
+                   stable_for_sec defaults to 0.0 (raw bit), so the other ten
+                   <IsCharging/> call sites in this tree are untouched.
+
+                   The EXIT condition inside the retry loop below is
+                   deliberately left RAW. It is a different node instance with
+                   its own independent window, so a debounced exit would read
+                   FAILURE on its very first tick (window just started) and
+                   release the guard immediately - the opposite of the intent.
+                   Raw is also what we want on the way out: resume the moment
+                   the operator takes the mower off. -->
+              <Fallback name="ManualChargeGuard">
+                <Inverter><IsCharging stable_for_sec="3.0"/></Inverter>
+                <Sequence name="ManualChargeHandler">
+                  <SetMowerEnabled enabled="false"/>
+                  <StopMoving/>
+                  <PublishHighLevelStatus state="1" state_name="CHARGING"/>
+                  <!-- Wait for the operator to take the mower off the dock. No
+                       battery-threshold auto-undock here on purpose: the
+                       operator docked it, so the operator undocks it.
+
+                       BOUND: 17280 attempts x 5.0 s = 24 h. On expiry
+                       RetryUntilSuccessful returns FAILURE, so
+                       ManualChargeHandler fails -> ManualChargeGuard fails ->
+                       the StripGuards ReactiveSequence fails -> the parent
+                       "StripCoverageWithRecovery" Fallback falls through to its
+                       other child, CoverageEnded. In other words: after a full
+                       day parked on the dock, the run is treated as FINISHED.
+
+                       That is the intended outcome, not an accident. A mower
+                       that has sat on its dock for 24 h is not mid-mow any
+                       more: the coverage plan and the mow_progress grid are
+                       stale, and the operator's intent has plainly changed.
+                       Ending the session drops the robot back into the normal
+                       docked/idle state, from which the scheduler or the
+                       operator starts a fresh, freshly-planned run. The
+                       alternative - waiting forever - would pin the BT in this
+                       branch across days and silently swallow every scheduled
+                       mow, with no status anywhere saying why. -->
+                  <RetryUntilSuccessful num_attempts="17280">
+                    <Fallback>
+                      <Inverter><IsCharging/></Inverter>
+                      <Sequence>
+                        <WaitForDuration duration_sec="5.0"/>
+                        <AlwaysFailure/>
+                      </Sequence>
+                    </Fallback>
+                  </RetryUntilSuccessful>
+                  <PublishHighLevelStatus state="2" state_name="MOWING"/>
+                </Sequence>
+              </Fallback>
 
               <!-- Multi-area coverage loop.
                    Outer loop: iterate through all mowing areas.
