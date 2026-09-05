@@ -63,6 +63,7 @@
 #include "mowgli_hardware/blade_gate.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
+#include "mowgli_hardware/dig_escalation.hpp"
 #include "mowgli_hardware/gnss_hardware_status.hpp"
 #include "mowgli_hardware/imu_liveness.hpp"
 #include "mowgli_hardware/ll_datatypes.hpp"
@@ -139,6 +140,7 @@ static const char* high_level_mode_name(const uint8_t mode)
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/magnetic_field.hpp"
 #include "sensor_msgs/msg/nav_sat_fix.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -691,6 +693,21 @@ private:
     dig_pose_timeout_s_ = declare_parameter<double>("dig_pose_timeout_s", 1.0);
     dig_cfg_.enabled = dig_detect_enabled_;
 
+    // ── Repeat-dig escalation (see mowgli_hardware/dig_escalation.hpp) ─────
+    //
+    // The per-event response above is unchanged. This only notices that the
+    // SAME dig keeps happening: issue #500's 2026-09-04 capture latched 17
+    // times, five of them in 23 s inside a 6 cm square, then kept latching
+    // for 5.5 more minutes while the chassis crawled 20 cm against a physical
+    // object. Neither the bounded reverse nor the 0.60 m pending keepout can
+    // break that — the robot is not re-entering a mapped cell, the next
+    // planned manoeuvre simply aims it back at the same object. Escalating
+    // hands the problem to the operator; the bridge itself still commands
+    // nothing beyond the hard stop and bounded reverse it already did.
+    dig_escalate_cfg_.radius_m = declare_parameter<double>("dig_escalate_radius_m", 0.50);
+    dig_escalate_cfg_.window_s = declare_parameter<double>("dig_escalate_window_s", 60.0);
+    dig_escalate_cfg_.min_count = declare_parameter<int>("dig_escalate_count", 3);
+
     RCLCPP_INFO(get_logger(),
                 "Parameters: serial_port=%s baud_rate=%d heartbeat_rate=%.1f Hz "
                 "publish_rate=%.1f Hz high_level_rate=%.1f Hz",
@@ -732,6 +749,14 @@ private:
     pub_dig_event_ =
         create_publisher<mowgli_interfaces::msg::DigEvent>("~/dig_event",
                                                            rclcpp::QoS(10).transient_local());
+    // Repeat-dig escalation flag. TRANSIENT_LOCAL depth 1 so the BT and the
+    // GUI read the CURRENT value the moment they subscribe, however late they
+    // start — a latch that only existed as a one-shot message would be missed
+    // by exactly the consumers that need it. Published immediately so the
+    // topic always carries a value rather than nothing-yet.
+    pub_dig_escalated_ =
+        create_publisher<std_msgs::msg::Bool>("~/dig_escalated", rclcpp::QoS(1).transient_local());
+    publish_dig_escalated();
     timer_dock_heading_ = create_wall_timer(std::chrono::seconds(1),
                                             [this]()
                                             {
@@ -1268,6 +1293,19 @@ private:
                     "Charging transition: dock_heading anchor window "
                     "(%.1fs) opened.",
                     kChargingAnchorWindowSec);
+
+        // Reaching the charger is the one unambiguous proof the robot is no
+        // longer wedged where it was digging, so it is where the repeat-dig
+        // latch clears (see dig_escalation.hpp). The history goes with it —
+        // stale latches from before an extraction must not count toward the
+        // next escalation.
+        if (dig_escalated_)
+        {
+          dig_escalated_ = false;
+          publish_dig_escalated();
+          RCLCPP_INFO(get_logger(), "Dig escalation cleared: robot reached the charger.");
+        }
+        dig_latch_history_.clear();
       }
 
       // Start IMU calibration when charging and not already calibrating.
@@ -2967,7 +3005,12 @@ private:
     //    even if the escape is cut short by an emergency.
     publish_dig_event(verdict);
 
-    // 3. Begin the bounded reverse (executed by subsequent monitor ticks).
+    // 3. Repeat-dig bookkeeping. Deliberately placed between the per-event
+    //    response and the escape: escalation ADDS a flag, it never replaces
+    //    or suppresses anything the bridge already does for a single dig.
+    note_dig_for_escalation();
+
+    // 4. Begin the bounded reverse (executed by subsequent monitor ticks).
     dig_escape_state_ = DigEscapeState{};
     dig_escaping_ = dig_escape_allowed();
     if (!dig_escaping_)
@@ -2976,6 +3019,54 @@ private:
                   "Dig escape suppressed: emergency active or robot charging. "
                   "Stop stands; no reverse commanded.");
     }
+  }
+
+  /// Record this latch and, if it is the N'th at the same spot, raise the
+  /// escalation flag. Commands NOTHING — see dig_escalation.hpp for why
+  /// stopping the mission belongs to the behaviour tree and not to this
+  /// layer, which only ever reduces motion.
+  void note_dig_for_escalation()
+  {
+    if (!DigEscalationEnabled(dig_escalate_cfg_))
+    {
+      return;
+    }
+
+    const double t = now().seconds();
+    const bool escalate = ShouldEscalate(
+        dig_escalate_cfg_, dig_latch_history_, last_map_pose_x_, last_map_pose_y_, t);
+    const int nearby = DigNearbyLatchCount(dig_latch_history_,
+                                           last_map_pose_x_,
+                                           last_map_pose_y_,
+                                           t,
+                                           dig_escalate_cfg_.radius_m,
+                                           dig_escalate_cfg_.window_s);
+
+    dig_latch_history_ = DigRecordLatch(
+        dig_latch_history_, last_map_pose_x_, last_map_pose_y_, t, dig_escalate_cfg_.window_s);
+
+    if (!escalate || dig_escalated_)
+    {
+      return;  // not yet, or already latched — log and publish exactly once
+    }
+
+    dig_escalated_ = true;
+    RCLCPP_ERROR(get_logger(),
+                 "Dig escalation: %d latches within %.2f m in %.0f s at map (%.2f, %.2f) — "
+                 "the robot cannot free itself here; stopping.",
+                 nearby,
+                 dig_escalate_cfg_.radius_m,
+                 dig_escalate_cfg_.window_s,
+                 last_map_pose_x_,
+                 last_map_pose_y_);
+    publish_dig_escalated();
+  }
+
+  void publish_dig_escalated()
+  {
+    std_msgs::msg::Bool msg;
+    msg.data = dig_escalated_;
+    pub_dig_escalated_->publish(msg);
   }
 
   void publish_dig_event(const DigVerdict& verdict)
@@ -3096,6 +3187,17 @@ private:
   DigEscapeState dig_escape_state_;
   bool dig_escaping_{false};
   rclcpp::Time dig_rearm_deadline_{0, 0, RCL_ROS_TIME};
+
+  // ── Repeat-dig escalation (see dig_escalation.hpp) ───────────────────────
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_dig_escalated_;
+  DigEscalationCfg dig_escalate_cfg_;
+  DigLatchHistory dig_latch_history_;
+  /// Latched once the robot proves it cannot free itself at one spot. Cleared
+  /// only when the robot reaches the charger: mating with the dock is
+  /// unambiguous proof it physically left the obstruction, whether the
+  /// operator carried it out or it drove home. Nothing else clears it, so a
+  /// robot still sitting against the object cannot quietly resume.
+  bool dig_escalated_{false};
 
   /// Latest commanded forward velocity, captured in on_cmd_vel, with the
   /// time it arrived — a command that goes silent must stop counting.

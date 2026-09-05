@@ -242,6 +242,17 @@ BT::NodeStatus IsLocalizationDegraded::tick()
 }
 
 // ---------------------------------------------------------------------------
+// IsDigEscalated
+// ---------------------------------------------------------------------------
+
+BT::NodeStatus IsDigEscalated::tick()
+{
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  std::lock_guard<std::mutex> lock(ctx->context_mutex);
+  return ctx->dig_escalated ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+}
+
+// ---------------------------------------------------------------------------
 // IsLethalBoundaryViolation
 // ---------------------------------------------------------------------------
 

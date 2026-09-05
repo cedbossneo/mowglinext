@@ -301,6 +301,60 @@
       </ReactiveFallback>
 
       <!-- ================================================================
+           GUARD 2c: Repeat-dig obstruction (reactive)
+           The hardware bridge latches /hardware_bridge/dig_escalated after
+           dig_escalate_count dig latches inside dig_escalate_radius_m within
+           dig_escalate_window_s. That is NOT a dig to route around, it is an
+           obstruction the robot cannot resolve on its own.
+
+           Field capture 2026-09-04 (issue #500): the robot wedged against a
+           physical object and latched SEVENTEEN times — five of them in 23 s
+           inside a 6 cm square around (-5.39, 11.85) — then kept latching for
+           5.5 more minutes while the chassis crawled 20 cm, with the blade
+           RPM collapsing to 0 and recovering repeatedly. The bridge's
+           per-event response is correct and unchanged (hard stop on the wire
+           + bounded reverse), and map_server's 0.60 m pending keepout is
+           correct too, but neither can break the loop: the robot is not
+           re-entering a mapped cell, the next planned manoeuvre simply aims
+           it back at the same physical object.
+
+           So the mission has to stop, which is THIS layer's job — the bridge
+           only ever reduces motion and deliberately commands nothing extra.
+           Exemptions mirror BoundaryGuard: on the charger the latch is
+           already cleared; command 0 has no mission to stop; HOME (2) and the
+           manual/recording modes (3/5/6/7) are how the operator recovers the
+           robot and must never be blocked by this guard.
+           ================================================================ -->
+      <ReactiveFallback name="DigObstructionGuard">
+        <IsCharging/>
+        <IsCommand command="0"/>
+        <IsCommand command="2"/>
+        <IsCommand command="3"/>
+        <IsCommand command="5"/>
+        <IsCommand command="6"/>
+        <IsCommand command="7"/>
+        <Inverter><IsDigEscalated/></Inverter>
+
+        <!-- Blade off, wheels stopped, operator-visible reason. The bridge
+             clears the latch only when the robot reaches the charger, so the
+             robot holds here until the operator recalls it (COMMAND_HOME) or
+             extracts it — it cannot quietly resume into the same object. -->
+        <Sequence name="DigObstructionHandler">
+          <SetMowerEnabled enabled="false"/>
+          <StopMoving/>
+          <PublishHighLevelStatus state="1" state_name="DIG_OBSTRUCTION"/>
+          <WaitForDuration duration_sec="5.0"/>
+          <!-- Terminate with FAILURE so the Root ReactiveSequence is halted
+               before MainLogic while the latch holds — same contract as
+               EmergencyGuard / BoundaryGuard / LocalizationGuard. Without it
+               the wait returns SUCCESS and the tree re-enters MowingSequence
+               from its first node every 5 s, which is precisely the
+               reverse-and-retry loop this guard exists to end. -->
+          <AlwaysFailure/>
+        </Sequence>
+      </ReactiveFallback>
+
+      <!-- ================================================================
            GUARD 3: GPS quality adaptation (reactive)
            ================================================================ -->
       <Fallback name="GPSModeSelector">

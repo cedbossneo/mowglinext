@@ -307,6 +307,35 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// IsDigEscalated — the robot has latched the dig detector repeatedly at one
+// spot and cannot free itself there (issue #500).
+// ---------------------------------------------------------------------------
+
+/// Returns SUCCESS while /hardware_bridge/dig_escalated is true, i.e. the
+/// bridge has seen dig_escalate_count latches inside dig_escalate_radius_m
+/// within dig_escalate_window_s. A single dig is handled entirely by the
+/// bridge (hard stop, bounded reverse) and by map_server's pending keepout,
+/// and does NOT set this; repeated latches at one spot mean the next planned
+/// manoeuvre keeps aiming the robot back at the same physical object, which
+/// no amount of reversing or keeping-out can fix. The bridge only raises the
+/// flag — stopping the mission is the tree's job.
+class IsDigEscalated : public BT::ConditionNode
+{
+public:
+  IsDigEscalated(const std::string& name, const BT::NodeConfig& config)
+      : BT::ConditionNode(name, config)
+  {
+  }
+
+  static BT::PortsList providedPorts()
+  {
+    return {};
+  }
+
+  BT::NodeStatus tick() override;
+};
+
+// ---------------------------------------------------------------------------
 // IsLethalBoundaryViolation
 // ---------------------------------------------------------------------------
 
