@@ -360,6 +360,16 @@ struct BTContext
   /// Set to true when the robot is outside all allowed polygons.
   bool boundary_violation{false};
 
+  /// Mirrors /hardware_bridge/dig_escalated: the bridge's dig detector has
+  /// latched dig_escalate_count times inside dig_escalate_radius_m within
+  /// dig_escalate_window_s, i.e. the robot is wedged against something it
+  /// cannot get past (issue #500 — 17 latches, five in 23 s inside a 6 cm
+  /// square, 5.5 min for 20 cm of progress). The bridge's per-event response
+  /// is unchanged and it commands nothing extra; the DigObstructionGuard is
+  /// what stops the mission. Cleared by the bridge when the robot reaches the
+  /// charger.
+  bool dig_escalated{false};
+
   /// Set to true when the robot is outside all allowed polygons by more
   /// than lethal_boundary_margin_m. Escalates the BoundaryGuard from
   /// "try to navigate back inside" to "emergency stop + wait for

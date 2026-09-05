@@ -43,6 +43,7 @@ void registerAllNodes(BT::BehaviorTreeFactory& factory)
   factory.registerNodeType<IsBoundaryViolation>("IsBoundaryViolation");
   factory.registerNodeType<IsLocalizationDegraded>("IsLocalizationDegraded");
   factory.registerNodeType<IsLethalBoundaryViolation>("IsLethalBoundaryViolation");
+  factory.registerNodeType<IsDigEscalated>("IsDigEscalated");
   factory.registerNodeType<IsDocking>("IsDocking");
   factory.registerNodeType<IsNewRain>("IsNewRain");
   factory.registerNodeType<IsRainModeAtLeast>("IsRainModeAtLeast");

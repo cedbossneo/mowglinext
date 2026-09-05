@@ -17,7 +17,7 @@
 | `ros2/src/mowgli_bringup/config/nav2_params_base.yaml` (1193 L) | shared Nav2 params for BOTH LiDAR and no-LiDAR variants | `navigation.launch.py:659` (deep-merge) | maintainer |
 | `ros2/src/mowgli_bringup/config/nav2_params_lidar.yaml` (284 L) | LiDAR-only overlay (scan obstacle layers, scan collision_monitor) | `navigation.launch.py:270`, merged L663 | maintainer |
 | `ros2/src/mowgli_bringup/config/nav2_params_no_lidar.yaml` (80 L) | GPS-only overlay (static layers, pass-through monitor) | `navigation.launch.py:271`, merged L663 | maintainer |
-| `ros2/src/mowgli_bringup/config/hardware_bridge.yaml` (103 L) | serial port/baud/rates, IMU cal count, **dig detector** `dig_*` (Invariant 16) | `mowgli.launch.py:185` | maintainer |
+| `ros2/src/mowgli_bringup/config/hardware_bridge.yaml` (146 L) | serial port/baud/rates, IMU cal count, **dig detector** `dig_*` + repeat-dig escalation `dig_escalate_*` (Invariant 16) | `mowgli.launch.py:185` | maintainer |
 | `ros2/src/mowgli_bringup/config/twist_mux.yaml` (53 L) | 5 cmd_vel lanes + priorities; deliberately **no `locks:`** | `mowgli.launch.py:271` | maintainer |
 | `ros2/src/mowgli_bringup/config/foxglove_bridge.yaml` (11 L) | Foxglove params + GNSS-internal topic whitelist — **not referenced by any launch file** | nothing | maintainer |
 | `ros2/src/fusion_graph/config/fusion_graph.yaml` (480 L) | 76 of the localizer's 133 declared params | `fusion_graph/launch/fusion_graph.launch.py:137` | maintainer |

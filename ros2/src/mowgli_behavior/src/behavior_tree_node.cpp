@@ -269,6 +269,25 @@ private:
                                                    context_->lethal_boundary_violation = msg->data;
                                                  });
 
+    // Repeat-dig escalation feed for DigObstructionGuard. The bridge latches
+    // this after dig_escalate_count dig latches inside dig_escalate_radius_m
+    // within dig_escalate_window_s — the robot is wedged against a physical
+    // object that reversing and keeping-out cannot resolve (issue #500).
+    //
+    // TRANSIENT_LOCAL depth 1 to match the publisher: the flag is a LATCH, so
+    // a BT that starts (or restarts) after the escalation must still see it.
+    // A volatile subscription would silently miss exactly the case the guard
+    // exists for.
+    dig_escalated_sub_ =
+        create_subscription<std_msgs::msg::Bool>("/hardware_bridge/dig_escalated",
+                                                 rclcpp::QoS(1).transient_local(),
+                                                 [this](std_msgs::msg::Bool::ConstSharedPtr msg)
+                                                 {
+                                                   std::lock_guard<std::mutex> lock(
+                                                       context_->context_mutex);
+                                                   context_->dig_escalated = msg->data;
+                                                 });
+
     // Localization-quality gate feed for LocalizationGuard, latched into
     // context_->localization_degraded.
     //
@@ -1119,6 +1138,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr replan_needed_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr boundary_violation_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr lethal_boundary_violation_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr dig_escalated_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr fused_odom_sub_;
   // LocalizationGuard state. Both feeds write loc_obs_ under
   // context_->context_mutex and then call updateLocalizationHealthLocked().
