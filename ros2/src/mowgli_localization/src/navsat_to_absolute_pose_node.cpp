@@ -127,7 +127,23 @@ void NavSatToAbsolutePoseNode::declare_parameters()
   pos_accuracy_reject_threshold_m_ =
       declare_parameter<double>("pos_accuracy_reject_threshold_m", 0.500);
 
-  status_pairing_window_s_ = declare_parameter<double>("status_pairing_window_s", 0.25);
+  // Hold-back before a complete fix/status pair is released, so a late
+  // conflicting status on the same receipt can still fail it closed.
+  //
+  // Sized from the MEASURED delivery skew, not a guess. /gps/fix comes
+  // straight from universal_gnss's receiver_node while /gps/status takes an
+  // extra hop through mowgli_gnss_bridge, so the two are genuinely offset.
+  // Sampled on the robot 2026-09-06, 225 matched pairs over 45 s:
+  // p50 1.12 ms, p95 3.38 ms, max 8.25 ms. 50 ms is ~6x the worst case,
+  // with headroom for CPU load while mowing.
+  //
+  // This is NOT free latency: /gps/absolute_pose feeds gps_dock_detection_node
+  // (use_gps_dock_detection defaults true), where a stale robot position makes
+  // the dock compute FURTHER away than it is and the approach overshoot by
+  // roughly window x approach speed. The original 0.25 s was 30x the measured
+  // worst case and cost ~4 cm at 0.16 m/s. Do not raise it without re-measuring
+  // the skew and accounting for that error.
+  status_pairing_window_s_ = declare_parameter<double>("status_pairing_window_s", 0.05);
   status_pairing_max_provenance_age_s_ =
       declare_parameter<double>("status_pairing_max_provenance_age_s", 2.0);
   const int status_pairing_capacity = declare_parameter<int>("status_pairing_capacity", 32);
