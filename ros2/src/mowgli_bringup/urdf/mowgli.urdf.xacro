@@ -41,7 +41,10 @@
   <xacro:arg name="lidar_yaw" default="3.1408"/>
 
   <xacro:arg name="imu_x"     default="0.18"/>
-  <xacro:arg name="imu_y"     default="0.0"/>
+  <!-- -0.195 = mowgli_robot.yaml's imu_y default: the IMU sits to the RIGHT
+       of the wheelbase centre. Was 0.0 here, matching the template's old
+       (wrong) 0.0 — keep both in lockstep. -->
+  <xacro:arg name="imu_y"     default="-0.195"/>
   <xacro:arg name="imu_z"     default="0.095"/>
   <!-- Full 3-axis mounting rotation (roll, pitch, yaw) in radians.
        yaw=only handles chip-Z ≡ robot-Z mounts. Upside-down, side-mounted,

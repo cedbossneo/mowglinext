@@ -113,7 +113,9 @@ def generate_launch_description() -> LaunchDescription:
     lidar_z   = str(robot_params.get("lidar_z", 0.30))
     lidar_yaw = str(robot_params.get("lidar_yaw", 0.0))
     imu_x     = str(robot_params.get("imu_x", 0.18))
-    imu_y     = str(robot_params.get("imu_y", 0.0))
+    # -0.195: keep equal to the mowgli_robot.yaml template default AND the
+    # xacro <xacro:arg> default (IMU is right of the wheelbase centre).
+    imu_y     = str(robot_params.get("imu_y", -0.195))
     imu_z     = str(robot_params.get("imu_z", 0.095))
     imu_roll  = str(robot_params.get("imu_roll", 0.0))
     imu_pitch = str(robot_params.get("imu_pitch", 0.0))
