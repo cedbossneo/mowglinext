@@ -13,14 +13,20 @@ name: GUI — CI
 on:
   push:
     branches: [main, dev, 'feat/**', 'fix/**', 'refactor/**', 'chore/**', 'perf/**']
-    paths:
+    paths: &gui_ci_paths
       - 'gui/web/**'
+      - 'gui/pkg/**'
+      - 'gui/asserts/**'
+      - 'gui/go.mod'
+      - 'gui/go.sum'
+      # The Go parity guards read the ROS2 template directly, so a
+      # template-only change must run them (that is the divergence class they
+      # exist to catch).
+      - 'ros2/src/mowgli_bringup/config/mowgli_robot.yaml'
       - '.github/workflows/gui-ci.yml'
   pull_request:
     branches: [main, dev]
-    paths:
-      - 'gui/web/**'
-      - '.github/workflows/gui-ci.yml'
+    paths: *gui_ci_paths
   workflow_dispatch:
 
 concurrency:
@@ -74,3 +80,32 @@ jobs:
 
       - name: Unit tests
         run: yarn test
+
+  # The Go backend's ~36 test files gated NOTHING — no workflow ran `go test`,
+  # exactly the gap this file's header describes for vitest. That is how the
+  # imu_y template/model-preset divergence survived: the guards that would have
+  # caught it (TestSchemaDefaultsMatchTemplate, and now
+  # TestMowerModelPresetMatchesTemplate) are Go tests, and Go tests never ran.
+  # A parity guard nobody executes is documentation, not a gate.
+  #
+  # The suite is hermetic — the Docker-shaped tests use in-process fakes, not a
+  # daemon — and runs in seconds, so it belongs beside the vitest job rather
+  # than in the multi-minute image build.
+  go-tests:
+    name: Go Tests (gui backend)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: gui/go.mod
+          cache-dependency-path: gui/go.sum
+
+      - name: Go tests
+        run: go test ./...
