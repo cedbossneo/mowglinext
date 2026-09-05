@@ -23,13 +23,13 @@ inventory for troubleshooting without exporting robot settings or credentials.
 
 The page is read-only. **Refresh versions** refreshes the local inventory.
 **Check now** compares image metadata with Stable releases or Development builds;
-the comparison selector does not change the installed channel. Published catalogs
-identify complete deployments. Until a catalog exists, individual image comparisons
-are labelled **bundle unverified**. Missing images/platforms and network failures
-are shown explicitly, never as up to date. Release/source links and last-check times
-are included. Neither control pulls images, installs updates or changes firmware.
-See [the deployment catalog contract](../docs/UPDATE_CATALOG.md) for publication gates
-and compatibility limits.
+the comparison selector does not change the installed channel. Each installed
+first-party image is compared with its `dev` tag or the latest
+published Stable release tag, using immutable digests. Results show matching,
+different, unavailable or unsupported images. Missing platforms and network
+failures never produce a blanket up-to-date result.
+
+See [update-check behavior](../docs/UPDATE_CHECKS.md) for tag selection and limits.
 
 MowgliNext web interface -- React frontend + Go backend for mower monitoring and control.
 

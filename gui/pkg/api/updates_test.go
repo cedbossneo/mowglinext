@@ -12,25 +12,20 @@ import (
 )
 
 type fakeUpdates struct {
-	manifest   *updates.Manifest
-	catalogErr error
 	image      updates.Image
 	old        updates.Image
 	resolveErr error
 	calls      int
-	head       string
+	stableErr  error
+	refs       []string
 }
 
-func (f *fakeUpdates) Catalog(context.Context, string, string) (*updates.Manifest, error) {
-	f.calls++
-	return f.manifest, f.catalogErr
-}
 func (f *fakeUpdates) Stable(context.Context, string) (string, string, error) {
-	return "1.1.0", "https://github.com/owner/repo/releases/tag/v1.1.0", nil
+	return "1.1.0", "https://github.com/owner/repo/releases/tag/v1.1.0", f.stableErr
 }
-func (f *fakeUpdates) Head(context.Context, string) (string, error) { return f.head, nil }
 func (f *fakeUpdates) Resolve(_ context.Context, _ string, ref string) (updates.Image, error) {
 	f.calls++
+	f.refs = append(f.refs, ref)
 	if strings.HasPrefix(ref, "sha256:") {
 		return f.old, f.resolveErr
 	}
@@ -39,12 +34,12 @@ func (f *fakeUpdates) Resolve(_ context.Context, _ string, ref string) (updates.
 
 func updateFixture() (VersionsResponse, *fakeUpdates) {
 	image := updates.Image{Repository: "ghcr.io/owner/repo/gps", Digest: "sha256:" + strings.Repeat("a", 64), Platforms: map[string]updates.Platform{"linux/arm64": {Manifest: "sha256:" + strings.Repeat("b", 64), Config: "sha256:" + strings.Repeat("c", 64), Revision: strings.Repeat("d", 40)}}}
-	return VersionsResponse{DockerAvailable: true, Components: []InstalledComponent{{Name: "mowgli-gps", Image: "ghcr.io/owner/repo/gps:dev", ImageID: image.Platforms["linux/arm64"].Config, Architecture: "arm64", Revision: strings.Repeat("d", 40), MetadataAvailable: true}}}, &fakeUpdates{image: image, old: image, head: strings.Repeat("e", 40), manifest: &updates.Manifest{Channel: "dev", SourceRevision: strings.Repeat("e", 40), Version: "dev", Images: map[string]updates.Image{"gps": image}}}
+	return VersionsResponse{DockerAvailable: true, Components: []InstalledComponent{{Name: "mowgli-gps", Image: "ghcr.io/owner/repo/gps:dev", ImageID: image.Platforms["linux/arm64"].Config, Architecture: "arm64", Revision: strings.Repeat("d", 40), MetadataAvailable: true}}}, &fakeUpdates{image: image, old: image}
 }
 
-func TestUpdateCheckCatalogAndSameCommitRebuild(t *testing.T) {
+func TestUpdateCheckTagsAndSameCommitRebuild(t *testing.T) {
 	inv, source := updateFixture()
-	if got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source); got.State != "current" {
+	if got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source); got.State != "current" || source.refs[0] != "dev" || got.LastSuccessfulAt == "" {
 		t.Fatalf("%+v", got)
 	}
 	inv.Components[0].ImageID = "sha256:" + strings.Repeat("f", 64)
@@ -58,31 +53,28 @@ func TestUpdateCheckCatalogAndSameCommitRebuild(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckMissingCatalogIsExplicitlyUnverified(t *testing.T) {
+func TestUpdateCheckStableUsesReleaseTagAndMissingImagesStayIncomplete(t *testing.T) {
 	inv, source := updateFixture()
-	source.manifest = nil
-	source.catalogErr = updates.RemoteError{Status: 404}
-	got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source)
-	if got.State != "unverified" || got.Source != "registry" || got.LastSuccessfulAt == "" {
+	got := checkUpdates(context.Background(), inv, "owner/repo", "stable", source)
+	if got.State != "current" || source.refs[0] != "1.1.0" || got.Version != "1.1.0" || !strings.HasSuffix(got.NotesURL, "/releases/tag/v1.1.0") {
 		t.Fatalf("%+v", got)
 	}
-	source.resolveErr = updates.RemoteError{Status: 429}
-	got = checkUpdates(context.Background(), inv, "owner/repo", "dev", source)
-	if got.State != "incomplete" || got.LastSuccessfulAt != "" {
-		t.Fatalf("failed check marked current: %+v", got)
+	for _, status := range []int{404, 429, 503} {
+		source.resolveErr = updates.RemoteError{Status: status}
+		got = checkUpdates(context.Background(), inv, "owner/repo", "stable", source)
+		if got.State != "incomplete" || got.LastSuccessfulAt != "" || got.Components[0].State != "unavailable" {
+			t.Fatalf("failed check marked current: %+v", got)
+		}
 	}
-	source.catalogErr = errors.New("bad catalog checksum")
-	if got = checkUpdates(context.Background(), inv, "owner/repo", "dev", source); got.State != "unavailable" {
-		t.Fatal("invalid catalog silently bypassed")
+	source.stableErr = errors.New("release unavailable")
+	calls := source.calls
+	if got = checkUpdates(context.Background(), inv, "owner/repo", "stable", source); got.State != "unavailable" || calls != source.calls {
+		t.Fatal("failed release lookup fell back to a moving tag")
 	}
 }
 
-func TestUpdateCheckPreparingMissingPlatformAndUnknownIdentity(t *testing.T) {
+func TestUpdateCheckMissingPlatformAndUnknownIdentity(t *testing.T) {
 	inv, source := updateFixture()
-	source.head = strings.Repeat("f", 40)
-	if got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source); got.State != "preparing" {
-		t.Fatalf("%+v", got)
-	}
 	inv.Components[0].Architecture = "arm"
 	if got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source); got.State != "incomplete" || got.Components[0].State != "missing_platform" {
 		t.Fatalf("%+v", got)
@@ -92,6 +84,20 @@ func TestUpdateCheckPreparingMissingPlatformAndUnknownIdentity(t *testing.T) {
 	inv.Components[0].MetadataAvailable = false
 	if got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source); got.Components[0].State != "unknown" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestUpdateCheckCustomPinnedAndUnsupportedImages(t *testing.T) {
+	inv, source := updateFixture()
+	inv.Components[0].Image = "ghcr.io/custom/repo/gps@" + source.image.Digest
+	got := checkUpdates(context.Background(), inv, "owner/repo", "dev", source)
+	if got.State != "current" || !got.Components[0].CustomImage || !got.Components[0].DigestReference {
+		t.Fatalf("custom pinned image was not identified: %+v", got)
+	}
+	inv.Components = append(inv.Components, InstalledComponent{Name: "mowgli-watchtower", Image: "containrrr/watchtower:latest"})
+	got = checkUpdates(context.Background(), inv, "owner/repo", "dev", source)
+	if got.State != "incomplete" || got.Components[1].State != "unmanaged" {
+		t.Fatalf("unsupported image caused a blanket match: %+v", got)
 	}
 }
 

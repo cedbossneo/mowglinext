@@ -1557,16 +1557,7 @@ const docTemplate = `{
                 "last_successful_at": {
                     "type": "string"
                 },
-                "manifest": {
-                    "$ref": "#/definitions/updates.Manifest"
-                },
                 "notes_url": {
-                    "type": "string"
-                },
-                "preparing": {
-                    "type": "boolean"
-                },
-                "source": {
                     "type": "string"
                 },
                 "state": {
@@ -1996,101 +1987,6 @@ const docTemplate = `{
                 },
                 "wet": {
                     "type": "boolean"
-                }
-            }
-        },
-        "updates.Compatibility": {
-            "type": "object",
-            "properties": {
-                "compose_schema": {
-                    "type": "integer"
-                },
-                "config_schema": {
-                    "type": "integer"
-                },
-                "firmware_protocol": {
-                    "type": "integer"
-                },
-                "hardware_backend": {
-                    "type": "string"
-                },
-                "migration": {
-                    "type": "string"
-                },
-                "rollback": {
-                    "type": "string"
-                }
-            }
-        },
-        "updates.Image": {
-            "type": "object",
-            "properties": {
-                "digest": {
-                    "type": "string"
-                },
-                "platforms": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/updates.Platform"
-                    }
-                },
-                "repository": {
-                    "type": "string"
-                }
-            }
-        },
-        "updates.Manifest": {
-            "type": "object",
-            "properties": {
-                "channel": {
-                    "type": "string"
-                },
-                "compatibility": {
-                    "$ref": "#/definitions/updates.Compatibility"
-                },
-                "images": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/updates.Image"
-                    }
-                },
-                "notes_url": {
-                    "type": "string"
-                },
-                "published_at": {
-                    "type": "string"
-                },
-                "schema_version": {
-                    "type": "integer"
-                },
-                "source_repository": {
-                    "type": "string"
-                },
-                "source_revision": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "updates.Platform": {
-            "type": "object",
-            "properties": {
-                "built_at": {
-                    "type": "string"
-                },
-                "config": {
-                    "type": "string"
-                },
-                "manifest": {
-                    "type": "string"
-                },
-                "revision": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         }

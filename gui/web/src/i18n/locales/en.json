@@ -8,32 +8,27 @@
     "check": "Check now",
     "failed": "Update check failed",
     "previous": "Any previous result is historical. A failed check does not mean the software is up to date.",
-    "unverified": "No published deployment catalog is available for this channel. These are individual image comparisons, not a validated software bundle.",
-    "candidate": "Candidate: {{version}}",
+    "candidate": "Comparing with: {{version}}",
     "notes": "Release notes / source changes",
     "custom": "Installed from a custom repository; comparison is against the selected upstream channel.",
     "digestReference": "Installed image uses an exact digest reference. Checking does not change it.",
     "targetImage": "Available image details",
-    "protocol": "Candidate requires firmware protocol {{protocol}}",
-    "firmwareMismatch": "The candidate requires a different firmware protocol. Review firmware compatibility before any future installation.",
     "checked": "Last attempt: {{time}}",
     "lastSuccess": "Last successful check: {{time}}",
     "states": {
       "not_checked": "Not checked yet",
       "unavailable": "Update information is unavailable",
-      "incomplete": "Check incomplete — some components could not be compared",
-      "unverified": "Individual images checked — bundle unverified",
-      "available": "A different published deployment is available",
-      "current": "Installed images match this published deployment",
-      "preparing": "Newer source changes are preparing — showing the last published deployment"
+      "incomplete": "Some images could not be compared",
+      "available": "Different images are available",
+      "current": "Installed images match the selected channel"
     },
     "componentStates": {
-      "current": "Image matches",
+      "current": "Matches",
       "changed": "Different image available",
       "unknown": "Installed identity could not be compared",
-      "unmanaged": "Not covered by this catalog",
+      "unmanaged": "Update checks not supported",
       "missing_platform": "No image for this platform",
-      "unavailable": "Image check unavailable"
+      "unavailable": "Unavailable"
     }
   },
   "updates": {

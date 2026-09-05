@@ -167,10 +167,7 @@ export interface ApiUpdateCheck {
   checked_at?: string;
   components?: ApiUpdateComponent[];
   last_successful_at?: string;
-  manifest?: UpdatesManifest;
   notes_url?: string;
-  preparing?: boolean;
-  source?: string;
   state?: string;
   version?: string;
 }
@@ -347,41 +344,6 @@ export interface TypesSoilZoneStatus {
   reason?: string;
   selected?: boolean;
   wet?: boolean;
-}
-
-export interface UpdatesCompatibility {
-  compose_schema?: number;
-  config_schema?: number;
-  firmware_protocol?: number;
-  hardware_backend?: string;
-  migration?: string;
-  rollback?: string;
-}
-
-export interface UpdatesImage {
-  digest?: string;
-  platforms?: Record<string, UpdatesPlatform>;
-  repository?: string;
-}
-
-export interface UpdatesManifest {
-  channel?: string;
-  compatibility?: UpdatesCompatibility;
-  images?: Record<string, UpdatesImage>;
-  notes_url?: string;
-  published_at?: string;
-  schema_version?: number;
-  source_repository?: string;
-  source_revision?: string;
-  version?: string;
-}
-
-export interface UpdatesPlatform {
-  built_at?: string;
-  config?: string;
-  manifest?: string;
-  revision?: string;
-  version?: string;
 }
 
 export type QueryParamsType = Record<string | number, any>;

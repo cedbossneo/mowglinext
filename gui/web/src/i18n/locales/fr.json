@@ -8,32 +8,27 @@
     "check": "Vérifier maintenant",
     "failed": "Échec de la vérification",
     "previous": "Le résultat précédent est historique. Un échec ne signifie pas que le logiciel est à jour.",
-    "unverified": "Aucun catalogue de déploiement publié pour ce canal. Les images sont comparées individuellement, sans validation de leur ensemble.",
-    "candidate": "Version proposée : {{version}}",
+    "candidate": "Comparaison avec : {{version}}",
     "notes": "Notes de version / modifications",
     "custom": "Image installée depuis un dépôt personnalisé ; comparaison avec le canal amont sélectionné.",
     "digestReference": "L’image installée utilise une référence exacte par empreinte. La vérification ne la modifie pas.",
     "targetImage": "Détails de l’image disponible",
-    "protocol": "La version proposée nécessite le protocole {{protocol}} du firmware",
-    "firmwareMismatch": "La version proposée nécessite un autre protocole. Vérifiez la compatibilité du firmware avant toute installation future.",
     "checked": "Dernière tentative : {{time}}",
     "lastSuccess": "Dernière vérification réussie : {{time}}",
     "states": {
       "not_checked": "Pas encore vérifié",
       "unavailable": "Informations de mise à jour indisponibles",
-      "incomplete": "Vérification incomplète : certains composants ne sont pas comparables",
-      "unverified": "Images vérifiées individuellement ; ensemble non validé",
-      "available": "Un autre déploiement publié est disponible",
-      "current": "Les images installées correspondent au déploiement publié",
-      "preparing": "De nouvelles modifications sont en préparation ; dernier déploiement publié affiché"
+      "incomplete": "Certaines images ne peuvent pas être comparées",
+      "available": "Des images différentes sont disponibles",
+      "current": "Les images installées correspondent au canal sélectionné"
     },
     "componentStates": {
-      "current": "Image identique",
+      "current": "Identique",
       "changed": "Image différente disponible",
       "unknown": "Identité installée non comparable",
-      "unmanaged": "Absent de ce catalogue",
+      "unmanaged": "Vérification des mises à jour non prise en charge",
       "missing_platform": "Aucune image pour cette plateforme",
-      "unavailable": "Vérification de l’image indisponible"
+      "unavailable": "Indisponible"
     }
   },
   "updates": {

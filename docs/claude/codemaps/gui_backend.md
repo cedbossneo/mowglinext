@@ -7,8 +7,8 @@
 ## Where to look
 
 Installed version and update discovery: `pkg/api/versions.go`, `pkg/api/updates.go`,
-`pkg/updates/{manifest,registry,catalog}.go`. `cmd/update-manifest` validates catalog
-candidates without publishing. See `docs/UPDATE_CATALOG.md` for the contract.
+`pkg/updates/{image,registry}.go`. Checks resolve Stable/Dev tags and compare
+immutable image identities. See `docs/UPDATE_CHECKS.md` for the behavior.
 | Task | Start here |
 |------|------------|
 | Add / change an HTTP route | `gui/pkg/api/api.go:37-61` (`NewAPI` registers every `*Routes` fn) → the per-feature file; add `// @Router` swag annotations |

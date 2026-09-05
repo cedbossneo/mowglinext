@@ -266,13 +266,7 @@ definitions:
         type: array
       last_successful_at:
         type: string
-      manifest:
-        $ref: '#/definitions/updates.Manifest'
       notes_url:
-        type: string
-      preparing:
-        type: boolean
-      source:
         type: string
       state:
         type: string
@@ -564,68 +558,6 @@ definitions:
         type: boolean
       wet:
         type: boolean
-    type: object
-  updates.Compatibility:
-    properties:
-      compose_schema:
-        type: integer
-      config_schema:
-        type: integer
-      firmware_protocol:
-        type: integer
-      hardware_backend:
-        type: string
-      migration:
-        type: string
-      rollback:
-        type: string
-    type: object
-  updates.Image:
-    properties:
-      digest:
-        type: string
-      platforms:
-        additionalProperties:
-          $ref: '#/definitions/updates.Platform'
-        type: object
-      repository:
-        type: string
-    type: object
-  updates.Manifest:
-    properties:
-      channel:
-        type: string
-      compatibility:
-        $ref: '#/definitions/updates.Compatibility'
-      images:
-        additionalProperties:
-          $ref: '#/definitions/updates.Image'
-        type: object
-      notes_url:
-        type: string
-      published_at:
-        type: string
-      schema_version:
-        type: integer
-      source_repository:
-        type: string
-      source_revision:
-        type: string
-      version:
-        type: string
-    type: object
-  updates.Platform:
-    properties:
-      built_at:
-        type: string
-      config:
-        type: string
-      manifest:
-        type: string
-      revision:
-        type: string
-      version:
-        type: string
     type: object
 host: localhost:4200
 info:

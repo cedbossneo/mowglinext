@@ -17,7 +17,6 @@ on:
       - 'gui/web/**'
       - 'gui/*.go'
       - 'gui/pkg/**'
-      - 'gui/cmd/**'
       - 'gui/asserts/**'
       - 'gui/go.mod'
       - 'gui/go.sum'
@@ -34,7 +33,6 @@ on:
       - 'gui/web/**'
       - 'gui/*.go'
       - 'gui/pkg/**'
-      - 'gui/cmd/**'
       - 'gui/asserts/**'
       - 'gui/go.mod'
       - 'gui/go.sum'
@@ -125,14 +123,3 @@ jobs:
 
       - name: Go tests
         run: go test ./...
-
-  update-catalog:
-    name: Publish update catalog
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [go-tests, unit-tests]
-    permissions:
-      contents: write
-      actions: read
-    uses: ./.github/workflows/update-manifests.yml
-    with:
-      channel: ${{ startsWith(github.ref, 'refs/tags/') && 'stable' || 'dev' }}

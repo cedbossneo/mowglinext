@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -28,45 +27,19 @@ type UpdateComponent struct {
 type UpdateCheck struct {
 	Channel          string            `json:"channel"`
 	State            string            `json:"state"`
-	Source           string            `json:"source,omitempty"`
 	CheckedAt        string            `json:"checked_at,omitempty"`
 	LastSuccessfulAt string            `json:"last_successful_at,omitempty"`
 	Version          string            `json:"version,omitempty"`
 	NotesURL         string            `json:"notes_url,omitempty"`
-	Manifest         *updates.Manifest `json:"manifest,omitempty"`
-	Preparing        bool              `json:"preparing"`
 	Components       []UpdateComponent `json:"components"`
 }
 
 type updateSource interface {
-	Catalog(context.Context, string, string) (*updates.Manifest, error)
 	Resolve(context.Context, string, string) (updates.Image, error)
 	Stable(context.Context, string) (string, string, error)
-	Head(context.Context, string) (string, error)
 }
 type remoteUpdates struct{ *updates.Registry }
 
-func (r remoteUpdates) Head(ctx context.Context, repo string) (string, error) {
-	body, err := updates.Read(ctx, r.Client, "https://api.github.com/repos/"+repo+"/branches/dev", "")
-	if err != nil {
-		return "", err
-	}
-	var branch struct {
-		Commit struct {
-			SHA string `json:"sha"`
-		} `json:"commit"`
-	}
-	if err = json.Unmarshal(body, &branch); err != nil {
-		return "", err
-	}
-	if !updates.RevisionPattern.MatchString(branch.Commit.SHA) {
-		return "", errors.New("invalid development head")
-	}
-	return branch.Commit.SHA, nil
-}
-func (r remoteUpdates) Catalog(ctx context.Context, repo, channel string) (*updates.Manifest, error) {
-	return updates.LoadCatalog(ctx, r.Client, repo, channel)
-}
 func (r remoteUpdates) Stable(ctx context.Context, repo string) (string, string, error) {
 	body, err := updates.Read(ctx, r.Client, "https://api.github.com/repos/"+repo+"/releases/latest", "")
 	if err != nil {
@@ -88,41 +61,16 @@ func checkUpdates(ctx context.Context, inventory VersionsResponse, repo, channel
 	if !inventory.DockerAvailable {
 		return result
 	}
-	manifest, err := source.Catalog(ctx, repo, channel)
 	ref := "dev"
-	if err == nil {
-		result.Source = "catalog"
-		result.Manifest = manifest
-		result.Version = manifest.Version
-		result.NotesURL = manifest.NotesURL
-		if channel == "dev" {
-			head, e := source.Head(ctx, repo)
-			if e != nil {
-				return result
-			}
-			result.Preparing = head != manifest.SourceRevision
-		} else {
-			version, _, e := source.Stable(ctx, repo)
-			if e != nil {
-				return result
-			}
-			result.Preparing = strings.TrimPrefix(manifest.Version, "v") != version
-		}
-	} else {
-		var remote updates.RemoteError
-		if !errors.As(err, &remote) || remote.Status != http.StatusNotFound {
+	result.NotesURL = "https://github.com/" + repo + "/commits/dev"
+	result.Version = ref
+	if channel == "stable" {
+		var err error
+		ref, result.NotesURL, err = source.Stable(ctx, repo)
+		if err != nil {
 			return result
 		}
-		result.Source = "registry"
-		result.NotesURL = "https://github.com/" + repo + "/commits/dev"
-		result.Version = "dev"
-		if channel == "stable" {
-			ref, result.NotesURL, err = source.Stable(ctx, repo)
-			if err != nil {
-				return result
-			}
-			result.Version = ref
-		}
+		result.Version = ref
 	}
 	changed, incomplete, managed := false, false, 0
 	for _, installed := range inventory.Components {
@@ -144,12 +92,7 @@ func checkUpdates(ctx context.Context, inventory VersionsResponse, repo, channel
 		managed++
 		targetRepo := "ghcr.io/" + strings.ToLower(repo) + "/" + name
 		item.CustomImage = repository != targetRepo
-		var target updates.Image
-		if manifest != nil {
-			target = manifest.Images[name]
-		} else {
-			target, err = source.Resolve(ctx, targetRepo, ref)
-		}
+		target, err := source.Resolve(ctx, targetRepo, ref)
 		if err != nil {
 			item.State = "unavailable"
 			incomplete = true
@@ -200,15 +143,10 @@ func checkUpdates(ctx context.Context, inventory VersionsResponse, repo, channel
 	}
 	if incomplete {
 		result.State = "incomplete"
-	} else if manifest == nil {
-		result.State = "unverified"
 	} else if changed {
 		result.State = "available"
 	} else {
 		result.State = "current"
-	}
-	if result.Preparing && !incomplete {
-		result.State = "preparing"
 	}
 	if !incomplete {
 		result.LastSuccessfulAt = result.CheckedAt
