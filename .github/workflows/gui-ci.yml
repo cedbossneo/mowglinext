@@ -14,12 +14,12 @@ on:
   push:
     branches: [main, dev, 'feat/**', 'fix/**', 'refactor/**', 'chore/**', 'perf/**']
     paths:
-      - 'gui/web/**'
+      - 'gui/**'
       - '.github/workflows/gui-ci.yml'
   pull_request:
     branches: [main, dev]
     paths:
-      - 'gui/web/**'
+      - 'gui/**'
       - '.github/workflows/gui-ci.yml'
   workflow_dispatch:
 
@@ -32,6 +32,20 @@ defaults:
     working-directory: gui/web
 
 jobs:
+  go-tests:
+    name: Go backend tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: gui/go.mod
+          cache-dependency-path: gui/go.sum
+      - run: go test ./...
+
   unit-tests:
     name: Unit Tests (vitest + tsc)
     runs-on: ubuntu-24.04

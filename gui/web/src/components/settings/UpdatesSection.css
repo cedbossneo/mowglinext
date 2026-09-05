@@ -1,0 +1,18 @@
+.installed-versions { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.installed-version-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.installed-version-row { padding: 14px 0; border-bottom: 1px solid rgba(236, 255, 244, .1); }
+.installed-version-row:first-child { padding-top: 0; }
+.installed-version-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.installed-version-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.installed-version-identity { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.installed-versions summary { cursor: pointer; padding: 10px 0; color: #7cffb2; }
+.installed-versions dl { display: grid; grid-template-columns: minmax(90px, 135px) minmax(0, 1fr); gap: 8px 16px; margin: 12px 0; width: 100%; }
+.installed-versions dt { color: rgba(236, 255, 244, .62); }
+.installed-versions dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.installed-versions code { overflow-wrap: anywhere; white-space: normal; }
+@media (max-width: 600px) {
+    .installed-version-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+    .installed-versions dl { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+    .installed-versions dd { margin-bottom: 9px; }
+    .installed-versions summary { min-height: 44px; }
+}

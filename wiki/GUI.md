@@ -1,5 +1,29 @@
 # GUI
 
+## Installed versions
+
+Open **Settings → Updates** to inspect the software currently installed on the mower.
+The same page is linked from the Home health check, the bottom of the desktop rail,
+and **More → Versions & updates** on mobile.
+
+The page reports the robot, GUI and sensor container image references, source
+revisions, image IDs and repository digests. Each component is built independently;
+different source revisions do not by themselves indicate an incompatible stack.
+Metadata is read from the image used by the container, even if its tag has since moved.
+
+Mainboard firmware version and protocol compatibility come from live hardware status.
+Compatibility means the firmware speaks the robot software's protocol, not that it
+is the newest release. Cached, disconnected and stale readings are distinguished.
+The configured mower model is a setting; a hardware board revision is not reported.
+
+GUI server and browser build identities help detect a browser left open across a
+deployment. **Refresh browser** loads the served web build when their identities differ.
+Unidentified local builds are shown as unknown. **Copy version details** provides an
+inventory for troubleshooting without exporting robot settings or credentials.
+
+This first version of the page is read-only. **Refresh versions** refreshes the local
+inventory; it does not check a registry, pull images, install updates or change firmware.
+
 MowgliNext web interface -- React frontend + Go backend for mower monitoring and control.
 
 ## Access

@@ -32,7 +32,7 @@ const okJson = (route: Route, body: unknown) =>
  * Install all mocks for a scenario on a page. Call BEFORE page.goto so the
  * first render already sees mocked data.
  */
-export async function installMockBackend(page: Page, scenario: Scenario): Promise<void> {
+export async function installMockBackend(page: Page, scenario: Scenario, options?: {liveStatusIntervalMs: number}): Promise<void> {
     const rest = {...DEFAULT_REST, ...(scenario.rest ?? {})};
 
     // ---- REST ---------------------------------------------------------------
@@ -53,6 +53,9 @@ export async function installMockBackend(page: Page, scenario: Scenario): Promis
     // ---- Multiplex WebSocket (msgpack binary frames) ------------------------
     const topics = scenario.topics ?? {};
     await page.routeWebSocket(/\/api\/mowglinext\/multiplex/, (ws) => {
+        let statusTimer: ReturnType<typeof setInterval> | undefined;
+        let sequence = 1;
+        ws.onClose(() => { clearInterval(statusTimer); ws.close(); });
         // Mock mode: no upstream server. We answer subscribe ops directly.
         ws.onMessage((message) => {
             if (scenario.silentSocket) return;
@@ -67,6 +70,9 @@ export async function installMockBackend(page: Page, scenario: Scenario): Promis
             if (data === undefined) return;
             // Wire format matches MultiplexRoute: msgpack({topic, data}).
             ws.send(pack({topic: op.topic, data}));
+            if (op.topic === 'status' && options && !statusTimer) {
+                statusTimer = setInterval(() => ws.send(pack({topic: 'status', data: {...data as object, stamp: {sec: ++sequence, nanosec: 0}}})), options.liveStatusIntervalMs);
+            }
         });
     });
 

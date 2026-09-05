@@ -1,4 +1,45 @@
 {
+  "updates": {
+    "title": "Versions & updates",
+    "shortTitle": "Versions",
+    "unknown": "Unknown",
+    "inventoryOnly": "Installed versions",
+    "notChecked": "Update availability is not checked here. Refresh reads the installed versions; it does not download or change software.",
+    "refresh": "Refresh versions",
+    "copy": "Copy version details",
+    "copied": "Version details copied",
+    "copyFailed": "Could not copy. Your browser may require a secure connection.",
+    "fetchFailed": "Version information could not be refreshed",
+    "showingPrevious": "Showing the previous observation. These versions may have changed.",
+    "dockerUnavailable": "Docker is unavailable. Installed container versions cannot be confirmed.",
+    "browserStale": "This browser is using a different web build from the server",
+    "reloadBrowser": "Refresh browser",
+    "installedSoftware": "Installed software",
+    "noContainers": "No Mowgli containers could be identified",
+    "mainboard": "Mainboard firmware",
+    "firmwareMeaning": "Compatibility is checked against the robot software's protocol. It does not mean the firmware is the latest release. Disconnected or stale values are last known readings.",
+    "protocol": "Protocol",
+    "configuredModel": "Configured mower model",
+    "boardRevision": "Board revision",
+    "notReported": "Not reported by the mainboard",
+    "webBuild": "Web interface",
+    "server": "GUI server",
+    "browser": "Loaded browser build",
+    "browserMeaning": "The server and web assets ship together. A browser left open across an update may need refreshing. Unknown builds cannot be compared.",
+    "modified": "Modified build",
+    "observed": "Installed versions observed: {{time}}",
+    "details": "Image details",
+    "image": "Image reference",
+    "imageId": "Running image ID",
+    "digest": "Image repository digests",
+    "revision": "Source revision",
+    "built": "Built at (UTC)",
+    "architecture": "Architecture",
+    "metadataUnavailable": "Image metadata is unavailable; the reference and state are still shown.",
+    "components": {"robot": "Robot software", "gui": "Web interface", "gps": "GPS", "lidar": "LiDAR", "mqtt": "MQTT", "watchtower": "Watchtower", "mavros": "MAVROS", "ntrip": "NTRIP", "vesc": "VESC"},
+    "containerStates": {"running": "Running", "exited": "Stopped", "created": "Created", "restarting": "Restarting", "paused": "Paused", "dead": "Dead", "removing": "Removing"},
+    "firmwareStates": {"waiting": "Waiting for live status", "disconnected": "Disconnected", "stale": "Status is stale", "compatible": "Protocol compatible", "incompatible": "Protocol incompatible"}
+  },
   "language": {
     "label": "Language",
     "fr": "Français",
@@ -3077,6 +3118,7 @@
     "modeIdleDescription": "Whole ring dim white, not moving. Powered and awake, doing nothing."
   },
   "settingsSections": {
+    "updates": {"label": "Updates", "description": "Installed software, web builds and mainboard firmware"},
     "appearance": {
       "label": "Appearance",
       "description": "Visual richness, energy use and timestamp display on this device"

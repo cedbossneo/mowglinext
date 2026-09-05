@@ -1,13 +1,22 @@
 FROM golang:1.24 AS build-go
 
-COPY . /app
+RUN useradd --create-home --uid 1000 builder
+COPY --chown=builder:builder . /app
 WORKDIR /app
-RUN CGO_ENABLED=0 go build -o mowglinext
+USER builder
+ARG BUILD_REVISION
+ARG BUILD_VERSION
+ARG BUILD_TIME
+RUN CGO_ENABLED=0 go build -ldflags "-X github.com/mowglinext/mowglinext/pkg/buildinfo.Revision=${BUILD_REVISION} -X github.com/mowglinext/mowglinext/pkg/buildinfo.Version=${BUILD_VERSION} -X github.com/mowglinext/mowglinext/pkg/buildinfo.BuiltAt=${BUILD_TIME}" -o mowglinext
 
 FROM node:22 AS build-web
-COPY ./web /web
+COPY --chown=node:node ./web /web
 WORKDIR /web
-RUN yarn && yarn build \
+USER node
+ARG BUILD_REVISION
+ARG BUILD_VERSION
+ARG BUILD_TIME
+RUN yarn && VITE_BUILD_REVISION="$BUILD_REVISION" VITE_BUILD_VERSION="$BUILD_VERSION" VITE_BUILD_TIME="$BUILD_TIME" yarn build \
  && find dist/assets -type f \( -name '*.js' -o -name '*.css' -o -name '*.json' -o -name '*.svg' -o -name '*.wasm' \) \
       -size +1024c -exec gzip -9 -k {} +
 
