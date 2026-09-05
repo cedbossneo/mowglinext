@@ -199,7 +199,9 @@ struct LlStatus
   float v_charge;  ///< Charge voltage [V]
   float v_system;  ///< System/battery voltage [V]
   float charging_current;  ///< Charging current [A]
-  uint8_t batt_percentage;  ///< Battery charge percentage [0-100]
+  // Legacy/reserved: firmware has no verified SoC provider and emits 0.
+  // The host must publish BatteryState.percentage as NaN (unknown), not 0 %.
+  uint8_t batt_percentage;
   uint16_t crc;  ///< CRC-16 CCITT over all preceding bytes
 };
 

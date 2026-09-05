@@ -1337,7 +1337,10 @@ extern "C" void broadcast_handler() {
     status_pkt.v_charge = charge_voltage;
     status_pkt.v_system = battery_voltage;
     status_pkt.charging_current = current;
-    status_pkt.batt_percentage = 0; // TODO: compute from voltage curve
+    // No verified SoC source exists.  Keep the legacy byte for wire
+    // compatibility; the ROS bridge publishes percentage as unknown (NaN),
+    // not 0 %.  Do not infer SoC from voltage here.
+    status_pkt.batt_percentage = 0;
 
     pkt_reset_cause_t reset_pkt;
     reset_pkt.type = PKT_ID_RESET_CAUSE;
