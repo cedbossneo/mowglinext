@@ -108,8 +108,55 @@ def _node_parameter_keys(call: ast.Call) -> List[str]:
     return keys
 
 
+def _node_parameter_values(call: ast.Call, key: str) -> List[ast.expr]:
+    """Values assigned to one string key in a Node's parameter dicts."""
+    values: List[ast.expr] = []
+    for kw in call.keywords:
+        if kw.arg != "parameters" or not isinstance(kw.value, ast.List):
+            continue
+        for elt in kw.value.elts:
+            if not isinstance(elt, ast.Dict):
+                continue
+            for dict_key, dict_value in zip(elt.keys, elt.values):
+                if (
+                    isinstance(dict_key, ast.Constant)
+                    and dict_key.value == key
+                ):
+                    values.append(dict_value)
+    return values
+
+
 # ---------------------------------------------------------------------------
-# (a) num_headland_passes must reach coverage_server UNCLAMPED (issue #429).
+# (a) physical GNSS cadence must reach cog_to_imu (MGNSS-011).
+# ---------------------------------------------------------------------------
+
+
+def test_navigation_launch_wires_physical_gnss_rate_to_cog() -> None:
+    tree = _parse("navigation.launch.py")
+    assert _reads_robot_param(
+        tree,
+        "physical_gnss_observation_rate_hz",
+        "gnss_profile_rate_hz",
+    ), (
+        "navigation.launch.py must read the configured receiver-profile rate; "
+        "COG timing must not invent or infer a ROS publication rate."
+    )
+
+    call = _find_node_call(tree, "cog_to_imu")
+    assert call is not None, "navigation.launch.py no longer launches cog_to_imu"
+    values = _node_parameter_values(call, "physical_gnss_observation_rate_hz")
+    assert len(values) == 1
+    assert (
+        isinstance(values[0], ast.Name)
+        and values[0].id == "physical_gnss_observation_rate_hz"
+    ), (
+        "cog_to_imu must receive the bare physical GNSS rate loaded from "
+        "gnss_profile_rate_hz, not a publication-rate expression."
+    )
+
+
+# ---------------------------------------------------------------------------
+# (b) num_headland_passes must reach coverage_server UNCLAMPED (issue #429).
 # ---------------------------------------------------------------------------
 
 
@@ -162,7 +209,7 @@ def test_navigation_launch_does_not_clamp_num_headland_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (b) mowing_enabled must reach hardware_bridge_node (issue #195).
+# (c) mowing_enabled must reach hardware_bridge_node (issue #195).
 # ---------------------------------------------------------------------------
 
 
@@ -213,7 +260,7 @@ def test_mowing_enabled_is_not_wired_to_some_other_node() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) dock_max_retries / dock_use_charger_detection must reach docking_server
+# (d) dock_max_retries / dock_use_charger_detection must reach docking_server
 #     (issue #195). test_nav2_params.py only checks the keys exist in the static
 #     YAML — which was already true BEFORE they were wired up, so that test
 #     cannot fail if the injection is deleted. These can.
