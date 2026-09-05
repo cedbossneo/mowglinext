@@ -32,6 +32,7 @@ find_package(universal_gnss_ros2 REQUIRED)
 # ---------------------------------------------------------------------------
 
 add_library(mowgli_gnss_bridge_lib STATIC
+  src/correction_diagnostic_tracker.cpp
   src/universal_gnss_topic_bridge.cpp
 )
 
@@ -113,6 +114,45 @@ if(BUILD_TESTING)
     diagnostic_msgs
     rtcm_msgs
   )
+
+  ament_add_gtest(test_correction_diagnostic_tracker
+    test/test_correction_diagnostic_tracker.cpp
+  )
+  target_link_libraries(test_correction_diagnostic_tracker
+    mowgli_gnss_bridge_lib
+  )
+  ament_target_dependencies(test_correction_diagnostic_tracker
+    diagnostic_msgs
+    mowgli_interfaces
+  )
+
+  # C++/Python bridge parity. sensors/CLAUDE.md requires the two bridges to
+  # stay behaviour-identical, and nothing else checks that.
+  #
+  # The reference Python bridge lives one level UP in the repo
+  # (sensors/gps/universal_gnss_topic_bridge.py) and is therefore outside this
+  # package. A colcon workspace assembled by copying only the package -- which
+  # is what sensors/gps/Dockerfile and the CI test job both do -- does not
+  # contain it, and the test cannot run. Copy it next to the package in the
+  # workspace to enable this gate.
+  set(_reference_python_bridge
+    "${CMAKE_CURRENT_SOURCE_DIR}/../universal_gnss_topic_bridge.py")
+  if(EXISTS "${_reference_python_bridge}")
+    get_filename_component(_reference_python_bridge_dir
+      "${_reference_python_bridge}" DIRECTORY)
+    find_package(ament_cmake_pytest REQUIRED)
+    ament_add_pytest_test(test_python_bridge
+      test/test_python_bridge.py
+      ENV "MOWGLI_GNSS_PYTHON_BRIDGE_DIR=${_reference_python_bridge_dir}"
+      TIMEOUT 30
+    )
+  else()
+    message(WARNING
+      "universal_gnss_topic_bridge.py was not found next to this package, so "
+      "the C++/Python bridge parity test is NOT registered. Copy "
+      "sensors/gps/universal_gnss_topic_bridge.py into the workspace beside "
+      "mowgli_gnss_bridge to enable it.")
+  endif()
 endif()
 
 ament_package()
