@@ -1,6 +1,10 @@
 name: Update deployment catalog
 
 on:
+  # Also promote unchanged images after documentation-only commits, which do
+  # not trigger any image/test workflow. Changed inputs still require new CI.
+  push:
+    branches: [dev]
   workflow_call:
     inputs:
       channel:

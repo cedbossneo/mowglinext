@@ -51,6 +51,8 @@ successful dev image/test jobs and release-tag image builds. This works as soon
 as it merges into dev; GitHub's `workflow_run` trigger alone would require the
 workflow file to exist on the default main branch. Once present on main, it also
 listens for successful dev/main workflow completions and published releases.
+It also checks each dev push so documentation-only commits can reuse unchanged
+images and CI evidence without leaving the channel permanently preparing.
 An incomplete candidate retains the existing channel pointer and reports the
 missing evidence in its validation log without failing the originating build;
 another completing workflow retries assembly. Manual dispatch defaults to an
