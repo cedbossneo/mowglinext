@@ -6,6 +6,10 @@
 
 ## Where to look
 
+Deployment catalog publication: `.github/workflows/update-manifests.yml` calls
+`gui/cmd/update-manifest`, then atomically publishes immutable documents and
+Stable/Dev pointers to `update-manifests`. See `docs/UPDATE_CATALOG.md` for gates.
+
 | Task | Start here |
 |------|------------|
 | A PR is stuck on a pending required check | `.github/workflows/ros2-ci.yml` L11–23 + L115–127 — `Build & Test (ROS2 kilted)` is the required check on `dev`; the `pull_request` trigger has NO `paths:` filter and the job has NO `strategy.matrix` on purpose (both broke the published check name) |
