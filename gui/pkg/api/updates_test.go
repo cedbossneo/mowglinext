@@ -68,7 +68,7 @@ func TestUpdateCheckStableUsesReleaseTagAndMissingImagesStayIncomplete(t *testin
 	}
 	source.stableErr = errors.New("release unavailable")
 	calls := source.calls
-	if got = checkUpdates(context.Background(), inv, "owner/repo", "stable", source); got.State != "unavailable" || calls != source.calls {
+	if got = checkUpdates(context.Background(), inv, "owner/repo", "stable", source); got.State != "unavailable" || got.Version != "" || calls != source.calls {
 		t.Fatal("failed release lookup fell back to a moving tag")
 	}
 }

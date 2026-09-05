@@ -63,15 +63,14 @@ func checkUpdates(ctx context.Context, inventory VersionsResponse, repo, channel
 	}
 	ref := "dev"
 	result.NotesURL = "https://github.com/" + repo + "/commits/dev"
-	result.Version = ref
 	if channel == "stable" {
 		var err error
 		ref, result.NotesURL, err = source.Stable(ctx, repo)
 		if err != nil {
 			return result
 		}
-		result.Version = ref
 	}
+	result.Version = ref
 	changed, incomplete, managed := false, false, 0
 	for _, installed := range inventory.Components {
 		item := UpdateComponent{Name: installed.Name, InstalledRevision: installed.Revision, DigestReference: strings.Contains(installed.Image, "@"), State: "unmanaged"}
