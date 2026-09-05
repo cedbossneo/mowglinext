@@ -857,21 +857,22 @@ void MapServerNode::on_publish_timer()
       masks_dirty_ = false;
     }
 
-    // Republish the mowed overlay only when it grew, and at most once per
-    // mow_progress_publish_period_s_. Re-serializing the full-extent overlay on
-    // every tick is O(cells) per second while mowing — the dominant steady cost
-    // on a large map. transient_local keeps late subscribers up to date, and
-    // mow_progress_dirty_ stays set until we actually publish, so no growth is
-    // lost between throttled publishes.
-    if (mow_progress_dirty_)
+    // Rebuild the full-extent OccupancyGrid only after coverage changed, then
+    // republish that cached message at the existing throttle interval. Foxglove
+    // WebSocket reconnects do not reliably receive transient_local history.
+    const rclcpp::Time now_t = now();
+    if (last_mow_progress_pub_time_.nanoseconds() == 0 ||
+        (now_t - last_mow_progress_pub_time_).seconds() >= mow_progress_publish_period_s_)
     {
-      const rclcpp::Time now_t = now();
-      if (last_mow_progress_pub_time_.nanoseconds() == 0 ||
-          (now_t - last_mow_progress_pub_time_).seconds() >= mow_progress_publish_period_s_)
+      if (mow_progress_dirty_)
       {
-        publish_mow_progress();
-        last_mow_progress_pub_time_ = now_t;
+        rebuild_mow_progress_cache();
         mow_progress_dirty_ = false;
+      }
+      if (mow_progress_cache_valid_)
+      {
+        publish_cached_mow_progress();
+        last_mow_progress_pub_time_ = now_t;
       }
     }
   }
@@ -889,13 +890,7 @@ void MapServerNode::stamp_mow_progress(double x, double y)
       mow_progress_map_.getSize()(1) != map_.getSize()(1) ||
       mow_progress_map_.getPosition() != map_.getPosition())
   {
-    mow_progress_map_ = grid_map::GridMap({layer});
-    mow_progress_map_.setFrameId(map_frame_);
-    mow_progress_map_.setGeometry(map_.getLength(), map_.getResolution(), map_.getPosition());
-    mow_progress_map_[layer].setConstant(0.0F);
-    // The previous point belonged to different grid geometry, so it must not
-    // be joined to the first pose in the fresh overlay.
-    have_last_mow_tool_position_ = false;
+    initialize_mow_progress_map();
   }
 
   const grid_map::Position center(x, y);
@@ -943,18 +938,55 @@ float MapServerNode::mow_progress_value_for_test(double x, double y) const
   return mow_progress_map_.at(layer, index);
 }
 
-void MapServerNode::publish_mow_progress()
+bool MapServerNode::mow_progress_cache_valid_for_test() const
+{
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  return mow_progress_cache_valid_;
+}
+
+void MapServerNode::rebuild_mow_progress_cache()
 {
   const std::string layer = "mowed";
   if (!mow_progress_map_.exists(layer))
   {
+    mow_progress_cache_valid_ = false;
     return;
   }
-  nav_msgs::msg::OccupancyGrid grid;
   // 0 → unmowed (rendered transparent by the GUI), 100 → mowed. The converter
   // handles the grid_map↔OccupancyGrid index convention correctly.
-  grid_map::GridMapRosConverter::toOccupancyGrid(mow_progress_map_, layer, 0.0F, 100.0F, grid);
-  mow_progress_pub_->publish(grid);
+  grid_map::GridMapRosConverter::toOccupancyGrid(
+      mow_progress_map_, layer, 0.0F, 100.0F, mow_progress_cache_);
+  mow_progress_cache_valid_ = true;
+}
+
+void MapServerNode::publish_cached_mow_progress()
+{
+  if (mow_progress_cache_valid_)
+  {
+    mow_progress_pub_->publish(mow_progress_cache_);
+  }
+}
+
+void MapServerNode::reset_mow_progress()
+{
+  mow_progress_map_ = grid_map::GridMap();
+  mow_progress_dirty_ = false;
+  mow_progress_cache_ = nav_msgs::msg::OccupancyGrid();
+  mow_progress_cache_valid_ = false;
+  last_mow_progress_pub_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+  have_last_mow_tool_position_ = false;
+}
+
+void MapServerNode::initialize_mow_progress_map()
+{
+  const std::string layer = "mowed";
+  reset_mow_progress();
+  mow_progress_map_ = grid_map::GridMap({layer});
+  mow_progress_map_.setFrameId(map_frame_);
+  mow_progress_map_.setGeometry(map_.getLength(), map_.getResolution(), map_.getPosition());
+  mow_progress_map_[layer].setConstant(0.0F);
+  // Refresh the latched publisher with the empty grid after a reset or resize.
+  mow_progress_dirty_ = true;
 }
 
 }  // namespace mowgli_map

@@ -207,6 +207,21 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_rtk_wrongfix_gate fusion_graph_core)
 
+  ament_add_gtest(test_dock_gps_consistency
+    test/test_dock_gps_consistency.cpp
+  )
+  target_link_libraries(test_dock_gps_consistency fusion_graph_core)
+
+  ament_add_gtest(test_slip_window
+    test/test_slip_window.cpp
+  )
+  target_link_libraries(test_slip_window fusion_graph_core)
+
+  ament_add_gtest(test_loop_closure_gate
+    test/test_loop_closure_gate.cpp
+  )
+  target_link_libraries(test_loop_closure_gate fusion_graph_core)
+
   ament_add_gtest(test_cog_flip_recovery
     test/test_cog_flip_recovery.cpp
   )
@@ -231,6 +246,11 @@ if(BUILD_TESTING)
     test/test_gnss_timestamp.cpp
   )
   target_link_libraries(test_gnss_timestamp fusion_graph_core)
+
+  ament_add_gtest(test_gnss_observation_freshness
+    test/test_gnss_observation_freshness.cpp
+  )
+  target_link_libraries(test_gnss_observation_freshness fusion_graph_core)
 
   # Performance benchmarks. Long-running (~30 s on ARM); only meaningful
   # in Release builds. Output is grep-friendly for tracking regressions.

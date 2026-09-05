@@ -118,6 +118,7 @@ type GnssStatus struct {
 	MsmSummarySignalCount     uint16                         `json:"msm_summary_signal_count"`
 	MsmSummaryCellCount       uint16                         `json:"msm_summary_cell_count"`
 	MsmSummaryAgeS            float32                        `json:"msm_summary_age_s"`
+	PositionObservationSequence uint64                         `json:"position_observation_sequence"`
 }
 
 // HighLevelStatus matches mowgli_interfaces/msg/HighLevelStatus.

@@ -126,6 +126,15 @@ public:
   /// Test-only: return the mowed-layer value at a map-frame position.
   float mow_progress_value_for_test(double x, double y) const;
 
+  /// Test-only: run the regular publish path without waiting for the timer.
+  void publish_mow_progress_for_test()
+  {
+    on_publish_timer();
+  }
+
+  /// Test-only: report whether a current mow-progress grid is cached.
+  bool mow_progress_cache_valid_for_test() const;
+
   /// Clear all layers to their default values.
   void clear_map_layers();
 
@@ -301,9 +310,22 @@ private:
   /// map_'s geometry. Takes map_mutex_ internally — caller must NOT hold it.
   void stamp_mow_progress(double x, double y);
 
-  /// Publish mow_progress_map_ as a nav_msgs/OccupancyGrid on ~/mow_progress.
+  /// Rebuild the cached OccupancyGrid from mow_progress_map_.
   /// Caller MUST hold map_mutex_.
-  void publish_mow_progress();
+  void rebuild_mow_progress_cache();
+
+  /// Publish the cached mow-progress OccupancyGrid on ~/mow_progress.
+  /// Caller MUST hold map_mutex_.
+  void publish_cached_mow_progress();
+
+  /// Clear the progress map and its cached OccupancyGrid after a map reset.
+  /// Caller MUST hold map_mutex_.
+  void reset_mow_progress();
+
+  /// Create an empty progress map matching map_'s current geometry and mark it
+  /// for publication so transient_local history cannot retain stale geometry.
+  /// Caller MUST hold map_mutex_.
+  void initialize_mow_progress_map();
 
   // ── Services ─────────────────────────────────────────────────────────────
 
@@ -655,11 +677,13 @@ private:
   /// occupancy/classification lifecycle. Guarded by map_mutex_.
   grid_map::GridMap mow_progress_map_;
   bool mow_progress_dirty_{false};
-  /// Throttle for the mowed-overlay publish. The overlay is re-serialized (an
-  /// O(cells) full-grid pass that scales with map extent) at most once per this
-  /// period while mowing, instead of on every timer tick — the dominant steady
-  /// cost on a large map. transient_local keeps late subscribers current, and
-  /// mow_progress_dirty_ stays set until an actual publish, so no growth is lost.
+  /// Serialized only when the progress map changes; published unchanged between
+  /// updates so reconnecting WebSocket clients receive the current overlay.
+  nav_msgs::msg::OccupancyGrid mow_progress_cache_;
+  bool mow_progress_cache_valid_{false};
+  /// Throttle for cached mowed-overlay publication. Conversion remains O(cells)
+  /// only when the progress map is dirty; unchanged cached grids are cheap to
+  /// republish at this interval for GUI reconnect reliability.
   double mow_progress_publish_period_s_{2.0};
   rclcpp::Time last_mow_progress_pub_time_{0, 0, RCL_ROS_TIME};
 

@@ -8,7 +8,9 @@
 **This document is NOT:**
 
 - how to *run* the sim — see [`ros2/README.md` § Running Webots Simulation](../ros2/README.md#running-webots-simulation);
-- the operator guide — see [`wiki/Simulation.md`](../wiki/Simulation.md) (still Gazebo-era, see § 10).
+- the operator guide — see [`wiki/Simulation.md`](../wiki/Simulation.md);
+- the package index (files, nodes, topics, parameters, tests) — see
+  [`docs/claude/codemaps/mowgli_simulation.md`](claude/codemaps/mowgli_simulation.md).
 
 It exists because the Webots/ODE sim carries five non-obvious workarounds that
 each cost days to find and each look like dead code or a mistake to a reader
@@ -25,7 +27,7 @@ was rewritten/squashed before it landed. The reachable history is:
 | `364cad30` | `feat(sim): migrate from Gazebo Ignition to Webots` — the whole Webots stack in ONE commit (`kinematic_drive.py` already at revision 3, `MowgliMower.proto`, `mowgli_garden.wbt`, `webots_minimal.launch.py`). All three quirk fixes arrived together, not as three commits. |
 | `2e181873` | firmware PI + deadband motor model inside the plugin |
 | `8cba7d36` | Webots Lidar `noise 0.002` / `resolution 0.01`; disabled `synthesize_from_cmd_vel` (the motor model made the Webots gyro trustworthy again) |
-| `46042015` | `sim_actuation_node` (firmware deadband + angular-rate PI on the wheel command) |
+| `46042015` | `sim_actuation_node` (firmware deadband + angular-rate PI on the wheel command). The angular-rate PI stage was **removed on 2026-07-17** — Option C moved the yaw-rate loop into the STM32 firmware, so `wz` now passes straight through to the per-wheel model (`sim_actuation_node.cpp:20`–`:30`, `sim_full_system.launch.py:477`–`:481`). |
 
 Everything below is therefore anchored to **file:line plus a searchable
 token**, not to a commit.
@@ -305,6 +307,19 @@ ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/TwistStamped \
   '{header: {frame_id: base_link}, twist: {linear: {x: 0.15}, angular: {z: 0.3}}}'
 ```
 
+**`/cmd_vel` alone moves the body but not the wheels here.** The minimal launch
+boots Webots + the driver + the ros2_control spawners only; it does **not**
+start `sim_actuation_node` (that node is added by
+`sim_full_system.launch.py:483`). `diffdrive_controller`'s command topic is
+remapped to `/cmd_vel_wheels` (`webots_minimal.launch.py:111`), so in the
+minimal world nothing publishes it and `/wheel_odom_raw` stays at zero. Feed
+the same twist to the wheels as well:
+
+```bash
+ros2 topic pub -r 10 /cmd_vel_wheels geometry_msgs/msg/TwistStamped \
+  '{header: {frame_id: base_link}, twist: {linear: {x: 0.15}, angular: {z: 0.3}}}'
+```
+
 Expectations:
 
 | Check | Command | Expect |
@@ -330,9 +345,9 @@ Flagged, **deliberately not fixed here** — each deserves its own issue.
 **(a) Stale `robot_localization` / dual-EKF references in sim sources.** The
 EKF was removed; `fusion_graph_node` is the sole localizer and owns both TFs
 (CLAUDE.md Invariant 1). These comments predate that and are wrong:
-`kinematic_drive.py:43`, `:85`, `:223`, `:495`, `:528`, `:555`;
-`config_webots/ros2_control.yaml:12` and `:44`–`:46`;
-`urdf_webots/mowgli_webots.urdf:56`; `protos/MowgliMower.proto:11`. The
+`kinematic_drive.py:43`, `:85`, `:89`, `:223`, `:495`, `:498`, `:527`–`:528`,
+`:555`; `config_webots/ros2_control.yaml:12` and `:44`–`:46`;
+`urdf_webots/mowgli_webots.urdf:56` and `:62`; `protos/MowgliMower.proto:11`. The
 mechanism they describe (wheel encoders → `/wheel_odom_raw` → dead-reckoning →
 Nav2 behaviours) is still correct; only the consumer's name is stale. **This
 document describes `fusion_graph` and deliberately does not repeat them.**
@@ -348,10 +363,7 @@ defaults `input_topic` to `/imu/data_gz`. Only the launch override
 (`sim_full_system.launch.py:437`, `"input_topic": "/imu/data_sim"`) makes it
 correct — running the node standalone silently produces nothing.
 
-**(d) `wiki/Simulation.md` is wholly Gazebo-era** (Gazebo Harmonic, noVNC,
-"Robot Doesn't Appear in Gazebo"). Rewriting it for Webots is separate scope.
-
-**(e) Proposed CI guard.** Quirks 1 and 2 are pure prose today. A pytest in
+**(d) Proposed CI guard.** Quirks 1 and 2 are pure prose today. A pytest in
 `ros2/src/mowgli_simulation/test/` that parses `MowgliMower.proto` and asserts
 (i) every wheel `Cylinder` geometry/`boundingObject` sits under a `Pose` with
 `rotation 1 0 0 -1.5708`, and (ii) both `HingeJointParameters` carry

@@ -24,6 +24,7 @@
 
 import copy
 import os
+import sys
 
 import yaml
 
@@ -113,6 +114,137 @@ def load_robot_params(bringup_dir, runtime_path=DEFAULT_RUNTIME_PATH):
     """
     cfg = load_robot_config(bringup_dir, runtime_path)
     return cfg.get("mowgli", {}).get("ros__parameters", {})
+
+
+# ---------------------------------------------------------------------------
+# LiDAR presence: mowgli_robot.yaml ONLY (no LIDAR_ENABLED env var)
+# ---------------------------------------------------------------------------
+#
+# `lidar_enabled` in the robot config is the ONE source of truth for whether
+# the LiDAR-dependent half of the stack comes up. The `LIDAR_ENABLED`
+# environment variable is NOT consulted any more (removed 2026-08-31): it used
+# to be a "fallback when the yaml is silent", and on a live robot that fallback
+# was exactly the failure mode --- an installed config with no `lidar_enabled`
+# key plus a stale `docker/.env` saying `LIDAR_ENABLED=false` ran the whole
+# stack GPS-only while the operator toggled LiDAR on in the GUI and saw nothing
+# change. An ambient env var is not an operator decision; a CLI/compose
+# `use_lidar:=` override still wins, because typing it is one.
+#
+# `LIDAR_ENABLED` legitimately survives in `docker/.env` for what it always
+# really controlled: whether the `mowgli-lidar` CONTAINER is started. The two
+# can now disagree in the other direction (config on, container absent), which
+# is why scan_deskew_node warns when `use_lidar` is true and no scan ever
+# arrives (see mowgli_localization/src/scan_deskew_node.cpp).
+
+LIDAR_ENABLED_KEY = "lidar_enabled"
+
+# Launch args and .env values are text; these are the tokens that read as true.
+TRUE_TOKENS = ("true", "1", "yes", "on")
+
+# Absent-key default: LiDAR OFF.
+#
+# `lidar_enabled` is an INSTALL-DECIDED key (Invariant 15) that is deliberately
+# ABSENT from the in-package template, so --- unlike every other parameter ---
+# it has no template default to fall through to and its absence carries
+# meaning: no LiDAR was ever recorded for this robot. Three reasons that
+# resolves to False rather than the historical True:
+#
+#   1. A robot whose config never mentions a LiDAR most likely has none. The
+#      installer always writes the key (install/lib/config.sh) and the shipped
+#      sparse seed carries it, so absence means the installer never ran ---
+#      a hand-rolled docker-compose, which is precisely the no-LiDAR-hardware
+#      case.
+#   2. The failure modes are asymmetric. Wrongly OFF gives the fully coherent,
+#      supported GPS-only stack (nav2_params_no_lidar.yaml, pass-through
+#      collision_monitor, no scan factors) --- degraded but consistent. Wrongly
+#      ON gives the broken half-state: an obstacle_layer with no observation
+#      source, a scan-based collision_monitor with a dead source, and
+#      fusion_graph subscribing to a topic nothing publishes while reporting
+#      success-shaped scan-matching diagnostics.
+#   3. It must equal the GUI's JSON-schema default (gui/asserts/
+#      mower_config.schema.json), because the settings backend PRUNES any key
+#      whose value equals its schema default (sparsifyFlat, Invariant 15). With
+#      the schema default True, an operator switching LiDAR ON writes `true`,
+#      the backend prunes it as "same as default", the key vanishes, and the
+#      toggle is inert in the ON direction forever. False makes the ON write a
+#      genuine override that persists --- and it already matches what the GUI
+#      renders for an absent key (`values.lidar_enabled ?? false`).
+DEFAULT_LIDAR_ENABLED = False
+
+
+def is_truthy(text):
+    """True when a launch-arg / config text value reads as true.
+
+    Accepts real bools unchanged so callers can pass either a yaml value or the
+    textual form a launch argument carries.
+    """
+    if isinstance(text, bool):
+        return text
+    return str(text).strip().lower() in TRUE_TOKENS
+
+
+def resolve_lidar_enabled(params):
+    """Resolve LiDAR presence from merged robot params.
+
+    Returns ``(enabled, explicit)``: ``explicit`` is False when the key is
+    absent and ``DEFAULT_LIDAR_ENABLED`` was used, which is the case callers
+    must announce loudly (see :func:`lidar_absent_warning`).
+    """
+    if LIDAR_ENABLED_KEY in params:
+        return bool(params[LIDAR_ENABLED_KEY]), True
+    return DEFAULT_LIDAR_ENABLED, False
+
+
+def lidar_absent_warning(runtime_path):
+    """The startup line printed when `lidar_enabled` is absent.
+
+    Names the file, the key and the resolved mode, because the silence is what
+    made the original diagnosis take an investigation.
+    """
+    mode = "true" if DEFAULT_LIDAR_ENABLED else "false"
+    state = "ON" if DEFAULT_LIDAR_ENABLED else "OFF"
+    return (
+        "LIDAR CONFIG: '{key}' is ABSENT from {path} -- resolving use_lidar={mode} "
+        "(LiDAR {state}). The LIDAR_ENABLED environment variable is NO LONGER read by "
+        "the ROS2 stack; {path} is the only source. Robots installed with "
+        "mowglinext.sh always carry this key -- a hand-rolled docker-compose can "
+        "miss it. To run WITH a LiDAR, add '{key}: true' under mowgli.ros__parameters "
+        "in {path} (or flip Settings -> Sensors -> LiDAR in the GUI) and restart the "
+        "stack.".format(key=LIDAR_ENABLED_KEY, path=runtime_path, mode=mode, state=state)
+    )
+
+
+# Paths already warned about in this process. full_system.launch.py and
+# navigation.launch.py both resolve LiDAR presence, and an include loads the
+# second description in the SAME process, so without this the operator sees the
+# identical multi-line warning twice and learns to skim it.
+_LIDAR_WARNED_PATHS = set()
+
+
+def warn_lidar_key_absent(runtime_path, logger=None):
+    """Emit :func:`lidar_absent_warning` once per process, per config path.
+
+    Returns the message when it was emitted, None when suppressed as a repeat,
+    so callers/tests can assert on it. ``logger`` is injectable for tests; by
+    default this uses launch's own screen logger (imported lazily so this
+    module stays importable without a sourced ROS2 install).
+    """
+    if runtime_path in _LIDAR_WARNED_PATHS:
+        return None
+    _LIDAR_WARNED_PATHS.add(runtime_path)
+    message = lidar_absent_warning(runtime_path)
+    if logger is None:
+        try:
+            import launch.logging
+
+            logger = launch.logging.get_logger("mowgli_bringup")
+        except ImportError:
+            logger = None
+    if logger is None:
+        print("[WARN] " + message, file=sys.stderr)
+    else:
+        logger.warning(message)
+    return message
 
 
 # ---------------------------------------------------------------------------

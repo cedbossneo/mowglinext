@@ -37,6 +37,7 @@
 #include "mowgli_behavior/localization_health.hpp"
 #include "mowgli_behavior/recording_nodes.hpp"
 #include "mowgli_behavior/status_snapshot.hpp"
+#include "mowgli_interfaces/gnss_observation_freshness.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
 #include "mowgli_interfaces/msg/absolute_pose.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
@@ -431,17 +432,37 @@ private:
         {
           std::lock_guard<std::mutex> lock(context_->context_mutex);
           has_authoritative_gnss_status_ = true;
+          loc_obs_.gnss_seen = true;
+
+          const rclcpp::Time ros_now = now();
+          const rclcpp::Time receipt_stamp(msg->header.stamp, get_clock()->get_clock_type());
+          const auto observation_update =
+              gnss_observation_freshness_.Observe(msg->position_observation_sequence,
+                                                  receipt_stamp.nanoseconds(),
+                                                  ros_now.nanoseconds(),
+                                                  steadyNowNs());
+          using mowgli_interfaces::gnss_observation_freshness::IsAcceptedObservation;
+          using mowgli_interfaces::gnss_observation_freshness::ObservationUpdate;
+          if (!IsAcceptedObservation(observation_update))
+          {
+            if (observation_update == ObservationUpdate::kInvalidProvenance)
+            {
+              RCLCPP_WARN_THROTTLE(get_logger(),
+                                   *get_clock(),
+                                   5000,
+                                   "behavior: GNSS receipt stamp is zero/future; authority denied");
+            }
+            updateLocalizationHealthLocked();
+            return;
+          }
 
           // LocalizationGuard feed: the receiver's own view of solution
           // quality. horizontal_accuracy_m is only trusted when the message's
           // value_flags say it carries a live value; otherwise rtk_mode
           // decides (see LocalizationHealthMonitor::Update).
-          loc_obs_.gnss_seen = true;
-          loc_obs_.gnss_stamp_s = get_clock()->now().seconds();
           loc_obs_.rtk_mode = static_cast<mowgli_behavior::RtkMode>(msg->rtk_mode);
           const auto acc = mowgli_interfaces::gnss_status_utils::HorizontalAccuracyMeters(*msg);
           loc_obs_.gnss_accuracy_m = acc ? static_cast<double>(*acc) : -1.0;
-          updateLocalizationHealthLocked();
 
           context_->gps_fix_type = mowgli_interfaces::gnss_status_utils::BehaviorTreeFixType(*msg);
           context_->gps_quality = mowgli_interfaces::gnss_status_utils::NormalizedQuality(*msg);
@@ -451,7 +472,7 @@ private:
           // /gps/status contract rather than /gps/absolute_pose covariance.
           constexpr double kGpsFixDebounceSec = 2.0;
           const bool raw_fixed = mowgli_interfaces::gnss_status_utils::BehaviorTreeRtkFixed(*msg);
-          const rclcpp::Time gps_now = this->now();
+          const rclcpp::Time gps_now = ros_now;
           if (!gps_fix_debounce_init_)
           {
             gps_fix_debounce_init_ = true;
@@ -471,6 +492,7 @@ private:
               context_->gps_is_fixed = gps_fix_candidate_;
             }
           }
+          updateLocalizationHealthLocked();
         });
 
     // collision_monitor state — used by IsObstacleStuck to detect when
@@ -657,7 +679,29 @@ private:
   // loc_obs_, so the monitor sees a consistent snapshot.
   void updateLocalizationHealthLocked()
   {
-    const double now_s = get_clock()->now().seconds();
+    const rclcpp::Time ros_now = now();
+    const auto maximum_age_ns = static_cast<std::int64_t>(loc_monitor_.gnss_stale_s() * 1.0e9);
+    loc_obs_.gnss_fresh = gnss_observation_freshness_.ObservationIsFresh(ros_now.nanoseconds(),
+                                                                         steadyNowNs(),
+                                                                         maximum_age_ns);
+    if (gnss_observation_freshness_.ConsumeEpochReset())
+    {
+      // Force a fresh semantic epoch: old debounce state must not survive a
+      // ROS/steady rewind and become authoritative when the clock catches up.
+      gps_fix_debounce_init_ = false;
+    }
+    if (loc_obs_.gnss_seen && !loc_obs_.gnss_fresh)
+    {
+      // Fixed-only behavior must fail closed at the physical-observation
+      // deadline even though LocalizationHealth keeps its existing latch
+      // persistence before pausing the whole mowing tree.
+      context_->gps_fix_type = 0;
+      context_->gps_quality = 0.0f;
+      context_->gps_is_fixed = false;
+      gps_fix_debounce_init_ = false;
+    }
+
+    const double now_s = ros_now.seconds();
     const bool was_degraded = context_->localization_degraded;
     const bool degraded = loc_monitor_.Update(now_s, loc_obs_);
     if (degraded == was_degraded)
@@ -997,6 +1041,11 @@ private:
 
   void tickTree()
   {
+    {
+      std::lock_guard<std::mutex> lock(context_->context_mutex);
+      updateLocalizationHealthLocked();
+    }
+
     // Apply a pending "Start fresh" clear BEFORE ticking, on the tick thread —
     // every coverage-map mutation stays on this thread (see the service
     // registration comment). Between ticks no BT node holds a reference into
@@ -1054,6 +1103,13 @@ private:
   rclcpp::Time gps_fix_candidate_since_;
   bool has_authoritative_gnss_status_{false};
 
+  static std::int64_t steadyNowNs()
+  {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  }
+
   // Subscribers
   rclcpp::Subscription<mowgli_interfaces::msg::Status>::SharedPtr status_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::Emergency>::SharedPtr emergency_sub_;
@@ -1068,6 +1124,8 @@ private:
   // context_->context_mutex and then call updateLocalizationHealthLocked().
   LocalizationHealthMonitor loc_monitor_{};
   LocalizationObservation loc_obs_{};
+  mowgli_interfaces::gnss_observation_freshness::PhysicalObservationTracker
+      gnss_observation_freshness_;
   rclcpp::Subscription<mowgli_interfaces::msg::AbsolutePose>::SharedPtr gps_sub_;
   rclcpp::Subscription<mowgli_interfaces::msg::GnssStatus>::SharedPtr gnss_status_sub_;
   rclcpp::Subscription<nav2_msgs::msg::CollisionMonitorState>::SharedPtr collision_monitor_sub_;

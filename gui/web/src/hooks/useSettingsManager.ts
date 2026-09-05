@@ -8,6 +8,16 @@ import { getQuaternionFromHeading } from "../utils/map.tsx";
 import { ContentType } from "../api/Api.ts";
 import { valuesMatch } from "../utils/settingsValues.ts";
 
+/** A section that saves outside mowgli_robot.yaml but wants the page's Save button. */
+export interface ExternalSaver {
+    /** Number of pending edits (0 = clean). Feeds the Save button count. */
+    dirtyCount: number;
+    /** Persist; resolve true on success, false after showing its own error. */
+    save: () => Promise<boolean>;
+    /** Drop pending edits (page-level Revert). */
+    revert?: () => void;
+}
+
 export type SettingsSection =
     | "appearance"
     | "hardware"
@@ -23,6 +33,8 @@ export type SettingsSection =
     | "obstacles"
     | "navigation"
     | "rain"
+    | "leds"
+    | "irrisense"
     | "advanced";
 
 export type SectionMeta = {
@@ -206,6 +218,30 @@ const SECTION_DEFINITIONS: SectionMeta[] = [
         keys: ["rain_mode", "rain_delay_minutes", "rain_debounce_sec"],
     },
     {
+        id: "leds",
+        label: "settingsSections.leds.label",
+        icon: "bulb",
+        description: "settingsSections.leds.description",
+        keys: [
+            // Every led_* key is claimed here so none of them leaks into
+            // AdvancedSection's free-form editor, where a raw SPI device path
+            // or clock would be edited with no context.
+            "led_enabled", "led_count", "led_spi_device", "led_spi_speed_hz",
+            "led_brightness", "led_idle_scale", "led_refresh_hz",
+            "led_low_battery_percent", "led_charge_full_percent",
+            "led_status_timeout_s", "led_keepalive_s", "led_device_retry_s",
+        ],
+    },
+    {
+        id: "irrisense",
+        label: "settingsSections.irrisense.label",
+        icon: "cloud-sync",
+        description: "settingsSections.irrisense.description",
+        // No yaml keys: the IrriSense settings (token included) live in the
+        // GUI's key-value DB and the section loads/saves them itself.
+        keys: [],
+    },
+    {
         id: "advanced",
         label: "settingsSections.advanced.label",
         icon: "code",
@@ -333,12 +369,39 @@ export const useSettingsManager = () => {
         return dirty;
     }, [localValues, savedValues]);
 
-    const isDirty = dirtyKeys.size > 0;
+    // External savers: sections whose settings do not live in mowgli_robot.yaml
+    // (IrriSense keeps its token in the GUI DB) register here so the page's
+    // ONE Save button covers them too. Refs hold the callbacks (no stale
+    // closure in persistSettings); the state mirror only drives rendering.
+    const externalSaversRef = useRef<Record<string, ExternalSaver>>({});
+    const [externalDirtyCounts, setExternalDirtyCounts] = useState<Record<string, number>>({});
+    const registerExternalSaver = useCallback((id: string, saver: ExternalSaver) => {
+        externalSaversRef.current[id] = saver;
+        setExternalDirtyCounts((prev) =>
+            prev[id] === saver.dirtyCount ? prev : { ...prev, [id]: saver.dirtyCount }
+        );
+    }, []);
+    const unregisterExternalSaver = useCallback((id: string) => {
+        delete externalSaversRef.current[id];
+        setExternalDirtyCounts((prev) => {
+            if (!(id in prev)) return prev;
+            const next = { ...prev };
+            delete next[id];
+            return next;
+        });
+    }, []);
+    const externalDirtyCount = useMemo(
+        () => Object.values(externalDirtyCounts).reduce((a, b) => a + b, 0),
+        [externalDirtyCounts]
+    );
+    const dirtyCount = dirtyKeys.size + externalDirtyCount;
+    const isDirty = dirtyCount > 0;
 
     const isSectionDirty = useCallback(
         (sectionId: SettingsSection): boolean => {
             const section = SECTION_DEFINITIONS.find((s) => s.id === sectionId);
             if (!section) return false;
+            if ((externalDirtyCounts[section.id] ?? 0) > 0) return true;
             if (section.id === "advanced") {
                 // Advanced section: any key not in other sections
                 const knownKeys = new Set(
@@ -351,7 +414,7 @@ export const useSettingsManager = () => {
             }
             return section.keys.some((k) => dirtyKeys.has(k));
         },
-        [dirtyKeys]
+        [dirtyKeys, externalDirtyCounts]
     );
 
     const persistSettings = useCallback(async (options?: { forceGpsRestart?: boolean }) => {
@@ -374,7 +437,8 @@ export const useSettingsManager = () => {
             const liveHardwareKeys = ["ticks_per_meter", ...driveKeys];
             const liveHardwareDirty = liveHardwareKeys.some((k) => dirtyKeys.has(k));
             const hasDirtyChanges = dirtyKeys.size > 0;
-            if (!hasDirtyChanges && !shouldRestartGps) {
+            const externalSavers = Object.values(externalSaversRef.current).filter((x) => x.dirtyCount > 0);
+            if (!hasDirtyChanges && !shouldRestartGps && externalSavers.length === 0) {
                 notification.info({
                     message: t("settingsSections.toasts.noChanges"),
                 });
@@ -416,6 +480,11 @@ export const useSettingsManager = () => {
                 notification.info({
                     message: t("settingsSections.toasts.restartingGps"),
                 });
+            }
+            // Sections that persist outside the yaml (IrriSense) save through
+            // their own endpoint; each reports its own toast on failure.
+            for (const saver of externalSavers) {
+                if (!(await saver.save())) return;
             }
             // Auto-restart the GPS container when GPS/NTRIP fields changed —
             // ROS2 keeps running, the user just sees RTCM stop briefly. This
@@ -566,6 +635,9 @@ export const useSettingsManager = () => {
 
     const revert = useCallback(() => {
         setLocalValues({ ...savedValues });
+        for (const saver of Object.values(externalSaversRef.current)) {
+            saver.revert?.();
+        }
     }, [savedValues]);
 
     // Get keys that don't belong to any defined section.
@@ -636,6 +708,9 @@ export const useSettingsManager = () => {
         gpsRestarting: gpsRestart.pending,
         isDirty,
         dirtyKeys,
+        dirtyCount,
+        registerExternalSaver,
+        unregisterExternalSaver,
         restartRequired,
         searchQuery,
         advancedKeys,

@@ -63,6 +63,8 @@
 #include "mowgli_hardware/blade_gate.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
+#include "mowgli_hardware/gnss_hardware_status.hpp"
+#include "mowgli_hardware/imu_liveness.hpp"
 #include "mowgli_hardware/ll_datatypes.hpp"
 #include "mowgli_hardware/odometry_publisher.hpp"
 #include "mowgli_hardware/packet_handler.hpp"
@@ -118,6 +120,7 @@ static const char* high_level_mode_name(const uint8_t mode)
   }
 }
 
+#include "mowgli_interfaces/gnss_observation_freshness.hpp"
 #include "mowgli_interfaces/gnss_status_utils.hpp"
 #include "mowgli_interfaces/msg/dig_event.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
@@ -754,6 +757,27 @@ private:
         rclcpp::QoS(10),
         [this](mowgli_interfaces::msg::GnssStatus::ConstSharedPtr msg)
         {
+          const rclcpp::Time ros_now = now();
+          const rclcpp::Time receipt_stamp(msg->header.stamp, get_clock()->get_clock_type());
+          const auto observation_update =
+              gnss_observation_freshness_.Observe(msg->position_observation_sequence,
+                                                  receipt_stamp.nanoseconds(),
+                                                  ros_now.nanoseconds(),
+                                                  steadyNowNs());
+          using mowgli_interfaces::gnss_observation_freshness::IsAcceptedObservation;
+          using mowgli_interfaces::gnss_observation_freshness::ObservationUpdate;
+          if (!IsAcceptedObservation(observation_update))
+          {
+            if (observation_update == ObservationUpdate::kInvalidProvenance)
+            {
+              RCLCPP_WARN_THROTTLE(get_logger(),
+                                   *get_clock(),
+                                   5000,
+                                   "hardware: GNSS receipt stamp is zero/future; trust denied");
+            }
+            return;
+          }
+
           gps_quality_ = mowgli_interfaces::gnss_status_utils::HardwareQualityPercent(*msg);
 
           // Trust signal for the dig detector. The receiver's own accuracy
@@ -761,8 +785,6 @@ private:
           const auto acc = mowgli_interfaces::gnss_status_utils::HorizontalAccuracyMeters(*msg);
           dig_gnss_acc_m_ = acc ? static_cast<double>(*acc) : -1.0;
           dig_gnss_rtk_fixed_ = mowgli_interfaces::gnss_status_utils::BehaviorTreeRtkFixed(*msg);
-          dig_gnss_time_ = now();
-          have_dig_gnss_ = true;
         });
 
     // Mirror the behavior tree's high-level state to the firmware so it
@@ -1497,6 +1519,20 @@ private:
       RCLCPP_WARN(get_logger(), "Persisted IMU cal parse failed — ignoring, will re-calibrate.");
       return;
     }
+    // A file whose five variances are all exactly 0 was recorded from a dead
+    // sensor (2026-09-02: a hung WT901 bus streamed exact zeros through a
+    // full 200-sample window and the result was persisted). Loading it
+    // would silently replace the real gyro bias with 0.
+    if (IsDeadSensorCovariance(
+            imu_cal_cov_ax_, imu_cal_cov_ay_, imu_cal_cov_gx_, imu_cal_cov_gy_, imu_cal_cov_gz_))
+    {
+      RCLCPP_WARN(get_logger(),
+                  "Persisted IMU cal rejected — all covariances are exactly 0 "
+                  "(dead-sensor calibration). Ignoring, will re-calibrate.");
+      imu_cal_offset_gx_ = imu_cal_offset_gy_ = imu_cal_offset_gz_ = 0.0;
+      imu_cal_offset_ax_ = imu_cal_offset_ay_ = 0.0;
+      return;
+    }
     // Sanity: if a previous cal ran while the robot was actually rotating
     // (false at-rest detection, dock glitch, whatever), the saved gyro
     // offset will be huge. Reject to force a clean re-cal rather than
@@ -1537,6 +1573,183 @@ private:
                 imu_cal_offset_gz_,
                 imu_cal_offset_ax_,
                 imu_cal_offset_ay_);
+  }
+
+  // Result of one completed calibration window, computed from the sample
+  // buffers WITHOUT touching the live imu_cal_* members (see apply/discard).
+  struct ImuCalResult
+  {
+    double off_ax{0.0}, off_ay{0.0}, mean_az{0.0};
+    double off_gx{0.0}, off_gy{0.0}, off_gz{0.0};
+    double cov_ax{0.0}, cov_ay{0.0}, cov_gx{0.0}, cov_gy{0.0}, cov_gz{0.0};
+    double accel_mag{0.0};  // |mean accel| — gravity on a healthy sensor
+  };
+
+  static double sample_variance(const std::vector<double>& v, double mean)
+  {
+    if (v.empty())
+    {
+      return 0.0;
+    }
+    double acc = 0.0;
+    for (const double x : v)
+    {
+      acc += (x - mean) * (x - mean);
+    }
+    return acc / static_cast<double>(v.size());
+  }
+
+  ImuCalResult compute_imu_calibration() const
+  {
+    const double n = static_cast<double>(imu_cal_count_);
+    ImuCalResult r;
+    r.off_ax = imu_cal_sum_ax_ / n;
+    r.off_ay = imu_cal_sum_ay_ / n;
+    r.mean_az = imu_cal_sum_az_ / n;
+    r.off_gx = imu_cal_sum_gx_ / n;
+    r.off_gy = imu_cal_sum_gy_ / n;
+    r.off_gz = imu_cal_sum_gz_ / n;
+    r.cov_ax = sample_variance(imu_cal_samples_ax_, r.off_ax);
+    r.cov_ay = sample_variance(imu_cal_samples_ay_, r.off_ay);
+    r.cov_gx = sample_variance(imu_cal_samples_gx_, r.off_gx);
+    r.cov_gy = sample_variance(imu_cal_samples_gy_, r.off_gy);
+    r.cov_gz = sample_variance(imu_cal_samples_gz_, r.off_gz);
+    r.accel_mag = std::sqrt(r.off_ax * r.off_ax + r.off_ay * r.off_ay + r.mean_az * r.mean_az);
+    return r;
+  }
+
+  void clear_imu_cal_samples()
+  {
+    imu_cal_samples_ax_.clear();
+    imu_cal_samples_ay_.clear();
+    imu_cal_samples_gx_.clear();
+    imu_cal_samples_gy_.clear();
+    imu_cal_samples_gz_.clear();
+  }
+
+  // The window came from a dead sensor (2026-09-02: 200 exact zeros were
+  // accepted AND persisted, wiping a good gyro bias). Same recovery as the
+  // mid-collection abort: keep the previous completed cal if there is one,
+  // otherwise stay uncalibrated. The persisted file is NOT touched. Throttled
+  // because a docked robot with no previous cal retries the window every
+  // ~2 s until the sensor comes back.
+  void discard_imu_calibration(const ImuCalResult& r)
+  {
+    imu_cal_collecting_ = false;
+    imu_cal_count_ = 0;
+    if (imu_cal_last_completed_.nanoseconds() > 0)
+    {
+      imu_cal_ready_ = true;
+    }
+    RCLCPP_ERROR_THROTTLE(get_logger(),
+                          *get_clock(),
+                          kImuDeadRepeatLogMs,
+                          "IMU calibration DISCARDED — implausible window: |accel|=%.3f m/s² "
+                          "(gravity expected), gyro cov [%.2e, %.2e, %.2e]. The sensor is "
+                          "dead or hung (bus hang?); keeping %s and NOT persisting. "
+                          "Power-cycle the mainboard.",
+                          r.accel_mag,
+                          r.cov_gx,
+                          r.cov_gy,
+                          r.cov_gz,
+                          imu_cal_ready_ ? "the previous calibration" : "raw passthrough");
+  }
+
+  void apply_imu_calibration(const ImuCalResult& r)
+  {
+    imu_cal_offset_ax_ = r.off_ax;
+    imu_cal_offset_ay_ = r.off_ay;
+    imu_cal_offset_gx_ = r.off_gx;
+    imu_cal_offset_gy_ = r.off_gy;
+    imu_cal_offset_gz_ = r.off_gz;
+    imu_cal_cov_ax_ = r.cov_ax;
+    imu_cal_cov_ay_ = r.cov_ay;
+    imu_cal_cov_gx_ = r.cov_gx;
+    imu_cal_cov_gy_ = r.cov_gy;
+    imu_cal_cov_gz_ = r.cov_gz;
+
+    imu_cal_collecting_ = false;
+    imu_cal_ready_ = true;
+    imu_cal_last_completed_ = now();
+
+    // Push the freshly-measured gyro-Z bias into the firmware yaw loop so it
+    // subtracts it before regulation (keeps open-loop BackUp straight). This
+    // fires on the first cal AND every periodic re-cal, so the firmware
+    // always has a current bias as it drifts on the dock.
+    send_yaw_pid();
+    RCLCPP_INFO(get_logger(),
+                "IMU calibration complete (%d samples) — "
+                "accel offset [%.4f, %.4f] m/s², "
+                "gyro offset [%.6f, %.6f, %.6f] rad/s, "
+                "accel cov [%.6f, %.6f], gyro cov [%.6f, %.6f, %.6f]",
+                imu_cal_count_,
+                imu_cal_offset_ax_,
+                imu_cal_offset_ay_,
+                imu_cal_offset_gx_,
+                imu_cal_offset_gy_,
+                imu_cal_offset_gz_,
+                imu_cal_cov_ax_,
+                imu_cal_cov_ay_,
+                imu_cal_cov_gx_,
+                imu_cal_cov_gy_,
+                imu_cal_cov_gz_);
+
+    // ---- Implied mounting pitch/roll from at-rest gravity vector ----
+    // At rest on a level dock, the chip accel reads [0, 0, g] in the
+    // *IMU* frame. If it reads non-zero on X/Y, either (a) the IMU is
+    // physically tilted relative to base_link (mounting error), or
+    // (b) the chip has a factory accel bias. Assuming the dock is
+    // level, the angular offsets below capture the combined effect,
+    // which you can feed into mowgli_robot.yaml as imu_pitch / imu_roll
+    // so the URDF base_link->imu_link rotation matches reality.
+    //   pitch (nose-down = +) = atan2(-ax_raw, az_raw)
+    //   roll  (right-down = +) = atan2( ay_raw, az_raw)
+    // Magnitudes ≫ ~1° warrant YAML correction; smaller values are
+    // likely chip bias and are already removed by this calibration
+    // for ax/ay on every future sample.
+    const double implied_pitch_deg = std::atan2(-r.off_ax, r.mean_az) * 180.0 / M_PI;
+    const double implied_roll_deg = std::atan2(r.off_ay, r.mean_az) * 180.0 / M_PI;
+    RCLCPP_INFO(get_logger(),
+                "Implied mounting tilt: pitch=%.3f°, roll=%.3f° "
+                "(|accel|=%.3f m/s², az_mean=%.3f). "
+                "If magnitudes exceed ~1° set imu_pitch / imu_roll in "
+                "mowgli_robot.yaml and redeploy.",
+                implied_pitch_deg,
+                implied_roll_deg,
+                r.accel_mag,
+                r.mean_az);
+
+    // Persist to disk so container restarts don't lose the calibration
+    // (this is the fix for the "stale gyro bias after pull" class of bugs).
+    persist_imu_calibration(implied_pitch_deg, implied_roll_deg);
+  }
+
+  // Debounced dead-IMU watch (imu_liveness.hpp). Logs ERROR once on the
+  // alive->dead edge, repeats every kImuDeadRepeatLogMs while dead, INFO on
+  // revival. Detection only — nothing is gated on it yet.
+  void track_imu_liveness(double ax, double ay, double az, double gx, double gy, double gz)
+  {
+    const ImuLivenessUpdate step =
+        UpdateImuLiveness(imu_liveness_, IsImuSampleDead(ax, ay, az, gx, gy, gz));
+    imu_liveness_ = step.state;
+    if (step.became_alive)
+    {
+      RCLCPP_INFO(get_logger(), "IMU is reporting plausible acceleration again — sensor alive.");
+      return;
+    }
+    if (!step.state.dead)
+    {
+      return;
+    }
+    const double since_log_ms = (now() - imu_dead_last_log_).seconds() * 1000.0;
+    if (step.became_dead || since_log_ms >= static_cast<double>(kImuDeadRepeatLogMs))
+    {
+      imu_dead_last_log_ = now();
+      RCLCPP_ERROR(get_logger(),
+                   "IMU reporting zero acceleration for %.1f s — sensor dead (bus hang?), "
+                   "gyro/accel are NOT trustworthy; power-cycle the mainboard.",
+                   static_cast<double>(kImuDeadSampleThreshold) / kImuPacketRateHz);
+    }
   }
 
   void start_imu_calibration(const char* reason)
@@ -1585,6 +1798,12 @@ private:
     double gx = static_cast<double>(pkt.gyro_rads[0]);
     double gy = static_cast<double>(pkt.gyro_rads[1]);
     double gz = static_cast<double>(pkt.gyro_rads[2]);
+
+    // Dead-sensor watch on the RAW sample, before any offset is applied.
+    // Gravity is never zero: |accel| ~ 0 is a hung WT901 bus (2026-09-02),
+    // and everything below — calibration, /imu/data, the dig detector's
+    // gyro turn exclusion — would otherwise consume the zeros as truth.
+    track_imu_liveness(ax, ay, az, gx, gy, gz);
 
     // Auto-calibrate off-dock when stationary. Covers the "image pulled,
     // container restarted, robot has not docked since" case that leaves
@@ -1662,94 +1881,18 @@ private:
 
       if (imu_cal_count_ >= imu_cal_samples_)
       {
-        const double n = static_cast<double>(imu_cal_count_);
-        imu_cal_offset_ax_ = imu_cal_sum_ax_ / n;
-        imu_cal_offset_ay_ = imu_cal_sum_ay_ / n;
-        imu_cal_offset_gx_ = imu_cal_sum_gx_ / n;
-        imu_cal_offset_gy_ = imu_cal_sum_gy_ / n;
-        imu_cal_offset_gz_ = imu_cal_sum_gz_ / n;
-
-        // Compute variance for covariance diagonal
-        imu_cal_cov_ax_ = imu_cal_cov_ay_ = 0.0;
-        imu_cal_cov_gx_ = imu_cal_cov_gy_ = imu_cal_cov_gz_ = 0.0;
-        for (int i = 0; i < imu_cal_count_; ++i)
+        // Compute into a local result first so an implausible window can be
+        // DISCARDED without clobbering the previous good calibration.
+        const ImuCalResult r = compute_imu_calibration();
+        if (IsCalibrationPlausible(r.accel_mag, r.cov_gx, r.cov_gy, r.cov_gz))
         {
-          imu_cal_cov_ax_ += std::pow(imu_cal_samples_ax_[i] - imu_cal_offset_ax_, 2);
-          imu_cal_cov_ay_ += std::pow(imu_cal_samples_ay_[i] - imu_cal_offset_ay_, 2);
-          imu_cal_cov_gx_ += std::pow(imu_cal_samples_gx_[i] - imu_cal_offset_gx_, 2);
-          imu_cal_cov_gy_ += std::pow(imu_cal_samples_gy_[i] - imu_cal_offset_gy_, 2);
-          imu_cal_cov_gz_ += std::pow(imu_cal_samples_gz_[i] - imu_cal_offset_gz_, 2);
+          apply_imu_calibration(r);
         }
-        imu_cal_cov_ax_ /= n;
-        imu_cal_cov_ay_ /= n;
-        imu_cal_cov_gx_ /= n;
-        imu_cal_cov_gy_ /= n;
-        imu_cal_cov_gz_ /= n;
-
-        imu_cal_collecting_ = false;
-        imu_cal_ready_ = true;
-        imu_cal_last_completed_ = now();
-
-        // Push the freshly-measured gyro-Z bias into the firmware yaw loop so it
-        // subtracts it before regulation (keeps open-loop BackUp straight). This
-        // fires on the first cal AND every periodic re-cal, so the firmware
-        // always has a current bias as it drifts on the dock.
-        send_yaw_pid();
-        RCLCPP_INFO(get_logger(),
-                    "IMU calibration complete (%d samples) — "
-                    "accel offset [%.4f, %.4f] m/s², "
-                    "gyro offset [%.6f, %.6f, %.6f] rad/s, "
-                    "accel cov [%.6f, %.6f], gyro cov [%.6f, %.6f, %.6f]",
-                    imu_cal_count_,
-                    imu_cal_offset_ax_,
-                    imu_cal_offset_ay_,
-                    imu_cal_offset_gx_,
-                    imu_cal_offset_gy_,
-                    imu_cal_offset_gz_,
-                    imu_cal_cov_ax_,
-                    imu_cal_cov_ay_,
-                    imu_cal_cov_gx_,
-                    imu_cal_cov_gy_,
-                    imu_cal_cov_gz_);
-
-        // ---- Implied mounting pitch/roll from at-rest gravity vector ----
-        // At rest on a level dock, the chip accel reads [0, 0, g] in the
-        // *IMU* frame. If it reads non-zero on X/Y, either (a) the IMU is
-        // physically tilted relative to base_link (mounting error), or
-        // (b) the chip has a factory accel bias. Assuming the dock is
-        // level, the angular offsets below capture the combined effect,
-        // which you can feed into mowgli_robot.yaml as imu_pitch / imu_roll
-        // so the URDF base_link->imu_link rotation matches reality.
-        //   pitch (nose-down = +) = atan2(-ax_raw, az_raw)
-        //   roll  (right-down = +) = atan2( ay_raw, az_raw)
-        // Magnitudes ≫ ~1° warrant YAML correction; smaller values are
-        // likely chip bias and are already removed by this calibration
-        // for ax/ay on every future sample.
-        const double az_mean = imu_cal_sum_az_ / n;
-        const double a_mag = std::sqrt(imu_cal_offset_ax_ * imu_cal_offset_ax_ +
-                                       imu_cal_offset_ay_ * imu_cal_offset_ay_ + az_mean * az_mean);
-        const double implied_pitch_deg = std::atan2(-imu_cal_offset_ax_, az_mean) * 180.0 / M_PI;
-        const double implied_roll_deg = std::atan2(imu_cal_offset_ay_, az_mean) * 180.0 / M_PI;
-        RCLCPP_INFO(get_logger(),
-                    "Implied mounting tilt: pitch=%.3f°, roll=%.3f° "
-                    "(|accel|=%.3f m/s², az_mean=%.3f). "
-                    "If magnitudes exceed ~1° set imu_pitch / imu_roll in "
-                    "mowgli_robot.yaml and redeploy.",
-                    implied_pitch_deg,
-                    implied_roll_deg,
-                    a_mag,
-                    az_mean);
-
-        // Persist to disk so container restarts don't lose the calibration
-        // (this is the fix for the "stale gyro bias after pull" class of bugs).
-        persist_imu_calibration(implied_pitch_deg, implied_roll_deg);
-
-        // Free sample buffers
-        imu_cal_samples_ax_.clear();
-        imu_cal_samples_ay_.clear();
-        imu_cal_samples_gx_.clear();
-        imu_cal_samples_gy_.clear();
-        imu_cal_samples_gz_.clear();
+        else
+        {
+          discard_imu_calibration(r);
+        }
+        clear_imu_cal_samples();
       }
     }
 
@@ -2043,12 +2186,45 @@ private:
                     sizeof(LlHeartbeat) - sizeof(uint16_t));  // CRC appended by encode_packet.
   }
 
+  static std::int64_t steadyNowNs()
+  {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+  }
+
+  bool gnssObservationFresh()
+  {
+    const auto maximum_age_ns = static_cast<std::int64_t>(dig_gnss_timeout_s_ * 1.0e9);
+    const bool fresh = gnss_observation_freshness_.ObservationIsFresh(now().nanoseconds(),
+                                                                      steadyNowNs(),
+                                                                      maximum_age_ns);
+    if (!gnss_freshness_initialized_)
+    {
+      gnss_freshness_initialized_ = true;
+      last_gnss_observation_fresh_ = fresh;
+    }
+    else if (fresh != last_gnss_observation_fresh_)
+    {
+      last_gnss_observation_fresh_ = fresh;
+      if (fresh)
+      {
+        RCLCPP_INFO(get_logger(), "GNSS physical observation recovered; dig trust/lock restored");
+      }
+      else
+      {
+        RCLCPP_WARN(get_logger(), "GNSS physical observation stale; dig trust/lock cleared");
+      }
+    }
+    return fresh;
+  }
+
   void send_high_level_state()
   {
     LlHighLevelState pkt{};
     pkt.type = PACKET_ID_LL_HIGH_LEVEL_STATE;
     pkt.current_mode = current_mode_;
-    pkt.gps_quality = gps_quality_;
+    pkt.gps_quality = GnssQualityForFirmware(gnssObservationFresh(), gps_quality_);
 
     if (last_sent_mode_ != current_mode_ || last_sent_mode_state_name_ != current_mode_state_name_)
     {
@@ -2058,7 +2234,7 @@ private:
                   current_mode_,
                   high_level_mode_name(current_mode_),
                   current_mode_state_name_.c_str(),
-                  gps_quality_);
+                  pkt.gps_quality);
       last_sent_mode_ = current_mode_;
       last_sent_mode_state_name_ = current_mode_state_name_;
     }
@@ -2744,8 +2920,7 @@ private:
     const double yaw_rate =
         gyro_fresh ? last_gyro_yaw_rate_ : std::numeric_limits<double>::infinity();
 
-    const bool gnss_fresh =
-        have_dig_gnss_ && (tick_now - dig_gnss_time_).seconds() < dig_gnss_timeout_s_;
+    const bool gnss_fresh = gnssObservationFresh();
     const double trust_sigma =
         DigTrustSigma(gnss_fresh, dig_gnss_rtk_fixed_, dig_gnss_acc_m_ >= 0.0, dig_gnss_acc_m_);
 
@@ -2941,11 +3116,16 @@ private:
   /// Receiver-reported position quality, for the dig detector's trust gate.
   /// The factor graph's own marginal is NOT usable for this — see
   /// dig_detector.hpp.
-  bool have_dig_gnss_{false};
   bool dig_gnss_rtk_fixed_{false};
   double dig_gnss_acc_m_{-1.0};
-  rclcpp::Time dig_gnss_time_{0, 0, RCL_ROS_TIME};
+  /// Existing hardware GNSS trust timeout. It now governs both the dig trust
+  /// gate and the quality forwarded to the lock LED; only a genuinely new
+  /// receiver observation refreshes it.
   double dig_gnss_timeout_s_{2.0};
+  mowgli_interfaces::gnss_observation_freshness::PhysicalObservationTracker
+      gnss_observation_freshness_;
+  bool gnss_freshness_initialized_{false};
+  bool last_gnss_observation_fresh_{false};
 
   /// Calibrated gyro yaw rate, for the dig detector's turn exclusion. Gyro,
   /// never wheels — see dig_detector.hpp.
@@ -3152,6 +3332,12 @@ private:
   double imu_cal_offset_gx_{0.0}, imu_cal_offset_gy_{0.0}, imu_cal_offset_gz_{0.0};
   double imu_cal_cov_ax_{0.01}, imu_cal_cov_ay_{0.01};
   double imu_cal_cov_gx_{0.1}, imu_cal_cov_gy_{0.1}, imu_cal_cov_gz_{0.1};
+
+  // Dead-IMU watch (imu_liveness.hpp). Detection only; nothing gates on it.
+  static constexpr double kImuPacketRateHz = 90.0;
+  static constexpr int kImuDeadRepeatLogMs = 30000;
+  ImuLivenessState imu_liveness_{};
+  rclcpp::Time imu_dead_last_log_{};
 
   bool dock_pose_written_{false};
 };

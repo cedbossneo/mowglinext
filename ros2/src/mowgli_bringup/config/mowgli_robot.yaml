@@ -241,9 +241,13 @@ mowgli:
     # previous graph-node scan. Adds a BetweenFactor with rmse-scaled
     # covariance — bounded drift between consecutive nodes even when
     # GPS drops to RTK-Float. Required for "robot keeps mowing through
-    # multi-minute GPS dropouts" scenarios. No-op when the LiDAR
-    # driver is off (use_lidar=false): no /scan publisher, no
-    # subscription, no factors.
+    # multi-minute GPS dropouts" scenarios. FORCED OFF when the LiDAR is
+    # off (lidar_enabled/use_lidar false): navigation.launch.py ANDs this
+    # flag with use_lidar before it reaches fusion_graph_node, so there is
+    # no subscription and no factors. That AND is not cosmetic — this
+    # template default is `true` and has no relation to lidar_enabled, so
+    # without it a GPS-only robot ran fusion_graph with
+    # use_scan_matching=True subscribed to a topic nothing published.
     use_scan_matching: true
 
     # use_loop_closure: on every new node, search earlier graph nodes
@@ -254,8 +258,9 @@ mowgli:
     # and at session start when re-entering a previously-mapped area.
     # Cost: one ICP per candidate per tick (~5 ms each, capped to
     # lc_max_candidates=3). No-op when use_scan_matching is also
-    # false or when use_lidar=false (the launch file force-OFFs it
-    # on first boot too — see navigation.launch.py).
+    # false; FORCED OFF when use_lidar=false (ANDed with use_lidar in
+    # navigation.launch.py, same as use_scan_matching above) and on the
+    # first boot, when no persisted graph exists to close against.
     use_loop_closure: true
 
     # -----------------------------------------------------------------
@@ -696,3 +701,39 @@ mowgli:
     # obstacle-deviation + reverse-escape, not this timer, so the longer wait is
     # a coverage-completeness gain, not a safety regression.
     progress_timeout_sec: 30.0     # seconds without progress before a strip is aborted+skipped
+
+    # -----------------------------------------------------------------
+    # WS2812 status ring (mowgli_leds)
+    # -----------------------------------------------------------------
+    # Optional addressable LED ring driven from the SBC over SPI MOSI. Read-only
+    # with respect to the robot; NOT part of the blade-safety path (the STM32
+    # keeps its own status LED and remains the sole blade safety authority).
+    #
+    # OFF by default: an existing robot must not suddenly start writing to a
+    # /dev/spidev it may not own. full_system.launch.py reads led_enabled here
+    # for the led_ring_node launch gate, exactly as it does for lidar_enabled.
+    #
+    # On the Orange Pi 5B the ring's DATA line is on 40-pin header pin 19
+    # (GPIO1_C1 = SPI4_MOSI_M0), and the SPI4-M0 device-tree overlay must be
+    # enabled in U-Boot before /dev/spidev exists at all. See
+    # ros2/src/mowgli_leds/README.md for the u-boot-update steps. Until then
+    # the node warns ONCE and stands down; it never crashes or spams.
+    led_enabled: false             # master switch; false = node is not launched
+    led_count: 16                  # LEDs on the ring — SET THIS to the real count
+    led_spi_device: "/dev/spidev4.1"  # confirm with `ls /dev/spidev*` after the overlay is live
+    led_brightness: 0.6            # 0..1 linear scale on every channel. Whole-ring
+                                   # white at 1.0 is ~60 mA per LED; 0.6 keeps a
+                                   # 16-LED ring under ~0.6 A while staying readable
+                                   # in daylight.
+    led_refresh_hz: 20.0           # render tick. Frames are only WRITTEN when they
+                                   # change (plus led_keepalive_s), so static modes
+                                   # cost ~0.5 writes/s of 234 bytes.
+    led_keepalive_s: 2.0           # re-send an unchanged frame at least this often
+    led_status_timeout_s: 5.0      # no HighLevelStatus for this long -> STALE pattern
+    led_device_retry_s: 30.0       # re-open a missing/failed /dev/spidev this often
+    led_low_battery_percent: 20.0  # below this, and not charging, the ring blinks red
+    led_charge_full_percent: 99.0  # at or above this a charging ring goes steady green
+    led_idle_scale: 0.10           # brightness of the dim idle ring, relative to led_brightness
+    led_spi_speed_hz: 2400000      # 3 SPI bits per WS2812 bit = 1.25 us. Do NOT retune
+                                   # without re-reading ws2812_encoder.hpp — the symbol
+                                   # table is derived from this exact clock.
