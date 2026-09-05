@@ -8,6 +8,41 @@ import (
 	"testing"
 )
 
+func TestCIEvidenceExcludesPublisherAndRequiresRealTests(t *testing.T) {
+	gui := []job{{"Unit Tests (vitest + tsc)", "success"}, {"Go Tests (gui backend)", "success"}, {"Publish update catalog / candidate", ""}}
+	if passed, skipped := jobsPassed("gui-ci.yml", gui); !passed || skipped {
+		t.Fatal("running publisher must not block successful tests")
+	}
+	gui[1].Conclusion = "failure"
+	if passed, _ := jobsPassed("gui-ci.yml", gui); passed {
+		t.Fatal("failed Go tests certified a deployment")
+	}
+	gui[1].Conclusion = ""
+	if passed, _ := jobsPassed("gui-ci.yml", gui); passed {
+		t.Fatal("pending Go tests certified a deployment")
+	}
+	if passed, _ := jobsPassed("gui-ci.yml", gui[:1]); passed {
+		t.Fatal("missing Go job certified a deployment")
+	}
+	gui[1] = job{"Go backend tests", "success"}
+	if passed, _ := jobsPassed("gui-ci.yml", gui); !passed {
+		t.Fatal("previous Go job name was not recognized")
+	}
+	ros := []job{{"Build & Test (ROS2 kilted)", "skipped"}, {"Config Drift (mowgli_robot.yaml)", "skipped"}, {"Formatting (clang-format)", "skipped"}, {"Static Analysis (cppcheck)", "skipped"}}
+	if passed, skipped := jobsPassed("ros2-ci.yml", ros); passed || !skipped {
+		t.Fatal("skipped ROS2 checks must require earlier matching evidence")
+	}
+	if passed, _ := jobsPassed("sensors-gps.yml", []job{{"build / Merge manifest (gps)", "success"}}); !passed {
+		t.Fatal("nested sensor merge was not recognized")
+	}
+	if passed, _ := jobsPassed("ros2-docker.yml", []job{{"Merge manifest (dev)", "success"}}); passed {
+		t.Fatal("development image alone cannot certify the runtime image")
+	}
+	if passed, _ := jobsPassed("unknown.yml", gui); passed {
+		t.Fatal("unknown workflow certified a deployment")
+	}
+}
+
 func TestImageReuseRequiresAncestorAndUnchangedBuildInputs(t *testing.T) {
 	dir := t.TempDir()
 	run := func(args ...string) string {

@@ -66,3 +66,14 @@ jobs:
         assert hasattr(RtcmMessage, "message")
         PY
       no-cache: ${{ inputs.no-cache == true }}
+
+  update-catalog:
+    name: Publish update catalog
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
+    needs: build
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/update-manifests.yml
+    with:
+      channel: ${{ startsWith(github.ref, 'refs/tags/') && 'stable' || 'dev' }}

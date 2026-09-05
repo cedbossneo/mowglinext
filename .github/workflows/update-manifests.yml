@@ -1,6 +1,12 @@
 name: Update deployment catalog
 
 on:
+  workflow_call:
+    inputs:
+      channel:
+        type: string
+        default: dev
+        required: false
   workflow_run:
     workflows: ['GUI — CI', 'ROS2 — CI', 'GUI — Docker', 'ROS2 — Docker', 'Sensors — GPS', 'Sensors — LiDAR LDLiDAR', 'Sensors — LiDAR RPLiDAR', 'Sensors — LiDAR STL27L', 'Protocol Version Drift']
     types: [completed]
@@ -35,6 +41,7 @@ jobs:
     outputs:
       channel: ${{ steps.target.outputs.channel }}
       revision: ${{ steps.target.outputs.revision }}
+      ready: ${{ steps.validate.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -67,6 +74,10 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - name: Validate complete deployment
+        id: validate
+        # Other pipelines may still be building. Never turn a successful image
+        # build red just because the complete deployment is not ready yet.
+        continue-on-error: true
         working-directory: gui
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,14 +86,18 @@ jobs:
           VERSION: ${{ steps.target.outputs.version }}
         run: go run ./cmd/update-manifest --repository "$GITHUB_REPOSITORY" --ref "$CANDIDATE_SHA" --channel "$CHANNEL" --version "$VERSION" --out "$RUNNER_TEMP/update-candidate"
       - uses: actions/upload-artifact@v7
+        if: steps.validate.outcome == 'success'
         with:
           name: deployment-candidate
           path: ${{ runner.temp }}/update-candidate
           retention-days: 14
+      - name: Report pending candidate
+        if: steps.validate.outcome != 'success'
+        run: echo 'Deployment is not ready; existing channel pointer retained. See validation logs for missing evidence.' >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     needs: candidate
-    if: github.event_name != 'workflow_dispatch' || (inputs.publish && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'))
+    if: needs.candidate.outputs.ready == 'true' && (github.event_name != 'workflow_dispatch' || (inputs.publish && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')))
     runs-on: ubuntu-24.04
     permissions:
       contents: write

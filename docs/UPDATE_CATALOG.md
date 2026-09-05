@@ -29,8 +29,11 @@ every physical mower model or provide firmware flashing artifacts.
 documents; it never downloads image layers. It checks each architecture's source
 revision is an ancestor of the candidate and that all relevant build inputs are
 unchanged between that image and candidate. Unchanged component images can be
-reused. Successful originating image workflows and relevant GUI/ROS2/protocol
-checks are required; missing, failed or pending evidence prevents publication.
+reused. Successful originating image manifest-merge jobs and relevant
+GUI/ROS2/protocol checks are required; missing, failed or pending evidence
+prevents publication. Skipped tests do not certify a candidate: an earlier
+successful run is accepted only when its inputs are unchanged. The catalog job
+itself is excluded from this evidence to avoid a circular dependency.
 
 From a complete repository checkout, as a normal user:
 
@@ -43,9 +46,13 @@ go run ./cmd/update-manifest --repository mowglinext/mowglinext \
 `GH_TOKEN` optionally authenticates GitHub metadata reads, and is never sent to
 the registry or included in the output. The CLI only writes a candidate directory.
 
-The **Update deployment catalog** workflow tries to assemble candidates after
-successful dev/main image or CI jobs and published releases. An incomplete
-candidate fails its validation job and retains the existing channel pointer;
+The **Update deployment catalog** reusable workflow is called directly after
+successful dev image/test jobs and release-tag image builds. This works as soon
+as it merges into dev; GitHub's `workflow_run` trigger alone would require the
+workflow file to exist on the default main branch. Once present on main, it also
+listens for successful dev/main workflow completions and published releases.
+An incomplete candidate retains the existing channel pointer and reports the
+missing evidence in its validation log without failing the originating build;
 another completing workflow retries assembly. Manual dispatch defaults to an
 artifact-only dry run. Publishing from dispatch requires an explicit flag and
 a dev/main workflow ref. Workflow-run inputs cannot select a fork/PR checkout;

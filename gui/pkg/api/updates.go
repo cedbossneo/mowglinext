@@ -258,6 +258,9 @@ func registerUpdatesRoutes(r *gin.RouterGroup, provider types.IDockerProvider, r
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
 		defer cancel()
 		result := checkUpdates(ctx, installedVersions(ctx, provider), repo, channel, source)
+		if c.Request.Context().Err() != nil {
+			return // A disconnected client must not replace a usable cached result.
+		}
 		if result.LastSuccessfulAt == "" {
 			result.LastSuccessfulAt = previous.LastSuccessfulAt
 		}
