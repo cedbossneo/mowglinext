@@ -72,7 +72,7 @@ RUNTIME = REPO / "install/config/mowgli/mowgli_robot.yaml"
 STRUCTURAL = {
     # Drivetrain
     "wheel_radius", "wheel_width", "wheel_track", "wheel_x_offset",
-    "ticks_per_meter", "ticks_per_revolution",
+    "ticks_per_meter",
     # Chassis
     "chassis_length", "chassis_width", "chassis_height",
     "chassis_center_x", "chassis_mass_kg",
@@ -115,7 +115,10 @@ USER_OVERRIDE = {
     # would keep suppressing the uncategorized-orphan report for a key that no
     # longer means anything — a stale value on a real robot's installed yaml
     # must now be surfaced, not silently tolerated.
-    "path_spacing",
+    #   Also retired 2026-09-05, same reasoning: path_spacing (dead knob,
+    #   deleted from the template) and ticks_per_revolution (was STRUCTURAL,
+    #   deleted from the template — no consumer anywhere in ros2/; the live
+    #   encoder scale is ticks_per_meter, which stays).
     "max_obstacle_avoidance_distance", "coverage_xy_tolerance",
     "obstacle_inflation_radius", "obstacle_margin", "obstacle_slowdown_ratio",
     "xy_goal_tolerance", "yaw_goal_tolerance",

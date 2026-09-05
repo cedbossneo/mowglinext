@@ -2391,7 +2391,7 @@
     "transitSpeedTooltip": "Vitesse lors des trajets vers/depuis la base ou entre les zones",
     "mowingPattern": "Motif de tonte",
     "headlandWidth": "Largeur de tournière",
-    "headlandWidthTooltip": "Largeur de la bande périmétrique tondue avant le champ intérieur (retrait ConstHL de F2C). Relié à coverage_server.default_headland_width.",
+    "headlandWidthTooltip": "Largeur de la bande périmétrique tondue avant le champ intérieur (retrait ConstHL de F2C). Reliée à coverage_server.default_headland_width, où elle ne sert qu'à UNE chose : le nombre d'anneaux automatique, ceil(largeur de tournière / espacement des passes). Elle n'a donc d'effet que si Passes de tournière est sur Auto — avec un nombre de passes imposé (2 par défaut), cette valeur est ignorée.",
     "swathOverlap": "Chevauchement des passes",
     "swathOverlapTooltip": "Chevauchement supplémentaire entre passes adjacentes pour éviter les bandes non tondues. Espacement F2C = tool_width − swath_overlap.",
     "headlandPasses": "Passes de tournière",
