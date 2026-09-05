@@ -125,7 +125,10 @@ jobs:
       - name: Build dependencies
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
+          # ROS's setup.bash dereferences unset AMENT_* variables, so it cannot
+          # be sourced under `set -u`. sensors/gps/Dockerfile works around this
+          # the same way.
           source /opt/ros/kilted/setup.bash
           cd /ws
           # Dependencies only, tests off — we are not here to test upstream.
@@ -138,7 +141,7 @@ jobs:
       - name: Build and test mowgli_gnss_bridge
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
           source /opt/ros/kilted/setup.bash
           cd /ws
           source install/setup.bash
