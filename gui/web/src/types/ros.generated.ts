@@ -313,6 +313,7 @@ export type GnssStatus = {
   msm_summary_signal_count?: number;
   msm_summary_cell_count?: number;
   msm_summary_age_s?: number;
+  position_observation_sequence?: number;
 };
 
 export const enum HighLevelStatusConstants {

@@ -7,12 +7,17 @@
 #include <limits>
 
 #include "mowgli_hardware/dig_detector.hpp"
+#include "mowgli_hardware/gnss_hardware_status.hpp"
+#include "mowgli_interfaces/gnss_observation_freshness.hpp"
 #include <gtest/gtest.h>
 
 namespace mh = mowgli_hardware;
+namespace freshness = mowgli_interfaces::gnss_observation_freshness;
 
 namespace
 {
+constexpr std::int64_t kSecond = 1000000000LL;
+
 // The map side is fed as a POSITION (DigDecide measures net displacement from
 // its own per-window anchor), so the helpers integrate a straight-line track.
 
@@ -495,4 +500,87 @@ TEST(DigTrustSigma, GraphMarginalWouldBlockWhereReceiverAccuracyDoesNot)
   mh::DigDetectorState st_gnss;
   EXPECT_EQ(RunDigging(cfg, st_gnss, 9.0, 0.014, 0.1, 0.01), mh::DigAction::kDig)
       << "receiver accuracy at the same instant";
+}
+
+TEST(DigGnssFreshness, GenuineRtkObservationPermitsExistingTrustPolicy)
+{
+  freshness::PhysicalObservationTracker tracker;
+  ASSERT_EQ(tracker.Observe(1, 10 * kSecond, 10 * kSecond, 1 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  const bool fresh = tracker.ObservationIsFresh(10 * kSecond, 1 * kSecond, 2 * kSecond);
+  EXPECT_NEAR(mh::DigTrustSigma(fresh, true, true, 0.014), 0.014, 1e-12);
+}
+
+TEST(DigGnssFreshness, CachedRtkObservationCannotExtendTrust)
+{
+  freshness::PhysicalObservationTracker tracker;
+  ASSERT_EQ(tracker.Observe(2, 10 * kSecond, 10 * kSecond, 1 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  ASSERT_EQ(tracker.Observe(2, 10 * kSecond, 13 * kSecond, 4 * kSecond),
+            freshness::ObservationUpdate::kCachedPublication);
+  const bool fresh = tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond);
+  EXPECT_EQ(mh::DigTrustSigma(fresh, true, true, 0.014), std::numeric_limits<double>::infinity());
+}
+
+TEST(DigGnssFreshness, StaleCachedFixedCannotCreateDigAnchor)
+{
+  freshness::PhysicalObservationTracker tracker;
+  mh::DigDetectorCfg cfg;
+  mh::DigDetectorState state;
+  ASSERT_EQ(tracker.Observe(3, 10 * kSecond, 10 * kSecond, 1 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  ASSERT_EQ(tracker.Observe(3, 10 * kSecond, 13 * kSecond, 4 * kSecond),
+            freshness::ObservationUpdate::kCachedPublication);
+  const bool fresh = tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond);
+  const double sigma = mh::DigTrustSigma(fresh, true, true, 0.014);
+
+  EXPECT_EQ(mh::DigDecide(cfg, state, 0.3, 0.03, 1.0, 2.0, sigma, 0.0, 0.1).action,
+            mh::DigAction::kNone);
+  EXPECT_FALSE(state.have_anchor);
+}
+
+TEST(DigGnssFreshness, NewGenuineObservationRestoresTrust)
+{
+  freshness::PhysicalObservationTracker tracker;
+  ASSERT_EQ(tracker.Observe(4, 10 * kSecond, 10 * kSecond, 1 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  ASSERT_FALSE(tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond));
+  ASSERT_EQ(tracker.Observe(5, 13 * kSecond, 13 * kSecond, 4 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  const bool fresh = tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond);
+  EXPECT_NEAR(mh::DigTrustSigma(fresh, true, true, 0.014), 0.014, 1e-12);
+}
+
+TEST(GnssLockFreshness, FreshFixedKeepsExistingQualityIndication)
+{
+  EXPECT_EQ(mh::GnssQualityForFirmware(true, 100U), 100U);
+  EXPECT_EQ(mh::GnssQualityForFirmware(true, 70U), 70U);
+}
+
+TEST(GnssLockFreshness, CachedFixedCannotKeepIndicationFresh)
+{
+  freshness::PhysicalObservationTracker tracker;
+  ASSERT_EQ(tracker.Observe(6, 10 * kSecond, 10 * kSecond, 1 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  ASSERT_EQ(tracker.Observe(6, 10 * kSecond, 13 * kSecond, 4 * kSecond),
+            freshness::ObservationUpdate::kCachedPublication);
+  const bool fresh = tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond);
+  EXPECT_EQ(mh::GnssQualityForFirmware(fresh, 100U), 0U);
+}
+
+TEST(GnssLockFreshness, TimeoutUsesExistingNoCurrentDataValue)
+{
+  EXPECT_EQ(mh::GnssQualityForFirmware(false, 100U), 0U);
+}
+
+TEST(GnssLockFreshness, NewGenuineObservationRestoresQuality)
+{
+  freshness::PhysicalObservationTracker tracker;
+  ASSERT_EQ(tracker.Observe(7, 10 * kSecond, 10 * kSecond, 1 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  ASSERT_FALSE(tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond));
+  ASSERT_EQ(tracker.Observe(8, 13 * kSecond, 13 * kSecond, 4 * kSecond),
+            freshness::ObservationUpdate::kNewObservation);
+  const bool fresh = tracker.ObservationIsFresh(13 * kSecond, 4 * kSecond, 2 * kSecond);
+  EXPECT_EQ(mh::GnssQualityForFirmware(fresh, 100U), 100U);
 }

@@ -161,6 +161,7 @@ if(BUILD_TESTING)
     PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
+  ament_target_dependencies(test_dig_detector mowgli_interfaces)
 
   # ---- test_imu_liveness ----
   # Header-only pure logic (imu_liveness.hpp): no link against

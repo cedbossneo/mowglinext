@@ -18,6 +18,7 @@
 
 #include "fusion_graph/fusion_graph_node.hpp"
 #include "fusion_graph/fusion_graph_node_util.hpp"
+#include "fusion_graph/rtk_wrongfix_gate.hpp"
 
 namespace fusion_graph
 {
@@ -243,6 +244,12 @@ void FusionGraphNode::SetupCommunications(double node_period_s)
         seed_xy_.reset();
         seed_yaw_.reset();
         seed_xy_rtk_fixed_ = false;
+        gnss_observation_tracker_.Reset();
+        last_rtk_fixed_stamp_.reset();
+        rtk_fixed_streak_ = 0;
+        last_gps_sigma_ = -1.0;
+        last_gps_map_xy_.reset();
+        ResetRtkWrongFixAccumulators(wheel_dist_since_last_gps_m_, abs_dtheta_since_last_gps_rad_);
         // Re-zero the dead-reckoning frame. Without this the odom→base
         // transform keeps whatever offset it had accumulated (observed
         // 74 m), so map→odom = graph_pose ∘ dr⁻¹ still has the huge

@@ -247,6 +247,11 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_gnss_timestamp fusion_graph_core)
 
+  ament_add_gtest(test_gnss_observation_freshness
+    test/test_gnss_observation_freshness.cpp
+  )
+  target_link_libraries(test_gnss_observation_freshness fusion_graph_core)
+
   # Performance benchmarks. Long-running (~30 s on ARM); only meaningful
   # in Release builds. Output is grep-friendly for tracking regressions.
   ament_add_gtest(test_perf
