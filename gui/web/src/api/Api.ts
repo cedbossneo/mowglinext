@@ -162,6 +162,29 @@ export interface ApiSystemInfo {
   cpuTemperature?: number;
 }
 
+export interface ApiUpdateCheck {
+  channel?: string;
+  checked_at?: string;
+  components?: ApiUpdateComponent[];
+  last_successful_at?: string;
+  manifest?: UpdatesManifest;
+  notes_url?: string;
+  preparing?: boolean;
+  source?: string;
+  state?: string;
+  version?: string;
+}
+
+export interface ApiUpdateComponent {
+  available_image?: string;
+  available_revision?: string;
+  custom_image?: boolean;
+  digest_reference?: boolean;
+  installed_revision?: string;
+  name?: string;
+  state?: string;
+}
+
 export interface ApiVersionsResponse {
   components?: ApiInstalledComponent[];
   docker_available?: boolean;
@@ -324,6 +347,41 @@ export interface TypesSoilZoneStatus {
   reason?: string;
   selected?: boolean;
   wet?: boolean;
+}
+
+export interface UpdatesCompatibility {
+  compose_schema?: number;
+  config_schema?: number;
+  firmware_protocol?: number;
+  hardware_backend?: string;
+  migration?: string;
+  rollback?: string;
+}
+
+export interface UpdatesImage {
+  digest?: string;
+  platforms?: Record<string, UpdatesPlatform>;
+  repository?: string;
+}
+
+export interface UpdatesManifest {
+  channel?: string;
+  compatibility?: UpdatesCompatibility;
+  images?: Record<string, UpdatesImage>;
+  notes_url?: string;
+  published_at?: string;
+  schema_version?: number;
+  source_repository?: string;
+  source_revision?: string;
+  version?: string;
+}
+
+export interface UpdatesPlatform {
+  built_at?: string;
+  config?: string;
+  manifest?: string;
+  revision?: string;
+  version?: string;
 }
 
 export type QueryParamsType = Record<string | number, any>;
@@ -1215,6 +1273,31 @@ export class Api<
       this.request<ApiOkResponse, ApiErrorResponse>({
         path: `/system/shutdown`,
         method: "POST",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags system
+     * @name UpdatesList
+     * @summary Check available software versions
+     * @request GET:/system/updates
+     */
+    updatesList: (
+      query: {
+        /** Comparison channel */
+        channel: "stable" | "dev";
+        /** Check remote metadata (otherwise cached result) */
+        check?: boolean;
+      },
+      params: RequestParams = {},
+    ) =>
+      this.request<ApiUpdateCheck, any>({
+        path: `/system/updates`,
+        method: "GET",
+        query: query,
         format: "json",
         ...params,
       }),

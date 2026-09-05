@@ -1,4 +1,41 @@
 {
+  "updateChecks": {
+    "title": "Rechercher des mises à jour",
+    "readOnly": "Comparez les logiciels installés aux versions stables ou de développement. Seules les métadonnées sont consultées : aucune image téléchargée, installation ou modification du canal du robot.",
+    "channel": "Comparer avec",
+    "stable": "Versions stables",
+    "dev": "Développement",
+    "check": "Vérifier maintenant",
+    "failed": "Échec de la vérification",
+    "previous": "Le résultat précédent est historique. Un échec ne signifie pas que le logiciel est à jour.",
+    "unverified": "Aucun catalogue de déploiement publié pour ce canal. Les images sont comparées individuellement, sans validation de leur ensemble.",
+    "candidate": "Version proposée : {{version}}",
+    "notes": "Notes de version / modifications",
+    "custom": "Image installée depuis un dépôt personnalisé ; comparaison avec le canal amont sélectionné.",
+    "digestReference": "L’image installée utilise une référence exacte par empreinte. La vérification ne la modifie pas.",
+    "targetImage": "Détails de l’image disponible",
+    "protocol": "La version proposée nécessite le protocole {{protocol}} du firmware",
+    "firmwareMismatch": "La version proposée nécessite un autre protocole. Vérifiez la compatibilité du firmware avant toute installation future.",
+    "checked": "Dernière tentative : {{time}}",
+    "lastSuccess": "Dernière vérification réussie : {{time}}",
+    "states": {
+      "not_checked": "Pas encore vérifié",
+      "unavailable": "Informations de mise à jour indisponibles",
+      "incomplete": "Vérification incomplète : certains composants ne sont pas comparables",
+      "unverified": "Images vérifiées individuellement ; ensemble non validé",
+      "available": "Un autre déploiement publié est disponible",
+      "current": "Les images installées correspondent au déploiement publié",
+      "preparing": "De nouvelles modifications sont en préparation ; dernier déploiement publié affiché"
+    },
+    "componentStates": {
+      "current": "Image identique",
+      "changed": "Image différente disponible",
+      "unknown": "Identité installée non comparable",
+      "unmanaged": "Absent de ce catalogue",
+      "missing_platform": "Aucune image pour cette plateforme",
+      "unavailable": "Vérification de l’image indisponible"
+    }
+  },
   "updates": {
     "title": "Versions et mises à jour",
     "shortTitle": "Versions",

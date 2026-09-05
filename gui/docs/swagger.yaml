@@ -254,6 +254,48 @@ definitions:
       cpuTemperature:
         type: number
     type: object
+  api.UpdateCheck:
+    properties:
+      channel:
+        type: string
+      checked_at:
+        type: string
+      components:
+        items:
+          $ref: '#/definitions/api.UpdateComponent'
+        type: array
+      last_successful_at:
+        type: string
+      manifest:
+        $ref: '#/definitions/updates.Manifest'
+      notes_url:
+        type: string
+      preparing:
+        type: boolean
+      source:
+        type: string
+      state:
+        type: string
+      version:
+        type: string
+    type: object
+  api.UpdateComponent:
+    properties:
+      available_image:
+        type: string
+      available_revision:
+        type: string
+      custom_image:
+        type: boolean
+      digest_reference:
+        type: boolean
+      installed_revision:
+        type: string
+      name:
+        type: string
+      state:
+        type: string
+    type: object
   api.VersionsResponse:
     properties:
       components:
@@ -522,6 +564,68 @@ definitions:
         type: boolean
       wet:
         type: boolean
+    type: object
+  updates.Compatibility:
+    properties:
+      compose_schema:
+        type: integer
+      config_schema:
+        type: integer
+      firmware_protocol:
+        type: integer
+      hardware_backend:
+        type: string
+      migration:
+        type: string
+      rollback:
+        type: string
+    type: object
+  updates.Image:
+    properties:
+      digest:
+        type: string
+      platforms:
+        additionalProperties:
+          $ref: '#/definitions/updates.Platform'
+        type: object
+      repository:
+        type: string
+    type: object
+  updates.Manifest:
+    properties:
+      channel:
+        type: string
+      compatibility:
+        $ref: '#/definitions/updates.Compatibility'
+      images:
+        additionalProperties:
+          $ref: '#/definitions/updates.Image'
+        type: object
+      notes_url:
+        type: string
+      published_at:
+        type: string
+      schema_version:
+        type: integer
+      source_repository:
+        type: string
+      source_revision:
+        type: string
+      version:
+        type: string
+    type: object
+  updates.Platform:
+    properties:
+      built_at:
+        type: string
+      config:
+        type: string
+      manifest:
+        type: string
+      revision:
+        type: string
+      version:
+        type: string
     type: object
 host: localhost:4200
 info:
@@ -1257,6 +1361,31 @@ paths:
           schema:
             $ref: '#/definitions/api.ErrorResponse'
       summary: shutdown the system
+      tags:
+      - system
+  /system/updates:
+    get:
+      parameters:
+      - description: Comparison channel
+        enum:
+        - stable
+        - dev
+        in: query
+        name: channel
+        required: true
+        type: string
+      - description: Check remote metadata (otherwise cached result)
+        in: query
+        name: check
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.UpdateCheck'
+      summary: Check available software versions
       tags:
       - system
   /system/versions:

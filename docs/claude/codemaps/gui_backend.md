@@ -5,6 +5,10 @@
 > Loaded on demand from `gui/CLAUDE.md`. Frontend (`gui/web/`) is a separate codemap.
 
 ## Where to look
+
+Installed version and update discovery: `pkg/api/versions.go`, `pkg/api/updates.go`,
+`pkg/updates/{manifest,registry,catalog}.go`. `cmd/update-manifest` validates catalog
+candidates without publishing. See `docs/UPDATE_CATALOG.md` for the contract.
 | Task | Start here |
 |------|------------|
 | Add / change an HTTP route | `gui/pkg/api/api.go:37-61` (`NewAPI` registers every `*Routes` fn) → the per-feature file; add `// @Router` swag annotations |

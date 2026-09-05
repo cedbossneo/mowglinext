@@ -7,6 +7,7 @@ import {useFirmwareInventory} from '../../hooks/useFirmwareInventory';
 import {browserBuildDiffers, imageVersion} from '../../utils/versions';
 import type {ApiInstalledComponent} from '../../api/Api';
 import './UpdatesSection.css';
+import {UpdateChecks} from './UpdateChecks';
 
 const {Text} = Typography;
 const order = ['robot', 'gui', 'gps', 'lidar', 'tfluna-front', 'tfluna-edge', 'mavros', 'ntrip', 'mqtt', 'watchtower', 'vesc'];
@@ -38,7 +39,7 @@ export function UpdatesSection({configuredModel}: {configuredModel?: string}) {
     );
     return (
         <div className="installed-versions" data-testid="installed-versions">
-            <Alert type="info" showIcon message={t('updates.inventoryOnly')} description={t('updates.notChecked')}/>
+            <UpdateChecks firmwareProtocol={firmware.state === 'compatible' || firmware.state === 'incompatible' ? firmware.data.firmware_protocol_version : undefined}/>
             <div className="installed-version-toolbar"><Button icon={<ReloadOutlined/>} loading={loading} onClick={() => void refresh()}>{t('updates.refresh')}</Button>{data && <Typography.Paragraph style={{margin: 0}} copyable={{text: versionDetails, tooltips: [t('updates.copy'), t('updates.copied')]}}>{t('updates.copy')}</Typography.Paragraph>}</div>
             {error && <Alert type="warning" showIcon message={t('updates.fetchFailed')} description={data ? t('updates.showingPrevious') : undefined}/>}
             {data && !data.docker_available && <Alert type="warning" showIcon message={t('updates.dockerUnavailable')}/>}

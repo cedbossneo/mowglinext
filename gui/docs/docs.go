@@ -1106,6 +1106,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/system/updates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Check available software versions",
+                "parameters": [
+                    {
+                        "enum": [
+                            "stable",
+                            "dev"
+                        ],
+                        "type": "string",
+                        "description": "Comparison channel",
+                        "name": "channel",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Check remote metadata (otherwise cached result)",
+                        "name": "check",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/api.UpdateCheck"
+                        }
+                    }
+                }
+            }
+        },
         "/system/versions": {
             "get": {
                 "produces": [
@@ -1498,6 +1536,70 @@ const docTemplate = `{
             "properties": {
                 "cpuTemperature": {
                     "type": "number"
+                }
+            }
+        },
+        "api.UpdateCheck": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "checked_at": {
+                    "type": "string"
+                },
+                "components": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.UpdateComponent"
+                    }
+                },
+                "last_successful_at": {
+                    "type": "string"
+                },
+                "manifest": {
+                    "$ref": "#/definitions/updates.Manifest"
+                },
+                "notes_url": {
+                    "type": "string"
+                },
+                "preparing": {
+                    "type": "boolean"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UpdateComponent": {
+            "type": "object",
+            "properties": {
+                "available_image": {
+                    "type": "string"
+                },
+                "available_revision": {
+                    "type": "string"
+                },
+                "custom_image": {
+                    "type": "boolean"
+                },
+                "digest_reference": {
+                    "type": "boolean"
+                },
+                "installed_revision": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
                 }
             }
         },
@@ -1894,6 +1996,101 @@ const docTemplate = `{
                 },
                 "wet": {
                     "type": "boolean"
+                }
+            }
+        },
+        "updates.Compatibility": {
+            "type": "object",
+            "properties": {
+                "compose_schema": {
+                    "type": "integer"
+                },
+                "config_schema": {
+                    "type": "integer"
+                },
+                "firmware_protocol": {
+                    "type": "integer"
+                },
+                "hardware_backend": {
+                    "type": "string"
+                },
+                "migration": {
+                    "type": "string"
+                },
+                "rollback": {
+                    "type": "string"
+                }
+            }
+        },
+        "updates.Image": {
+            "type": "object",
+            "properties": {
+                "digest": {
+                    "type": "string"
+                },
+                "platforms": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/updates.Platform"
+                    }
+                },
+                "repository": {
+                    "type": "string"
+                }
+            }
+        },
+        "updates.Manifest": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string"
+                },
+                "compatibility": {
+                    "$ref": "#/definitions/updates.Compatibility"
+                },
+                "images": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/updates.Image"
+                    }
+                },
+                "notes_url": {
+                    "type": "string"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "schema_version": {
+                    "type": "integer"
+                },
+                "source_repository": {
+                    "type": "string"
+                },
+                "source_revision": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "updates.Platform": {
+            "type": "object",
+            "properties": {
+                "built_at": {
+                    "type": "string"
+                },
+                "config": {
+                    "type": "string"
+                },
+                "manifest": {
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
                 }
             }
         }

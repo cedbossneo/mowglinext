@@ -21,6 +21,7 @@ const DEFAULT_REST: Record<string, unknown> = {
     "/api/calibration/status": {imu: {present: false}, magnetometer: {present: false}},
     "/api/schedules": {schedules: []},
     "/api/containers": {containers: []},
+    "/api/system/updates": {channel: 'dev', state: 'not_checked', components: []},
     "/api/params": {parameters: []},
     "/api/settings/gnss/runtime-config": {device: "", baud: 0},
 };
