@@ -65,6 +65,17 @@ func TestVersionsPartialMetadataAndStoppedContainers(t *testing.T) {
 	}
 }
 
+func TestVersionsIncludeOptionalDistanceSensors(t *testing.T) {
+	f := &versionDocker{containers: []docker.Container{
+		{Names: []string{"/mowgli-tfluna-front"}, State: "running"},
+		{Names: []string{"/mowgli-tfluna-edge"}, State: "running"},
+	}}
+	got := installedVersions(context.Background(), f)
+	if len(got.Components) != 2 || got.Components[0].Component != "tfluna-edge" || got.Components[1].Component != "tfluna-front" {
+		t.Fatalf("missing distance sensors: %+v", got.Components)
+	}
+}
+
 func TestVersionsDockerUnavailableStillReturnsServerAndNoStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

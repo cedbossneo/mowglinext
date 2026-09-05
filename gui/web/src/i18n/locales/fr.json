@@ -36,7 +36,7 @@
     "built": "Compilation (UTC)",
     "architecture": "Architecture",
     "metadataUnavailable": "Métadonnées indisponibles ; la référence et l'état restent affichés.",
-    "components": {"robot": "Logiciel du robot", "gui": "Interface web", "gps": "GPS", "lidar": "LiDAR", "mqtt": "MQTT", "watchtower": "Watchtower", "mavros": "MAVROS", "ntrip": "NTRIP", "vesc": "VESC"},
+    "components": {"robot": "Logiciel du robot", "gui": "Interface web", "gps": "GPS", "lidar": "LiDAR", "mqtt": "MQTT", "watchtower": "Watchtower", "mavros": "MAVROS", "ntrip": "NTRIP", "vesc": "VESC", "tfluna-front": "TF-Luna avant", "tfluna-edge": "TF-Luna de bord"},
     "containerStates": {"running": "En cours", "exited": "Arrêté", "created": "Créé", "restarting": "Redémarrage", "paused": "En pause", "dead": "Inactif", "removing": "Suppression"},
     "firmwareStates": {"waiting": "En attente du statut en direct", "disconnected": "Déconnecté", "stale": "Statut périmé", "compatible": "Protocole compatible", "incompatible": "Protocole incompatible"}
   },

@@ -9,7 +9,7 @@ import type {ApiInstalledComponent} from '../../api/Api';
 import './UpdatesSection.css';
 
 const {Text} = Typography;
-const order = ['robot', 'gui', 'gps', 'lidar', 'mavros', 'ntrip', 'mqtt', 'watchtower', 'vesc'];
+const order = ['robot', 'gui', 'gps', 'lidar', 'tfluna-front', 'tfluna-edge', 'mavros', 'ntrip', 'mqtt', 'watchtower', 'vesc'];
 
 export function UpdatesSection({configuredModel}: {configuredModel?: string}) {
     const {t} = useTranslation();

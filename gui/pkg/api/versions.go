@@ -37,6 +37,7 @@ var versionComponents = map[string]string{
 	"mowgli-ros2": "robot", "mowgli-gui": "gui", "mowgli-gps": "gps",
 	"mowgli-lidar": "lidar", "mowgli-mqtt": "mqtt", "mowgli-watchtower": "watchtower",
 	"mowgli-mavros": "mavros", "mowgli-ntrip": "ntrip", "mowgli-vesc": "vesc",
+	"mowgli-tfluna-front": "tfluna-front", "mowgli-tfluna-edge": "tfluna-edge",
 }
 
 func installedVersions(ctx context.Context, provider types.IDockerProvider) VersionsResponse {

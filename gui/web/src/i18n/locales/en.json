@@ -36,7 +36,7 @@
     "built": "Built at (UTC)",
     "architecture": "Architecture",
     "metadataUnavailable": "Image metadata is unavailable; the reference and state are still shown.",
-    "components": {"robot": "Robot software", "gui": "Web interface", "gps": "GPS", "lidar": "LiDAR", "mqtt": "MQTT", "watchtower": "Watchtower", "mavros": "MAVROS", "ntrip": "NTRIP", "vesc": "VESC"},
+    "components": {"robot": "Robot software", "gui": "Web interface", "gps": "GPS", "lidar": "LiDAR", "mqtt": "MQTT", "watchtower": "Watchtower", "mavros": "MAVROS", "ntrip": "NTRIP", "vesc": "VESC", "tfluna-front": "Front TF-Luna", "tfluna-edge": "Edge TF-Luna"},
     "containerStates": {"running": "Running", "exited": "Stopped", "created": "Created", "restarting": "Restarting", "paused": "Paused", "dead": "Dead", "removing": "Removing"},
     "firmwareStates": {"waiting": "Waiting for live status", "disconnected": "Disconnected", "stale": "Status is stale", "compatible": "Protocol compatible", "incompatible": "Protocol incompatible"}
   },
