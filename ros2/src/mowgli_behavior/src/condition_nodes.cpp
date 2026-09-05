@@ -68,7 +68,32 @@ BT::NodeStatus IsCharging::tick()
 {
   auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
   std::lock_guard<std::mutex> lock(ctx->context_mutex);
-  return ctx->latest_power.charger_enabled ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
+
+  if (!ctx->latest_power.charger_enabled)
+  {
+    // Any off sample breaks the run, so an intermittent bit can never
+    // accumulate a window across separate contacts.
+    charging_since_ = {};
+    return BT::NodeStatus::FAILURE;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  if (charging_since_.time_since_epoch().count() == 0)
+  {
+    charging_since_ = now;
+  }
+
+  double stable_for_sec = 0.0;
+  getInput<double>("stable_for_sec", stable_for_sec);
+  if (stable_for_sec <= 0.0)
+  {
+    // Default, and the behaviour of every call site that does not name the
+    // port: report the raw charger bit with no debounce at all.
+    return BT::NodeStatus::SUCCESS;
+  }
+
+  const double elapsed = std::chrono::duration<double>(now - charging_since_).count();
+  return (elapsed >= stable_for_sec) ? BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ import {rasterizeMowProgress} from "../utils/mowProgress.ts";
 import {useMowerAction} from "../components/MowerActions.tsx";
 import {computeBatteryPercent} from "../utils/battery.ts";
 import {deriveGpsStatus} from "../utils/gpsStatus.ts";
+import {deriveIsMoving} from "../utils/mowerMotion.ts";
 
 import {GlassCard} from "../concept/components/GlassCard.tsx";
 import {BatteryRing} from "../concept/components/BatteryRing.tsx";
@@ -70,7 +71,7 @@ function useMowerData() {
   // OBSTACLE_BACKOFF, DYNAMIC_OBSTACLE_CLEARED, AREA_UNREACHABLE) and carried a
   // phantom SKIP_STRIP, so every planning/backoff phase read as "idle" mid-mow.
   const stateNum = highLevelStatus.state ?? -1;
-  const isMoving = stateNum === 2 || stateNum === 3 || stateNum === 4;
+  const isMoving = deriveIsMoving(stateNum, isCharging);
 
   return {
     state: stateName,

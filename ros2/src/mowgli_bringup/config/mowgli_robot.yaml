@@ -22,12 +22,65 @@ mowgli:
     # diverged from this template; the 0.60 m here is the correct value
     # and was restored on 2026-04-26.
     chassis_length: 0.60
+    #
+    # chassis_width — UNRECONCILED, two claimed measurements (2026-09-05):
+    #   0.40 m — this template's long-standing value, whose comment claimed it
+    #            was "physically measured on the actual YardForce 500". It is
+    #            also what gui/web/src/constants/mowerModels.ts and the GUI JSON
+    #            schema default carry for every YardForce preset.
+    #   0.45 m — measured by the maintainer on HIS YardForce 500 and set in his
+    #            installed (sparse) mowgli_robot.yaml.
+    # Neither has been re-measured against the other, so the template default is
+    # LEFT AT 0.40: silently replacing one claimed measurement with another only
+    # moves the unverified number. A site whose chassis is genuinely wider MUST
+    # override chassis_width in its installed mowgli_robot.yaml (Invariant 15) —
+    # that override is the supported path and already works.
+    #
+    # What rides on this key, so the cost of getting it wrong is explicit:
+    #   * Nav2/URDF footprint half-width — mowgli.launch.py:128 (fp_half_w =
+    #     chassis_width/2, no margin) and navigation.launch.py:311 (fp_hw =
+    #     chassis_width/2 + 0.05 costmap margin).
+    #   * map_server.chassis_width (full_system.launch.py:389) and
+    #     map_server.bypass_safety_margin = chassis_width/2
+    #     (full_system.launch.py:398) — the mow-progress bypass corridor.
+    #   * coverage_server.robot_width (navigation.launch.py:930) — F2C
+    #     Robot::getWidth(), used by the connector footprint check.
+    #   * The URDF chassis box, hence every sensor's lateral placement.
+    #   * FTC's obstacle_body_half_width reasoning (0.20 ≈ chassis_width/2,
+    #     nav2_params_base.yaml — a HARDCODED 0.12 today, not injected from
+    #     here, so it does NOT follow a chassis_width change).
+    #   * The obstacle_inflation_radius clamp floor (0.58) is derived from the
+    #     circumscribed radius of the footprint above: at 0.40 that is
+    #     sqrt(0.53² + 0.25²) ≈ 0.586 m; at 0.45 it grows to ≈ 0.597 m, i.e. a
+    #     wider chassis makes the shipped floor slightly UNDER-sized.
     chassis_width: 0.40
     chassis_height: 0.19
     chassis_mass_kg: 8.76
 
     # Drive wheels (rear)
-    wheel_radius: 0.04475
+    # wheel_radius — 0.1 m, per the maintainer's physical measurement on the
+    # YardForce 500 ("the wheels are 10 cm radius", 2026-09-05).
+    # It replaces a template default of 0.04475 m — an 8.95 cm DIAMETER drive
+    # wheel — which disagreed 2× with mowgli.urdf.xacro's OWN default of 0.093
+    # for the same wheel. One of those two was necessarily wrong and neither
+    # traced to a measurement. The 0.093 scale is the one corroborated
+    # elsewhere: the three Webots surfaces (config_webots/ros2_control.yaml,
+    # urdf_webots/mowgli_webots.urdf, protos/MowgliMower.proto) all
+    # independently carry 0.093 and cite "physical wheel radius from
+    # mowgli_robot.yaml" — a value this file has never actually held. Only the
+    # yaml template and the GUI model presets carried 0.04475.
+    # The xacro default and mowgli.launch.py's fallback are now 0.1 too, so
+    # there is ONE number instead of three. (The Webots surfaces keep 0.093:
+    # changing them re-tunes sim wheel kinematics and is a separate job.)
+    # SCOPE: wheel_radius is consumed ONLY by mowgli.urdf.xacro
+    # (mowgli.launch.py:102 → xacro arg). It sets base_z_offset — base_link's
+    # height above ground, which every sensor z (lidar_z, imu_z, gps_z) is
+    # measured from — plus the wheel visuals/collisions and the ground-clearance
+    # construction (the chassis box bottom sits exactly at base_link height, so
+    # a wrong radius also mis-states ground clearance). NOTHING computes
+    # odometry from it (hardware_bridge uses ticks_per_meter), so a wrong value
+    # does not corrupt distance; it SILENTLY OFFSETS EVERY SENSOR z in TF.
+    wheel_radius: 0.1
     wheel_width: 0.04
     wheel_track: 0.325         # centre-to-centre (from OpenMower).
                                # Read by hardware_bridge_node and URDF.
@@ -181,10 +234,14 @@ mowgli:
     mag_yaw_variance: 0.0027
     # Dock seeding (consumed by dock_yaw_to_set_pose)
     dock_pose_yaw_sigma_rad: 0.035
-    # Informational only — circumference 2π·0.04475 = 0.281 m, so
-    # 300 ticks/m × 0.281 m/rev ≈ 84 ticks per revolution. Kept as a
-    # cross-check for future wheel-size changes.
-    ticks_per_revolution: 84
+    # NOTE: ticks_per_revolution was REMOVED here on 2026-09-05. It had NO
+    # consumer anywhere in ros2/ — it only ever appeared in this template, in a
+    # derivation comment in mowgli_localization/config/wheel_odometry.yaml, and
+    # in the GUI's drive-tuning REPORT (informational readback). Worse, its
+    # value (84) was derived from the wrong wheel_radius (0.04475) and a
+    # ticks_per_meter (300) that no calibrated robot runs, so it was a stale
+    # cross-check that could only mislead. Encoder scale is ticks_per_meter,
+    # which IS live and per-robot calibrated.
 
     # Front casters
     caster_radius: 0.03
@@ -196,10 +253,20 @@ mowgli:
 
     # -----------------------------------------------------------------
     # Lidar mount position / orientation (relative to base_link)
-    # Synced 2026-04-26 to runtime config: this robot's LD19 sits near
-    # base_link with a tiny lateral offset and is rotated ~π (mounted
-    # back-to-front so the cable side faces aft). Values per real
-    # mechanical mount, not OpenMower defaults.
+    #
+    # These are TEMPLATE DEFAULTS for a back-to-front (~π yaw) LD19 sitting
+    # roughly over the wheel axis. They are NOT a description of any particular
+    # robot: the mount is per-build and MUST be set in the installed (sparse)
+    # mowgli_robot.yaml whenever the real bracket differs (Invariant 15).
+    # An earlier version of this comment claimed the block was "synced
+    # 2026-04-26 to runtime config: this robot's LD19…" — it described a
+    # machine that no longer exists, and at least one field robot now runs a
+    # completely different mount (x ≈ 0.177, z ≈ 0.20, yaw ≈ −π/2). Measure
+    # yours; do not trust these four numbers as as-built.
+    #
+    # lidar_yaw is also read by navigation.launch.py:303 for the scan
+    # ground-filter projection, so a wrong sign there inverts the front/back
+    # filter on a slope — it is not visual-only.
     # -----------------------------------------------------------------
     lidar_x: 0.0               # forward offset from wheel axis (m)
     lidar_y: 0.024             # lateral offset (m)
@@ -207,8 +274,16 @@ mowgli:
     lidar_yaw: 3.1408          # heading offset (rad) — ~π for 180°-rotated mount
 
     # IMU mounting (relative to base_link = wheel axis centre)
+    # imu_y: −0.195 m — the IMU really does sit to the RIGHT of the wheelbase
+    # on the YardForce 500 (maintainer-confirmed 2026-09-05, and what
+    # gui/web/src/constants/mowerModels.ts has carried for every YardForce
+    # preset all along). The template default used to be 0.0, which meant a GUI
+    # "reset to default" (Invariant 15: reset = delete the key so it falls back
+    # to THIS file) silently MOVED THE IMU 19.5 cm SIDEWAYS in the URDF — the
+    # exact class of divergence the schema/template parity guard exists to
+    # catch, and which it missed because it never compared the model presets.
     imu_x: 0.18                # forward offset from wheel axis (m)
-    imu_y: 0.0                 # lateral offset (m)
+    imu_y: -0.195              # lateral offset (m) — negative = right of centre
     imu_z: 0.095               # vertical offset (m) — base_height / 2
     imu_yaw: 0.0               # heading offset (rad) — if IMU is rotated
 
@@ -341,13 +416,26 @@ mowgli:
     # node read them (navigation.launch.py forwards only the keys below to
     # coverage_server, and the BT hardcodes mow_angle_deg=-1.0 "auto"). They were
     # dead controls. Use num_headland_passes / swath_overlap (below) instead.
-    headland_width: 0.18           # headland = 1 × tool_width. NOTE: currently INERT — the
-                                   # coverage BT (PlanCoverageArea) derives the F2C headland from
-                                   # chassis_width (ring_inset = 0.5*chassis_width + 0.05, then
-                                   # headland = ring_inset + 0.5*op_w ≈ 0.35) and sends it in the
-                                   # action goal, which overrides coverage_server.default_headland_width.
-                                   # To change the effective headland, change chassis_width or the
-                                   # derivation in coverage_nodes.cpp — not this key.
+    # headland_width — LIVE, but only in ONE branch. Read by
+    # navigation.launch.py:582 and injected as
+    # coverage_server.default_headland_width (:931), which planBoustrophedon
+    # uses for exactly one thing (coverage_planning.cpp:810):
+    #     n_rings = ceil(headland_width / operation_width), floored at 1
+    # and ONLY when num_headland_passes == 0 (AUTO). With the shipped
+    # num_headland_passes: 2 the ring count is FORCED and this key has no
+    # effect; set num_headland_passes to 0 to hand the count back to it.
+    # 0.18 / op_width 0.16 → ceil(1.125) = 2 rings, i.e. AUTO reproduces the
+    # forced default.
+    #
+    # The previous comment here claimed this key was "currently INERT" because
+    # "the coverage BT (PlanCoverageArea) derives the F2C headland from
+    # chassis_width (ring_inset = 0.5*chassis_width + 0.05) and sends it in the
+    # action goal". That is FALSE and was removed on 2026-09-05:
+    # PlanCoverage.action has no headland field at all (goal = outer_boundary,
+    # obstacles, mow_angle_deg), and `ring_inset` exists nowhere in the tree
+    # except that stale comment. The server owns the headland; nothing
+    # overrides it.
+    headland_width: 0.18           # headland band (m); AUTO ring count only
     # num_headland_passes: 0 = auto (= ceil(headland_width / tool_width)).
     # >0 forces exactly that many concentric perimeter rings, e.g. 1 for a
     # single perimeter pass, 2 for double, regardless of headland_width.
@@ -394,10 +482,14 @@ mowgli:
     # did before (that outward bulge grew with the turn radius). Read LIVE by
     # coverage_server (ros2-param-set-tunable).
     chassis_safety_inset: 0.2       # 2026-07-23: field-validated default (was 0.0) — keep whole chassis inside the boundary, un-wedges the outermost ring
-    # path_spacing: DEPRECATED / informational — no ROS2 node reads it. F2C swath
-    # spacing is driven by tool_width (coverage_server.operation_width); a separate
-    # spacing value re-opens the swath-gap bug, so this only mirrors tool_width.
-    path_spacing: 0.18             # = tool_width (informational only)
+    # NOTE: path_spacing was REMOVED here on 2026-09-05. It had already been
+    # marked DEPRECATED in this file and hidden by the GUI
+    # (useSettingsManager.ts:134); grep confirms no ROS2 node, no launch file
+    # and no gui/pkg code ever read it. F2C swath spacing is
+    # tool_width − swath_overlap (coverage_server.operation_width) and a second
+    # spacing knob is exactly what re-opened the swath-gap bug. The key is kept
+    # in the GUI JSON schema only so old installed YAMLs still validate; it is
+    # allow-listed as template-less in schema_template_parity_test.go.
     # swath_overlap: F2C swath spacing = tool_width − swath_overlap, so adjacent
     # swaths overlap by this much. Covers the headland↔swath seam + BruteForce
     # edge margins (harness: 95 % → 100 % on the 9×6 m field). tool_width (the
@@ -430,7 +522,28 @@ mowgli:
     # recalibrate per-site before relying on docking.
     dock_pose_yaw: 0.0             # sim: match MowgliMower world rotation (yaw 0, facing +X/east)
     undock_distance: 1.5           # reverse distance when undocking (m); must be > 0.5 m for CalibrateHeadingFromUndock
-    undock_speed: 0.16             # reverse speed (m/s) — above kMinLinVel=0.15 host clamp
+    # undock_speed — reverse speed (m/s) for the BackUp undock leg
+    # (behavior_tree_node → main_tree.xml backup_speed) and for
+    # calibrate_imu_yaw_node's dock reverse leg. The old justification, "above
+    # kMinLinVel=0.15 host clamp", is DEAD: that hardcoded 0.15 host clamp was
+    # removed — hardware_bridge_node.cpp:435 now floors |vx| at the RUNTIME
+    # min_linear_vel parameter (default 0.05), as nav2_params_base.yaml:280
+    # also records. 0.16 is therefore no longer forced from below.
+    # Re-derived bounds:
+    #   FLOOR  ~0.05-0.10 m/s — below min_linear_vel (0.05) the bridge zeroes
+    #          the command outright, and near it the wheels sit in the firmware
+    #          breakaway deadband (the same reason obstacle_reverse_speed_mps
+    #          is 0.15 and start_blocked_escape_speed is 0.10).
+    #   CEILING — this is a BLIND, open-loop reverse: no plan, no costmap
+    #          lookahead behind the robot, and GPS is typically still Float
+    #          under the dock canopy. undock_distance (1.5 m) is covered in
+    #          ~9.4 s at 0.16 m/s, which is deliberately slower than
+    #          mowing_speed (0.20) and matches RPP's near-dock
+    #          min_approach_linear_velocity (0.16, nav2_params_base.yaml).
+    # 0.16 is KEPT as the field-validated value inside those bounds; it may now
+    # be lowered (the clamp no longer blocks it), but that is a supervised
+    # physical-behaviour change, not a config tidy-up.
+    undock_speed: 0.16             # reverse speed (m/s)
     # Distance (m) to the staging pose behind the dock — the final
     # straight-in approach runway. Injected as opennav_docking
     # simple_charging_dock.staging_x_offset = -dock_approach_distance

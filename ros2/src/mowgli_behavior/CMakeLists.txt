@@ -549,6 +549,46 @@ if(BUILD_TESTING)
     tf2_geometry_msgs
   )
 
+  # ---- test_manual_charge_guard ----
+  # ManualChargeGuard stops the mow when the operator puts the mower back on
+  # the dock mid-run. It is the first reader of IsCharging for which a
+  # TRANSIENT charger bit is a state transition (blade off, stop, CHARGING,
+  # wait, MOWING) rather than a no-op, so IsCharging gained an optional
+  # stable_for_sec debounce port. Pins that the port defaults to the raw bit
+  # (the other ten <IsCharging/> sites must not change), that the debounce
+  # rejects a ~100 ms undock blip and resets on any off sample, and - the
+  # subtle part - that the guard's INVERTED debounced condition still passes
+  # mowing through during the unsettled window. Structurally asserts the tree
+  # keeps the debounced entry, the raw exit and the documented 24 h bound.
+  ament_add_gtest(test_manual_charge_guard
+    test/test_manual_charge_guard.cpp
+    src/condition_nodes.cpp
+  )
+
+  target_include_directories(test_manual_charge_guard PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
+  # The structural half reads the real tree from the source tree.
+  target_compile_definitions(test_manual_charge_guard PRIVATE
+    MOWGLI_MAIN_TREE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/trees/main_tree.xml"
+  )
+
+  ament_target_dependencies(test_manual_charge_guard
+    rclcpp
+    behaviortree_cpp
+    mowgli_interfaces
+    nav2_msgs
+    nav_msgs
+    geometry_msgs
+    std_msgs
+    std_srvs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+  )
+
   # ---- test_high_level_status_snapshot ----
   # Regression for the frozen GUI gauges: behavior_tree_node's 1 Hz republish
   # timer used to re-send the CACHED HighLevelStatus verbatim, so every live

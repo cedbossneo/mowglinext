@@ -2473,7 +2473,7 @@
     "transitSpeedTooltip": "Speed when going to/from dock or between zones",
     "mowingPattern": "Mowing Pattern",
     "headlandWidth": "Headland Width",
-    "headlandWidthTooltip": "Width of perimeter strip mowed before the inner field (F2C ConstHL inset). Wired to coverage_server.default_headland_width.",
+    "headlandWidthTooltip": "Width of the perimeter strip mowed before the inner field (F2C ConstHL inset). Wired to coverage_server.default_headland_width, where it is used for ONE thing: the automatic ring count, ceil(headland width / swath spacing). It therefore only has an effect when Headland Passes is set to Auto — with a forced pass count (the shipped default is 2) this value is ignored.",
     "swathOverlap": "Swath Overlap",
     "swathOverlapTooltip": "Extra overlap between adjacent swaths to avoid thin un-mowed strips. F2C swath spacing = tool_width − swath_overlap.",
     "headlandPasses": "Headland Passes",

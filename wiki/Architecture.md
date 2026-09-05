@@ -1566,8 +1566,12 @@ The legacy on-demand strip planner (`~/get_next_strip` service and its `GetNextS
 
 ```yaml
 tool_width: 0.18            # m – single source: map_server stamp + F2C operation_width
-coverage_xy_tolerance: 0.05 # m – must stay < tool_width (capped at 0.15 in launch)
-mowing_speed: 0.5           # m/s – injected into FollowCoveragePath.speed_fast
+coverage_xy_tolerance: 0.50 # m – must stay >= FTC max_goal_distance_error (0.50).
+                            # navigation.launch.py FLOORS it at that value; it is
+                            # NOT capped. FTC parks up to max_goal_distance_error
+                            # short of the final pose, so a TIGHTER gate is never
+                            # satisfied and the area is re-mowed (err 105).
+mowing_speed: 0.2           # m/s – injected into FollowCoveragePath.speed_fast
 ```
 
 `nav2_params.yaml`:

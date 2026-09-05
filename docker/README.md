@@ -257,7 +257,6 @@ defaults in; the tables below give the template value for reference.
 | `mower_model` | `YardForce500` | Hardware model — determines URDF and firmware expectations |
 | `wheel_radius` | `0.04475` | Wheel radius in metres |
 | `wheel_track` | `0.325` | Lateral distance between wheel centres (metres) |
-| `ticks_per_revolution` | `84` | Encoder ticks per full wheel revolution. The scale the bridge actually uses is `ticks_per_meter` (default `399.0`), calibrated per robot |
 | `chassis_center_x` | `0.18` | Longitudinal offset from axle to chassis centre (metres) |
 | `blade_radius` | `0.09` | Cutting disc radius (metres) |
 | `tool_width` | `0.18` | Effective cut width used for coverage path spacing (metres) |
@@ -278,7 +277,6 @@ defaults in; the tables below give the template value for reference.
 |---|---|---|
 | `mowing_speed` | `0.2` | Mowing speed in m/s |
 | `transit_speed` | `0.2` | Transit-to-area speed in m/s |
-| `path_spacing` | `0.18` | **Deprecated / informational** — no node reads it. Swath spacing is `tool_width − swath_overlap` |
 | `swath_overlap` | `0.02` | How much adjacent coverage swaths overlap (metres) — the live swath-spacing knob |
 | `headland_width` | `0.18` | **Inert** — the behavior tree derives the headland from `chassis_width` and overrides this in the coverage goal |
 | `num_headland_passes` | `2` | Concentric perimeter rings before the inner field. `<0` = none, `0` = auto |

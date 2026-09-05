@@ -377,6 +377,12 @@ var retiredParamKeys = map[string]bool{
 	// motor_temp_warn_c / motor_temp_error_c diagnostics thresholds.
 	"motor_temp_high_c": true,
 	"motor_temp_low_c":  true,
+	// Deleted from the template on 2026-09-05: no consumer anywhere in ros2/,
+	// and it never had a schema default, so sparsifyFlat cannot see it. Its
+	// value (84) was also derived from the old wrong wheel_radius (0.04475) and
+	// a ticks_per_meter (300) no calibrated robot runs. The live encoder scale
+	// is ticks_per_meter, which stays.
+	"ticks_per_revolution": true,
 }
 
 // sparsifyFlat prunes flat down to only keys whose value differs from its
