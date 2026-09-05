@@ -233,6 +233,30 @@ if(BUILD_TESTING)
     PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
+
+  # ---- test_hardware_bridge_parameters ----
+  # Includes the node implementation to exercise ROS's actual read-only
+  # parameter contract while a missing serial device keeps the test hardware-free.
+  ament_add_gtest(test_hardware_bridge_parameters
+    test/test_hardware_bridge_parameters.cpp
+    src/odometry_publisher.cpp
+  )
+  target_link_libraries(test_hardware_bridge_parameters
+    mowgli_hardware_core
+  )
+  target_include_directories(test_hardware_bridge_parameters
+    PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_target_dependencies(test_hardware_bridge_parameters
+    rclcpp
+    std_msgs
+    std_srvs
+    sensor_msgs
+    geometry_msgs
+    nav_msgs
+    mowgli_interfaces
+  )
 endif()
 
 # ---------------------------------------------------------------------------

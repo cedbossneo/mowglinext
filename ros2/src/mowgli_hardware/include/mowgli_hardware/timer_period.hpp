@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -22,6 +23,20 @@ using TimerDuration = std::chrono::nanoseconds;
 inline constexpr double kMinRuntimeWheelTrackM = 0.15;
 inline constexpr double kMaxRuntimeWheelTrackM = 0.60;
 
+struct TimerRateRange
+{
+  double minimum_hz;
+  double maximum_hz;
+};
+
+// Preferred cadences keep each periodic task within the rate it was designed
+// and tested for. They are operational limits, not validity limits: usable
+// requests outside a range are clamped at startup with a warning.
+inline constexpr TimerRateRange kHeartbeatRateRange{1.0, 50.0};
+inline constexpr TimerRateRange kPublishRateRange{10.0, 500.0};
+inline constexpr TimerRateRange kHighLevelRateRange{1.0, 20.0};
+inline constexpr TimerRateRange kDigMonitorRateRange{1.0, 50.0};
+
 inline void require_finite_positive(double value, const char* name)
 {
   if (!std::isfinite(value) || value <= 0.0)
@@ -38,12 +53,13 @@ inline void require_finite_nonnegative_timeout(double value, const char* name)
   }
 }
 
-inline void require_runtime_wheel_track(double value)
+inline double normalize_runtime_wheel_track(double value)
 {
-  if (!std::isfinite(value) || value < kMinRuntimeWheelTrackM || value > kMaxRuntimeWheelTrackM)
+  if (!std::isfinite(value))
   {
-    throw std::invalid_argument("wheel_track must be finite and within [0.15, 0.60] m");
+    throw std::invalid_argument("wheel_track must be finite");
   }
+  return std::clamp(value, kMinRuntimeWheelTrackM, kMaxRuntimeWheelTrackM);
 }
 
 /** Lowest positive rate whose reciprocal is representable as TimerDuration. */
@@ -58,17 +74,6 @@ inline double minimum_timer_rate_hz()
 inline constexpr double maximum_timer_rate_hz()
 {
   return 1.0e9;
-}
-
-inline void require_operational_timer_rate(double rate_hz,
-                                           const char* name,
-                                           double minimum_hz,
-                                           double maximum_hz)
-{
-  if (!std::isfinite(rate_hz) || rate_hz < minimum_hz || rate_hz > maximum_hz)
-  {
-    throw std::invalid_argument(std::string(name) + " must be within its operational range");
-  }
 }
 
 /**
@@ -96,6 +101,15 @@ inline TimerDuration timer_period_from_rate_hz(double rate_hz)
   // preserves historic exact periods for integral-ms defaults while allowing
   // sub-millisecond rates.
   return TimerDuration{static_cast<TimerDuration::rep>(period_ns)};
+}
+
+inline double normalize_operational_timer_rate(double rate_hz, TimerRateRange range)
+{
+  // This conversion is the validity check: it rejects non-finite, non-positive,
+  // unrepresentable and zero-duration timer rates before clamping policy is
+  // applied.
+  (void)timer_period_from_rate_hz(rate_hz);
+  return std::clamp(rate_hz, range.minimum_hz, range.maximum_hz);
 }
 
 }  // namespace mowgli_hardware

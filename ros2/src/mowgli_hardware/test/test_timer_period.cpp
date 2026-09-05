@@ -51,29 +51,36 @@ TEST(TimerPeriod, HandlesRepresentablePeriodBoundaryWithoutOverflow)
   EXPECT_THROW(timer_period_from_rate_hz(std::nextafter(minimum, 0.0)), std::invalid_argument);
 }
 
-TEST(TimerPeriod, EnforcesOperationalTimerRateBounds)
+TEST(TimerPeriod, ClampsOperationalTimerRateBounds)
 {
-  EXPECT_NO_THROW(require_operational_timer_rate(4.0, "heartbeat_rate", 1.0, 50.0));
-  EXPECT_NO_THROW(require_operational_timer_rate(100.0, "publish_rate", 10.0, 500.0));
-  EXPECT_NO_THROW(require_operational_timer_rate(2.0, "high_level_rate", 1.0, 20.0));
-  EXPECT_NO_THROW(require_operational_timer_rate(10.0, "dig_monitor_rate", 1.0, 50.0));
-  EXPECT_THROW(require_operational_timer_rate(0.99, "dig_monitor_rate", 1.0, 50.0),
-               std::invalid_argument);
-  EXPECT_THROW(require_operational_timer_rate(501.0, "publish_rate", 10.0, 500.0),
-               std::invalid_argument);
+  EXPECT_EQ(normalize_operational_timer_rate(4.0, kHeartbeatRateRange), 4.0);
+  EXPECT_EQ(normalize_operational_timer_rate(100.0, kPublishRateRange), 100.0);
+  EXPECT_EQ(normalize_operational_timer_rate(2.0, kHighLevelRateRange), 2.0);
+  EXPECT_EQ(normalize_operational_timer_rate(10.0, kDigMonitorRateRange), 10.0);
+  EXPECT_EQ(normalize_operational_timer_rate(5.0, kPublishRateRange),
+            kPublishRateRange.minimum_hz);
+  EXPECT_EQ(normalize_operational_timer_rate(501.0, kPublishRateRange),
+            kPublishRateRange.maximum_hz);
 }
 
 TEST(TimerPeriod, RejectsInvalidDivisorsAndTimeouts)
 {
-  EXPECT_NO_THROW(require_runtime_wheel_track(0.325));
-  EXPECT_THROW(require_runtime_wheel_track(0.0), std::invalid_argument);
-  EXPECT_THROW(require_runtime_wheel_track(-0.325), std::invalid_argument);
-  EXPECT_THROW(require_runtime_wheel_track(std::numeric_limits<double>::quiet_NaN()),
+  EXPECT_EQ(normalize_runtime_wheel_track(0.325), 0.325);
+  EXPECT_EQ(normalize_runtime_wheel_track(0.14), kMinRuntimeWheelTrackM);
+  EXPECT_EQ(normalize_runtime_wheel_track(0.61), kMaxRuntimeWheelTrackM);
+  EXPECT_THROW(normalize_runtime_wheel_track(std::numeric_limits<double>::quiet_NaN()),
                std::invalid_argument);
-  EXPECT_THROW(require_runtime_wheel_track(std::numeric_limits<double>::infinity()),
+  EXPECT_THROW(normalize_runtime_wheel_track(std::numeric_limits<double>::infinity()),
                std::invalid_argument);
-  EXPECT_THROW(require_runtime_wheel_track(kMinRuntimeWheelTrackM / 2.0), std::invalid_argument);
-  EXPECT_THROW(require_runtime_wheel_track(kMaxRuntimeWheelTrackM * 2.0), std::invalid_argument);
+
+  EXPECT_THROW(normalize_operational_timer_rate(0.0, kPublishRateRange), std::invalid_argument);
+  EXPECT_THROW(normalize_operational_timer_rate(-1.0, kPublishRateRange), std::invalid_argument);
+  EXPECT_THROW(normalize_operational_timer_rate(std::numeric_limits<double>::quiet_NaN(),
+                                                kPublishRateRange),
+               std::invalid_argument);
+  EXPECT_THROW(normalize_operational_timer_rate(std::numeric_limits<double>::infinity(),
+                                                kPublishRateRange),
+               std::invalid_argument);
 
   EXPECT_NO_THROW(require_finite_nonnegative_timeout(0.0, "serial_rx_timeout_s"));
   EXPECT_NO_THROW(require_finite_positive(1.0, "dig_pose_timeout_s"));
