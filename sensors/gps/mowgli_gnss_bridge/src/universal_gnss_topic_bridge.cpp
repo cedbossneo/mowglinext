@@ -141,13 +141,13 @@ std::string toLower(std::string value)
 {
   std::transform(
     value.begin(), value.end(), value.begin(),
-    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    [](unsigned char c) {return static_cast<char>(std::tolower(c));});
   return value;
 }
 
 std::string strip(const std::string & value)
 {
-  const auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+  const auto is_space = [](unsigned char c) {return std::isspace(c) != 0;};
   auto begin = value.begin();
   while (begin != value.end() && is_space(*begin)) {
     ++begin;
@@ -296,13 +296,13 @@ UniversalGnssTopicBridge::UniversalGnssTopicBridge(const rclcpp::NodeOptions & o
 
   status_sub_ = create_subscription<UniversalGnssStatus>(
     input_status_topic, reliable_qos,
-    [this](const UniversalGnssStatus & msg) { onStatus(msg); });
+    [this](const UniversalGnssStatus & msg) {onStatus(msg);});
   diagnostics_sub_ = create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
     input_diagnostics_topic, reliable_qos,
-    [this](const diagnostic_msgs::msg::DiagnosticArray & msg) { onDiagnostics(msg); });
+    [this](const diagnostic_msgs::msg::DiagnosticArray & msg) {onDiagnostics(msg);});
   rtcm_sub_ = create_subscription<RtcmFrame>(
     input_rtcm_topic, rtcm_qos,
-    [this](const RtcmFrame & msg) { onRtcm(msg); });
+    [this](const RtcmFrame & msg) {onRtcm(msg);});
 
   RCLCPP_INFO(
     get_logger(),
@@ -415,9 +415,9 @@ void UniversalGnssTopicBridge::applyDiagnosticProjection(PublicGnssStatus & publ
 
   const auto & values = msm_entry->values;
   const auto lookup = [&values](const char * key) -> const std::string * {
-    const auto it = values.find(key);
-    return it != values.end() ? &it->second : nullptr;
-  };
+      const auto it = values.find(key);
+      return it != values.end() ? &it->second : nullptr;
+    };
 
   bool has_value = false;
 

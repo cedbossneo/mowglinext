@@ -85,16 +85,18 @@ install(DIRECTORY include/
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # Match every package under ros2/src: this project formats with clang-format
-  # (see .clang-format) and declares licensing with an SPDX identifier, neither
-  # of which ament_uncrustify / ament_copyright recognise. Without these this
-  # package is the only one in the repo that fails those two linters — which is
-  # what the new "Test mowgli_gnss_bridge" CI job surfaced the moment anything
-  # started running them.
-  set(ament_cmake_uncrustify_FOUND TRUE)
+  # ament_copyright wants the full license text; this project declares
+  # licensing with an SPDX identifier, which ament does not recognise. Every
+  # package under ros2/src skips it for the same reason.
   set(ament_cmake_copyright_FOUND TRUE)
-  # cpplint is deliberately left ENABLED here: it currently passes, and this
-  # package is the GNSS trust boundary, so the extra checking is worth keeping.
+  # uncrustify and cpplint stay ENABLED, and that is deliberate. Unlike the
+  # ros2/src packages, this one lives under sensors/ and is therefore NEVER
+  # visited by ros2/scripts/format.sh, whose find(1) only walks ros2/src —
+  # so clang-format has no claim here and running it would restyle ~180 lines.
+  # ament's uncrustify profile is the only formatter this package has ever
+  # followed, so enforcing it is what keeps the code consistent rather than
+  # unformatted by anything. cpplint likewise passes and this package is the
+  # GNSS trust boundary, so the extra checking earns its place.
   ament_lint_auto_find_test_dependencies()
 
   find_package(ament_cmake_gtest REQUIRED)
