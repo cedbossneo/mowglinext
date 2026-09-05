@@ -221,6 +221,8 @@
     "prebuiltInfoDesc": "Pick your board and panel above, keep Firmware source on 'Prebuilt image', then Flash. The matching prebuilt, checksum-verified binary is downloaded and written — no compiling needed. Only choose 'Custom' if you know you need to build from source.",
     "noPrebuiltTitle": "No prebuilt firmware for this model yet",
     "noPrebuiltDesc": "There's no tested prebuilt binary for the selected board. Set Firmware source to 'Custom — compile from source' and fill in the expert section below to compile and flash it instead.",
+    "selectionRequiredTitle": "Select a board and panel before flashing",
+    "selectionRequiredDesc": "The mower model may not identify the controller board. Choose the exact board and panel for your hardware; flashing stays disabled until both are selected.",
     "expertBuildLabel": "Expert: custom build parameters",
     "expertBuildAlertMessage": "Only used when Firmware source is 'Custom'",
     "expertBuildAlertDescription": "These settings compile firmware from source instead of flashing the tested prebuilt binary. Wrong values here can damage the battery or disable physical safety. They only take effect when Firmware source above is set to 'Custom — compile from source'.",
