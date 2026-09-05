@@ -496,7 +496,7 @@ def generate_launch_description() -> LaunchDescription:
     # 0.80 (was 0.60) — task #35, 2026-07-17 field analysis: obstacles were
     # only pushing the path from 0.4-0.6 m out at ~0.17 m/s, too late to react
     # smoothly. See nav2_params_base.yaml's local_costmap.inflation_layer
-    # comment for the full rationale; clamped to [0.58, 1.50] below.
+    # comment for the full rationale; clamped to [0.60, 1.50] below.
     obstacle_inflation_radius = 0.80
     # obstacle_detection_range_m (task #51): the real "avoid from further out
     # during mowing" knob — inflation_radius above only affects Nav2 transit
@@ -846,10 +846,16 @@ def generate_launch_description() -> LaunchDescription:
             1.0, max(0.0, obstacle_reverse_max_dist_m))
         fcp["obstacle_reverse_speed_mps"] = min(
             0.30, max(0.0, obstacle_reverse_speed_mps))
-        # LOCAL costmap inflation only. Floor 0.58: the nav2 inflation layer
+        # LOCAL costmap inflation only. Floor 0.60: the nav2 inflation layer
         # degrades footprint-cost semantics below the chassis circumscribed
-        # radius (~0.572 m) and FTC's deviation detector (threshold 253)
-        # assumes the inscribed band exists. The GLOBAL costmap radius (0.20)
+        # radius and FTC's deviation detector (threshold 253) assumes the
+        # inscribed band exists. That radius follows chassis_width: with the
+        # template's chassis_length 0.60 / chassis_center_x 0.18 the footprint
+        # is x[-0.170, 0.530] y±(chassis_width/2 + 0.05), giving
+        # sqrt(0.530² + 0.275²) ≈ 0.597 m at chassis_width 0.45 (2026-09-05,
+        # maintainer-measured). The previous floor of 0.58 quoted ~0.572 m,
+        # which came from the older chassis_length 0.54 and was already below
+        # the real radius (≈0.586 m) even at the old chassis_width 0.40. The GLOBAL costmap radius (0.20)
         # is deliberately untouched — 0.30 already blocked all transit paths
         # on a 9×6 m polygon (see the inflation_layer comment in base.yaml).
         lc_infl = (doc.setdefault("local_costmap", {})
@@ -857,7 +863,7 @@ def generate_launch_description() -> LaunchDescription:
                       .setdefault("ros__parameters", {})
                       .setdefault("inflation_layer", {}))
         lc_infl["inflation_radius"] = min(
-            1.50, max(0.58, obstacle_inflation_radius))
+            1.50, max(0.60, obstacle_inflation_radius))
         # PolygonSlow only exists in the LiDAR overlay's collision_monitor —
         # write the slowdown ratio only when the merged doc carries it so the
         # no-lidar variant (pass-through monitor) stays untouched.
