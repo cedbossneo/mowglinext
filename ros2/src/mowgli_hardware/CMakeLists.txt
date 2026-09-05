@@ -195,6 +195,17 @@ if(BUILD_TESTING)
     PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
+
+  # ---- test_heartbeat_emergency_policy ----
+  # The firmware's pure heartbeat safety policy is compiled here directly so
+  # all stop/release combinations are verified without physical hardware.
+  ament_add_gtest(test_heartbeat_emergency_policy
+    test/test_heartbeat_emergency_policy.cpp
+  )
+  target_include_directories(test_heartbeat_emergency_policy
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../firmware/stm32/ros_usbnode/include
+  )
 endif()
 
 # ---------------------------------------------------------------------------
