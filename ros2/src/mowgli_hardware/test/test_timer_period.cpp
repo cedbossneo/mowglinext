@@ -57,8 +57,7 @@ TEST(TimerPeriod, ClampsOperationalTimerRateBounds)
   EXPECT_EQ(normalize_operational_timer_rate(100.0, kPublishRateRange), 100.0);
   EXPECT_EQ(normalize_operational_timer_rate(2.0, kHighLevelRateRange), 2.0);
   EXPECT_EQ(normalize_operational_timer_rate(10.0, kDigMonitorRateRange), 10.0);
-  EXPECT_EQ(normalize_operational_timer_rate(5.0, kPublishRateRange),
-            kPublishRateRange.minimum_hz);
+  EXPECT_EQ(normalize_operational_timer_rate(5.0, kPublishRateRange), kPublishRateRange.minimum_hz);
   EXPECT_EQ(normalize_operational_timer_rate(501.0, kPublishRateRange),
             kPublishRateRange.maximum_hz);
 }

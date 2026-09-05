@@ -360,7 +360,8 @@ private:
           name,
           default_val,
           "Finite startup-only timer cadence in Hz with a representable period of at least 1 ns. "
-          "Usable values outside the preferred [" + std::to_string(preferred_range.minimum_hz) + ", " +
+          "Usable values outside the preferred [" +
+              std::to_string(preferred_range.minimum_hz) + ", " +
               std::to_string(preferred_range.maximum_hz) + "] Hz range are clamped at startup.");
     };
     heartbeat_rate_ = timer_rate("heartbeat_rate", 4.0, kHeartbeatRateRange);
@@ -376,7 +377,9 @@ private:
     // Zero intentionally disables the RX watchdog; non-finite and negative
     // values have no useful or safe watchdog meaning.
     serial_rx_timeout_s_ = startup_double(
-        "serial_rx_timeout_s", 2.0, "Finite non-negative startup-only RX watchdog timeout in seconds; zero disables it.");
+        "serial_rx_timeout_s",
+        2.0,
+        "Finite non-negative startup-only RX watchdog timeout in seconds; zero disables it.");
     high_level_rate_ = timer_rate("high_level_rate", 2.0, kHighLevelRateRange);
     dock_x_ = declare_parameter<double>("dock_pose_x", 0.0);
     dock_y_ = declare_parameter<double>("dock_pose_y", 0.0);
@@ -389,10 +392,11 @@ private:
     // centre drive-wheel distance; ticks_per_meter is the runtime encoder
     // scale used by this bridge for host-side odometry and re-sent to the
     // STM32 so the firmware wheel PI / odom share the same tuned value.
-    wheel_track_ = startup_double("wheel_track",
-                                  0.325,
-                                  "Finite startup-only wheel track in metres. Values outside the firmware "
-                                  "range [0.15, 0.60] are clamped at startup.");
+    wheel_track_ =
+        startup_double("wheel_track",
+                       0.325,
+                       "Finite startup-only wheel track in metres. Values outside the firmware "
+                       "range [0.15, 0.60] are clamped at startup.");
     // Helper for declaring doubles with a floating_point_range descriptor so
     // ros2 param set rejects out-of-bounds values at the framework level before
     // the set-parameters callback fires. Ranges mirror the firmware validation.
@@ -719,19 +723,27 @@ private:
     // zero escape timeout would suppress its reverse manoeuvre. Require each
     // dig timeout to be strictly positive instead.
     dig_gnss_timeout_s_ = startup_double(
-        "dig_gnss_timeout_s", 2.0, "Finite strictly-positive startup-only dig GNSS freshness timeout in seconds.");
+        "dig_gnss_timeout_s",
+        2.0,
+        "Finite strictly-positive startup-only dig GNSS freshness timeout in seconds.");
     dig_cfg_.max_yaw_rate = declare_parameter<double>("dig_max_yaw_rate", 0.20);
     dig_gyro_timeout_s_ = startup_double(
-        "dig_gyro_timeout_s", 0.5, "Finite strictly-positive startup-only dig gyro freshness timeout in seconds.");
+        "dig_gyro_timeout_s",
+        0.5,
+        "Finite strictly-positive startup-only dig gyro freshness timeout in seconds.");
     dig_escape_cfg_.reverse_speed = declare_parameter<double>("dig_reverse_speed", 0.12);
     dig_escape_cfg_.reverse_dist = declare_parameter<double>("dig_reverse_dist", 0.30);
-    dig_escape_cfg_.timeout_s = startup_double(
-        "dig_reverse_timeout_s", 4.0, "Finite strictly-positive startup-only dig reverse timeout in seconds.");
+    dig_escape_cfg_.timeout_s =
+        startup_double("dig_reverse_timeout_s",
+                       4.0,
+                       "Finite strictly-positive startup-only dig reverse timeout in seconds.");
     dig_monitor_rate_ = timer_rate("dig_monitor_rate", 10.0, kDigMonitorRateRange);
     // Fused pose older than this is treated as absent (detector stands down)
     // rather than compared against stale coordinates.
     dig_pose_timeout_s_ = startup_double(
-        "dig_pose_timeout_s", 1.0, "Finite strictly-positive startup-only dig pose freshness timeout in seconds.");
+        "dig_pose_timeout_s",
+        1.0,
+        "Finite strictly-positive startup-only dig pose freshness timeout in seconds.");
     dig_cfg_.enabled = dig_detect_enabled_;
 
     // ── Repeat-dig escalation (see mowgli_hardware/dig_escalation.hpp) ─────

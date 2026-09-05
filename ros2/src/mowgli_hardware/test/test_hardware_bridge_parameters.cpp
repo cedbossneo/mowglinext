@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: GPL-3.0
 
-#include <gtest/gtest.h>
-
 #include <rclcpp/rclcpp.hpp>
+
+#include <gtest/gtest.h>
 
 // The bridge is intentionally a single executable. Rename its main while
 // including the implementation so this test exercises the real parameter
@@ -33,7 +33,8 @@ protected:
 TEST_F(HardwareBridgeParametersTest, PublishRateRejectsRuntimeUpdate)
 {
   rclcpp::NodeOptions options;
-  options.parameter_overrides({rclcpp::Parameter("serial_port", "/definitely/not/a/serial/device")});
+  options.parameter_overrides(
+      {rclcpp::Parameter("serial_port", "/definitely/not/a/serial/device")});
   auto node = std::make_shared<HardwareBridgeNode>(options);
 
   const auto result = node->set_parameter(rclcpp::Parameter("publish_rate", 5.0));
