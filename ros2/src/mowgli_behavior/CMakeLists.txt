@@ -478,6 +478,7 @@ if(BUILD_TESTING)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   )
+  ament_target_dependencies(test_localization_health mowgli_interfaces)
 
   # ---- test_battery_critical_resume ----
   # Regression for "robot stuck after a critical-battery charge": the
