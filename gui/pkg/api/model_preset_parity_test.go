@@ -70,7 +70,9 @@ type mowerModelPreset struct {
 }
 
 var (
-	presetValueRe  = regexp.MustCompile(`value:\s*"([^"]+)"`)
+	// \b so a key merely ENDING in "value" (e.g. `defaultvalue: "x"`) is not
+	// mistaken for a preset name.
+	presetValueRe  = regexp.MustCompile(`\bvalue:\s*"([^"]+)"`)
 	presetNumberRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)`)
 )
 
@@ -107,11 +109,11 @@ func parseMowerModelPresets(src string) ([]mowerModelPreset, error) {
 			return nil, fmt.Errorf("preset %q: defaults has no {", name)
 		}
 		body := rest[di+open+1:]
-		close := strings.Index(body, "}")
-		if close < 0 {
+		end := strings.Index(body, "}")
+		if end < 0 {
 			return nil, fmt.Errorf("preset %q: defaults has no closing }", name)
 		}
-		body = body[:close]
+		body = body[:end]
 
 		defaults := map[string]float64{}
 		for _, kv := range presetNumberRe.FindAllStringSubmatch(body, -1) {
