@@ -13,7 +13,7 @@ name: GUI — CI
 on:
   push:
     branches: [main, dev, 'feat/**', 'fix/**', 'refactor/**', 'chore/**', 'perf/**']
-    paths: &gui_ci_paths
+    paths:
       - 'gui/web/**'
       - 'gui/pkg/**'
       - 'gui/asserts/**'
@@ -26,7 +26,19 @@ on:
       - '.github/workflows/gui-ci.yml'
   pull_request:
     branches: [main, dev]
-    paths: *gui_ci_paths
+    # Kept in lockstep with the push trigger above by hand: GitHub Actions
+    # does not support YAML anchors, so this list cannot be shared.
+    paths:
+      - 'gui/web/**'
+      - 'gui/pkg/**'
+      - 'gui/asserts/**'
+      - 'gui/go.mod'
+      - 'gui/go.sum'
+      # The Go parity guards read the ROS2 template directly, so a
+      # template-only change must run them (that is the divergence class they
+      # exist to catch).
+      - 'ros2/src/mowgli_bringup/config/mowgli_robot.yaml'
+      - '.github/workflows/gui-ci.yml'
   workflow_dispatch:
 
 concurrency:
