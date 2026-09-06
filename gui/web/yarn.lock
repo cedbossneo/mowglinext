@@ -3354,17 +3354,17 @@ react-map-gl@^8.1.0:
     "@vis.gl/react-mapbox" "8.1.0"
     "@vis.gl/react-maplibre" "8.1.0"
 
-react-router-dom@^7.13.2:
-  version "7.14.0"
-  resolved "https://registry.yarnpkg.com/react-router-dom/-/react-router-dom-7.14.0.tgz#9d2df92ec9ce47e696808dc2a0e0a0c794ab278a"
-  integrity sha512-2G3ajSVSZMEtmTjIklRWlNvo8wICEpLihfD/0YMDxbWK2UyP5EGfnoIn9AIQGnF3G/FX0MRbHXdFcD+rL1ZreQ==
+react-router-dom@^7.18.2:
+  version "7.18.2"
+  resolved "https://registry.yarnpkg.com/react-router-dom/-/react-router-dom-7.18.2.tgz#00bf1d0ce8bf17a6d831949aacda72a6120e4926"
+  integrity sha512-AIKJ/jgGlFb3EbfCXk5Gzshiwt+l3mqbCrNjmEWMMjqQxNJ3svBa6bgzFyCC2Sw3RA0VWF1kg3uQf2OFhxb8hw==
   dependencies:
-    react-router "7.14.0"
+    react-router "7.18.2"
 
-react-router@7.14.0:
-  version "7.14.0"
-  resolved "https://registry.yarnpkg.com/react-router/-/react-router-7.14.0.tgz#33169c9ac03b298bb51aad13e038ba548c79a862"
-  integrity sha512-m/xR9N4LQLmAS0ZhkY2nkPA1N7gQ5TUVa5n8TgANuDTARbn1gt+zLPXEm7W0XDTbrQ2AJSJKhoa6yx1D8BcpxQ==
+react-router@7.18.2:
+  version "7.18.2"
+  resolved "https://registry.yarnpkg.com/react-router/-/react-router-7.18.2.tgz#a76c46ce9e5edacd4f51289d5a71f71305db9152"
+  integrity sha512-aUVMjFm3GAPTTZL7oYr5E7ETiqfQCHRLH+B+5afnICvf0r7kkK4eR6SMuwbSTJw/7t+12khT/Kahij49fqOCIg==
   dependencies:
     cookie "^1.0.1"
     set-cookie-parser "^2.6.0"
