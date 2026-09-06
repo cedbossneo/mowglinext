@@ -216,9 +216,11 @@ BT::NodeStatus EndSession::tick()
   // survive GetNextUnmowedArea re-entering after the targeted area finishes, or
   // the run rolls over into the next area), so THIS is where it dies.
   clearSingleAreaMode(*ctx);
-  // Remove the on-disk resume snapshot too: this is a real session boundary, so
+  // Clear the on-disk command/cursors too, retaining only the next cross-hatch
+  // phase. This is a real session boundary, so
   // the next COMMAND_START must start fresh rather than resume a finished (or
   // aborted-and-docked) session from the persisted cursor.
+  ctx->cross_hatch.finish();
   clearCoverageResumeState(*ctx);
   return BT::NodeStatus::SUCCESS;
 }

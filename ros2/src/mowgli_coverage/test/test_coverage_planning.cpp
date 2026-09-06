@@ -2324,3 +2324,52 @@ TEST(CoverageConnectorStats, NullStatsPointerIsSafeAndChangesNothing)
         << "collecting stats changed sub-path " << i << "'s pose count";
   }
 }
+
+TEST(CoveragePlanning, NegativeLongestEdgeNeverFallsBackToAutoSearch)
+{
+  // A trapezoid with one uniquely longest edge, in both rotated orientations
+  // and windings. A negative atan2 result must not select AUTO again.
+  for (bool clockwise : {false, true})
+    for (double angle : {-0.4, 0.4})
+    {
+      f2c::types::LinearRing ring;
+      const std::vector<std::pair<double, double>> points = {{0, 0}, {38, 0}, {40, 20}, {0, 20}};
+      for (int i = 0; i <= 4; ++i)
+      {
+        const auto [x, y] = points[clockwise ? (4 - i) % 4 : i % 4];
+        ring.addPoint(f2c::types::Point(x * std::cos(angle) - y * std::sin(angle),
+                                        x * std::sin(angle) + y * std::cos(angle)));
+      }
+      auto plan = planBoustrophedon(f2c::types::Cell(ring), 0.5, 0.2, -1, 0, -1, 0.15);
+      ASSERT_FALSE(plan.swaths.empty());
+      EXPECT_NEAR(std::sin(plan.swath_angle_rad - angle), 0.0, 1e-6);
+      bool single_angle = false;
+      for (const auto& note : plan.diagnostics.notes)
+        single_angle |= note.find("angles=1,") != std::string::npos;
+      EXPECT_TRUE(single_angle) << "negative edge angle must not re-enter the search";
+    }
+}
+
+TEST(CoveragePlanning, CrossHatchRotatesFixedAndBothAutoModesWithoutChangingRings)
+{
+  for (double size : {8.0, 30.0})
+  {
+    for (double angle : {-1.0, 0.3})
+    {
+      const auto cell = makeRectCentered(size * 1.5, size);
+      auto base = planBoustrophedon(cell, 0.4, 0.4, 2, 0.2, angle, 0.15, 0, 0.15, false);
+      auto cross = planBoustrophedon(cell, 0.4, 0.4, 2, 0.2, angle, 0.15, 0, 0.15, true);
+      ASSERT_FALSE(base.swaths.empty());
+      ASSERT_FALSE(cross.swaths.empty());
+      EXPECT_NEAR(std::cos(cross.swath_angle_rad - base.swath_angle_rad), 0.0, 1e-6);
+      EXPECT_EQ(base.rings, cross.rings);
+      // Every stripe remains inside the authorised rectangle.
+      for (const auto& swath : cross.swaths)
+        for (const auto& point : {swath.first, swath.second})
+        {
+          EXPECT_LE(std::abs(point.first), size * 0.75 + 1e-6);
+          EXPECT_LE(std::abs(point.second), size * 0.5 + 1e-6);
+        }
+    }
+  }
+}

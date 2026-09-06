@@ -51,9 +51,10 @@ bool saveCoverageResumeState(const BTContext& ctx);
 /// recognised and any state present was loaded.
 bool loadCoverageResumeState(BTContext& ctx);
 
-/// Remove the persisted resume file (called by EndSession at a real session
-/// boundary so the next COMMAND_START does not resume a finished session).
-/// Returns true if the file was removed or was already absent.
+/// Clear commands/cursors at EndSession or an explicit progress reset. Retain
+/// only cross-hatch orientation metadata when present; this cannot auto-start
+/// the mower. EndSession must finish the phase before calling this function.
+/// Returns true on successful replacement/removal (or an absent file).
 bool clearCoverageResumeState(const BTContext& ctx);
 
 }  // namespace mowgli_behavior

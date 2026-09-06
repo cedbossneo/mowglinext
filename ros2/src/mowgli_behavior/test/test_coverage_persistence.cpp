@@ -246,3 +246,77 @@ int main(int argc, char** argv)
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+TEST(CoveragePersistence, CrossHatchSurvivesRestartAndAdvancesOnlyAtSessionEnd)
+{
+  const auto path = tempPath("cross_hatch_resume.txt");
+  std::remove(path.c_str());
+  BTContext ctx;
+  ctx.coverage_resume_path = path;
+  EXPECT_FALSE(ctx.cross_hatch.begin(true));
+  ctx.cross_hatch.used = true;
+  ctx.current_command = 1;
+  ctx.area_resume_pose_index[0] = 42;
+  ASSERT_TRUE(saveCoverageResumeState(ctx));
+
+  BTContext restored;
+  restored.coverage_resume_path = path;
+  ASSERT_TRUE(loadCoverageResumeState(restored));
+  EXPECT_FALSE(restored.cross_hatch.begin(true));
+  EXPECT_EQ(restored.area_resume_pose_index[0], 42u);
+  // A clear-progress request preserves the current phase without a cursor.
+  ASSERT_TRUE(clearCoverageResumeState(restored));
+  BTContext cleared;
+  cleared.coverage_resume_path = path;
+  ASSERT_TRUE(loadCoverageResumeState(cleared));
+  EXPECT_EQ(cleared.current_command, 0u);
+  EXPECT_TRUE(cleared.area_resume_pose_index.empty());
+  EXPECT_FALSE(cleared.cross_hatch.begin(true));
+
+  restored.cross_hatch.finish();
+  ASSERT_TRUE(clearCoverageResumeState(restored));
+  BTContext next;
+  next.coverage_resume_path = path;
+  ASSERT_TRUE(loadCoverageResumeState(next));
+  EXPECT_EQ(next.current_command, 0u);  // phase history must never auto-start
+  EXPECT_TRUE(next.area_resume_pose_index.empty());
+  EXPECT_TRUE(next.cross_hatch.begin(true));
+  EXPECT_TRUE(next.cross_hatch.begin(false));  // configuration change cannot rotate a live session
+  next.cross_hatch.used = true;
+  next.cross_hatch.finish();
+  ASSERT_TRUE(clearCoverageResumeState(next));
+  BTContext third;
+  third.coverage_resume_path = path;
+  loadCoverageResumeState(third);
+  EXPECT_FALSE(third.cross_hatch.begin(true));
+  std::remove(path.c_str());
+}
+
+TEST(CoveragePersistence, CrossHatchDoesNotAdvanceForUnusedOrDisabledSessions)
+{
+  mowgli_behavior::CrossHatch state;
+  EXPECT_FALSE(state.begin(true));
+  state.finish();  // planning failed; no coverage started
+  EXPECT_FALSE(state.begin(true));
+  state.used = true;
+  state.finish();
+  state.finish();  // repeated EndSession is harmless
+  EXPECT_FALSE(state.begin(false));
+  state.used = true;
+  state.finish();
+  EXPECT_TRUE(state.begin(true));  // disabled run did not consume the next phase
+}
+
+TEST(CoveragePersistence, MalformedCrossHatchStateIsIgnored)
+{
+  const auto path = tempPath("cross_hatch_corrupt.txt");
+  {
+    std::ofstream out(path);
+    out << "mowgli_coverage_resume v2\ncross_hatch 1 5 1 1\n";
+  }
+  BTContext ctx;
+  ctx.coverage_resume_path = path;
+  ASSERT_TRUE(loadCoverageResumeState(ctx));
+  EXPECT_FALSE(ctx.cross_hatch.begin(true));
+  std::remove(path.c_str());
+}

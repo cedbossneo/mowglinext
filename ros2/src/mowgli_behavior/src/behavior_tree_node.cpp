@@ -98,8 +98,8 @@ public:
       // auto-re-enters) when it was a mow command (COMMAND_START == 1) AND a
       // resumable snapshot genuinely exists. Any other restored command, or an
       // empty snapshot, falls back to IDLE so the robot never starts moving on
-      // boot without real resume state. A terminal EndSession deletes the file,
-      // so this branch is only reached for a truly interrupted session.
+      // boot without real resume state. EndSession clears commands/cursors;
+      // a phase-only cross-hatch snapshot therefore stays IDLE too.
       constexpr uint8_t kCommandStart = 1;  // HighLevelControl::Request::COMMAND_START
       const bool has_resumable_state =
           !context_->area_resume_pose_index.empty() || !context_->completed_areas.empty();
@@ -1009,6 +1009,7 @@ private:
     // the plan_coverage action goal (mow_angle_deg).
     const double mow_angle_deg = declare_parameter<double>("mow_angle_deg", kMowAngleAutoDeg);
     blackboard_->set("mow_angle_deg", mow_angle_deg);
+    context_->mow_cross_hatch = declare_parameter<bool>("mow_cross_hatch", false);
 
     // Area-recording boundary resolution — operator-tunable in
     // mowgli_robot.yaml, previously HARDCODED in main_tree.xml (a 0.2 m

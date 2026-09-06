@@ -323,6 +323,15 @@ export const MowingSection: React.FC<Props> = ({
                                     </Form.Item>
                                 </Col>
                                 <Col xs={12}>
+                                    <Form.Item label={fieldLabel("mow_cross_hatch", t("settingsMowing.crossHatch"))} tooltip={t("settingsMowing.crossHatchTooltip")}>
+                                        <Switch
+                                            aria-label={t("settingsMowing.crossHatch")}
+                                            checked={values.mow_cross_hatch ?? false}
+                                            onChange={(v) => onChange("mow_cross_hatch", v)}
+                                        />
+                                    </Form.Item>
+                                </Col>
+                                <Col xs={12}>
                                     <Form.Item label={fieldLabel("mow_angle_deg", t("settingsMowing.mowAngleDeg"))} tooltip={t("settingsMowing.mowAngleDegTooltip")}>
                                         <Space>
                                             <Switch

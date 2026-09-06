@@ -457,3 +457,48 @@ TEST_F(GetNextUnmowedAreaTest, EndSessionClearsSingleAreaMode)
   EXPECT_EQ(tickToCompletion(tree), BT::NodeStatus::SUCCESS);
   EXPECT_EQ(ctx->current_area, 0);
 }
+
+TEST_F(GetNextUnmowedAreaTest, CrossHatchPhaseReachesPlannerAndEndSessionAdvancesIt)
+{
+  using Plan = mowgli_behavior::PlanCoverageArea::PlanCoverage;
+  std::vector<Plan::Goal> goals;
+  auto action = rclcpp_action::create_server<Plan>(
+      server_node,
+      "/plan_coverage",
+      [&goals](const auto&, const std::shared_ptr<const Plan::Goal> goal)
+      {
+        goals.push_back(*goal);
+        return rclcpp_action::GoalResponse::REJECT;
+      },
+      [](const auto&)
+      {
+        return rclcpp_action::CancelResponse::ACCEPT;
+      },
+      [](const auto&) {});
+  executor.add_node(ctx->node);
+  factory.registerNodeType<mowgli_behavior::PlanCoverageArea>("PlanCoverageArea");
+  areas[0] = {"lawn", false};
+  waitForService();
+  ctx->mow_cross_hatch = true;
+  auto plan = factory.createTreeFromText(
+      "<root BTCPP_format=\"4\"><BehaviorTree ID=\"Test\"><PlanCoverageArea/>"
+      "</BehaviorTree></root>",
+      blackboard);
+  for (double angle : {-1.0, 25.0})
+  {
+    blackboard->set("mow_angle_deg", angle);
+    EXPECT_EQ(tickToCompletion(plan), BT::NodeStatus::FAILURE);  // fake server rejects
+    ASSERT_FALSE(goals.empty());
+    EXPECT_DOUBLE_EQ(goals.back().mow_angle_deg, angle);
+    EXPECT_FALSE(goals.back().perpendicular);
+    ctx->cross_hatch.used = true;  // simulate coverage having started
+    auto end = makeEndSessionTree();
+    EXPECT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
+    EXPECT_EQ(tickToCompletion(plan), BT::NodeStatus::FAILURE);
+    EXPECT_TRUE(goals.back().perpendicular);
+    EXPECT_EQ(tickToCompletion(plan), BT::NodeStatus::FAILURE);  // same-session replan
+    EXPECT_TRUE(goals.back().perpendicular);
+    ctx->cross_hatch.used = true;
+    EXPECT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
+  }
+}

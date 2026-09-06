@@ -1126,6 +1126,11 @@ void FollowStrip::setBladeEnabled(bool enabled)
     return;
 
   auto req = std::make_shared<mowgli_interfaces::srv::MowerControl::Request>();
+  if (enabled && ctx->cross_hatch.session_perpendicular && !ctx->cross_hatch.used)
+  {
+    ctx->cross_hatch.used = true;
+    saveCoverageResumeState(*ctx);
+  }
   req->mow_enabled = enabled ? 1u : 0u;
   blade_client_->async_send_request(req);
 }
@@ -1841,6 +1846,11 @@ PlanCoverageArea::PlanCoverage::Goal PlanCoverageArea::buildGoal(
   double mow_angle_deg = kMowAngleAutoDeg;
   config().blackboard->get<double>("mow_angle_deg", mow_angle_deg);
   goal.mow_angle_deg = mow_angle_deg;
+  auto ctx = config().blackboard->get<std::shared_ptr<BTContext>>("context");
+  const bool first_plan = !ctx->cross_hatch.session_perpendicular.has_value();
+  goal.perpendicular = ctx->cross_hatch.begin(ctx->mow_cross_hatch);
+  if (first_plan)
+    saveCoverageResumeState(*ctx);
   return goal;
 }
 
