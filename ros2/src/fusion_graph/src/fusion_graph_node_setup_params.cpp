@@ -101,7 +101,11 @@ void FusionGraphNode::DeclareParameters()
     lidar_map_half_extent_m_ = declare_parameter<double>("lidar_map_half_extent_m", 40.0);
     lidar_map_insert_period_s_ = declare_parameter<double>("lidar_map_insert_period_s", 0.5);
     lidar_map_rebuild_period_s_ = declare_parameter<double>("lidar_map_rebuild_period_s", 5.0);
-    lidar_anchor_engage_age_s_ = declare_parameter<double>("lidar_anchor_engage_age_s", 0.3);
+    // 1.0 s, not 0.3: a 5 Hz receiver whose stamps arrive ~80 ms old sits at
+    // ~0.28 s of age just before every next fix — 0.3 flapped on timer phase.
+    lidar_anchor_engage_age_s_ = declare_parameter<double>("lidar_anchor_engage_age_s", 1.0);
+    lidar_anchor_disengage_dwell_s_ =
+        declare_parameter<double>("lidar_anchor_disengage_dwell_s", 1.0);
     lidar_anchor_max_beams_ = declare_parameter<int>("lidar_anchor_max_beams", 60);
     lidar_anchor_min_particles_ = declare_parameter<int>("lidar_anchor_min_particles", 300);
     lidar_anchor_max_particles_ = declare_parameter<int>("lidar_anchor_max_particles", 1500);
@@ -125,7 +129,10 @@ void FusionGraphNode::DeclareParameters()
       mp.half_extent_m = lidar_map_half_extent_m_;
       mp.max_range_m = lidar_anchor_max_laser_distance_m_;
       lidar_mapper_.emplace(mp);
-      lidar_anchor_gate_.emplace(true, lidar_anchor_engage_age_s_, lidar_map_insert_period_s_);
+      lidar_anchor_gate_.emplace(true,
+                                 lidar_anchor_engage_age_s_,
+                                 lidar_map_insert_period_s_,
+                                 lidar_anchor_disengage_dwell_s_);
       RCLCPP_INFO(get_logger(),
                   "LiDAR map anchor ENABLED: grid %.2f m over ±%.0f m, engage when RTK-Fixed older "
                   "than %.2f s",

@@ -64,16 +64,51 @@ TEST(LidarMapAnchorGate, EngageSeedsOnceThenTracks)
   EXPECT_TRUE(second.run_filter);
 }
 
-// RTK coming back to Fixed returns to mapping; a later loss re-seeds, because
-// the filter was not tracking meanwhile and the fused pose is the fresher truth.
-TEST(LidarMapAnchorGate, ReturnToFixedDisengagesAndNextLossReseeds)
+// RTK coming back to Fixed returns to mapping only after the dwell; a later
+// loss re-seeds, because the filter was not tracking meanwhile and the fused
+// pose is the fresher truth.
+TEST(LidarMapAnchorGate, ReturnToFixedDisengagesAfterDwellAndNextLossReseeds)
 {
-  LidarMapAnchorGate g(true, 0.3, 0.5);
+  LidarMapAnchorGate g(true, 0.3, 0.5, /*disengage_dwell_s=*/1.0);
   g.Step(1.0, true, 1.0);
   EXPECT_EQ(g.state(), LidarAnchorState::kAnchoring);
-  const auto back = g.Step(0.0, true, 2.0);
+  const auto still = g.Step(0.0, true, 1.5);  // fresh, but only for 0 s so far
+  EXPECT_EQ(still.state, LidarAnchorState::kAnchoring);
+  EXPECT_TRUE(still.run_filter);
+  const auto back = g.Step(0.0, true, 2.6);  // fresh for 1.1 s ≥ dwell
   EXPECT_EQ(back.state, LidarAnchorState::kMapping);
   EXPECT_FALSE(back.run_filter);
   const auto again = g.Step(1.0, true, 3.0);
   EXPECT_TRUE(again.seed_filter);
+}
+
+// The dock case that motivated the hysteresis: RTK Fixed throughout, but the
+// age flickers around the threshold with the 5 Hz receiver's phase. One
+// marginal sample must not seed a filter and push a factor.
+TEST(LidarMapAnchorGate, OneMarginalSampleDoesNotFlipState)
+{
+  LidarMapAnchorGate g(true, 1.0, 0.5, 1.0);
+  int seeds = 0;
+  for (int i = 0; i < 100; ++i)
+  {
+    const double age = (i % 7 == 6) ? 1.05 : 0.28;  // one marginal sample every 7 ticks
+    if (g.Step(age, true, 0.04 * i).seed_filter)
+      ++seeds;
+  }
+  // The marginal samples DO engage (age > 1.0), but the dwell keeps the state
+  // stable across the fresh ticks in between, so we seed once, not fourteen times.
+  EXPECT_EQ(seeds, 1);
+}
+
+// A single stale sample while the dwell is counting down resets it: Fixed
+// must be fresh CONTINUOUSLY to disengage.
+TEST(LidarMapAnchorGate, StaleSampleResetsTheDisengageDwell)
+{
+  LidarMapAnchorGate g(true, 0.3, 0.5, 1.0);
+  g.Step(1.0, true, 0.0);
+  g.Step(0.0, true, 0.5);  // fresh since 0.5
+  g.Step(1.0, true, 1.0);  // stale again: dwell resets
+  const auto d = g.Step(0.0, true, 1.4);  // fresh again since 1.4, not since 0.5
+  EXPECT_EQ(d.state, LidarAnchorState::kAnchoring);
+  EXPECT_EQ(g.Step(0.0, true, 2.5).state, LidarAnchorState::kMapping);
 }

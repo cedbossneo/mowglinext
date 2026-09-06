@@ -442,7 +442,8 @@ fusion_graph_node:
     lidar_map_half_extent_m: 40.0         # grid spans ±40 m around the datum
     lidar_map_insert_period_s: 0.5        # insert a scan into the grid at most every 0.5 s
     lidar_map_rebuild_period_s: 5.0       # push the grid to the filter at most every 5 s
-    lidar_anchor_engage_age_s: 0.3        # engage once RTK-Fixed is older than this
+    lidar_anchor_engage_age_s: 1.0        # engage once RTK-Fixed is older than this (~5 missed fixes at 5 Hz; 0.3 flapped)
+    lidar_anchor_disengage_dwell_s: 1.0   # once anchoring, Fixed must be fresh this long before mapping resumes
     lidar_anchor_max_beams: 60            # AMCL-class beam subsampling
     lidar_anchor_min_particles: 300
     lidar_anchor_max_particles: 1500

@@ -404,7 +404,8 @@ private:
   double lidar_map_half_extent_m_ = 40.0;
   double lidar_map_insert_period_s_ = 0.5;
   double lidar_map_rebuild_period_s_ = 5.0;
-  double lidar_anchor_engage_age_s_ = 0.3;
+  double lidar_anchor_engage_age_s_ = 1.0;
+  double lidar_anchor_disengage_dwell_s_ = 1.0;
   int lidar_anchor_max_beams_ = 60;
   int lidar_anchor_min_particles_ = 300;
   int lidar_anchor_max_particles_ = 1500;

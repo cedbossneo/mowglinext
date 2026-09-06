@@ -145,7 +145,7 @@ void FusionGraphNode::SetupCommunications(double node_period_s)
     // LiDAR map anchor grid, for inspection. Created unconditionally (cheap,
     // latched, nothing is published while the anchor is disabled).
     lidar_map_pub_ =
-        create_publisher<nav_msgs::msg::OccupancyGrid>("~/lidar_map",
+        create_publisher<nav_msgs::msg::OccupancyGrid>("/fusion_graph/lidar_map",
                                                        rclcpp::QoS(1).transient_local());
   }
 
