@@ -458,6 +458,34 @@ std::optional<TickOutput> GraphManager::CreateNodeLocked(double now_s)
     new_factors_.add(
         gtsam::BetweenFactor<gtsam::Pose2>(k_prev, k_curr, queue_.scan_between->delta, noise));
   }
+  if (queue_.lidar_map_xy)
+  {
+    // LiDAR map anchor: ABSOLUTE XY-ONLY constraint from the particle filter
+    // localising against the occupancy grid built under RTK-Fixed. The filter
+    // returns a full covariance: along a lone wall it is wide, across it
+    // narrow — exactly the partial constraint a factor graph wants, so the
+    // matrix is used as-is (floored) rather than collapsed to one sigma.
+    // Heading is deliberately NOT constrained (see scan_to_keyframe below).
+    Eigen::Matrix2d cov = queue_.lidar_map_xy->cov;
+    const double floor_var =
+        params_.lidar_anchor_sigma_floor_m * params_.lidar_anchor_sigma_floor_m;
+    cov(0, 0) = std::max(cov(0, 0), floor_var);
+    cov(1, 1) = std::max(cov(1, 1), floor_var);
+    // Symmetrise and keep it positive definite even if the filter's estimate
+    // was numerically off.
+    cov = 0.5 * (cov + cov.transpose());
+    if (cov.determinant() <= 0.0)
+      cov = Eigen::Matrix2d::Identity() * floor_var;
+    gtsam::SharedNoiseModel noise = gtsam::noiseModel::Gaussian::Covariance(cov);
+    if (queue_.lidar_map_xy->robust)
+    {
+      noise = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345),
+                                                noise);
+    }
+    new_factors_.add(gtsam::PoseTranslationPrior<gtsam::Pose2>(
+        k_curr, gtsam::Point2(queue_.lidar_map_xy->xy), noise));
+    ++lidar_anchor_factors_;
+  }
   if (queue_.scan_to_keyframe)
   {
     // ABSOLUTE XY-ONLY constraint on the current node from an RTK-anchored
@@ -567,6 +595,7 @@ std::optional<TickOutput> GraphManager::CreateNodeLocked(double now_s)
   queue_.yaw.reset();
   queue_.scan_between.reset();
   queue_.scan_to_keyframe.reset();
+  queue_.lidar_map_xy.reset();
 
   return out;
 }

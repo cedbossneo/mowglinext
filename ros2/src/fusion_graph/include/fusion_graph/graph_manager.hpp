@@ -139,6 +139,14 @@ public:
                            double sigma_xy,
                            double sigma_theta,
                            bool robust = true);
+  // LiDAR map anchor: absolute XY (map frame) with its 2x2 covariance from the
+  // particle filter, applied at the next node as a PoseTranslationPrior. The
+  // covariance diagonal is floored at params_.lidar_anchor_sigma_floor_m^2.
+  void QueueLidarMapXy(const gtsam::Vector2& xy, const Eigen::Matrix2d& cov, bool robust = true);
+  uint64_t LidarAnchorFactorCount() const
+  {
+    return lidar_anchor_factors_;
+  }
 
   // Initial-pose seed. Required before the first tick if no GPS has
   // arrived yet — sets the prior on X_0. Must be called exactly once
@@ -396,6 +404,7 @@ private:
   };
 
   // Cached unary observation queue.
+  uint64_t lidar_anchor_factors_ = 0;  // PoseTranslationPriors added from the LiDAR map anchor
   struct UnaryQueue
   {
     struct Gnss
@@ -413,6 +422,17 @@ private:
     };
     std::optional<Gnss> gnss;
     std::optional<Yaw> yaw;
+    // LiDAR map anchor: ABSOLUTE XY from the particle filter localising
+    // against the occupancy grid, with its full 2x2 covariance (anisotropic:
+    // a single wall constrains across, not along). XY-ONLY on purpose — see
+    // the scan_to_keyframe consumer for the 2026-07-22 yaw-flip incident.
+    struct LidarMapXy
+    {
+      gtsam::Vector2 xy;
+      Eigen::Matrix2d cov;
+      bool robust;
+    };
+    std::optional<LidarMapXy> lidar_map_xy;
     // Scan-matching between (delta, sigma_xy, sigma_theta). Applied
     // alongside the wheel between at the next node.
     struct ScanBetween

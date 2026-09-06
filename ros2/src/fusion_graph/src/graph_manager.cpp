@@ -202,6 +202,14 @@ void GraphManager::QueueScanToKeyframe(const gtsam::Pose2& abs_pose,
   queue_.scan_to_keyframe = UnaryQueue::ScanToKeyframe{abs_pose, sigma_xy, sigma_theta, robust};
 }
 
+void GraphManager::QueueLidarMapXy(const gtsam::Vector2& xy,
+                                   const Eigen::Matrix2d& cov,
+                                   bool robust)
+{
+  std::lock_guard<std::mutex> lock(mu_);
+  queue_.lidar_map_xy = UnaryQueue::LidarMapXy{xy, cov, robust};
+}
+
 void GraphManager::Initialize(const gtsam::Pose2& X0,
                               double timestamp,
                               std::optional<double> sigma_xy_override)

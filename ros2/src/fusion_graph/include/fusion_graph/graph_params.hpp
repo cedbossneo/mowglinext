@@ -127,6 +127,11 @@ struct GraphParams
   // the node-side ICP-realism floor kf_apply_sigma_theta_rad alone).
   double kf_yaw_sigma_floor_rad = 0.30;
 
+  // LiDAR map anchor: floor on the per-axis sigma of the particle filter's XY
+  // covariance before it becomes a PoseTranslationPrior. A converged filter
+  // on a 0.10 m grid cannot honestly claim better than about half a cell.
+  double lidar_anchor_sigma_floor_m = 0.05;
+
   // ── Performance ─────────────────────────────────────────────────
   // Recompute the per-tick marginal covariance only every Nth tick.
   // marginalCovariance is O(node_count) on the Bayes tree path and
