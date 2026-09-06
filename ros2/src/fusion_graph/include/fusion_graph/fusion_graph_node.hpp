@@ -421,6 +421,8 @@ private:
   std::optional<LidarOccupancyMapper> lidar_mapper_;
   std::optional<LidarMapAnchorGate> lidar_anchor_gate_;
   std::unique_ptr<beluga_ros::Amcl> lidar_anchor_filter_;
+  // Latched so a late subscriber (Foxglove, the GUI) gets the current grid.
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr lidar_map_pub_;
   double lidar_map_last_rebuild_s_ = -1.0e9;
   std::size_t lidar_map_scans_at_rebuild_ = 0;
   std::size_t lidar_map_occupied_cells_ = 0;

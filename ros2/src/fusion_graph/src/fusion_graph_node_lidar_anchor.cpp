@@ -29,8 +29,6 @@ void FusionGraphNode::RebuildLidarAnchorMap()
 {
   const auto exported = lidar_mapper_->Export();
   lidar_map_occupied_cells_ = exported.occupied;
-  if (exported.occupied == 0)
-    return;  // nothing to localise against yet
   auto msg = std::make_shared<nav_msgs::msg::OccupancyGrid>();
   msg->header.frame_id = map_frame_;
   msg->header.stamp = this->now();
@@ -41,6 +39,10 @@ void FusionGraphNode::RebuildLidarAnchorMap()
   msg->info.origin.position.y = exported.origin_y;
   msg->info.origin.orientation.w = 1.0;
   msg->data = exported.data;
+  if (lidar_map_pub_)
+    lidar_map_pub_->publish(*msg);
+  if (exported.occupied == 0)
+    return;  // published for inspection, but nothing to localise against yet
   beluga_ros::OccupancyGrid grid(msg);
   if (!lidar_anchor_filter_)
   {

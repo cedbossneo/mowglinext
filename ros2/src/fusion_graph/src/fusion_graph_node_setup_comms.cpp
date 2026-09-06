@@ -142,6 +142,11 @@ void FusionGraphNode::SetupCommunications(double node_period_s)
     const std::string scan_topic = declare_parameter<std::string>("scan_topic", "/scan_deskewed");
     sub_scan_ = create_subscription<sensor_msgs::msg::LaserScan>(
         scan_topic, sensor_qos, std::bind(&FusionGraphNode::OnScan, this, std::placeholders::_1));
+    // LiDAR map anchor grid, for inspection. Created unconditionally (cheap,
+    // latched, nothing is published while the anchor is disabled).
+    lidar_map_pub_ =
+        create_publisher<nav_msgs::msg::OccupancyGrid>("~/lidar_map",
+                                                       rclcpp::QoS(1).transient_local());
   }
 
   // /hardware_bridge/status is always subscribed — OnHardwareStatus
