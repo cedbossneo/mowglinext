@@ -473,7 +473,7 @@ struct LlBladeStatus
   uint8_t type;  ///< Must equal PACKET_ID_LL_BLADE_STATUS
   uint8_t is_active;  ///< 1=running, 0=stopped
   uint16_t rpm;  ///< Blade motor RPM
-  uint16_t power_watts;  ///< Power consumption [W]
+  uint16_t power_watts;  ///< ESC current [mA]; legacy field name, not watts
   float temperature;  ///< Blade/motor temperature [C]
   uint32_t error_count;  ///< Cumulative error counter
   uint16_t crc;  ///< CRC-16 CCITT over all preceding bytes

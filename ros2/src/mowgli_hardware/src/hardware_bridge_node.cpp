@@ -62,6 +62,7 @@
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_hardware/battery_state_semantics.hpp"
 #include "mowgli_hardware/blade_gate.hpp"
+#include "mowgli_hardware/blade_telemetry.hpp"
 #include "mowgli_hardware/clock_fit.hpp"
 #include "mowgli_hardware/cmd_vel_validation.hpp"
 #include "mowgli_hardware/dig_detector.hpp"
@@ -2609,7 +2610,7 @@ private:
     blade_rpm_ = static_cast<float>(pkt.rpm);
     blade_status_time_ = now();
     blade_temperature_ = pkt.temperature;
-    blade_esc_current_ = static_cast<float>(pkt.power_watts);
+    blade_esc_current_ = blade_current_amps(pkt);
   }
 
   // ---------------------------------------------------------------------------
