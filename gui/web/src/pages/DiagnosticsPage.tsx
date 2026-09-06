@@ -215,6 +215,7 @@ export const DiagnosticsPage = () => {
     const gpsOk = gpsFixValid && gpsAccuracy !== undefined && gpsAccuracy <= 0.1;
     const gpsWarn = gpsFixValid && (gpsAccuracy === undefined || gpsAccuracy > 0.1);
     const cpuTemp = snapshot?.system?.cpu_temperature ?? 0;
+    const cpuUsage = snapshot?.system?.cpu_usage;
 
     const alerts = useMemo(
         () => (diagnostics.status ?? []).filter(s =>
@@ -335,6 +336,10 @@ export const DiagnosticsPage = () => {
                 <HealthBadge
                     label={cpuTemp > 0 ? t('diagnosticsPage.cpuTemp', {value: cpuTemp.toFixed(1)}) : t('diagnosticsPage.cpuTempUnknown')}
                     color={cpuTemp > 70 ? "error" : cpuTemp > 55 ? "warning" : "success"}
+                />
+                <HealthBadge
+                    label={cpuUsage != null ? t('diagnosticsPage.cpuUsageBadge', {value: cpuUsage.toFixed(0)}) : t('diagnosticsPage.cpuUsageUnknown')}
+                    color="default"
                 />
             </Flex>
         </Card>
@@ -493,6 +498,15 @@ export const DiagnosticsPage = () => {
             </Col>
             <Col xs={24} lg={8}>
                 <Card title={<Space><DashboardOutlined/> CPU</Space>} size="small" style={{height: "100%"}}>
+                    <Statistic
+                        title={t('diagnosticsPage.cpuUsage')}
+                        value={cpuUsage ?? "—"}
+                        precision={1}
+                        suffix={cpuUsage != null ? "%" : undefined}
+                    />
+                    <Typography.Paragraph type="secondary" style={{fontSize: 12, marginTop: 4}}>
+                        {t('diagnosticsPage.cpuUsageHint')}
+                    </Typography.Paragraph>
                     <Statistic
                         title={t('diagnosticsPage.temperature')}
                         value={cpuTemp > 0 ? cpuTemp : undefined}
