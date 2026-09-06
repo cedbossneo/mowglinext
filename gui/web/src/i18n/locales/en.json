@@ -1,4 +1,13 @@
 {
+  "bladeDirection": {
+    "title": "Requested blade direction",
+    "summary": "Requested direction: {{direction}}",
+    "help": "Command only; physical rotation is not reported by the firmware.",
+    "forward": "Forward",
+    "reverse": "Reverse",
+    "off": "Off",
+    "unknown": "Unknown"
+  },
   "language": {
     "label": "Language",
     "fr": "Français",

@@ -19,6 +19,32 @@ coverage. Resetting coverage progress alone does not change blade direction.
 Both command paths log the requested direction. The unsigned RPM feedback does
 not identify the physical rotation direction.
 
+## Direction display
+
+Diagnostics → blade/motor telemetry and the dashboard blade tile show
+**Requested blade direction**: Forward, Reverse, Off, or Unknown. The motor
+entry in `/diagnostics` also includes `blade_requested_direction`.
+
+This is the last blade command successfully written by the hardware bridge,
+including automatic selection, map overrides, OFF requests and the dry-run
+gate. It is not a firmware acknowledgement or a measured rotation direction.
+RPM remains independent: the motor can still be spinning after an OFF request
+or waiting to stop before a requested reversal. No clockwise/counterclockwise
+claim is made. An idle map selection appears only when the tree permits the
+corresponding ON request to reach the bridge.
+
+The bridge clears the displayed request to Unknown on serial disconnect or
+failed transmission. The GUI shows Unknown before telemetry, with an older
+stack lacking the field, and after five seconds without status updates.
+Updating this ROS Status message requires rebuilding all ROS consumers and
+the GUI together; no firmware wire/protocol change or LFP patch is included.
+
+Screenshots use mocked reverse-command telemetry, not a physical direction test:
+
+![Requested blade direction in diagnostics](screenshots/blade-direction-diagnostics.png)
+
+![Requested blade direction on the dashboard](screenshots/blade-direction-dashboard.png)
+
 ## Map blade controls
 
 The map menu's **Blade forward**, **Blade backward** and **Blade off** actions

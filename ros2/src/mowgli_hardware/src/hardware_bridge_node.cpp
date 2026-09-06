@@ -332,6 +332,7 @@ public:
   ~HardwareBridgeNode() override = default;
 
 private:
+  friend struct HardwareBridgeBladeStatusTestPeer;
   // ---------------------------------------------------------------------------
   // Initialisation helpers
   // ---------------------------------------------------------------------------
@@ -1110,6 +1111,7 @@ private:
 
   void reset_serial_dependent_state()
   {
+    blade_requested_direction_ = "unknown";
     packet_handler_.reset_receive_state();
     odometry_publisher_.reset();
   }
@@ -1437,6 +1439,7 @@ private:
       msg.mower_esc_status = blade_active_ ? 1u : 0u;
       msg.mower_motor_rpm = blade_rpm_;
       msg.blade_status_stamp = blade_status_time_;
+      msg.blade_requested_direction = blade_requested_direction_;
       msg.mower_motor_temperature = blade_temperature_;
       msg.mower_esc_current = blade_esc_current_;
       // Firmware version handshake result (image <-> firmware compatibility).
@@ -2375,7 +2378,15 @@ private:
     pkt.blade_on = on;
     pkt.blade_dir = dir;
 
-    send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt), sizeof(LlCmdBlade) - sizeof(uint16_t));
+    // This is command intent, not rotation feedback or a firmware ACK. Keep it
+    // separate from RPM/activity while firmware performs its stopped reversal.
+    const bool written = send_raw_packet(reinterpret_cast<const uint8_t*>(&pkt),
+                                         sizeof(LlCmdBlade) - sizeof(uint16_t));
+    blade_requested_direction_ = !written   ? "unknown"
+                                 : on == 0  ? "off"
+                                 : dir == 0 ? "forward"
+                                 : dir == 1 ? "reverse"
+                                            : "unknown";
   }
 
   void send_reboot_command()
@@ -3516,6 +3527,7 @@ private:
 
   // Blade motor state (updated from LlBladeStatus packets)
   bool blade_active_{false};
+  std::string blade_requested_direction_{"unknown"};
   float blade_rpm_{0.0f};
   rclcpp::Time blade_status_time_{0, 0, RCL_ROS_TIME};
   float blade_temperature_{0.0f};

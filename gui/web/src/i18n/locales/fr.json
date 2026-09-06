@@ -1,4 +1,13 @@
 {
+  "bladeDirection": {
+    "title": "Sens demandé de la lame",
+    "summary": "Sens demandé : {{direction}}",
+    "help": "Commande uniquement ; le firmware ne rapporte pas le sens de rotation réel.",
+    "forward": "Avant",
+    "reverse": "Arrière",
+    "off": "Arrêt",
+    "unknown": "Inconnu"
+  },
   "language": {
     "label": "Langue",
     "fr": "Français",
