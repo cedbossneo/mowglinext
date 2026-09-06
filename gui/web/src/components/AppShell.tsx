@@ -3,7 +3,7 @@ import {useMatches, useNavigate, useOutlet} from "react-router-dom";
 import {AnimatePresence, motion, LayoutGroup} from "framer-motion";
 import {
   Home, Map as MapIcon, Calendar, Compass, Settings, Terminal, Rocket, Activity,
-  MoreHorizontal, X, SlidersHorizontal,
+  MoreHorizontal, X, SlidersHorizontal, Package,
 } from "lucide-react";
 
 import {useTranslation} from "react-i18next";
@@ -309,6 +309,7 @@ interface RailProps {
 
 function DesktopSideRail({items, activePath, onNavigate}: RailProps) {
   const {t} = useTranslation();
+  const navigate = useNavigate();
   return (
     <aside style={{
       position: 'fixed', top: 0, bottom: 0, left: 0, width: 88,
@@ -385,6 +386,12 @@ function DesktopSideRail({items, activePath, onNavigate}: RailProps) {
           })}
         </nav>
       </LayoutGroup>
+      <button onClick={() => void navigate('/settings?section=updates')} aria-label={t('updates.title')} style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+        margin: '12px 10px 0', padding: '12px 2px', minHeight: 48,
+        background: 'transparent', border: 'none', borderTop: '1px solid rgba(236,255,244,0.1)',
+        color: '#7CFFB2', cursor: 'pointer', fontSize: 11,
+      }}><Package size={18}/><span>{t('updates.shortTitle')}</span></button>
     </aside>
   );
 }
@@ -478,6 +485,7 @@ interface MoreSheetProps {
 
 function MobileMoreSheet({open, items, activePath, onClose, onNavigate}: MoreSheetProps) {
   const {t} = useTranslation();
+  const navigate = useNavigate();
   const {displayMode} = useThemeMode();
 
   // Escape closes the sheet (keyboard parity with the backdrop tap / X button).
@@ -538,6 +546,12 @@ function MobileMoreSheet({open, items, activePath, onClose, onNavigate}: MoreShe
                   </button>
                 );
               })}
+              <button onClick={() => { onClose(); void navigate('/settings?section=updates'); }} style={{
+                gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 12,
+                padding: '14px 16px', borderRadius: 14, cursor: 'pointer', minHeight: 48,
+                background: 'rgba(124,255,178,0.08)', border: '1px solid rgba(236,255,244,0.12)',
+                color: '#7CFFB2', fontSize: 14, fontWeight: 600,
+              }}><Package size={20}/><span>{t('updates.title')}</span></button>
             </div>
           </motion.div>
         </>

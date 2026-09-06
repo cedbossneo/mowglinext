@@ -5,6 +5,11 @@
 > Loaded on demand from `gui/CLAUDE.md`. Frontend (`gui/web/`) is a separate codemap.
 
 ## Where to look
+
+Installed version and update discovery: `pkg/api/versions.go`, `pkg/api/updates.go`,
+`pkg/updates/{image,registry,revisions}.go`. Checks resolve Stable/Dev tags and compare
+immutable image identities, then optionally compare source ancestry using GitHub.
+See `docs/UPDATE_CHECKS.md` for the behavior.
 | Task | Start here |
 |------|------------|
 | Add / change an HTTP route | `gui/pkg/api/api.go:37-61` (`NewAPI` registers every `*Routes` fn) → the per-feature file; add `// @Router` swag annotations |

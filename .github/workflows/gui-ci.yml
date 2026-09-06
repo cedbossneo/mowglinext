@@ -15,6 +15,7 @@ on:
     branches: [main, dev, 'feat/**', 'fix/**', 'refactor/**', 'chore/**', 'perf/**']
     paths:
       - 'gui/web/**'
+      - 'gui/*.go'
       - 'gui/pkg/**'
       - 'gui/asserts/**'
       - 'gui/go.mod'
@@ -30,6 +31,7 @@ on:
     # does not support YAML anchors, so this list cannot be shared.
     paths:
       - 'gui/web/**'
+      - 'gui/*.go'
       - 'gui/pkg/**'
       - 'gui/asserts/**'
       - 'gui/go.mod'
