@@ -93,6 +93,46 @@ void FusionGraphNode::DeclareParameters()
     kf_apply_sigma_floor_m_ = declare_parameter<double>("kf_apply_sigma_floor_m", 0.02);
     kf_apply_sigma_theta_rad_ = declare_parameter<double>("kf_apply_sigma_theta_rad", 0.05);
     kf_engage_age_s_ = declare_parameter<double>("kf_engage_age_s", 0.3);
+
+    // LiDAR map anchor (Beluga particle filter against a grid built under
+    // RTK-Fixed). Off by default until the field A/B validates it.
+    use_lidar_map_anchor_ = declare_parameter<bool>("use_lidar_map_anchor", false);
+    lidar_map_resolution_m_ = declare_parameter<double>("lidar_map_resolution_m", 0.10);
+    lidar_map_half_extent_m_ = declare_parameter<double>("lidar_map_half_extent_m", 40.0);
+    lidar_map_insert_period_s_ = declare_parameter<double>("lidar_map_insert_period_s", 0.5);
+    lidar_map_rebuild_period_s_ = declare_parameter<double>("lidar_map_rebuild_period_s", 5.0);
+    lidar_anchor_engage_age_s_ = declare_parameter<double>("lidar_anchor_engage_age_s", 0.3);
+    lidar_anchor_max_beams_ = declare_parameter<int>("lidar_anchor_max_beams", 60);
+    lidar_anchor_min_particles_ = declare_parameter<int>("lidar_anchor_min_particles", 300);
+    lidar_anchor_max_particles_ = declare_parameter<int>("lidar_anchor_max_particles", 1500);
+    lidar_anchor_update_min_d_ = declare_parameter<double>("lidar_anchor_update_min_d", 0.05);
+    lidar_anchor_update_min_a_ = declare_parameter<double>("lidar_anchor_update_min_a", 0.05);
+    lidar_anchor_seed_sigma_xy_m_ = declare_parameter<double>("lidar_anchor_seed_sigma_xy_m", 0.10);
+    lidar_anchor_seed_sigma_theta_rad_ =
+        declare_parameter<double>("lidar_anchor_seed_sigma_theta_rad", 0.10);
+    lidar_anchor_z_hit_ = declare_parameter<double>("lidar_anchor_z_hit", 0.7);
+    lidar_anchor_z_rand_ = declare_parameter<double>("lidar_anchor_z_rand", 0.3);
+    lidar_anchor_sigma_hit_m_ = declare_parameter<double>("lidar_anchor_sigma_hit_m", 0.15);
+    lidar_anchor_max_laser_distance_m_ =
+        declare_parameter<double>("lidar_anchor_max_laser_distance_m", 12.0);
+    lidar_anchor_odom_alpha_rot_ = declare_parameter<double>("lidar_anchor_odom_alpha_rot", 0.05);
+    lidar_anchor_odom_alpha_trans_ =
+        declare_parameter<double>("lidar_anchor_odom_alpha_trans", 0.05);
+    if (use_lidar_map_anchor_)
+    {
+      LidarOccupancyMapperParams mp;
+      mp.resolution_m = lidar_map_resolution_m_;
+      mp.half_extent_m = lidar_map_half_extent_m_;
+      mp.max_range_m = lidar_anchor_max_laser_distance_m_;
+      lidar_mapper_.emplace(mp);
+      lidar_anchor_gate_.emplace(true, lidar_anchor_engage_age_s_, lidar_map_insert_period_s_);
+      RCLCPP_INFO(get_logger(),
+                  "LiDAR map anchor ENABLED: grid %.2f m over ±%.0f m, engage when RTK-Fixed older "
+                  "than %.2f s",
+                  lidar_map_resolution_m_,
+                  lidar_map_half_extent_m_,
+                  lidar_anchor_engage_age_s_);
+    }
     kf_match_max_rmse_m_ = declare_parameter<double>("kf_match_max_rmse_m", 0.15);
     kf_match_max_divergence_xy_m_ = declare_parameter<double>("kf_match_max_divergence_xy_m", 0.30);
     kf_match_max_divergence_theta_rad_ =

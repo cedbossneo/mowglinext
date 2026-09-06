@@ -153,6 +153,7 @@ FusionGraphNode::FusionGraphNode(const rclcpp::NodeOptions& opts)
   // enforced in CreateNodeLocked). Mirrors the scan/loop-closure LiDAR-yaw floor
   // so the keyframe heading can only weakly correct gyro drift. See graph_params.
   gp.kf_yaw_sigma_floor_rad = declare_parameter<double>("kf_apply_yaw_sigma_floor_rad", 0.30);
+  gp.lidar_anchor_sigma_floor_m = declare_parameter<double>("lidar_anchor_sigma_floor_m", 0.05);
   kf_spacing_m_ = gp.kf_spacing_m;  // node reuses for the capture-spacing gate
 
   map_frame_ = declare_parameter<std::string>("map_frame", "map");

@@ -426,6 +426,38 @@ fusion_graph_node:
     # delivers <2 cm where the LiDAR sees stable structure (fence/tree/dock);
     # open lawn degrades to dead-reckoning by design. Enabled by default —
     # field-validate the coast-drift behaviour with the GPS-off probe.
+    # ── LiDAR map anchor (Beluga) ─────────────────────────────────────
+    # Scan-to-MAP localisation for RTK-Float. Under fresh RTK-Fixed every
+    # scan is ray-cast into a georeferenced occupancy grid at the trusted
+    # fused pose (no factor is produced — the GPS already pins the pose).
+    # Once RTK-Fixed is older than lidar_anchor_engage_age_s a particle
+    # filter (beluga_ros::Amcl, likelihood field) localises against that
+    # grid, seeded from the last fused pose, and its XY + full covariance
+    # becomes a PoseTranslationPrior on the node. XY only: heading stays
+    # with the gyro (2026-07-22 yaw-flip incident). Replaces the
+    # scan-to-single-keyframe ICP for the Float case. OFF until the field
+    # A/B (Float while driving, gap at re-Fix) validates it.
+    use_lidar_map_anchor: false
+    lidar_map_resolution_m: 0.10
+    lidar_map_half_extent_m: 40.0         # grid spans ±40 m around the datum
+    lidar_map_insert_period_s: 0.5        # insert a scan into the grid at most every 0.5 s
+    lidar_map_rebuild_period_s: 5.0       # push the grid to the filter at most every 5 s
+    lidar_anchor_engage_age_s: 0.3        # engage once RTK-Fixed is older than this
+    lidar_anchor_max_beams: 60            # AMCL-class beam subsampling
+    lidar_anchor_min_particles: 300
+    lidar_anchor_max_particles: 1500
+    lidar_anchor_update_min_d: 0.05       # m of motion before the filter updates
+    lidar_anchor_update_min_a: 0.05       # rad
+    lidar_anchor_seed_sigma_xy_m: 0.10    # floor on the seed spread at engage
+    lidar_anchor_seed_sigma_theta_rad: 0.10
+    lidar_anchor_z_hit: 0.7
+    lidar_anchor_z_rand: 0.3              # tolerance to returns absent from the map (grass, people)
+    lidar_anchor_sigma_hit_m: 0.15
+    lidar_anchor_max_laser_distance_m: 12.0
+    lidar_anchor_odom_alpha_rot: 0.05
+    lidar_anchor_odom_alpha_trans: 0.05
+    lidar_anchor_sigma_floor_m: 0.05      # floor on the factor's per-axis sigma (half a cell)
+
     use_keyframe_map: true
     # Capture gates (build the map):
     kf_capture_sigma_max_m: 0.04    # only capture when the fix is <4 cm (RTK precision is ~2 cm)

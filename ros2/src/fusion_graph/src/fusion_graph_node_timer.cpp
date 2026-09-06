@@ -181,6 +181,10 @@ void FusionGraphNode::OnTimer()
   // over-constrain. Reuses scan_matcher_ + the same ICP guard rails as
   // scan-between. abs_meas = kf.abs_pose.compose(delta.inverse()) — composition
   // direction locked by test_factors.cpp::ScanToKeyframeComposition.
+  if (use_lidar_map_anchor_)
+  {
+    LidarMapAnchorStep(curr_scan, curr_valid);
+  }
   if (use_keyframe_map_ && scan_matcher_ && curr_valid)
   {
     const bool rtk_recent = RtkFixedReceiptIsFresh(kf_engage_age_s_);

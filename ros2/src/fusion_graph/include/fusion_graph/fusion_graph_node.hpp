@@ -15,6 +15,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -26,6 +27,7 @@
 #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -37,13 +39,18 @@
 
 #include "fusion_graph/dr_slip_veto.hpp"
 #include "fusion_graph/graph_manager.hpp"
+#include "fusion_graph/lidar_map_anchor_gate.hpp"
+#include "fusion_graph/lidar_occupancy_mapper.hpp"
 #include "fusion_graph/pose_extrapolator.hpp"
 #include "fusion_graph/scan_matcher.hpp"
 #include <Eigen/Core>
+#include <beluga_ros/amcl.hpp>
+#include <beluga_ros/occupancy_grid.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <mowgli_interfaces/gnss_observation_freshness.hpp>
 #include <mowgli_interfaces/msg/high_level_status.hpp>
 #include <mowgli_interfaces/msg/status.hpp>
+#include <sophus/se2.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
@@ -386,6 +393,42 @@ private:
   bool latest_scan_valid_ = false;
   std::vector<Eigen::Vector2d> prev_node_scan_;  // scan stored at last node
   bool prev_node_scan_valid_ = false;
+
+  // ── LiDAR map anchor (Beluga) ─────────────────────────────────────
+  // Under fresh RTK-Fixed the scans build a georeferenced occupancy grid at
+  // the trusted fused pose; once Fixed goes stale the particle filter
+  // localises against that grid and its XY + covariance becomes a unary
+  // factor. Replaces the scan-to-single-keyframe ICP for the Float case.
+  bool use_lidar_map_anchor_ = false;
+  double lidar_map_resolution_m_ = 0.10;
+  double lidar_map_half_extent_m_ = 40.0;
+  double lidar_map_insert_period_s_ = 0.5;
+  double lidar_map_rebuild_period_s_ = 5.0;
+  double lidar_anchor_engage_age_s_ = 0.3;
+  int lidar_anchor_max_beams_ = 60;
+  int lidar_anchor_min_particles_ = 300;
+  int lidar_anchor_max_particles_ = 1500;
+  double lidar_anchor_update_min_d_ = 0.05;
+  double lidar_anchor_update_min_a_ = 0.05;
+  double lidar_anchor_seed_sigma_xy_m_ = 0.10;
+  double lidar_anchor_seed_sigma_theta_rad_ = 0.10;
+  double lidar_anchor_z_hit_ = 0.7;
+  double lidar_anchor_z_rand_ = 0.3;
+  double lidar_anchor_sigma_hit_m_ = 0.15;
+  double lidar_anchor_max_laser_distance_m_ = 12.0;
+  double lidar_anchor_odom_alpha_rot_ = 0.05;
+  double lidar_anchor_odom_alpha_trans_ = 0.05;
+  std::optional<LidarOccupancyMapper> lidar_mapper_;
+  std::optional<LidarMapAnchorGate> lidar_anchor_gate_;
+  std::unique_ptr<beluga_ros::Amcl> lidar_anchor_filter_;
+  double lidar_map_last_rebuild_s_ = -1.0e9;
+  std::size_t lidar_map_scans_at_rebuild_ = 0;
+  std::size_t lidar_map_occupied_cells_ = 0;
+  uint64_t lidar_anchor_updates_ = 0;  // filter updates that produced an estimate
+  uint64_t lidar_anchor_seeds_ = 0;  // MAPPING→ANCHORING seeds
+  uint64_t lidar_anchor_skipped_ = 0;  // filter ran but declined (no motion)
+  void LidarMapAnchorStep(const std::vector<Eigen::Vector2d>& curr_scan, bool curr_valid);
+  void RebuildLidarAnchorMap();
 
   // Frame names.
   std::string map_frame_ = "map";
