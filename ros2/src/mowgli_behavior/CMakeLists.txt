@@ -112,6 +112,20 @@ if(BUILD_TESTING)
   set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
+  ament_add_gtest(test_blade_direction
+    test/test_blade_direction.cpp
+    src/utility_nodes.cpp
+    src/coverage_nodes.cpp
+    src/coverage_persistence.cpp
+    src/status_nodes.cpp
+    src/status_snapshot.cpp
+  )
+  target_include_directories(test_blade_direction PUBLIC include)
+  ament_target_dependencies(test_blade_direction
+    rclcpp rclcpp_action behaviortree_cpp mowgli_interfaces nav2_msgs nav_msgs
+    geometry_msgs std_msgs std_srvs tf2 tf2_ros tf2_geometry_msgs rcl_interfaces action_msgs
+  )
+
   # ---- test_recording_nodes ----
   ament_add_gtest(test_recording_nodes
     test/test_recording_nodes.cpp

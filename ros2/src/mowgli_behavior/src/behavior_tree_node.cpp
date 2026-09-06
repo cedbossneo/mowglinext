@@ -29,6 +29,7 @@
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mowgli_behavior/action_nodes.hpp"
 #include "mowgli_behavior/battery_filter.hpp"
+#include "mowgli_behavior/blade_control_service.hpp"
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
@@ -583,6 +584,7 @@ private:
 
   void setupServiceServer()
   {
+    blade_control_service_ = std::make_unique<BladeControlService>(*this, context_);
     using HighLevelControl = mowgli_interfaces::srv::HighLevelControl;
 
     high_level_control_srv_ = create_service<HighLevelControl>(
@@ -935,6 +937,7 @@ private:
     // stomped the launch-injected values — the configured speeds never applied.
     context_->transit_speed = declare_parameter<double>("transit_speed", 0.2);
     context_->mowing_speed = declare_parameter<double>("mowing_speed", 0.2);
+    context_->blade_auto_reverse = declare_parameter<bool>("blade_auto_reverse", false);
 
     // Rain delay: parameter in minutes, blackboard in seconds.
     const double rain_delay_minutes = declare_parameter<double>("rain_delay_minutes", 30.0);
@@ -1113,6 +1116,7 @@ private:
   // ------------------------------------------------------------------
 
   std::shared_ptr<BTContext> context_;
+  std::unique_ptr<BladeControlService> blade_control_service_;
 
   // GPS-fixed debounce state (see the /gps callback): rides through the F9P
   // per-epoch Fixed↔Float flicker so gps_is_fixed — and thus SetNavMode — does
