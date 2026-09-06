@@ -32,6 +32,7 @@
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
+#include "mowgli_behavior/coverage_orientation_service.hpp"
 #include "mowgli_behavior/coverage_persistence.hpp"
 #include "mowgli_behavior/escape_nodes.hpp"
 #include "mowgli_behavior/localization_health.hpp"
@@ -98,8 +99,8 @@ public:
       // auto-re-enters) when it was a mow command (COMMAND_START == 1) AND a
       // resumable snapshot genuinely exists. Any other restored command, or an
       // empty snapshot, falls back to IDLE so the robot never starts moving on
-      // boot without real resume state. A terminal EndSession deletes the file,
-      // so this branch is only reached for a truly interrupted session.
+      // boot without real resume state. EndSession clears commands/cursors;
+      // a phase-only cross-hatch snapshot therefore stays IDLE too.
       constexpr uint8_t kCommandStart = 1;  // HighLevelControl::Request::COMMAND_START
       const bool has_resumable_state =
           !context_->area_resume_pose_index.empty() || !context_->completed_areas.empty();
@@ -583,6 +584,7 @@ private:
 
   void setupServiceServer()
   {
+    coverage_orientation_service_ = std::make_unique<CoverageOrientationService>(*this, context_);
     using HighLevelControl = mowgli_interfaces::srv::HighLevelControl;
 
     high_level_control_srv_ = create_service<HighLevelControl>(
@@ -1009,6 +1011,7 @@ private:
     // the plan_coverage action goal (mow_angle_deg).
     const double mow_angle_deg = declare_parameter<double>("mow_angle_deg", kMowAngleAutoDeg);
     blackboard_->set("mow_angle_deg", mow_angle_deg);
+    context_->mow_cross_hatch = declare_parameter<bool>("mow_cross_hatch", false);
 
     // Area-recording boundary resolution — operator-tunable in
     // mowgli_robot.yaml, previously HARDCODED in main_tree.xml (a 0.2 m
@@ -1113,6 +1116,7 @@ private:
   // ------------------------------------------------------------------
 
   std::shared_ptr<BTContext> context_;
+  std::unique_ptr<CoverageOrientationService> coverage_orientation_service_;
 
   // GPS-fixed debounce state (see the /gps callback): rides through the F9P
   // per-epoch Fixed↔Float flicker so gps_is_fixed — and thus SetNavMode — does

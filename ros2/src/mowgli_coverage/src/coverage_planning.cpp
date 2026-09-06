@@ -119,7 +119,10 @@ double longestEdgeAngle(const f2c::types::Cell& cell)
       best_angle = std::atan2(dy, dx);
     }
   }
-  return best_angle;
+  // atan2 returns [-pi, pi]. Negative is the AUTO sentinel below, so an
+  // unnormalised edge heading silently re-entered the exhaustive search.
+  best_angle = std::fmod(best_angle, M_PI);
+  return best_angle < 0.0 ? best_angle + M_PI : best_angle;
 }
 
 // Append the densified [a, b) segment to `out` (b exclusive: the next segment
@@ -760,7 +763,8 @@ BoustrophedonPlan planBoustrophedon(const f2c::types::Cell& field_cell,
                                     double mow_angle_rad,
                                     double min_swath_length,
                                     int ring_direction,
-                                    double min_turn_radius)
+                                    double min_turn_radius,
+                                    bool perpendicular)
 {
   BoustrophedonPlan plan;
   // Polygon area the planned-coverage fraction is taken over (the operator's
@@ -1199,6 +1203,19 @@ BoustrophedonPlan planBoustrophedon(const f2c::types::Cell& field_cell,
     if (swaths.size() == 0)
     {
       continue;
+    }
+    if (perpendicular)
+    {
+      // Resolve AUTO normally, then rotate that result. Optimising again at
+      // the rotated heading would just undo the cross-hatch selection.
+      const auto line = swaths[0].getPath();
+      const auto a = line.getGeometry(0);
+      const auto b = line.getGeometry(line.size() - 1);
+      double angle =
+          std::fmod(std::atan2(b.getY() - a.getY(), b.getX() - a.getX()) + M_PI / 2.0, M_PI);
+      if (angle < 0.0)
+        angle += M_PI;
+      swaths = bf.generateSwaths(angle, op_width, cell);
     }
     f2c::types::Swaths ordered = order.genSortedSwaths(swaths);
     for (std::size_t s = 0; s < ordered.size(); ++s)

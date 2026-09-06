@@ -183,7 +183,8 @@ BoustrophedonPlan planBoustrophedon(const f2c::types::Cell& field_cell,
                                     double mow_angle_rad,
                                     double min_swath_length,
                                     int ring_direction = 0,
-                                    double min_turn_radius = 0.15);
+                                    double min_turn_radius = 0.15,
+                                    bool perpendicular = false);
 
 // Per-plan accounting of how every segment-to-segment join was resolved by
 // buildConnector's radius-shrink search. Pure visibility — populating it
