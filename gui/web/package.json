@@ -30,7 +30,7 @@
     "i18next": "^25.5.2",
     "i18next-browser-languagedetector": "^8.2.0",
     "localforage": "^1.10.0",
-    "lucide-react": "^1.17.0",
+    "lucide-react": "^1.32.0",
     "mapbox-gl": "^3.20.0",
     "match-sorter": "^8.2.0",
     "msgpackr": "^1.11.2",
