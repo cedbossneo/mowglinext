@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -34,11 +35,15 @@ namespace
 constexpr const char* kHeader = "mowgli_coverage_resume v2";
 // The phase-only snapshot never carries a command or cursor, so it cannot
 // auto-start the mower. Older readers ignore these optional rows.
-void writeCrossHatch(std::ostream& out, const CrossHatch& state)
+void writeCrossHatch(std::ostream& out, const std::map<uint32_t, CrossHatch>& areas)
 {
-  out << "cross_hatch " << state.next_perpendicular << ' '
-      << (state.session_perpendicular ? static_cast<int>(*state.session_perpendicular) : -1) << ' '
-      << state.alternate_session << ' ' << state.used << '\n';
+  for (const auto& [index, state] : areas)
+  {
+    out << "cross_hatch_area " << index << ' ' << state.next_perpendicular << ' '
+        << (state.session_perpendicular ? static_cast<int>(*state.session_perpendicular) : -1)
+        << ' ' << state.alternate_session << ' ' << state.used << ' '
+        << (state.next_override ? static_cast<int>(*state.next_override) : -1) << '\n';
+  }
 }
 
 bool writeSnapshot(const BTContext& ctx, const std::string& contents)
@@ -159,17 +164,22 @@ bool loadCoverageResumeState(BTContext& ctx)
     {
       continue;
     }
-    if (tag == "cross_hatch")
+    if (tag == "cross_hatch_area")
     {
-      int next, active, alternate, used;
-      if (ls >> next >> active >> alternate >> used && (next == 0 || next == 1) && active >= -1 &&
-          active <= 1 && (alternate == 0 || alternate == 1) && (used == 0 || used == 1))
+      uint32_t index;
+      int next, active, alternate, used, override_next;
+      if (ls >> index >> next >> active >> alternate >> used >> override_next &&
+          (next == 0 || next == 1) && active >= -1 && active <= 1 &&
+          (alternate == 0 || alternate == 1) && (used == 0 || used == 1) && override_next >= -1 &&
+          override_next <= 1)
       {
-        ctx.cross_hatch.next_perpendicular = next != 0;
-        ctx.cross_hatch.session_perpendicular =
-            active < 0 ? std::nullopt : std::optional<bool>(active != 0);
-        ctx.cross_hatch.alternate_session = alternate != 0;
-        ctx.cross_hatch.used = used != 0;
+        auto& state = ctx.cross_hatch[index];
+        state.next_perpendicular = next != 0;
+        state.session_perpendicular = active < 0 ? std::nullopt : std::optional<bool>(active != 0);
+        state.alternate_session = alternate != 0;
+        state.used = used != 0;
+        state.next_override =
+            override_next < 0 ? std::nullopt : std::optional<bool>(override_next != 0);
       }
     }
     else if (tag == "current_command")
@@ -236,7 +246,7 @@ bool clearCoverageResumeState(const BTContext& ctx)
   {
     return true;
   }
-  if (ctx.cross_hatch.next_perpendicular || ctx.cross_hatch.session_perpendicular)
+  if (!ctx.cross_hatch.empty())
   {
     std::ostringstream out;
     out << kHeader << '\n';

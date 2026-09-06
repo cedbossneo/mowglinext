@@ -32,6 +32,7 @@
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/condition_nodes.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
+#include "mowgli_behavior/coverage_orientation_service.hpp"
 #include "mowgli_behavior/coverage_persistence.hpp"
 #include "mowgli_behavior/escape_nodes.hpp"
 #include "mowgli_behavior/localization_health.hpp"
@@ -583,6 +584,7 @@ private:
 
   void setupServiceServer()
   {
+    coverage_orientation_service_ = std::make_unique<CoverageOrientationService>(*this, context_);
     using HighLevelControl = mowgli_interfaces::srv::HighLevelControl;
 
     high_level_control_srv_ = create_service<HighLevelControl>(
@@ -1114,6 +1116,7 @@ private:
   // ------------------------------------------------------------------
 
   std::shared_ptr<BTContext> context_;
+  std::unique_ptr<CoverageOrientationService> coverage_orientation_service_;
 
   // GPS-fixed debounce state (see the /gps callback): rides through the F9P
   // per-epoch Fixed↔Float flicker so gps_is_fixed — and thus SetNavMode — does

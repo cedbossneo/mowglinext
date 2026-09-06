@@ -1,3 +1,4 @@
+import {mowingAreaIndex} from "../utils/mapAreaIndex.ts";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import {useApi} from "../hooks/useApi.ts";
 import {App} from "antd";
@@ -652,6 +653,13 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
     }, [dockDirty, setHasUnsavedChanges]);
 
     // Mower action callbacks shared between desktop and mobile toolbars
+    const startSelectedArea = (key: string) => {
+        const item = mowingAreas.find(item => item.key == key);
+        const index = mowingAreaIndex(map, item?.feat?.properties?.index);
+        if (index === undefined) return Promise.reject(new Error(t("crossHatch.areaUnavailable")));
+        return mowerAction("start_in_area", {area: index})();
+    };
+
     const mowerActions = useMemo(() => ({
         onStart: mowerAction("high_level_control", {Command: 1}),
         onHome: mowerAction("high_level_control", {Command: 2}),
@@ -1064,12 +1072,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                         onDownloadGeoJSON={handleDownloadGeoJSON}
                         onUploadGeoJSON={handleUploadGeoJSON}
                         onImportOpenMower={() => handleImportOpenMower(setImportPreview, setImportFileText)}
-                        onMowArea={(key) => {
-                            const item = mowingAreas.find(item => item.key == key)
-                            return mowerAction("start_in_area", {
-                                area: item?.feat?.properties?.index,
-                            })()
-                        }}
+                        onMowArea={startSelectedArea}
                         stateName={highLevelStatus.highLevelStatus.state_name}
                         highLevelState={highLevelStatus.highLevelStatus.state}
                         emergency={highLevelStatus.highLevelStatus.emergency}
@@ -1121,12 +1124,7 @@ export const MapPage: React.FC<{compact?: boolean}> = ({compact = false}) => {
                             onRestoreMap={handleRestoreMap}
                             onDownloadGeoJSON={handleDownloadGeoJSON}
                             onImportOpenMower={() => handleImportOpenMower(setImportPreview, setImportFileText)}
-                            onMowArea={(key) => {
-                                const item = mowingAreas.find(item => item.key == key)
-                                return mowerAction("start_in_area", {
-                                    area: item?.feat?.properties?.index,
-                                })()
-                            }}
+                            onMowArea={startSelectedArea}
                             {...mowerActions}
                         />
                     </div>

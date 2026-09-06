@@ -312,7 +312,7 @@ struct BTContext
   /// coverage_persistence.{hpp,cpp}.
   std::string coverage_resume_path;
   bool mow_cross_hatch{false};
-  CrossHatch cross_hatch;
+  std::map<uint32_t, CrossHatch> cross_hatch;
   /// True when GetNextUnmowedArea exhausted the area list because every area is
   /// genuinely DONE (not because of a transient service error / timeout / no
   /// areas defined). The coverage subtree reads this (IsCoverageComplete) to

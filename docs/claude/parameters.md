@@ -100,6 +100,7 @@ All 158 template keys. `L###` = line in `ros2/src/mowgli_bringup/config/mowgli_r
 | `undock_distance` (L432) | 1.5 | BT BackUp `full_system.launch.py:232`; dock-calib `:492` | Docking | launch |
 | `undock_speed` (L433) | 0.16 | BT BackUp `full_system.launch.py:231`; dock-calib `:493` | Docking | launch |
 | `mow_angle_deg` (L338) | -1.0 (auto) | BT `full_system.launch.py:250` → `PlanCoverage` goal | Mowing | launch |
+| `mow_cross_hatch` | false | BT → per-area persisted phase → `PlanCoverage.perpendicular` | Mowing | launch; next-area overrides use `coverage_orientation` service |
 
 ### LocalizationGuard (BT pause/resume on GNSS quality)
 

@@ -220,7 +220,8 @@ BT::NodeStatus EndSession::tick()
   // phase. This is a real session boundary, so
   // the next COMMAND_START must start fresh rather than resume a finished (or
   // aborted-and-docked) session from the persisted cursor.
-  ctx->cross_hatch.finish();
+  for (auto& [area, orientation] : ctx->cross_hatch)
+    orientation.finish();
   clearCoverageResumeState(*ctx);
   return BT::NodeStatus::SUCCESS;
 }

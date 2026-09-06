@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ThemeProvider } from "../../theme/ThemeContext.tsx";
+vi.mock("./CrossHatchSettings.tsx", () => ({CrossHatchSettings: () => null}));
 import { MowingSection } from "./MowingSection.tsx";
 
 // Regression guard for issue #429: num_headland_passes is a THREE-WAY sentinel

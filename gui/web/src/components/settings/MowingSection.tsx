@@ -3,6 +3,7 @@ import { Card, Col, Form, InputNumber, Row, Select, Space, Switch, Typography } 
 import { ScissorOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useThemeMode } from "../../theme/ThemeContext.tsx";
+import {CrossHatchSettings} from "./CrossHatchSettings.tsx";
 import { SettingFieldLabel } from "./SettingFieldLabel.tsx";
 
 const { Text, Paragraph } = Typography;
@@ -365,6 +366,7 @@ export const MowingSection: React.FC<Props> = ({
                         />
                     </Col>
                 </Row>
+                {values.mow_cross_hatch && <CrossHatchSettings angle={values.mow_angle_deg ?? MOW_ANGLE_AUTO}/>}
             </Card>
         </div>
     );

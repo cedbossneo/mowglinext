@@ -43,6 +43,7 @@
 #include "behaviortree_cpp/bt_factory.h"
 #include "mowgli_behavior/bt_context.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
+#include "mowgli_behavior/coverage_orientation_service.hpp"
 #include "mowgli_behavior/status_nodes.hpp"
 #include "mowgli_interfaces/srv/get_mowing_area.hpp"
 #include <gtest/gtest.h>
@@ -491,14 +492,77 @@ TEST_F(GetNextUnmowedAreaTest, CrossHatchPhaseReachesPlannerAndEndSessionAdvance
     ASSERT_FALSE(goals.empty());
     EXPECT_DOUBLE_EQ(goals.back().mow_angle_deg, angle);
     EXPECT_FALSE(goals.back().perpendicular);
-    ctx->cross_hatch.used = true;  // simulate coverage having started
+    ctx->cross_hatch[0].used = true;  // simulate coverage having started
     auto end = makeEndSessionTree();
     EXPECT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
     EXPECT_EQ(tickToCompletion(plan), BT::NodeStatus::FAILURE);
     EXPECT_TRUE(goals.back().perpendicular);
     EXPECT_EQ(tickToCompletion(plan), BT::NodeStatus::FAILURE);  // same-session replan
     EXPECT_TRUE(goals.back().perpendicular);
-    ctx->cross_hatch.used = true;
+    ctx->cross_hatch[0].used = true;
     EXPECT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
   }
+}
+
+TEST_F(GetNextUnmowedAreaTest, SelectedAreaOnlyAdvancesThatArea)
+{
+  ctx->mow_cross_hatch = true;
+  ctx->single_area_target = 2u;
+  ctx->cross_hatch[0].begin(true);  // planned but not mowed
+  ctx->cross_hatch[2].begin(true);
+  ctx->cross_hatch[2].used = true;
+  auto end = makeEndSessionTree();
+  ASSERT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
+  EXPECT_FALSE(ctx->single_area_target.has_value());
+  EXPECT_FALSE(ctx->cross_hatch[0].begin(true));
+  EXPECT_TRUE(ctx->cross_hatch[2].begin(true));
+  // A subsequent all-areas run advances each used area independently.
+  ctx->cross_hatch[0].used = true;
+  ctx->cross_hatch[2].used = true;
+  ASSERT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
+  EXPECT_TRUE(ctx->cross_hatch[0].next());
+  EXPECT_FALSE(ctx->cross_hatch[2].next());
+}
+
+TEST_F(GetNextUnmowedAreaTest, OrientationServiceEditsNextWithoutChangingActivePlan)
+{
+  using Service = mowgli_interfaces::srv::CoverageOrientation;
+  ctx->coverage_resume_path = ::testing::TempDir() + "/cross_hatch_service.txt";
+  ctx->mow_cross_hatch = true;
+  ctx->node->declare_parameter<double>("mow_angle_deg", 25.0);
+  ctx->cross_hatch[2].begin(true);
+  ctx->cross_hatch[2].used = true;
+  mowgli_behavior::CoverageOrientationService service(*ctx->node, ctx);
+  executor.add_node(ctx->node);
+  auto client =
+      server_node->create_client<Service>("/test_get_next_unmowed_area/coverage_orientation");
+  ASSERT_TRUE(client->wait_for_service(std::chrono::seconds(5)));
+  auto req = std::make_shared<Service::Request>();
+  req->area_index = 2;
+  auto call = [&]()
+  {
+    auto future = client->async_send_request(req);
+    EXPECT_EQ(executor.spin_until_future_complete(future, std::chrono::seconds(5)),
+              rclcpp::FutureReturnCode::SUCCESS);
+    return future.get();
+  };
+  auto status = call();
+  ASSERT_TRUE(status->success);
+  EXPECT_TRUE(status->next_perpendicular);
+  EXPECT_DOUBLE_EQ(status->base_angle_deg, 25.0);
+  req->set_next = true;
+  req->perpendicular = false;
+  status = call();
+  ASSERT_TRUE(status->success);
+  EXPECT_TRUE(status->current_active);
+  EXPECT_FALSE(status->current_perpendicular);
+  EXPECT_FALSE(status->next_perpendicular);
+  auto end = makeEndSessionTree();
+  end.tickOnce();
+  EXPECT_FALSE(ctx->cross_hatch[2].begin(true));
+  // Persistence failure must not pretend the requested change was saved.
+  ctx->coverage_resume_path.clear();
+  req->perpendicular = true;
+  EXPECT_FALSE(call()->success);
+  EXPECT_FALSE(ctx->cross_hatch[2].next());
 }

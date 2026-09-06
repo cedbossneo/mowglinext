@@ -253,8 +253,8 @@ TEST(CoveragePersistence, CrossHatchSurvivesRestartAndAdvancesOnlyAtSessionEnd)
   std::remove(path.c_str());
   BTContext ctx;
   ctx.coverage_resume_path = path;
-  EXPECT_FALSE(ctx.cross_hatch.begin(true));
-  ctx.cross_hatch.used = true;
+  EXPECT_FALSE(ctx.cross_hatch[0].begin(true));
+  ctx.cross_hatch[0].used = true;
   ctx.current_command = 1;
   ctx.area_resume_pose_index[0] = 42;
   ASSERT_TRUE(saveCoverageResumeState(ctx));
@@ -262,7 +262,7 @@ TEST(CoveragePersistence, CrossHatchSurvivesRestartAndAdvancesOnlyAtSessionEnd)
   BTContext restored;
   restored.coverage_resume_path = path;
   ASSERT_TRUE(loadCoverageResumeState(restored));
-  EXPECT_FALSE(restored.cross_hatch.begin(true));
+  EXPECT_FALSE(restored.cross_hatch[0].begin(true));
   EXPECT_EQ(restored.area_resume_pose_index[0], 42u);
   // A clear-progress request preserves the current phase without a cursor.
   ASSERT_TRUE(clearCoverageResumeState(restored));
@@ -271,24 +271,25 @@ TEST(CoveragePersistence, CrossHatchSurvivesRestartAndAdvancesOnlyAtSessionEnd)
   ASSERT_TRUE(loadCoverageResumeState(cleared));
   EXPECT_EQ(cleared.current_command, 0u);
   EXPECT_TRUE(cleared.area_resume_pose_index.empty());
-  EXPECT_FALSE(cleared.cross_hatch.begin(true));
+  EXPECT_FALSE(cleared.cross_hatch[0].begin(true));
 
-  restored.cross_hatch.finish();
+  restored.cross_hatch[0].finish();
   ASSERT_TRUE(clearCoverageResumeState(restored));
   BTContext next;
   next.coverage_resume_path = path;
   ASSERT_TRUE(loadCoverageResumeState(next));
   EXPECT_EQ(next.current_command, 0u);  // phase history must never auto-start
   EXPECT_TRUE(next.area_resume_pose_index.empty());
-  EXPECT_TRUE(next.cross_hatch.begin(true));
-  EXPECT_TRUE(next.cross_hatch.begin(false));  // configuration change cannot rotate a live session
-  next.cross_hatch.used = true;
-  next.cross_hatch.finish();
+  EXPECT_TRUE(next.cross_hatch[0].begin(true));
+  EXPECT_TRUE(
+      next.cross_hatch[0].begin(false));  // configuration change cannot rotate a live session
+  next.cross_hatch[0].used = true;
+  next.cross_hatch[0].finish();
   ASSERT_TRUE(clearCoverageResumeState(next));
   BTContext third;
   third.coverage_resume_path = path;
   loadCoverageResumeState(third);
-  EXPECT_FALSE(third.cross_hatch.begin(true));
+  EXPECT_FALSE(third.cross_hatch[0].begin(true));
   std::remove(path.c_str());
 }
 
@@ -312,11 +313,34 @@ TEST(CoveragePersistence, MalformedCrossHatchStateIsIgnored)
   const auto path = tempPath("cross_hatch_corrupt.txt");
   {
     std::ofstream out(path);
-    out << "mowgli_coverage_resume v2\ncross_hatch 1 5 1 1\n";
+    out << "mowgli_coverage_resume v2\ncross_hatch_area 0 1 5 1 1 -1\n";
   }
   BTContext ctx;
   ctx.coverage_resume_path = path;
   ASSERT_TRUE(loadCoverageResumeState(ctx));
-  EXPECT_FALSE(ctx.cross_hatch.begin(true));
+  EXPECT_FALSE(ctx.cross_hatch[0].begin(true));
   std::remove(path.c_str());
+}
+
+TEST(CoveragePersistence, AreasAndNextOverridesRoundTripIndependently)
+{
+  BTContext ctx;
+  ctx.coverage_resume_path = tempPath("cross_hatch_areas.txt");
+  ctx.cross_hatch[0].begin(true);
+  ctx.cross_hatch[0].used = true;
+  ctx.cross_hatch[2].next_override = true;
+  ASSERT_TRUE(saveCoverageResumeState(ctx));
+  BTContext restored;
+  restored.coverage_resume_path = ctx.coverage_resume_path;
+  ASSERT_TRUE(loadCoverageResumeState(restored));
+  EXPECT_FALSE(restored.cross_hatch[0].begin(true));
+  EXPECT_TRUE(restored.cross_hatch[0].next());
+  EXPECT_TRUE(restored.cross_hatch[2].begin(true));
+  EXPECT_FALSE(restored.cross_hatch[1].begin(true));
+  // An override during an active run affects NEXT, not CURRENT, and survives end.
+  restored.cross_hatch[0].next_override = false;
+  EXPECT_FALSE(restored.cross_hatch[0].begin(true));
+  restored.cross_hatch[0].finish();
+  EXPECT_FALSE(restored.cross_hatch[0].begin(true));
+  std::remove(ctx.coverage_resume_path.c_str());
 }
