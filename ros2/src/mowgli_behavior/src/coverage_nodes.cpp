@@ -1127,6 +1127,11 @@ void FollowStrip::setBladeEnabled(bool enabled)
 
   auto req = std::make_shared<mowgli_interfaces::srv::MowerControl::Request>();
   req->mow_enabled = enabled ? 1u : 0u;
+  req->mow_direction = ctx->blade_direction.forCommand(enabled, ctx->blade_auto_reverse);
+  RCLCPP_INFO(ctx->node->get_logger(),
+              "FollowStrip: requested mow_enabled=%s, direction=%u",
+              enabled ? "true" : "false",
+              req->mow_direction);
   blade_client_->async_send_request(req);
 }
 

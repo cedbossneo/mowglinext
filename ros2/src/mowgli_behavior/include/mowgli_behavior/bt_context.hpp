@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/point32.hpp"
+#include "mowgli_behavior/blade_direction.hpp"
 #include "mowgli_behavior/start_blocked_escape.hpp"
 #include "mowgli_interfaces/msg/emergency.hpp"
 #include "mowgli_interfaces/msg/high_level_status.hpp"
@@ -111,6 +112,11 @@ struct BTContext
   /// COMMAND_S1=3, COMMAND_S2=4, COMMAND_MANUAL_MOW=7,
   /// COMMAND_RESET_EMERGENCY=254, …).
   uint8_t current_command{0};
+
+  /// Startup configuration and tick-thread-owned session direction. Never reset
+  /// on a temporary blade OFF or ClearCommand; EndSession is the boundary.
+  bool blade_auto_reverse{false};
+  BladeDirection blade_direction;
 
   /// Set by the ~/start_in_area service to REQUEST mowing a single, specific
   /// area instead of iterating all areas. This is the one-shot *request*:
