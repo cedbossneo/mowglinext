@@ -61,7 +61,7 @@ jobs:
       # in lockstep so a version-specific failure cannot pass here and break the
       # image build (or vice versa).
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
