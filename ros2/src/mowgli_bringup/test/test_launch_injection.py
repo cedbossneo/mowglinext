@@ -305,5 +305,34 @@ def test_navigation_launch_injects_dock_use_charger_detection() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "key,default,configured",
+    [("max_charge_voltage", 29.4, 28.5), ("max_charge_current", 1.2, 1.8)],
+)
+def test_mowgli_launch_passes_charge_limits_to_hardware_bridge(
+    key: str, default: float, configured: float
+) -> None:
+    """Saved charge ceilings must reach the bridge; missing keys keep defaults."""
+    call = _find_node_call(_parse("mowgli.launch.py"), "hardware_bridge_node")
+    assert call is not None
+    parameters = next(kw.value for kw in call.keywords if kw.arg == "parameters")
+    values = [
+        value
+        for entry in parameters.elts
+        if isinstance(entry, ast.Dict)
+        for name, value in zip(entry.keys, entry.values)
+        if isinstance(name, ast.Constant) and name.value == key
+    ]
+    assert len(values) == 1, f"hardware_bridge must receive {key} exactly once"
+    expression = compile(ast.Expression(values[0]), "mowgli.launch.py", "eval")
+    for robot_params, expected in [({}, default), ({key: configured}, configured)]:
+        actual = eval(
+            expression, {"__builtins__": {}, "float": float},
+            {"robot_params": robot_params},
+        )
+        assert isinstance(actual, float)
+        assert actual == pytest.approx(expected)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
