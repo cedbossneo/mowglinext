@@ -1585,6 +1585,8 @@
     "selectExactlyOneToSplit": "Select exactly 1 area to split",
     "selectionMustBePolygon": "Selection must be a polygon area",
     "drawLineAcrossArea": "Draw a line across the area to split it",
+    "deletePointsConfirmTitle": "Delete selected points?",
+    "deletePointsConfirmBody": "The selected points will be removed. If too few points remain to form a polygon, that shape will also be removed. You can undo before saving.",
     "deleteAreaConfirmTitle": "Delete this area?",
     "deleteAreaConfirmBody": "The selected area (and its obstacles) will be removed. You can undo before saving.",
     "deleteAreaConfirmOk": "Delete",

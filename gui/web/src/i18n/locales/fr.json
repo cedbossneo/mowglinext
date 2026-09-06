@@ -1581,6 +1581,8 @@
     "selectExactlyOneToSplit": "Sélectionnez exactement 1 zone à découper",
     "selectionMustBePolygon": "La sélection doit être une zone polygonale",
     "drawLineAcrossArea": "Tracez une ligne à travers la zone pour la découper",
+    "deletePointsConfirmTitle": "Supprimer les points sélectionnés ?",
+    "deletePointsConfirmBody": "Les points sélectionnés seront supprimés. Si le nombre de points restants ne suffit plus pour former un polygone, cette forme sera également supprimée. Vous pouvez annuler avant de sauvegarder.",
     "deleteAreaConfirmTitle": "Supprimer cette zone ?",
     "deleteAreaConfirmBody": "La zone sélectionnée (et ses obstacles) sera supprimée. Vous pouvez annuler avant d’enregistrer.",
     "deleteAreaConfirmOk": "Supprimer",
