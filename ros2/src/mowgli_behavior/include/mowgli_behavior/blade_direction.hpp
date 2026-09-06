@@ -48,14 +48,43 @@ public:
     return direction_.value_or(0u);
   }
 
+  struct Command
+  {
+    uint8_t enabled;
+    uint8_t direction;
+  };
+
+  Command forMowerCommand(bool enabled, bool auto_reverse)
+  {
+    // Record even an OFF whose hardware service is temporarily unavailable.
+    requested_enabled_ = enabled;
+    const bool effective = enabled && !operator_inhibit_;
+    return {static_cast<uint8_t>(effective), forCommand(effective, auto_reverse)};
+  }
+
+  Command forOperatorCommand(bool enabled, uint8_t direction)
+  {
+    // An explicit menu choice wins over the random selection until EndSession.
+    // It cannot override a tree OFF (idle, transit, docking or safety guard).
+    operator_inhibit_ = !enabled;
+    if (enabled)
+      direction_ = direction;
+    return {static_cast<uint8_t>(requested_enabled_ && !operator_inhibit_),
+            direction_.value_or(0u)};
+  }
+
   void endSession()
   {
     direction_.reset();
+    operator_inhibit_ = false;
+    requested_enabled_ = false;
   }
 
 private:
   std::mt19937 random_;
   std::optional<uint8_t> direction_;
+  bool requested_enabled_{false};
+  bool operator_inhibit_{false};
 };
 
 }  // namespace mowgli_behavior

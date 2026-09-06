@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "behaviortree_cpp/bt_factory.h"
+#include "mowgli_behavior/blade_control_service.hpp"
 #include "mowgli_behavior/blade_direction.hpp"
 #include "mowgli_behavior/coverage_nodes.hpp"
 #include "mowgli_behavior/status_nodes.hpp"
@@ -84,6 +85,19 @@ protected:
   rclcpp_action::Server<FollowStrip::Nav2FollowPath>::SharedPtr follow_server;
   rclcpp::executors::SingleThreadedExecutor executor;
   std::vector<MowerControl::Request> requests;
+  std::unique_ptr<BladeControlService> operator_service;
+  rclcpp::Client<MowerControl>::SharedPtr operator_client;
+
+  void operatorCommand(uint8_t enabled, uint8_t direction, bool accepted = true)
+  {
+    auto req = std::make_shared<MowerControl::Request>();
+    req->mow_enabled = enabled;
+    req->mow_direction = direction;
+    auto future = operator_client->async_send_request(req);
+    ASSERT_EQ(executor.spin_until_future_complete(future, std::chrono::seconds(5)),
+              rclcpp::FutureReturnCode::SUCCESS);
+    EXPECT_EQ(future.get()->success, accepted);
+  }
 
   static void SetUpTestSuite()
   {
@@ -132,6 +146,9 @@ protected:
           return rclcpp_action::CancelResponse::ACCEPT;
         },
         [](const auto&) {});
+    operator_service = std::make_unique<BladeControlService>(*ctx->node, ctx);
+    operator_client = server->create_client<MowerControl>("/blade_direction_test/mower_control");
+    ASSERT_TRUE(operator_client->wait_for_service(std::chrono::seconds(5)));
     executor.add_node(server);
     executor.add_node(ctx->node);
     auto probe = ctx->node->create_client<MowerControl>("/hardware_bridge/mower_control");
@@ -193,4 +210,52 @@ TEST_F(BladeDirectionNodes, OnlyEndSessionClearsSelection)
   EXPECT_EQ(ctx->blade_direction.forCommand(false, true), 0u);
   // Reset itself never sends a blade command or enables the motor.
   EXPECT_TRUE(requests.empty());
+}
+
+TEST_F(BladeDirectionNodes, MenuOverridesRandomChoiceAndOffSurvivesTicksAndCoverage)
+{
+  auto manual = tree("<SetMowerEnabled enabled=\"true\"/>");
+  EXPECT_EQ(manual.tickOnce(), BT::NodeStatus::SUCCESS);
+  expectRequest(1u, 1u);
+  operatorCommand(1u, 0u);
+  expectRequest(1u, 0u);
+  EXPECT_EQ(manual.tickOnce(), BT::NodeStatus::SUCCESS);
+  expectRequest(1u, 0u);
+  operatorCommand(0u, 0u);
+  expectRequest(0u, 0u);
+  EXPECT_EQ(manual.tickOnce(), BT::NodeStatus::SUCCESS);
+  expectRequest(0u, 0u);
+
+  ctx->current_strip_path.poses.resize(2);
+  ctx->current_strip_path.poses[1].pose.position.x = 1.0;
+  auto coverage = tree("<FollowStrip/>");
+  EXPECT_EQ(coverage.tickOnce(), BT::NodeStatus::RUNNING);
+  expectRequest(0u, 0u);
+  operatorCommand(1u, 1u);
+  expectRequest(1u, 1u);
+  coverage.haltTree();
+  expectRequest(0u, 1u);
+  // An explicit ON cannot override the tree's transit/guard OFF.
+  operatorCommand(1u, 0u);
+  expectRequest(0u, 0u);
+  EXPECT_EQ(coverage.tickOnce(), BT::NodeStatus::RUNNING);
+  expectRequest(1u, 0u);
+  coverage.haltTree();
+  expectRequest(0u, 0u);
+}
+
+TEST_F(BladeDirectionNodes, MenuCannotStartIdleBladeAndEndSessionClearsOverride)
+{
+  operatorCommand(1u, 1u);
+  expectRequest(0u, 1u);
+  operatorCommand(1u, 2u, false);
+  EXPECT_TRUE(requests.empty());
+  operatorCommand(0u, 0u);
+  expectRequest(0u, 1u);
+  auto end = tree("<EndSession/>");
+  EXPECT_EQ(end.tickOnce(), BT::NodeStatus::SUCCESS);
+  ctx->blade_auto_reverse = false;
+  auto manual = tree("<SetMowerEnabled enabled=\"true\"/>");
+  EXPECT_EQ(manual.tickOnce(), BT::NodeStatus::SUCCESS);
+  expectRequest(1u, 0u);
 }
